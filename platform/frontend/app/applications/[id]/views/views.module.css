@@ -28,3 +28,5 @@
 .createRow{display:flex;gap:8px}
 .createRow input{flex:1;border:1px solid var(--lil-line);border-radius:9px;padding:9px 12px;font:inherit;font-size:13px}
 .createRow button{border:0;border-radius:9px;background:var(--lil-accent);color:#fff;padding:9px 18px;font-size:12.5px;cursor:pointer}
+.tagAuto{font-size:10.5px;color:var(--lil-muted);border:1px solid var(--lil-line);border-radius:999px;padding:3px 9px}
+.tagCustom{font-size:10.5px;color:var(--lil-accent-strong);border:1px solid var(--lil-accent-line);background:var(--lil-ok-soft);border-radius:999px;padding:3px 9px}

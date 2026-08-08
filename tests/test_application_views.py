@@ -138,6 +138,9 @@ def test_view_crud_and_use_channel_projection(tmp_path: Path) -> None:
         ).json()
         assert "nodes" in inventory and "default_hidden_nodes" in inventory
         assert inventory["views"] == []
+        # 编辑器拿到自动界面全量配置（至少有管理界面），存储值覆盖在其上展示
+        assert inventory["auto_views"][0]["storage_id"] == "default"
+        assert inventory["auto_views"][0]["name"] == "管理界面"
 
         # 建两套视图
         put = client.put(

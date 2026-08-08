@@ -4511,10 +4511,25 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             }
             for node in (workflow.get("nodes") or [])
         ]
+        # 自动界面全量配置（含各自的隐藏集合），编辑器把存储值覆盖在上面展示。
+        auto_views = []
+        for tab in auto_view_tabs(snapshot):
+            storage_id = tab["view_id"] or "default"
+            synthesized = synthesize_auto_view(snapshot, tab["view_id"]) or {
+                "hidden_nodes": default_hidden_nodes(snapshot)
+            }
+            auto_views.append({
+                "storage_id": storage_id,
+                "view_id": tab["view_id"],
+                "name": tab["name"],
+                "layout": tab["layout"],
+                "hidden_nodes": synthesized["hidden_nodes"],
+            })
         return {
             "application_id": application_id,
             "nodes": nodes,
             "default_hidden_nodes": default_hidden_nodes(snapshot),
+            "auto_views": auto_views,
             "views": await services.workflow_store.list_views(application_id),
         }
 

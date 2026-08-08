@@ -1,7 +1,8 @@
 'use client'
 
 /**
- * 界面方案：标注哪些环节对使用者可见，同一条工作流生成不同的使用界面。
+ * 界面方案：每个工作流自动生成一组界面（管理/极简/对话），这里查看、改名、
+ * 调整环节显隐，或从现有界面派生新界面。编辑即落库覆盖同名自动界面；
  * 隐藏在服务端投影层执行——被隐藏环节的输出不会离开后端。
  */
 
@@ -12,7 +13,15 @@ import styles from './views.module.css'
 
 type NodeItem = { id: string; title: string; type: string }
 
-type ViewItem = {
+type AutoView = {
+  storage_id: string
+  view_id: string
+  name: string
+  layout: 'form' | 'chat'
+  hidden_nodes: string[]
+}
+
+type StoredView = {
   view_id: string
   name: string
   layout: 'auto' | 'form' | 'chat'
@@ -22,7 +31,18 @@ type ViewItem = {
 type ViewsPayload = {
   nodes: NodeItem[]
   default_hidden_nodes: string[]
-  views: ViewItem[]
+  auto_views: AutoView[]
+  views: StoredView[]
+}
+
+type ViewCard = {
+  storageId: string
+  linkViewId: string
+  name: string
+  layout: 'auto' | 'form' | 'chat'
+  hiddenNodes: string[]
+  isAuto: boolean
+  customized: boolean
 }
 
 const LAYOUT_LABEL: Record<string, string> = {
@@ -36,8 +56,7 @@ const TERMINAL_TYPES = new Set(['start', 'end', 'answer', 'schedule_trigger'])
 export default function ViewsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
   const [payload, setPayload] = useState<ViewsPayload | null>(null)
-  const [drafts, setDrafts] = useState<Record<string, ViewItem>>({})
-  const [newId, setNewId] = useState('')
+  const [cards, setCards] = useState<ViewCard[]>([])
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
 
@@ -45,7 +64,33 @@ export default function ViewsPage({ params }: { params: Promise<{ id: string }> 
     try {
       const next = await api<ViewsPayload>(`/api/v1/applications/${id}/views`)
       setPayload(next)
-      setDrafts(Object.fromEntries(next.views.map(view => [view.view_id, { ...view }])))
+      const storedById = new Map(next.views.map(view => [view.view_id, view]))
+      const autoIds = new Set(next.auto_views.map(view => view.storage_id))
+      const merged: ViewCard[] = next.auto_views.map(auto => {
+        const stored = storedById.get(auto.storage_id)
+        return {
+          storageId: auto.storage_id,
+          linkViewId: auto.view_id,
+          name: stored?.name ?? auto.name,
+          layout: stored?.layout ?? auto.layout,
+          hiddenNodes: [...(stored?.hidden_nodes ?? auto.hidden_nodes)],
+          isAuto: true,
+          customized: Boolean(stored),
+        }
+      })
+      for (const stored of next.views) {
+        if (autoIds.has(stored.view_id)) continue
+        merged.push({
+          storageId: stored.view_id,
+          linkViewId: stored.view_id,
+          name: stored.name,
+          layout: stored.layout,
+          hiddenNodes: [...stored.hidden_nodes],
+          isAuto: false,
+          customized: true,
+        })
+      }
+      setCards(merged)
       setError('')
     } catch (err) {
       setError(String((err as Error).message || err))
@@ -54,144 +99,126 @@ export default function ViewsPage({ params }: { params: Promise<{ id: string }> 
 
   useEffect(() => { void refresh() }, [refresh])
 
-  // 可标注的环节：终端和触发环节不参与（它们是合同，永远可见/不可见由平台定）。
   const stageNodes = (payload?.nodes || []).filter(node => !TERMINAL_TYPES.has(node.type))
 
-  async function save(viewId: string) {
-    const draft = drafts[viewId]
-    if (!draft) return
+  function patchCard(storageId: string, patch: Partial<ViewCard>) {
+    setCards(current => current.map(card =>
+      card.storageId === storageId ? { ...card, ...patch } : card))
+  }
+
+  async function save(card: ViewCard) {
     setNotice('')
     try {
-      await api(`/api/v1/applications/${id}/views/${viewId}`, {
+      await api(`/api/v1/applications/${id}/views/${card.storageId}`, {
         method: 'PUT',
         body: JSON.stringify({
-          name: draft.name || viewId,
-          layout: draft.layout,
-          hidden_nodes: draft.hidden_nodes,
+          name: card.name || card.storageId,
+          layout: card.layout,
+          hidden_nodes: card.hiddenNodes,
         }),
       })
-      setNotice(`「${draft.name || viewId}」已保存`)
+      setNotice(`「${card.name}」已保存`)
       void refresh()
     } catch (err) {
       setError(String((err as Error).message || err))
     }
   }
 
-  async function remove(viewId: string) {
+  async function reset(card: ViewCard) {
     try {
-      await api(`/api/v1/applications/${id}/views/${viewId}`, { method: 'DELETE' })
-      setNotice('已删除')
+      await api(`/api/v1/applications/${id}/views/${card.storageId}`, { method: 'DELETE' })
+      setNotice(card.isAuto ? `「${card.name}」已恢复为自动生成` : '已删除')
       void refresh()
     } catch (err) {
       setError(String((err as Error).message || err))
     }
   }
 
-  async function openUsePage(viewId?: string) {
+  function derive(from: ViewCard) {
+    let index = 1
+    const taken = new Set(cards.map(card => card.storageId))
+    while (taken.has(`custom-${index}`)) index += 1
+    setCards(current => [...current, {
+      storageId: `custom-${index}`,
+      linkViewId: `custom-${index}`,
+      name: `${from.name}·副本`,
+      layout: from.layout,
+      hiddenNodes: [...from.hiddenNodes],
+      isAuto: false,
+      customized: false,
+    }])
+    setNotice('新界面已派生，调整后点「保存」生效。')
+  }
+
+  async function openUsePage(linkViewId: string) {
     try {
       const result = await api<{ code: string }>(`/api/v1/applications/${id}/access-code`)
-      const viewParam = viewId ? `&view=${viewId}` : ''
+      const viewParam = linkViewId ? `&view=${linkViewId}` : ''
       window.open(`/use/${id}?code=${result.code}${viewParam}`, '_blank')
     } catch (err) {
       setError(String((err as Error).message || err))
     }
   }
 
-  async function copyLink(viewId?: string) {
+  async function copyLink(linkViewId: string) {
     try {
       const result = await api<{ code: string }>(`/api/v1/applications/${id}/access-code`)
-      const viewParam = viewId ? `&view=${viewId}` : ''
+      const viewParam = linkViewId ? `&view=${linkViewId}` : ''
       const url = `${window.location.origin}/use/${id}?code=${result.code}${viewParam}`
-      // 剪贴板在非 HTTPS 或被浏览器拦截时会拒绝——失败不吃链接，展示出来手动复制。
       let copied = false
       try {
         await navigator.clipboard?.writeText(url)
         copied = true
-      } catch { /* 降级为手动复制 */ }
+      } catch { /* 剪贴板被浏览器拦截时降级为手动复制 */ }
       setNotice(copied ? `链接已复制：${url}` : `浏览器不让自动复制，请手动复制：${url}`)
     } catch (err) {
       setError(String((err as Error).message || err))
     }
   }
 
-  function create() {
-    const viewId = newId.trim().toLowerCase()
-    if (!viewId) return
-    setDrafts(current => ({
-      ...current,
-      [viewId]: { view_id: viewId, name: viewId, layout: 'auto', hidden_nodes: [...(payload?.default_hidden_nodes || [])] },
-    }))
-    setNewId('')
-  }
-
-  function toggleNode(viewId: string, nodeId: string) {
-    setDrafts(current => {
-      const draft = current[viewId]
-      if (!draft) return current
-      const hidden = new Set(draft.hidden_nodes)
-      if (hidden.has(nodeId)) hidden.delete(nodeId)
-      else hidden.add(nodeId)
-      return { ...current, [viewId]: { ...draft, hidden_nodes: [...hidden] } }
-    })
-  }
-
   return <main className={styles.shell}>
     <header className={styles.topbar}>
       <Link className={styles.back} href={`/applications/${id}/session`}>← 会话</Link>
       <strong>界面方案</strong>
-      <span className={styles.sub}>标注环节显隐，同一条工作流生成不同的使用界面</span>
+      <span className={styles.sub}>每个工作流自动生成一组界面；在这里改名、调整环节显隐，或派生新界面</span>
     </header>
 
     <div className={styles.body}>
       {(notice || error) && <div className={error ? styles.error : styles.notice}>{error || notice}</div>}
 
-      <section className={styles.card}>
-        <h2>零标注默认界面</h2>
-        <p className={styles.hint}>
-          不做任何配置，使用页也能自动长出来：数据整形类环节自动隐藏
-          {(() => {
-            const hiddenTitles = stageNodes
-              .filter(node => (payload?.default_hidden_nodes || []).includes(node.id))
-              .map(node => node.title)
-            return hiddenTitles.length ? `（${hiddenTitles.join('、')}）` : ''
-          })()}
-          ，业务环节的输出作为"过程"可展开审查；有回答环节的工作流自动变成对话界面。
-        </p>
-        <div className={styles.actions}>
-          <button onClick={() => void openUsePage()} type="button">打开使用页</button>
-          <button className={styles.ghost} onClick={() => void copyLink()} type="button">复制链接</button>
-        </div>
-      </section>
-
-      {Object.values(drafts).map(draft => <section className={styles.card} key={draft.view_id}>
+      {cards.map(card => <section className={styles.card} key={card.storageId}>
         <div className={styles.viewHead}>
           <input
             className={styles.nameInput}
-            onChange={event => setDrafts(current => ({
-              ...current,
-              [draft.view_id]: { ...draft, name: event.target.value },
-            }))}
-            value={draft.name}
+            onChange={event => patchCard(card.storageId, { name: event.target.value })}
+            value={card.name}
           />
-          <code>{draft.view_id}</code>
+          {card.isAuto && !card.customized && <span className={styles.tagAuto}>自动生成</span>}
+          {card.isAuto && card.customized && <span className={styles.tagCustom}>已自定义</span>}
+          {!card.isAuto && <span className={styles.tagCustom}>自建界面</span>}
         </div>
         <label className={styles.layoutRow}>
           界面形态
           <select
-            onChange={event => setDrafts(current => ({
-              ...current,
-              [draft.view_id]: { ...draft, layout: event.target.value as ViewItem['layout'] },
-            }))}
-            value={draft.layout}
+            onChange={event => patchCard(card.storageId, { layout: event.target.value as ViewCard['layout'] })}
+            value={card.layout}
           >
             {Object.entries(LAYOUT_LABEL).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
           </select>
         </label>
         <div className={styles.nodeList}>
           {stageNodes.map(node => {
-            const visible = !draft.hidden_nodes.includes(node.id)
+            const visible = !card.hiddenNodes.includes(node.id)
             return <label className={visible ? styles.nodeOn : styles.nodeOff} key={node.id}>
-              <input checked={visible} onChange={() => toggleNode(draft.view_id, node.id)} type="checkbox" />
+              <input
+                checked={visible}
+                onChange={() => patchCard(card.storageId, {
+                  hiddenNodes: visible
+                    ? [...card.hiddenNodes, node.id]
+                    : card.hiddenNodes.filter(item => item !== node.id),
+                })}
+                type="checkbox"
+              />
               <b>{node.title}</b>
               <small>{visible ? '使用者可见' : '对使用者隐藏'}</small>
             </label>
@@ -199,26 +226,20 @@ export default function ViewsPage({ params }: { params: Promise<{ id: string }> 
           {stageNodes.length === 0 && <p className={styles.hint}>这条工作流没有可标注的中间环节。</p>}
         </div>
         <div className={styles.actions}>
-          <button onClick={() => void save(draft.view_id)} type="button">保存</button>
-          <button className={styles.ghost} onClick={() => void openUsePage(draft.view_id)} type="button">打开</button>
-          <button className={styles.ghost} onClick={() => void copyLink(draft.view_id)} type="button">复制链接</button>
-          <button className={styles.danger} onClick={() => void remove(draft.view_id)} type="button">删除</button>
+          <button onClick={() => void save(card)} type="button">保存</button>
+          <button className={styles.ghost} onClick={() => void openUsePage(card.linkViewId)} type="button">打开</button>
+          <button className={styles.ghost} onClick={() => void copyLink(card.linkViewId)} type="button">复制链接</button>
+          <button className={styles.ghost} onClick={() => derive(card)} type="button">派生新界面</button>
+          {card.customized && <button className={styles.danger} onClick={() => void reset(card)} type="button">
+            {card.isAuto ? '恢复自动' : '删除'}
+          </button>}
         </div>
       </section>)}
 
-      <section className={styles.card}>
-        <h2>新建界面方案</h2>
-        <div className={styles.createRow}>
-          <input
-            onChange={event => setNewId(event.target.value)}
-            onKeyDown={event => { if (event.key === 'Enter') create() }}
-            placeholder="标识，如 operator、manager（小写字母数字）"
-            value={newId}
-          />
-          <button onClick={create} type="button">新建</button>
-        </div>
-        <p className={styles.hint}>常见做法：给一线操作员一个只看结论的极简版，给主管一个能展开中间环节的审查版。</p>
-      </section>
+      <p className={styles.hint}>
+        「管理 / 极简 / 对话」界面是平台按工作流结构自动生成的；改名或调整显隐后即成为你的定制版，
+        随时可以恢复自动。想要介于两者之间的界面（比如主管只看关键判断环节），从最接近的界面「派生」再调。
+      </p>
     </div>
   </main>
 }
