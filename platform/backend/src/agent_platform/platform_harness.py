@@ -889,7 +889,9 @@ class PlatformHarness:
         if not path:
             return
         raise PlatformHarnessViolation(
-            f"secret policy blocked {surface}: forbidden secret field at {path}"
+            f"secret policy blocked {surface}: forbidden secret field at {path}. "
+            "裸凭证不能写进工作流配置：请让平台方把凭证存入密钥库（密钥值包含完整前缀，"
+            "如 'Bearer xxx'），然后在这里用 {\"$secret\": \"密钥名\"} 引用它。"
         )
 
     def _find_secret_field(self, value: Any, path: str = "$") -> str:

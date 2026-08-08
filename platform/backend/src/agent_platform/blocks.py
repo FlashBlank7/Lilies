@@ -2421,7 +2421,41 @@ def build_block_registry() -> BlockRegistry:
         (_definition("template_transform", "Template Transform", "Render a template from variables.", "transform", TemplateConfig, inputs=[("input", ValueType.any)], outputs=[("text", ValueType.string)]), TemplateConfig),
         (_definition("variable_assigner", "Variable Assigner", "Create named values; $formula does business arithmetic in one readable line — the audit-safe alternative to LLM math.", "transform", VariableAssignerConfig, inputs=[("input", ValueType.any)], outputs=[("output", ValueType.object)], manual=_computed_assignment_manual()), VariableAssignerConfig),
         (_definition("variable_aggregator", "Variable Aggregator", "Join branch values.", "transform", VariableAggregatorConfig, inputs=[("input", ValueType.any)], outputs=[("output", ValueType.any)]), VariableAggregatorConfig),
-        (_definition("http_request", "HTTP Request", "Call an external HTTP endpoint.", "integration", HTTPConfig, inputs=[("input", ValueType.any)], outputs=[("output", ValueType.object)], retry=True, error_branch=True), HTTPConfig),
+        (_definition("http_request", "HTTP Request", "Call an external HTTP endpoint.", "integration", HTTPConfig, inputs=[("input", ValueType.any)], outputs=[("output", ValueType.object)], retry=True, error_branch=True, manual={
+            "summary": (
+                "Call an external HTTP endpoint. Auth credentials MUST be platform secret "
+                "references — the secret policy blocks any literal token in headers/query/body."
+            ),
+            "when_to_use": [
+                "Use HTTP Request to integrate customer systems (ERP/CRM/data APIs) documented by the owner.",
+                "Use one node per endpoint; paginated APIs need a loop (iteration) that walks every page until total_pages.",
+            ],
+            "examples": [{
+                "description": "Bearer-auth GET with a platform secret reference (never paste the raw token)",
+                "connection": "start -> http_request -> ...",
+                "config": {
+                    "method": "GET",
+                    "url": "https://erp.example.com/api/data",
+                    "headers": {"Authorization": {"$secret": "ERP_TOKEN"}},
+                    "query": {"date": {"$ref": {"node_id": "start", "path": ["date"]}}},
+                    "timeout_seconds": 30,
+                },
+            }],
+            "anti_patterns": [
+                "Writing a literal 'Bearer xxx' token into headers — the run fails with a secret-policy violation.",
+                "Fetching only page 1 of a paginated API and assuming it is complete.",
+            ],
+            "common_errors": [
+                "secret policy blocked http:...: forbidden secret field — store the credential in the platform "
+                "secret store (value should be the FULL header value, e.g. 'Bearer xxx') and reference it as "
+                "{\"Authorization\": {\"$secret\": \"SECRET_NAME\"}}. The owner's IT usually tells you the secret name.",
+                "Write endpoints of business systems often demand an idempotency header; read the owner's API doc.",
+            ],
+            "claude_architecture_mapping": "Tool call against a customer-documented HTTP API.",
+            "composability_constraints": [
+                "Secret references resolve at runtime only; drafts and transcripts never contain the raw credential.",
+            ],
+        }), HTTPConfig),
         (
             _definition(
                 "durable_event_timer",
