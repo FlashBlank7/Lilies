@@ -87,6 +87,7 @@ class ProtectedDraftProvider(ModelProvider):
     def __init__(self) -> None:
         self.calls = 0
         self.system_prompts: list[str] = []
+        self.last_user_texts: list[str] = []
         self.efforts: list[str] = []
         self.output_budgets: list[int] = []
 
@@ -150,6 +151,11 @@ class ProtectedDraftProvider(ModelProvider):
         operation = operations[min(self.calls, len(operations) - 1)]
         self.calls += 1
         self.system_prompts.append(system)
+        self.last_user_texts.append("".join(
+            getattr(block, "text", "") or ""
+            for block in messages[-1].content
+            if getattr(block, "type", "") == "text"
+        ))
         self.efforts.append(effort)
         self.output_budgets.append(max_output_tokens)
         name, value = operation
@@ -502,7 +508,10 @@ def test_builder_preserves_valid_draft_and_completes_verified_task_ledger(tmp_pa
         )
         assert any(event["type"] == "build.progress.completed" for event in events)
         assert any(event["type"] == "build.published" for event in events)
-        assert "Current delivery budget: turn 1/36" in provider.system_prompts[0]
+        # 缓存纪律：system 全常量，每轮遥测在末尾 user 消息里（前缀稳定才有缓存命中）
+        assert "Current delivery budget" not in provider.system_prompts[0]
+        assert provider.system_prompts[0] == provider.system_prompts[-1]
+        assert "Current delivery budget: turn 1/36" in provider.last_user_texts[0]
         assert set(provider.efforts) == {"high"}
         assert set(provider.output_budgets) == {8_192}
 

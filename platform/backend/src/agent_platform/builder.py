@@ -874,13 +874,18 @@ class WorkflowBuilder:
                     max_elapsed_seconds,
                 ),
             )
+            # 缓存纪律：system 必须是全常量。每轮变化的预算遥测若拼进 system
+            # （序列最前缀），DeepSeek 前缀缓存整轮全灭——实测 133 次调用
+            # 0 命中、1066 万输入 token 全价购买的真凶。遥测改为临时附在
+            # 末尾 user 消息（不进持久历史），前缀字节级稳定。
+            call_messages = self._with_budget_note(messages, turn_budget_prompt)
             stream = self.provider.stream(
                 model=self.generator_model,
-                system=BUILDER_SYSTEM_PROMPT + self._planning_mode_prompt(state.planning_mode) + turn_budget_prompt + (
+                system=BUILDER_SYSTEM_PROMPT + self._planning_mode_prompt(state.planning_mode) + (
                     f"\nYou are teammate {teammate}. Complete your assigned bounded task and report evidence."
                     if teammate else "\nYou are the coordinator. Delegate when useful and synthesize results."
                 ),
-                messages=messages,
+                messages=call_messages,
                 tools=tools,
                 max_output_tokens=8_192,
                 thinking_enabled=True,
@@ -2071,6 +2076,20 @@ class WorkflowBuilder:
         if core:
             lines.append("[core tools] " + "; ".join(core))
         return "\n".join(lines)
+
+    @staticmethod
+    def _with_budget_note(messages: list[ChatMessage], note: str) -> list[ChatMessage]:
+        """把每轮变化的预算遥测临时并入末尾 user 消息（tool_result 块之后合法追加
+        text 块）；绝不写进持久历史，也绝不进 system——前者污染转录，后者杀缓存。"""
+
+        if not note:
+            return messages
+        block = ContentBlock(type="text", text=note)
+        last = messages[-1] if messages else None
+        if last is not None and last.role == "user":
+            merged = ChatMessage(role="user", content=[*last.content, block])
+            return [*messages[:-1], merged]
+        return [*messages, ChatMessage(role="user", content=[block])]
 
     @staticmethod
     def _trim_for_history(content: str) -> str:

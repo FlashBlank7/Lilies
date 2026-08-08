@@ -372,3 +372,29 @@ def test_history_cost_gates_trim_and_archive() -> None:
     assert len(kept) == TOOL_RESULT_KEEP_RECENT_TURNS
     # 最近的轮次原样保留
     assert f"payload-{total - 1}-" in str(kept[-1])
+
+
+def test_budget_note_stays_out_of_persistent_history_and_system() -> None:
+    """缓存纪律：预算遥测临时并入末尾 user 消息，持久历史与 system 都不许碰。"""
+
+    from agent_platform.builder import WorkflowBuilder
+    from agent_platform.models import ContentBlock
+
+    base = [
+        ChatMessage(role="user", content=[ContentBlock(type="text", text="需求")]),
+        ChatMessage(role="assistant", content=[ContentBlock(type="tool_use", id="t", name="draft_inspect", input={})]),
+        ChatMessage(role="user", content=[ContentBlock(type="tool_result", tool_use_id="t", content="{}")]),
+    ]
+    merged = WorkflowBuilder._with_budget_note(base, "budget: turn 3/40")
+    # 原列表未被修改（持久历史干净）
+    assert len(base[-1].content) == 1
+    # 遥测出现在临时副本末尾 user 消息的追加 text 块里
+    assert merged[-1].role == "user"
+    assert [b.type for b in merged[-1].content] == ["tool_result", "text"]
+    assert "turn 3/40" in merged[-1].content[-1].text
+    # 空遥测原样返回
+    assert WorkflowBuilder._with_budget_note(base, "") is base
+    # 末尾是 assistant 时另起一条 user 消息
+    tail_assistant = base[:2]
+    appended = WorkflowBuilder._with_budget_note(tail_assistant, "note")
+    assert appended[-1].role == "user" and appended[-1].content[0].text == "note"
