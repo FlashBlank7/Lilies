@@ -1,0 +1,80 @@
+{
+  "project_id": "erp-daily-kpi",
+  "name": "ERP 门店日报达标（盲测）",
+  "stamp": "20260808-062834",
+  "application_id": "694bac97-bdda-4ab8-a1ba-91728aaf259c",
+  "build_id": "d7d0e131-a706-41c6-a27b-3909397092c2",
+  "build_status": "needs_attention",
+  "build_error": "builder stopped before mandatory tests passed",
+  "node_types": [
+    "end",
+    "http_request",
+    "iteration",
+    "llm",
+    "loop",
+    "record_collection_normalize",
+    "start",
+    "template_transform"
+  ],
+  "architecture_missing": [],
+  "architecture_pass": true,
+  "cases": [
+    {
+      "name": "正常营业日（真值可核）",
+      "run_status": "failed",
+      "outputs": {},
+      "checks": [
+        {
+          "check": "输出包含字段 summary",
+          "passed": false,
+          "actual": "缺失（实际字段：[]）"
+        },
+        {
+          "check": "输出包含字段 stores",
+          "passed": false,
+          "actual": "缺失（实际字段：[]）"
+        },
+        {
+          "check": "summary 包含「华东一店」",
+          "passed": false,
+          "actual": "null"
+        },
+        {
+          "check": "summary 包含「华东二店」",
+          "passed": false,
+          "actual": "null"
+        },
+        {
+          "check": "summary 包含「西南一店」",
+          "passed": false,
+          "actual": "null"
+        }
+      ],
+      "passed": false
+    },
+    {
+      "name": "闭店日（诚实零值）",
+      "run_status": "failed",
+      "outputs": {},
+      "checks": [
+        {
+          "check": "输出包含字段 summary",
+          "passed": false,
+          "actual": "缺失（实际字段：[]）"
+        },
+        {
+          "check": "输出包含字段 stores",
+          "passed": false,
+          "actual": "缺失（实际字段：[]）"
+        },
+        {
+          "check": "summary 包含「没有销售数据」",
+          "passed": false,
+          "actual": "null"
+        }
+      ],
+      "passed": false
+    }
+  ],
+  "accepted": false
+}

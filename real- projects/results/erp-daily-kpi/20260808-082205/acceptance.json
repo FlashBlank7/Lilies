@@ -1,0 +1,121 @@
+{
+  "project_id": "erp-daily-kpi",
+  "name": "ERP 门店日报达标（盲测）",
+  "stamp": "20260808-082205",
+  "application_id": "694bac97-bdda-4ab8-a1ba-91728aaf259c",
+  "node_types": [
+    "end",
+    "http_request",
+    "iteration",
+    "llm",
+    "record_collection_normalize",
+    "start",
+    "template_transform",
+    "variable_aggregator"
+  ],
+  "architecture_missing": [],
+  "architecture_pass": true,
+  "cases": [
+    {
+      "name": "正常营业日（真值可核）",
+      "run_status": "succeeded",
+      "outputs": {
+        "summary": "2026-08-07销售达标汇总：当日所有门店销售额均为0，疑似节假日闭店或未产生销售数据，整体无达标门店，均已按未达标记录。具体如下：华东一店销售额0元，目标额5000元，未达标；华东二店销售额0元，目标额8000元，未达标；西南一店销售额0元，目标额12780元，未达标。",
+        "stores": [
+          {
+            "store": "华东一店",
+            "total_amount": 0,
+            "target_amount": 5000,
+            "reached": false
+          },
+          {
+            "store": "华东二店",
+            "total_amount": 0,
+            "target_amount": 8000,
+            "reached": false
+          },
+          {
+            "store": "西南一店",
+            "total_amount": 0,
+            "target_amount": 12780,
+            "reached": false
+          }
+        ]
+      },
+      "checks": [
+        {
+          "check": "输出包含字段 summary",
+          "passed": true,
+          "actual": "存在"
+        },
+        {
+          "check": "输出包含字段 stores",
+          "passed": true,
+          "actual": "存在"
+        },
+        {
+          "check": "summary 包含「华东一店」",
+          "passed": true,
+          "actual": "2026-08-07销售达标汇总：当日所有门店销售额均为0，疑似节假日闭店或未产生销售数据，整体无达标门店，均已按未达标记录。具体如下：华东一店销售额0元，目标额5000元，未达标；华东二店销售额0元，目标额8000元，未达标；西南一店销售额0元，目标额12780元，未达标。"
+        },
+        {
+          "check": "summary 包含「华东二店」",
+          "passed": true,
+          "actual": "2026-08-07销售达标汇总：当日所有门店销售额均为0，疑似节假日闭店或未产生销售数据，整体无达标门店，均已按未达标记录。具体如下：华东一店销售额0元，目标额5000元，未达标；华东二店销售额0元，目标额8000元，未达标；西南一店销售额0元，目标额12780元，未达标。"
+        },
+        {
+          "check": "summary 包含「西南一店」",
+          "passed": true,
+          "actual": "2026-08-07销售达标汇总：当日所有门店销售额均为0，疑似节假日闭店或未产生销售数据，整体无达标门店，均已按未达标记录。具体如下：华东一店销售额0元，目标额5000元，未达标；华东二店销售额0元，目标额8000元，未达标；西南一店销售额0元，目标额12780元，未达标。"
+        }
+      ],
+      "passed": true
+    },
+    {
+      "name": "闭店日（诚实零值）",
+      "run_status": "succeeded",
+      "outputs": {
+        "summary": "2026年8月1日各门店销售数据均为0，当日无实际销售记录，可能系节假日闭店所致。所有门店均未达标，具体如下：\n\n- 华东一店：销售额0元，目标额5000元，未达标；\n- 华东二店：销售额0元，目标额8000元，未达标；\n- 西南一店：销售额0元，目标额12780元，未达标。\n\n建议后续确认各店当日营业状态，并视情况调整排班或补售安排。",
+        "stores": [
+          {
+            "store": "华东一店",
+            "total_amount": 0,
+            "target_amount": 5000,
+            "reached": false
+          },
+          {
+            "store": "华东二店",
+            "total_amount": 0,
+            "target_amount": 8000,
+            "reached": false
+          },
+          {
+            "store": "西南一店",
+            "total_amount": 0,
+            "target_amount": 12780,
+            "reached": false
+          }
+        ]
+      },
+      "checks": [
+        {
+          "check": "输出包含字段 summary",
+          "passed": true,
+          "actual": "存在"
+        },
+        {
+          "check": "输出包含字段 stores",
+          "passed": true,
+          "actual": "存在"
+        },
+        {
+          "check": "summary 包含「没有销售数据」",
+          "passed": false,
+          "actual": "2026年8月1日各门店销售数据均为0，当日无实际销售记录，可能系节假日闭店所致。所有门店均未达标，具体如下：\n\n- 华东一店：销售额0元，目标额5000元，未达标；\n- 华东二店：销售额0元，目标额8000元，未达标；\n- 西南一店：销售额0元，目标额12780元，未达标。\n\n建议后续确认各店当日营业状态，并视情况调"
+        }
+      ],
+      "passed": false
+    }
+  ],
+  "accepted": false
+}

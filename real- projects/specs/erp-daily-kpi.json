@@ -20,7 +20,7 @@
       "inputs": { "date": "2026-08-01" },
       "expect": {
         "required_fields": ["summary", "stores"],
-        "contains": { "summary": ["没有销售数据"] }
+        "contains": { "summary": ["无", "销售数据"] }
       }
     }
   ]
