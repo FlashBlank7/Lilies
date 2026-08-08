@@ -171,6 +171,10 @@ def test_view_crud_and_use_channel_projection(tmp_path: Path) -> None:
         )
         assert definition.status_code == 200
         assert definition.json()["view"]["view_id"] == "operator"
+        # WaaS 标签栏：默认界面排第一，业主命名的界面跟在后面
+        tabs = definition.json()["views"]
+        assert tabs[0]["name"] == "默认界面"
+        assert {tab["view_id"] for tab in tabs} == {"", "operator", "manager"}
         # 查不到的视图回落（默认视图或自动推导），不 404
         fallback = client.get(
             f"/api/v1/use/{application_id}/definition?code={code1}&view=ghost"

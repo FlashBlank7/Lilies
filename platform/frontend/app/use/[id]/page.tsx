@@ -29,12 +29,15 @@ type ViewDefinition = {
   stage_nodes: ViewStageNode[]
 }
 
+type ViewTab = { view_id: string; name: string; layout: 'form' | 'chat' }
+
 type Definition = {
   application_name: string
   version: number | null
   snapshot: { requirement?: string; workflow: { nodes: Array<{ id: string; type: string; title?: string; config?: Record<string, unknown> }> } }
   acceptance?: { accepted: boolean; stamp?: string; passed_cases?: number; total_cases?: number }
   view?: ViewDefinition
+  views?: ViewTab[]
 }
 
 type RunStage = { node_id: string; title: string; type: string; outputs: Record<string, unknown> }
@@ -290,6 +293,25 @@ export default function UsePage({ params }: { params: Promise<{ id: string }> })
 
   const view = definition?.view
   const isChat = view?.layout === 'chat'
+  const viewTabs = definition?.views || []
+
+  // WaaS：界面在服务里切换。换标签 → 重取定义与当前运行（服务端按新界面重新投影）。
+  function switchView(nextViewId: string) {
+    if (nextViewId === viewId) return
+    setViewId(nextViewId)
+    const query = new URLSearchParams(window.location.search)
+    if (nextViewId) query.set('view', nextViewId)
+    else query.delete('view')
+    window.history.replaceState(null, '', `${window.location.pathname}?${query.toString()}`)
+  }
+
+  useEffect(() => {
+    if (run && !['queued', 'running'].includes(run.status)) {
+      void refreshRun(run.id).catch(() => undefined)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewId])
+
   const memoryField = useMemo(
     () => isChat ? inputs.find(input => MEMORY_FIELD_NAMES.has(input.name.toLowerCase())) : undefined,
     [inputs, isChat],
@@ -368,6 +390,16 @@ export default function UsePage({ params }: { params: Promise<{ id: string }> })
             ? <span className={styles.badge}>✓ 已通过独立验收（{definition.acceptance.passed_cases}/{definition.acceptance.total_cases} 用例 · {definition.acceptance.stamp}）</span>
             : <span className={`${styles.badge} ${styles.badgeMuted}`}>验收整改中</span>)}
         </div>
+        {viewTabs.length > 1 && <nav className={styles.viewTabs} aria-label="界面切换">
+          {viewTabs.map(tab => <button
+            className={(viewId || '') === tab.view_id || (!viewId && tab.view_id === 'default')
+              ? `${styles.viewTab} ${styles.viewTabActive}`
+              : styles.viewTab}
+            key={tab.view_id || 'auto'}
+            onClick={() => switchView(tab.view_id)}
+            type="button"
+          >{tab.name}</button>)}
+        </nav>}
       </header>
 
       {isChat && <section className={styles.card}>

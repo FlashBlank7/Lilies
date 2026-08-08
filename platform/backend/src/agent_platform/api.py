@@ -42,6 +42,7 @@ from .customer_runtime_projection import (
     project_runtime_run,
     project_view_definition,
     project_view_run,
+    resolve_view_layout,
 )
 from .connector_sdk import (
     ConnectorAdapterError,
@@ -4565,9 +4566,32 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             raise HTTPException(404, str(error)) from error
         application = await services.workflow_store.get_application(application_id)
         definition["application_name"] = application.get("name", "")
+        snapshot = definition.get("snapshot")
         definition["view"] = project_view_definition(
-            definition.get("snapshot"), await _resolve_use_view(application_id, view)
+            snapshot, await _resolve_use_view(application_id, view)
         )
+        # WaaS：一个服务一个入口，界面在服务里切换。标签栏 = 默认界面 + 业主命名的各界面。
+        stored_views = await services.workflow_store.list_views(application_id)
+        stored_default = next(
+            (item for item in stored_views if item["view_id"] == "default"), None
+        )
+        tabs = [{
+            "view_id": stored_default["view_id"] if stored_default else "",
+            "name": stored_default["name"] if stored_default else "默认界面",
+            "layout": resolve_view_layout(
+                snapshot, stored_default["layout"] if stored_default else "auto"
+            ),
+        }]
+        tabs.extend(
+            {
+                "view_id": item["view_id"],
+                "name": item["name"],
+                "layout": resolve_view_layout(snapshot, item["layout"]),
+            }
+            for item in stored_views
+            if item["view_id"] != "default"
+        )
+        definition["views"] = tabs
         report = acceptance_pm.load_report(services.settings.data_dir, application_id)
         if report:
             definition["acceptance"] = {

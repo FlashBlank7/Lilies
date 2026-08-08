@@ -66,3 +66,7 @@
 .stage{border:1px solid var(--lil-line-soft);border-radius:10px;padding:8px 12px;background:var(--lil-panel-soft)}
 .stage summary{cursor:pointer;font-size:12.5px;font-weight:600}
 .stage b{display:block;font-size:12px;margin-bottom:4px}
+.viewTabs{display:flex;gap:6px;margin-top:12px;flex-wrap:wrap}
+.viewTab{border:1px solid var(--lil-line);border-radius:999px;background:var(--lil-panel);color:var(--lil-muted);padding:6px 16px;font-size:12.5px;cursor:pointer}
+.viewTab:hover{border-color:var(--lil-accent-line)}
+.viewTabActive{border-color:var(--lil-accent);background:var(--lil-ok-soft);color:var(--lil-accent-strong);font-weight:600}

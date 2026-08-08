@@ -245,10 +245,16 @@ export default function Session({ params }: { params: Promise<{ id: string }> })
           className={styles.share}
           onClick={() => {
             void api<{ code: string; use_path: string }>(`/api/v1/applications/${id}/access-code`, { method: 'POST', body: '{}' })
-              .then(result => {
+              .then(async result => {
                 const url = `${window.location.origin}/use/${id}?code=${result.code}`
-                void navigator.clipboard?.writeText(url)
-                setNotice(`使用链接已复制（旧链接同时失效）：${url}`)
+                let copied = false
+                try {
+                  await navigator.clipboard?.writeText(url)
+                  copied = true
+                } catch { /* 剪贴板被浏览器拦截时降级为手动复制 */ }
+                setNotice(copied
+                  ? `使用链接已复制（旧链接同时失效）：${url}`
+                  : `浏览器不让自动复制，请手动复制（旧链接已失效）：${url}`)
               })
               .catch(error => setNotice(String(error)))
           }}

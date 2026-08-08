@@ -92,8 +92,13 @@ export default function ViewsPage({ params }: { params: Promise<{ id: string }> 
       const result = await api<{ code: string }>(`/api/v1/applications/${id}/access-code`)
       const viewParam = viewId ? `&view=${viewId}` : ''
       const url = `${window.location.origin}/use/${id}?code=${result.code}${viewParam}`
-      await navigator.clipboard?.writeText(url)
-      setNotice(`链接已复制：${url}`)
+      // 剪贴板在非 HTTPS 或被浏览器拦截时会拒绝——失败不吃链接，展示出来手动复制。
+      let copied = false
+      try {
+        await navigator.clipboard?.writeText(url)
+        copied = true
+      } catch { /* 降级为手动复制 */ }
+      setNotice(copied ? `链接已复制：${url}` : `浏览器不让自动复制，请手动复制：${url}`)
     } catch (err) {
       setError(String((err as Error).message || err))
     }
