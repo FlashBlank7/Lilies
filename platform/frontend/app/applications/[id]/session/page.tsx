@@ -254,6 +254,7 @@ export default function Session({ params }: { params: Promise<{ id: string }> })
           type="button"
         >分享给使用者</button>
         <Link href={`/applications/${id}/pm`}>请监理</Link>
+        <Link href={`/applications/${id}/views`}>界面方案</Link>
         <Link href={`/applications/${id}`}>画布编辑</Link>
         <Link href={`/runtime/${id}`}>试运行</Link>
       </nav>

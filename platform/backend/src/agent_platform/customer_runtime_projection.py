@@ -200,9 +200,11 @@ def _public_trigger_config(config: Any) -> dict[str, Any]:
     raw_inputs = settings.get("inputs")
     if not isinstance(raw_inputs, list):
         raw_inputs = source.get("inputs")
+    if not isinstance(raw_inputs, list):
+        raw_inputs = []
     inputs = [
         projected
-        for item in raw_inputs if isinstance(raw_inputs, list)
+        for item in raw_inputs
         if (projected := _public_input(item)) is not None
     ]
     return {"settings": {"inputs": inputs}}
@@ -350,3 +352,172 @@ def project_runtime_events(events: Sequence[Any]) -> list[dict[str, Any]]:
         for event in events
         if (projected := project_runtime_event(event)) is not None
     ]
+
+
+# ── 界面方案：同一工作流按标注生成不同使用界面 ──
+#
+# 原则：隐藏发生在这里（服务端投影），被隐藏环节的输出根本不出后端；
+# 终端节点（end/answer）是交付合同，永远可见。
+
+_TERMINAL_TYPES = frozenset({"end", "answer"})
+# 水管节点：默认视图里不值得给使用者看的结构性环节。
+_PLUMBING_TYPES = frozenset(
+    {
+        "start",
+        "end",
+        "answer",
+        "schedule_trigger",
+        "template_transform",
+        "variable_assigner",
+        "tool_call_router",
+        "stop_continue_controller",
+        "retry_error_classifier",
+    }
+)
+
+
+def _snapshot_nodes(snapshot: Any) -> list[dict[str, Any]]:
+    workflow = _mapping(_mapping(snapshot).get("workflow"))
+    raw = workflow.get("nodes")
+    return [_mapping(node) for node in raw] if isinstance(raw, list) else []
+
+
+def _ordered_node_ids(snapshot: Any) -> list[str]:
+    """按边走一遍拓扑序（尽力而为），让过程环节按执行顺序排列。"""
+
+    workflow = _mapping(_mapping(snapshot).get("workflow"))
+    nodes = _snapshot_nodes(snapshot)
+    ids = [str(node.get("id") or "") for node in nodes if node.get("id")]
+    raw_edges = workflow.get("edges")
+    edges = [_mapping(edge) for edge in raw_edges] if isinstance(raw_edges, list) else []
+    incoming: dict[str, int] = {node_id: 0 for node_id in ids}
+    adjacency: dict[str, list[str]] = {node_id: [] for node_id in ids}
+    for edge in edges:
+        source, target = str(edge.get("source") or ""), str(edge.get("target") or "")
+        if source in incoming and target in incoming:
+            adjacency[source].append(target)
+            incoming[target] += 1
+    queue = [node_id for node_id in ids if incoming[node_id] == 0]
+    ordered: list[str] = []
+    while queue:
+        current = queue.pop(0)
+        ordered.append(current)
+        for nxt in adjacency[current]:
+            incoming[nxt] -= 1
+            if incoming[nxt] == 0:
+                queue.append(nxt)
+    ordered.extend(node_id for node_id in ids if node_id not in ordered)
+    return ordered
+
+
+def default_hidden_nodes(snapshot: Any) -> list[str]:
+    """零标注路径：水管环节自动隐藏，业务环节自动可见。"""
+
+    return [
+        str(node.get("id"))
+        for node in _snapshot_nodes(snapshot)
+        if str(node.get("type") or "") in _PLUMBING_TYPES and node.get("id")
+    ]
+
+
+def resolve_view_layout(snapshot: Any, layout: str) -> str:
+    """auto → 有 answer 节点的工作流长成对话界面，其余是表单。"""
+
+    if layout in ("form", "chat"):
+        return layout
+    has_answer = any(
+        str(node.get("type") or "") == "answer" for node in _snapshot_nodes(snapshot)
+    )
+    return "chat" if has_answer else "form"
+
+
+def project_view_definition(
+    snapshot: Any, view: Mapping[str, Any] | None
+) -> dict[str, Any]:
+    """界面方案投影：可见过程环节清单 + 解析后的布局。"""
+
+    hidden = set(
+        str(item) for item in (view or {}).get("hidden_nodes", [])
+    ) if view else set(default_hidden_nodes(snapshot))
+    by_id = {str(node.get("id")): node for node in _snapshot_nodes(snapshot)}
+    stage_nodes = [
+        {
+            "id": node_id,
+            "title": str(by_id[node_id].get("title") or node_id),
+            "type": str(by_id[node_id].get("type") or ""),
+        }
+        for node_id in _ordered_node_ids(snapshot)
+        if node_id in by_id
+        and node_id not in hidden
+        and str(by_id[node_id].get("type") or "") not in _TERMINAL_TYPES
+        and str(by_id[node_id].get("type") or "") != "start"
+    ]
+    return {
+        "view_id": str((view or {}).get("view_id") or "default"),
+        "name": str((view or {}).get("name") or "默认界面"),
+        "layout": resolve_view_layout(snapshot, str((view or {}).get("layout") or "auto")),
+        "stage_nodes": stage_nodes,
+    }
+
+
+def project_view_run(run: Any, view: Mapping[str, Any] | None) -> dict[str, Any]:
+    """按界面方案过滤运行结果：终端输出 + 可见环节的过程输出，其余不出后端。
+
+    快照与逐节点账本都从 run.state 里取（兼容 dict 与 Pydantic 状态对象），
+    调用方不需要也不允许自己拆。
+    """
+
+    projected = project_runtime_run(run)
+    run_state = _mapping(_mapping(run).get("state"))
+    snapshot = run_state.get("snapshot")
+    view_definition = project_view_definition(snapshot, view)
+    visible_stage_ids = {node["id"] for node in view_definition["stage_nodes"]}
+    terminal_ids = {
+        str(node.get("id"))
+        for node in _snapshot_nodes(snapshot)
+        if str(node.get("type") or "") in _TERMINAL_TYPES
+    }
+    # 逐节点输出的真实来源是 state.outputs（运行时账本）；run.outputs 顶层
+    # 在多数存储路径下已被扁平成终端字段，只能当候补。
+    state_outputs = run_state.get("outputs")
+    raw_per_node = (
+        state_outputs if isinstance(state_outputs, Mapping) else _mapping(run).get("outputs")
+    )
+    candidate = project_public_value(raw_per_node) if isinstance(raw_per_node, Mapping) else {}
+    node_ids = {str(node.get("id")) for node in _snapshot_nodes(snapshot)}
+    per_node = (
+        candidate
+        if isinstance(candidate, dict)
+        and candidate
+        and all(
+            key in node_ids and isinstance(value, (dict, type(None)))
+            for key, value in candidate.items()
+        )
+        else {}
+    )
+    if per_node:
+        by_id = {str(node.get("id")): node for node in _snapshot_nodes(snapshot)}
+        result_outputs: dict[str, Any] = {}
+        stages: list[dict[str, Any]] = []
+        for node_id in _ordered_node_ids(snapshot):
+            value = per_node.get(node_id)
+            if value is None:
+                continue
+            if node_id in terminal_ids:
+                if isinstance(value, dict):
+                    result_outputs.update(value)
+            elif node_id in visible_stage_ids:
+                stages.append(
+                    {
+                        "node_id": node_id,
+                        "title": str(by_id.get(node_id, {}).get("title") or node_id),
+                        "type": str(by_id.get(node_id, {}).get("type") or ""),
+                        "outputs": value,
+                    }
+                )
+        projected["outputs"] = result_outputs
+        projected["stages"] = stages
+    else:
+        projected["stages"] = []
+    projected["view"] = view_definition
+    return projected

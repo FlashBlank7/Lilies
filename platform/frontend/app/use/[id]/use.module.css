@@ -48,3 +48,21 @@
 .codeCard input{border:1px solid var(--lil-line);border-radius:10px;padding:12px 14px;font:inherit;font-size:14px}
 .codeCard button{border:0;border-radius:10px;background:var(--lil-accent);color:#fff;padding:12px;font-size:14px;cursor:pointer}
 .foot{color:var(--lil-muted);font-size:11.5px;line-height:1.8;border-top:1px solid var(--lil-line);padding-top:12px}
+
+/* ── 对话布局与过程环节 ── */
+.chatStream{display:flex;flex-direction:column;gap:12px;max-height:480px;overflow-y:auto;padding:2px}
+.chatUser{display:flex;justify-content:flex-end}
+.chatAssistant{display:flex;justify-content:flex-start}
+.chatUser .chatBubble{background:var(--lil-accent);color:#fff;border-radius:14px 14px 4px 14px}
+.chatAssistant .chatBubble{background:var(--lil-panel-soft);border:1px solid var(--lil-line-soft);border-radius:14px 14px 14px 4px}
+.chatBubble{max-width:86%;padding:10px 14px;font-size:13.5px;line-height:1.7}
+.chatBubble p{margin:0;white-space:pre-wrap;word-break:break-word}
+.chatBubble details{margin-top:8px;font-size:12.5px}
+.chatBubble details summary{cursor:pointer;color:var(--lil-accent-strong);font-size:12px}
+.chatUser .chatBubble details summary{color:#fff}
+.chatFailed{border-color:#f6c6c2 !important;background:var(--lil-danger-soft) !important;color:var(--lil-danger)}
+.typing{color:var(--lil-muted);font-size:12.5px}
+.stages{display:flex;flex-direction:column;gap:8px;margin-top:14px;border-top:1px solid var(--lil-line-soft);padding-top:12px}
+.stage{border:1px solid var(--lil-line-soft);border-radius:10px;padding:8px 12px;background:var(--lil-panel-soft)}
+.stage summary{cursor:pointer;font-size:12.5px;font-weight:600}
+.stage b{display:block;font-size:12px;margin-bottom:4px}

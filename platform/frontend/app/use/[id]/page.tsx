@@ -20,18 +20,46 @@ type UseInput = {
   description?: string
 }
 
+type ViewStageNode = { id: string; title: string; type: string }
+
+type ViewDefinition = {
+  view_id: string
+  name: string
+  layout: 'form' | 'chat'
+  stage_nodes: ViewStageNode[]
+}
+
 type Definition = {
   application_name: string
   version: number | null
   snapshot: { requirement?: string; workflow: { nodes: Array<{ id: string; type: string; title?: string; config?: Record<string, unknown> }> } }
   acceptance?: { accepted: boolean; stamp?: string; passed_cases?: number; total_cases?: number }
+  view?: ViewDefinition
 }
+
+type RunStage = { node_id: string; title: string; type: string; outputs: Record<string, unknown> }
 
 type UseRun = {
   id: string
   status: string
   outputs: Record<string, unknown>
+  stages?: RunStage[]
   state: { waiting_node_id?: string | null; error?: string | null }
+}
+
+type ChatMessage = {
+  role: 'user' | 'assistant'
+  text: string
+  outputs?: Record<string, unknown>
+  stages?: RunStage[]
+  failed?: boolean
+}
+
+function primaryAnswerText(outputs: Record<string, unknown>): string {
+  for (const value of Object.values(outputs)) {
+    if (typeof value === 'string' && value.trim()) return value
+  }
+  return ''
 }
 
 type TableValue = { columns: string[]; rows: Array<Record<string, unknown>> }
@@ -57,13 +85,17 @@ export default function UsePage({ params }: { params: Promise<{ id: string }> })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [humanValues, setHumanValues] = useState<Record<string, unknown>>({})
+  const [viewId, setViewId] = useState('')
+  const [chat, setChat] = useState<ChatMessage[]>([])
+  const chatSeenRef = useRef<Set<string>>(new Set())
   const pollRef = useRef<number | null>(null)
 
   const storageKey = `lilies-use-${id}`
 
   const call = useCallback(async <T,>(path: string, init?: RequestInit): Promise<T> => {
     const joiner = path.includes('?') ? '&' : '?'
-    const response = await fetch(`/api/platform/api/v1/use/${id}${path}${joiner}code=${encodeURIComponent(code)}`, {
+    const viewParam = viewId ? `&view=${encodeURIComponent(viewId)}` : ''
+    const response = await fetch(`/api/platform/api/v1/use/${id}${path}${joiner}code=${encodeURIComponent(code)}${viewParam}`, {
       headers: { 'Content-Type': 'application/json' },
       ...init,
     })
@@ -74,12 +106,14 @@ export default function UsePage({ params }: { params: Promise<{ id: string }> })
     return response.json() as Promise<T>
   }, [id, code])
 
-  // 访问码：URL ?code= 优先，其次本地记忆
+  // 访问码：URL ?code= 优先，其次本地记忆；?view= 决定界面方案
   useEffect(() => {
-    const fromUrl = new URLSearchParams(window.location.search).get('code') || ''
+    const query = new URLSearchParams(window.location.search)
+    const fromUrl = query.get('code') || ''
     const remembered = window.localStorage.getItem(`${storageKey}-code`) || ''
     const chosen = fromUrl || remembered
     if (chosen) setCode(chosen)
+    setViewId(query.get('view') || '')
     const savedHistory = window.localStorage.getItem(`${storageKey}-history`)
     if (savedHistory) setHistory(JSON.parse(savedHistory) as HistoryEntry[])
   }, [storageKey])
@@ -183,6 +217,13 @@ export default function UsePage({ params }: { params: Promise<{ id: string }> })
         }
       }
       const started = await call<{ run_id: string }>('/runs', { method: 'POST', body: JSON.stringify({ inputs: payload }) })
+      if (definition?.view?.layout === 'chat') {
+        const spoken = Object.entries(payload)
+          .filter(([, value]) => typeof value === 'string' || typeof value === 'number')
+          .map(([key, value]) => inputs.length > 1 ? `${key}: ${String(value)}` : String(value))
+          .join('\n') || '（开始处理）'
+        setChat(current => [...current, { role: 'user', text: spoken }])
+      }
       const entry: HistoryEntry = { run_id: started.run_id, at: new Date().toLocaleString(), inputs: payload }
       const nextHistory = [entry, ...history].slice(0, 20)
       setHistory(nextHistory)
@@ -220,6 +261,31 @@ export default function UsePage({ params }: { params: Promise<{ id: string }> })
     for (const value of Object.values(outputs)) Object.assign(merged, value as Record<string, unknown>)
     return merged
   }, [run, terminalIds])
+
+  const view = definition?.view
+  const isChat = view?.layout === 'chat'
+
+  // 对话布局：运行到达终态时，把结果作为"她的回答"追加进消息流（每次运行只追加一次）。
+  useEffect(() => {
+    if (!isChat || !run) return
+    if (!['succeeded', 'failed'].includes(run.status)) return
+    if (chatSeenRef.current.has(run.id)) return
+    chatSeenRef.current.add(run.id)
+    if (run.status === 'succeeded') {
+      setChat(current => [...current, {
+        role: 'assistant',
+        text: primaryAnswerText(mergedOutputs) || '处理完成，详情见下方。',
+        outputs: mergedOutputs,
+        stages: run.stages || [],
+      }])
+    } else {
+      setChat(current => [...current, {
+        role: 'assistant',
+        text: `没有跑成：${run.state.error || '处理失败'}`,
+        failed: true,
+      }])
+    }
+  }, [isChat, run, mergedOutputs])
 
   function reuse(entry: HistoryEntry) {
     const nextValues: Record<string, unknown> = {}
@@ -274,8 +340,39 @@ export default function UsePage({ params }: { params: Promise<{ id: string }> })
         </div>
       </header>
 
+      {isChat && <section className={styles.card}>
+        <h2>对话</h2>
+        {chat.length === 0 && <p className={styles.hint}>在下方输入内容，点「发送」开始第一轮对话。</p>}
+        <div className={styles.chatStream}>
+          {chat.map((message, index) => <div
+            className={message.role === 'user' ? styles.chatUser : styles.chatAssistant}
+            key={index}
+          >
+            <div className={message.failed ? `${styles.chatBubble} ${styles.chatFailed}` : styles.chatBubble}>
+              <p>{message.text}</p>
+              {message.role === 'assistant' && !message.failed && message.outputs
+                && Object.keys(message.outputs).length > 0
+                && primaryAnswerText(message.outputs) !== message.text && <details>
+                <summary>查看完整结果</summary>
+                <OutputView outputs={message.outputs} />
+              </details>}
+              {message.role === 'assistant' && (message.stages?.length || 0) > 0 && <details>
+                <summary>查看过程（{message.stages!.length} 个环节）</summary>
+                {message.stages!.map(stage => <div className={styles.stage} key={stage.node_id}>
+                  <b>{stage.title}</b>
+                  <OutputView outputs={stage.outputs} />
+                </div>)}
+              </details>}
+            </div>
+          </div>)}
+          {(run?.status === 'queued' || run?.status === 'running') && <div className={styles.chatAssistant}>
+            <div className={styles.chatBubble}><span className={styles.typing}>正在处理…</span></div>
+          </div>}
+        </div>
+      </section>}
+
       <section className={styles.card}>
-        <h2>填写本次要处理的内容</h2>
+        <h2>{isChat ? '输入' : '填写本次要处理的内容'}</h2>
         {inputs.length === 0 && <p className={styles.hint}>这个流程不需要输入，直接开始即可。</p>}
         {inputs.map(input => {
           const label = input.label || input.name
@@ -382,14 +479,18 @@ export default function UsePage({ params }: { params: Promise<{ id: string }> })
         })}
         <div className={styles.runRow}>
           <button disabled={busy || run?.status === 'running' || run?.status === 'queued'} onClick={() => void start()} type="button">
-            {busy ? '正在开始…' : '开始处理'}
+            {busy ? '正在开始…' : isChat ? '发送' : '开始处理'}
           </button>
           {definition?.version == null && <span className={styles.runNote}>（这个流程还没发布正式版，暂时无法使用）</span>}
         </div>
         {error && <p className={styles.error} style={{ marginTop: 12 }}>{error}</p>}
       </section>
 
-      {run && <section className={styles.card}>
+      {run && !(isChat && (
+        run.status === 'failed'
+        || (run.status === 'succeeded' && artifacts.length === 0)
+        || run.status === 'queued' || run.status === 'running'
+      )) && <section className={styles.card}>
         <h2>结果</h2>
         {(run.status === 'queued' || run.status === 'running') && <div className={styles.status}><i />正在处理，请稍候…</div>}
         {run.status === 'paused' && <div>
@@ -417,8 +518,15 @@ export default function UsePage({ params }: { params: Promise<{ id: string }> })
           </div>
         </div>}
         {run.status === 'failed' && <p className={styles.error}>没有跑成：{run.state.error || '处理失败'}。可以调整内容后再试一次；反复失败请联系给你链接的人。</p>}
-        {run.status === 'succeeded' && <>
+        {run.status === 'succeeded' && !isChat && <>
           <OutputView outputs={mergedOutputs} />
+          {(run.stages?.length || 0) > 0 && <div className={styles.stages}>
+            <b style={{ fontSize: 13 }}>过程（供审查）</b>
+            {run.stages!.map(stage => <details className={styles.stage} key={stage.node_id}>
+              <summary>{stage.title}</summary>
+              <OutputView outputs={stage.outputs} />
+            </details>)}
+          </div>}
           {artifacts.length > 0 && <div className={styles.artifacts} style={{ marginTop: 14 }}>
             <b style={{ fontSize: 13 }}>生成的文件</b>
             {artifacts.map(item => <a
@@ -427,6 +535,13 @@ export default function UsePage({ params }: { params: Promise<{ id: string }> })
             >⬇ {item.name}（{Math.max(1, Math.round(item.size / 1024))} KB）</a>)}
           </div>}
         </>}
+        {run.status === 'succeeded' && isChat && artifacts.length > 0 && <div className={styles.artifacts}>
+          <b style={{ fontSize: 13 }}>生成的文件</b>
+          {artifacts.map(item => <a
+            href={`/api/platform/api/v1/use/${id}/runs/${run.id}/artifacts/${encodeURIComponent(item.name)}?code=${encodeURIComponent(code)}`}
+            key={item.name}
+          >⬇ {item.name}（{Math.max(1, Math.round(item.size / 1024))} KB）</a>)}
+        </div>}
       </section>}
 
       {history.length > 0 && <section className={styles.card}>

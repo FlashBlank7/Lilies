@@ -218,6 +218,16 @@ class WorkflowStorage:
                   created_at TEXT NOT NULL,
                   FOREIGN KEY(application_id) REFERENCES applications(id) ON DELETE CASCADE
                 );
+                CREATE TABLE IF NOT EXISTS application_views (
+                  application_id TEXT NOT NULL,
+                  view_id TEXT NOT NULL,
+                  name TEXT NOT NULL,
+                  layout TEXT NOT NULL,
+                  hidden_nodes_json TEXT NOT NULL,
+                  updated_at TEXT NOT NULL,
+                  PRIMARY KEY(application_id, view_id),
+                  FOREIGN KEY(application_id) REFERENCES applications(id) ON DELETE CASCADE
+                );
                 CREATE TABLE IF NOT EXISTS workflow_runs (
                   id TEXT PRIMARY KEY,
                   application_id TEXT NOT NULL,
@@ -1436,6 +1446,93 @@ class WorkflowStorage:
     async def verify_access_code(self, application_id: str, code: str) -> bool:
         stored = await self.get_access_code(application_id)
         return bool(stored) and bool(code) and stored == code
+
+    async def ensure_access_code(self, application_id: str) -> str:
+        """取现行访问码；没有才生成——复制多视图链接时不作废旧链接。"""
+
+        existing = await self.get_access_code(application_id)
+        if existing:
+            return existing
+        return await self.rotate_access_code(application_id)
+
+    # ── 界面方案：标注哪些环节对使用者可见，同一工作流生成不同界面 ──
+
+    async def list_views(self, application_id: str) -> list[dict[str, Any]]:
+        def _fetch() -> list[dict[str, Any]]:
+            with self.storage._connect() as conn:
+                rows = conn.execute(
+                    """SELECT view_id, name, layout, hidden_nodes_json, updated_at
+                       FROM application_views WHERE application_id=? ORDER BY view_id""",
+                    (application_id,),
+                ).fetchall()
+            return [
+                {
+                    "view_id": row["view_id"],
+                    "name": row["name"],
+                    "layout": row["layout"],
+                    "hidden_nodes": json.loads(row["hidden_nodes_json"]),
+                    "updated_at": row["updated_at"],
+                }
+                for row in rows
+            ]
+
+        return await asyncio.to_thread(_fetch)
+
+    async def get_view(self, application_id: str, view_id: str) -> dict[str, Any] | None:
+        views = await self.list_views(application_id)
+        return next((view for view in views if view["view_id"] == view_id), None)
+
+    async def upsert_view(
+        self,
+        application_id: str,
+        view_id: str,
+        *,
+        name: str,
+        layout: str,
+        hidden_nodes: list[str],
+    ) -> dict[str, Any]:
+        def _write() -> None:
+            with self.storage._connect() as conn:
+                row = conn.execute(
+                    "SELECT id FROM applications WHERE id=?", (application_id,)
+                ).fetchone()
+                if not row:
+                    raise KeyError(f"application not found: {application_id}")
+                conn.execute(
+                    """INSERT INTO application_views(
+                         application_id, view_id, name, layout, hidden_nodes_json, updated_at)
+                       VALUES(?,?,?,?,?,?)
+                       ON CONFLICT(application_id, view_id) DO UPDATE SET
+                         name=excluded.name, layout=excluded.layout,
+                         hidden_nodes_json=excluded.hidden_nodes_json,
+                         updated_at=excluded.updated_at""",
+                    (
+                        application_id,
+                        view_id,
+                        name,
+                        layout,
+                        json.dumps(hidden_nodes, ensure_ascii=False),
+                        utc_now(),
+                    ),
+                )
+
+        await asyncio.to_thread(_write)
+        return {
+            "view_id": view_id,
+            "name": name,
+            "layout": layout,
+            "hidden_nodes": hidden_nodes,
+        }
+
+    async def delete_view(self, application_id: str, view_id: str) -> None:
+        def _delete() -> None:
+            with self.storage._connect() as conn:
+                conn.execute(
+                    "DELETE FROM application_views WHERE application_id=? AND view_id=?",
+                    (application_id, view_id),
+                )
+
+        await asyncio.to_thread(_delete)
 
     async def fail_interrupted_runs(self) -> None:
         async with self._lock:

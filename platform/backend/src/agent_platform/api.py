@@ -35,10 +35,13 @@ from .capability_evidence import (
     VerificationStatus,
 )
 from .customer_runtime_projection import (
+    default_hidden_nodes,
     project_runtime_application,
     project_runtime_definition,
     project_runtime_events,
     project_runtime_run,
+    project_view_definition,
+    project_view_run,
 )
 from .connector_sdk import (
     ConnectorAdapterError,
@@ -424,6 +427,12 @@ def _summarize_run_ledger(
 
 class RunRepairRequest(BaseModel):
     note: str = Field(default="", max_length=4_000)
+
+
+class ViewUpsertRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    layout: str = Field(default="auto", pattern=r"^(auto|form|chat)$")
+    hidden_nodes: list[str] = Field(default_factory=list, max_length=200)
 
 
 class UseTableRequest(BaseModel):
@@ -4461,8 +4470,94 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             "use_path": f"/use/{application_id}?code={code}",
         }
 
+    @app.get(
+        "/api/v1/applications/{application_id}/access-code",
+        dependencies=[Depends(require_token)],
+    )
+    async def get_application_access_code(application_id: str) -> dict[str, Any]:
+        """取现行码（没有才生成）——复制多视图链接时不作废已发出的链接。"""
+
+        try:
+            code = await services.workflow_store.ensure_access_code(application_id)
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+        return {
+            "application_id": application_id,
+            "code": code,
+            "use_path": f"/use/{application_id}?code={code}",
+        }
+
+    # ── 界面方案：标注环节显隐，同一工作流生成不同使用界面 ──
+
+    @app.get(
+        "/api/v1/applications/{application_id}/views",
+        dependencies=[Depends(require_token)],
+    )
+    async def list_application_views(application_id: str) -> dict[str, Any]:
+        try:
+            definition = await customer_runtime_definition(application_id)
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+        snapshot = definition.get("snapshot") or {}
+        workflow = snapshot.get("workflow") or {}
+        nodes = [
+            {
+                "id": str(node.get("id") or ""),
+                "title": str(node.get("title") or node.get("id") or ""),
+                "type": str(node.get("type") or ""),
+            }
+            for node in (workflow.get("nodes") or [])
+        ]
+        return {
+            "application_id": application_id,
+            "nodes": nodes,
+            "default_hidden_nodes": default_hidden_nodes(snapshot),
+            "views": await services.workflow_store.list_views(application_id),
+        }
+
+    @app.put(
+        "/api/v1/applications/{application_id}/views/{view_id}",
+        dependencies=[Depends(require_token)],
+    )
+    async def upsert_application_view(
+        application_id: str, view_id: str, body: ViewUpsertRequest
+    ) -> dict[str, Any]:
+        if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,39}", view_id):
+            raise HTTPException(422, "视图标识只能用小写字母、数字、中横线或下划线（40 字以内）")
+        try:
+            return await services.workflow_store.upsert_view(
+                application_id,
+                view_id,
+                name=body.name,
+                layout=body.layout,
+                hidden_nodes=body.hidden_nodes,
+            )
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+
+    @app.delete(
+        "/api/v1/applications/{application_id}/views/{view_id}",
+        dependencies=[Depends(require_token)],
+    )
+    async def delete_application_view(application_id: str, view_id: str) -> dict[str, str]:
+        await services.workflow_store.delete_view(application_id, view_id)
+        return {"status": "deleted"}
+
+    async def _resolve_use_view(
+        application_id: str, view_id: str
+    ) -> dict[str, Any] | None:
+        """找界面方案：指定的查不到就回落默认；都没有 → None（自动推导）。"""
+
+        if view_id:
+            stored = await services.workflow_store.get_view(application_id, view_id)
+            if stored:
+                return stored
+        return await services.workflow_store.get_view(application_id, "default")
+
     @app.get("/api/v1/use/{application_id}/definition")
-    async def use_definition(application_id: str, code: str = "") -> dict[str, Any]:
+    async def use_definition(
+        application_id: str, code: str = "", view: str = ""
+    ) -> dict[str, Any]:
         await _require_use_access(application_id, code)
         try:
             definition = await customer_runtime_definition(application_id)
@@ -4470,6 +4565,9 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             raise HTTPException(404, str(error)) from error
         application = await services.workflow_store.get_application(application_id)
         definition["application_name"] = application.get("name", "")
+        definition["view"] = project_view_definition(
+            definition.get("snapshot"), await _resolve_use_view(application_id, view)
+        )
         report = acceptance_pm.load_report(services.settings.data_dir, application_id)
         if report:
             definition["acceptance"] = {
@@ -4503,10 +4601,12 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         return run
 
     @app.get("/api/v1/use/{application_id}/runs/{run_id}")
-    async def use_get_run(application_id: str, run_id: str, code: str = "") -> dict[str, Any]:
+    async def use_get_run(
+        application_id: str, run_id: str, code: str = "", view: str = ""
+    ) -> dict[str, Any]:
         await _require_use_access(application_id, code)
         run = await _use_run(application_id, run_id)
-        return project_runtime_run(run)
+        return project_view_run(run, await _resolve_use_view(application_id, view))
 
     @app.post("/api/v1/use/{application_id}/runs/{run_id}/resume")
     async def use_resume_run(
