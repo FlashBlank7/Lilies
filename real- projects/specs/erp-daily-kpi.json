@@ -1,0 +1,27 @@
+{
+  "project_id": "erp-daily-kpi",
+  "name": "ERP 门店日报达标（盲测）",
+  "source": "盲测项目：客户原话直发，构建过程零辅导，不满意只按返修按钮。真值可离线核算（fake_erp 确定性数据），验收以 ERP 侧回执为准（scripts/erp_blind_test.py 两头对账）。",
+  "requirement": "我们是连锁零售公司。每天运营要知道各门店有没有完成当天销售目标，现在都是人从ERP里导出来手工算，想自动化。\n\n要做的事：每天把ERP里当天的销售明细拉出来（接口是分页的，一页最多50条，要翻完），按门店汇总出销售额，再对比ERP里各门店当天的目标额，得出每家店达标还是未达标。结果两个去处：一是回写到ERP的日报接口（我们IT说了，写的时候必须带防重复的键，同一天同一店别写两遍）；二是给运营看一个当天汇总。\n\n没有销售数据的日子（节假日闭店），日报照样写，金额记0、算未达标，汇总里说清楚当天没有销售数据。\n\n给运营看的输出，IT定了字段：summary（文字汇总，里面要提到每家店）和 stores（数组，每家店一条：store、total_amount、target_amount、reached）。\n\n我们ERP接口文档（IT给的）：\n- 所有接口都要带请求头 Authorization: Bearer erp-demo-token\n- GET http://127.0.0.1:8022/api/sales/daily?date=2026-08-07&page=1&page_size=50\n  返回 {date,page,page_size,total,total_pages,rows:[{order_no,store,sku,qty,amount}]}\n- GET http://127.0.0.1:8022/api/targets?date=2026-08-07\n  返回 {date,targets:[{store,target_amount}]}\n- POST http://127.0.0.1:8022/api/kpi-reports ，还要带请求头 Idempotency-Key（防重复，我们IT建议用 日期-门店 当键）\n  请求体 {date,store,total_amount,target_amount,reached,note可选}\n\n输入就一个：date（要算哪天，文本，例如 2026-08-07）。",
+  "max_turns": 40,
+  "max_elapsed_seconds": 1800,
+  "owner_reply_when_asked": "接口文档已经全部给你们了，IT说照文档来就行，别的我们不懂。达标就是销售额大于等于目标。没数据的日子金额记0、算未达标，日报照写。给运营看的字段就按之前说的 summary 和 stores。别的没有要求了。",
+  "cases": [
+    {
+      "name": "正常营业日（真值可核）",
+      "inputs": { "date": "2026-08-07" },
+      "expect": {
+        "required_fields": ["summary", "stores"],
+        "contains": { "summary": ["华东一店", "华东二店", "西南一店"] }
+      }
+    },
+    {
+      "name": "闭店日（诚实零值）",
+      "inputs": { "date": "2026-08-01" },
+      "expect": {
+        "required_fields": ["summary", "stores"],
+        "contains": { "summary": ["没有销售数据"] }
+      }
+    }
+  ]
+}
