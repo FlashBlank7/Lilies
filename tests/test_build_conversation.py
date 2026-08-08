@@ -327,3 +327,48 @@ def test_builder_define_view_lands_in_storage(tmp_path: Path) -> None:
         # 不存在的节点 id 被过滤，不进方案，也不让调用失败
         assert view["hidden_nodes"] == []
         assert "unknown_nodes_ignored" in provider.view_result
+
+
+def test_history_cost_gates_trim_and_archive() -> None:
+    """上下文成本闸门：工具结果入史即截断，老轮次归档——账单病的两刀。"""
+
+    from agent_platform.builder import (
+        TOOL_RESULT_HISTORY_MAX_CHARS,
+        TOOL_RESULT_KEEP_RECENT_TURNS,
+        WorkflowBuilder,
+    )
+    from agent_platform.models import ContentBlock
+
+    # 第一刀：超长结果截断且带"可重查"尾注；短结果原样
+    big = "x" * (TOOL_RESULT_HISTORY_MAX_CHARS + 5_000)
+    trimmed = WorkflowBuilder._trim_for_history(big)
+    assert len(trimmed) < len(big) and "重新查询" in trimmed
+    assert WorkflowBuilder._trim_for_history("short") == "short"
+
+    # 第二刀：只保最近 N 轮工具结果，更早的归档成占位行（结构配对保留）
+    def tool_turn(payload: str) -> list[ChatMessage]:
+        return [
+            ChatMessage(role="assistant", content=[ContentBlock(
+                type="tool_use", id="t", name="draft_inspect", input={},
+            )]),
+            ChatMessage(role="user", content=[ContentBlock(
+                type="tool_result", tool_use_id="t", content=payload,
+            )]),
+        ]
+
+    messages: list[ChatMessage] = []
+    total = TOOL_RESULT_KEEP_RECENT_TURNS + 3
+    for index in range(total):
+        messages.extend(tool_turn(f"payload-{index}-" + "y" * 500))
+    WorkflowBuilder._compact_history(messages)
+    payloads = [
+        block.content
+        for message in messages if message.role == "user"
+        for block in message.content if getattr(block, "type", "") == "tool_result"
+    ]
+    archived = [p for p in payloads if "已归档" in str(p)]
+    kept = [p for p in payloads if "已归档" not in str(p)]
+    assert len(archived) == 3
+    assert len(kept) == TOOL_RESULT_KEEP_RECENT_TURNS
+    # 最近的轮次原样保留
+    assert f"payload-{total - 1}-" in str(kept[-1])

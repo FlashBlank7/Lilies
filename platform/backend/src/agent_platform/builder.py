@@ -208,6 +208,8 @@ Core rules:
 """
 
 
+TOOL_RESULT_HISTORY_MAX_CHARS = 6_000
+TOOL_RESULT_KEEP_RECENT_TURNS = 8
 TEAMMATE_MIN_REMAINING_SECONDS = 90.0
 TEAMMATE_REPAIR_BUDGET_EXHAUSTED_REASON = "repair_budget_exhausted"
 BUILDER_MAX_STALLED_PROGRESS_TURNS = 6
@@ -841,6 +843,9 @@ class WorkflowBuilder:
         discovery_only_turns = 0
         seen_progress_evidence: set[str] = set()
         for turn in range(1, max_turns + 1):
+            # 上下文成本闸门：老轮次的工具结果归档成占位行。没有它，40 轮构建的
+            # 输入从 1 万 token 滚到 15 万（ERP 分页/测试报告全文被重发上百次）。
+            self._compact_history(messages)
             teammate_stop_reason: str | None = None
             if teammate is None:
                 live_notes = self._live_messages.pop(build_id, None)
@@ -949,7 +954,8 @@ class WorkflowBuilder:
                     # Persist user-visible progress before emitting the operation event so
                     # a client reacting to that event can immediately read the new state.
                     await self.workflow_store.update_build(build_id, team_state=state)
-                    content = json.dumps(value, ensure_ascii=False, default=str)
+                    full_content = json.dumps(value, ensure_ascii=False, default=str)
+                    content = self._trim_for_history(full_content)
                     is_error = False
                     progress_kind = self._builder_evidence_progress_kind(
                         call.name or "",
@@ -964,7 +970,8 @@ class WorkflowBuilder:
                         turn_verification_progress or progress_kind == "verification"
                     )
                 except Exception as error:
-                    content = f"{type(error).__name__}: {error}"
+                    full_content = f"{type(error).__name__}: {error}"
+                    content = self._trim_for_history(full_content)
                     is_error = True
                     if (
                         teammate is not None
@@ -978,7 +985,7 @@ class WorkflowBuilder:
                 turn_tool_records.append(tool_call_record(
                     name=call.name or "",
                     arguments=call.input or {},
-                    result=content,
+                    result=full_content,
                     is_error=is_error,
                 ))
                 await self._emit(build_id, "build.operation", {
@@ -986,7 +993,9 @@ class WorkflowBuilder:
                     "tool": call.name,
                     "input": self._redact(call.input or {}),
                     "success": not is_error,
-                    "result": content[:10_000],
+                    # 事件与 transcript 永远保真（各有自己的上限）；
+                    # 历史截断只作用于发给模型的消息。
+                    "result": full_content[:10_000],
                     "progress": self._team_progress(state),
                 })
             messages.append(ChatMessage(role="user", content=results))
@@ -2062,6 +2071,50 @@ class WorkflowBuilder:
         if core:
             lines.append("[core tools] " + "; ".join(core))
         return "\n".join(lines)
+
+    @staticmethod
+    def _trim_for_history(content: str) -> str:
+        """工具结果进模型历史前截断；完整版永远在 transcript 与可重查工具里。
+
+        没有这刀，一份 ERP 分页 JSON / 测试报告全文会在后续每一轮里被
+        原样重发（40 轮构建实测：输入从 1 万 token 滚到 15 万）。
+        """
+
+        if len(content) <= TOOL_RESULT_HISTORY_MAX_CHARS:
+            return content
+        # 包装成合法 JSON：模型读 preview 即可，下游任何 json.loads 也不会碎。
+        return json.dumps({
+            "truncated": True,
+            "original_chars": len(content),
+            "note": "结果过长，已截断。需要完整内容请用相应工具重新查询。",
+            "preview": content[:TOOL_RESULT_HISTORY_MAX_CHARS],
+        }, ensure_ascii=False)
+
+    @staticmethod
+    def _compact_history(messages: list[ChatMessage]) -> None:
+        """把最近 N 轮之外的工具结果替换成占位行（tool_use/tool_result 配对保留）。
+
+        建造者的工具都可重查（catalog/manual/draft_inspect/run_inspect），
+        老结果留在历史里只有账单价值。
+        """
+
+        seen = 0
+        for message in reversed(messages):
+            if message.role != "user":
+                continue
+            tool_blocks = [
+                block for block in message.content
+                if getattr(block, "type", "") == "tool_result"
+            ]
+            if not tool_blocks:
+                continue
+            seen += 1
+            if seen <= TOOL_RESULT_KEEP_RECENT_TURNS:
+                continue
+            for block in tool_blocks:
+                text = getattr(block, "content", None)
+                if isinstance(text, str) and len(text) > 200:
+                    block.content = "[早期工具结果已归档以控制上下文成本；需要这份数据请用相应工具重新查询。]"
 
     def _record_event(self, build_id: str, event: str, text: str) -> None:
         """Milestones (发布/等待/取消/故障) go into the transcript as system badges.
