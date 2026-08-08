@@ -244,6 +244,15 @@ export default function Session({ params }: { params: Promise<{ id: string }> })
         <button
           className={styles.share}
           onClick={() => {
+            void api<{ code: string }>(`/api/v1/applications/${id}/access-code`)
+              .then(result => { window.open(`/use/${id}?code=${result.code}`, '_blank') })
+              .catch(error => setNotice(String(error)))
+          }}
+          type="button"
+        >打开使用页</button>
+        <button
+          className={styles.shareGhost}
+          onClick={() => {
             void api<{ code: string; use_path: string }>(`/api/v1/applications/${id}/access-code`, { method: 'POST', body: '{}' })
               .then(async result => {
                 const url = `${window.location.origin}/use/${id}?code=${result.code}`

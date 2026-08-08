@@ -87,6 +87,16 @@ export default function ViewsPage({ params }: { params: Promise<{ id: string }> 
     }
   }
 
+  async function openUsePage(viewId?: string) {
+    try {
+      const result = await api<{ code: string }>(`/api/v1/applications/${id}/access-code`)
+      const viewParam = viewId ? `&view=${viewId}` : ''
+      window.open(`/use/${id}?code=${result.code}${viewParam}`, '_blank')
+    } catch (err) {
+      setError(String((err as Error).message || err))
+    }
+  }
+
   async function copyLink(viewId?: string) {
     try {
       const result = await api<{ code: string }>(`/api/v1/applications/${id}/access-code`)
@@ -147,7 +157,10 @@ export default function ViewsPage({ params }: { params: Promise<{ id: string }> 
           })()}
           ，业务环节的输出作为"过程"可展开审查；有回答环节的工作流自动变成对话界面。
         </p>
-        <button className={styles.ghost} onClick={() => void copyLink()} type="button">复制默认使用链接</button>
+        <div className={styles.actions}>
+          <button onClick={() => void openUsePage()} type="button">打开使用页</button>
+          <button className={styles.ghost} onClick={() => void copyLink()} type="button">复制链接</button>
+        </div>
       </section>
 
       {Object.values(drafts).map(draft => <section className={styles.card} key={draft.view_id}>
@@ -187,7 +200,8 @@ export default function ViewsPage({ params }: { params: Promise<{ id: string }> 
         </div>
         <div className={styles.actions}>
           <button onClick={() => void save(draft.view_id)} type="button">保存</button>
-          <button className={styles.ghost} onClick={() => void copyLink(draft.view_id)} type="button">复制此界面的使用链接</button>
+          <button className={styles.ghost} onClick={() => void openUsePage(draft.view_id)} type="button">打开</button>
+          <button className={styles.ghost} onClick={() => void copyLink(draft.view_id)} type="button">复制链接</button>
           <button className={styles.danger} onClick={() => void remove(draft.view_id)} type="button">删除</button>
         </div>
       </section>)}

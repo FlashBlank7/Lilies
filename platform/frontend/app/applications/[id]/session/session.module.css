@@ -74,4 +74,5 @@
 .delivery summary{cursor:pointer;padding:9px 16px;font-size:12px;font-weight:600;color:var(--lil-accent-strong)}
 .delivery p{margin:0;padding:0 16px 12px;font-size:12.5px;line-height:1.75;white-space:pre-wrap;color:var(--lil-ink)}
 .share{border:0;border-radius:8px;padding:6px 12px;font-size:12px;cursor:pointer;background:var(--lil-accent);color:#fff}
+.shareGhost{border:1px solid var(--lil-accent-line);border-radius:8px;padding:6px 12px;font-size:12px;cursor:pointer;background:var(--lil-panel);color:var(--lil-accent-strong)}
 .share:hover{background:var(--lil-accent-strong)}
