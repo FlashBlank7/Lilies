@@ -246,3 +246,21 @@ def test_live_message_reaches_next_coordinator_turn(tmp_path: Path) -> None:
             json={"message": "再改一点"},
         )
         assert response.status_code == 409
+
+
+def test_event_record_lands_in_transcript_as_system_badge(tmp_path: Path) -> None:
+    """发布/等待/取消这类大事件必须以 kind=event 进入会话流，业主不该猜"到底发布没有"。"""
+
+    from agent_platform.build_transcript import BuildTranscriptStore, event_record
+
+    store = BuildTranscriptStore(tmp_path / "transcripts")
+    store.append("b-1", event_record(text="工作流已发布为正式版 v2，现在可以试运行了", event="published"))
+    store.append("b-1", event_record(text="莉莉丝暂停了搭建，等你回复上面的问题后继续", event="waiting_owner"))
+
+    records = store.read("b-1")
+    assert [r["kind"] for r in records] == ["event", "event"]
+    assert records[0]["event"] == "published"
+    assert "已发布" in records[0]["text"]
+    # 事件也计入默认读取窗口（turn=1 > after_turn=0），且不冒充模型轮
+    summary = store.summary("b-1")
+    assert summary["turn_count"] == 0

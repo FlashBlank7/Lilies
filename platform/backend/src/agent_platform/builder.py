@@ -12,6 +12,7 @@ from .applications import ApplicationService
 from .blocks import BlockRegistry
 from .build_transcript import (
     BuildTranscriptStore,
+    event_record,
     tool_call_record,
     turn_record,
 )
@@ -65,6 +66,9 @@ Core rules:
   is missing and cannot be responsibly inferred (target output fields, matching tolerances, external system
   access, sample data), call ask_owner ONCE with a single batched, concrete list of questions instead of
   guessing. Never ask about details you can decide yourself; at most two ask_owner pauses per build.
+- 会话流里你的每一句话都会实时展示给中文业主：过程叙述一律用简体中文、一句话说清你正在做什么
+  （例如"正在把搜索结果接进分析环节"），不要英文叙述，不要技术黑话。思考过程可以自由，但说出口的
+  话必须是业主能读的。
 - The owner is a business person, not an engineer, and everything you say to them (ask_owner questions,
   delivery notes) is customer-facing: plain business language only. Never mention block names, node types,
   configuration fields, index or schema names, or any internal platform design — that is confidential
@@ -520,6 +524,10 @@ class WorkflowBuilder:
                 await self._emit(build_id, "build.waiting_owner", {
                     "question": state.pending_question,
                 })
+                self._record_event(
+                    build_id, "waiting_owner",
+                    "莉莉丝暂停了搭建，等你回复上面的问题后继续",
+                )
                 await self.workflow_store.update_build(
                     build_id, status="needs_attention", team_state=state, error=""
                 )
@@ -545,6 +553,10 @@ class WorkflowBuilder:
                     )
                     state.published_version = published["version"]
                     await self._emit(build_id, "build.published", published)
+                    self._record_event(
+                        build_id, "published",
+                        f"工作流已发布为正式版 v{published['version']}，现在可以试运行了",
+                    )
                     status = "published"
                 else:
                     status = "ready"
@@ -573,6 +585,7 @@ class WorkflowBuilder:
             if manage_harness_task:
                 await self.harness.finish_task(build_id, status="cancelled")
             await self._emit(build_id, "build.cancelled", {})
+            self._record_event(build_id, "cancelled", "这次搭建被取消了")
             await self.workflow_store.update_build(build_id, status="cancelled", team_state=state)
             raise
         except Exception as error:
@@ -589,6 +602,10 @@ class WorkflowBuilder:
                 "error_type": type(error).__name__,
                 **failure_metadata,
             })
+            self._record_event(
+                build_id, "needs_attention",
+                "搭建中途遇到问题停下来了，可以在下方留言让莉莉丝继续",
+            )
             await self.workflow_store.update_build(
                 build_id, status="needs_attention", team_state=state, error=str(error)
             )
@@ -1509,6 +1526,10 @@ class WorkflowBuilder:
                         "assumptions, and anything it cannot do."
                     )
                     await self._emit(build_id, "build.published", published)
+                    self._record_event(
+                        build_id, "published",
+                        f"工作流已发布为正式版 v{published['version']}，现在可以试运行了",
+                    )
             return report
         if tool == "draft_publish":
             if state.published_version is not None:
@@ -1526,6 +1547,10 @@ class WorkflowBuilder:
             )
             state.published_version = published["version"]
             await self._emit(build_id, "build.published", published)
+            self._record_event(
+                build_id, "published",
+                f"工作流已发布为正式版 v{published['version']}，现在可以试运行了",
+            )
             return {
                 **published,
                 "next": (
@@ -2005,6 +2030,17 @@ class WorkflowBuilder:
         if core:
             lines.append("[core tools] " + "; ".join(core))
         return "\n".join(lines)
+
+    def _record_event(self, build_id: str, event: str, text: str) -> None:
+        """Milestones (发布/等待/取消/故障) go into the transcript as system badges.
+
+        Turn text is easy to skim past; the owner must never wonder "so did it
+        publish or not". Never raises into the build loop.
+        """
+
+        if self.transcripts is None:
+            return
+        self.transcripts.append(build_id, event_record(text=text, event=event))
 
     def _record_turn(
         self,

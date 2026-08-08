@@ -21,7 +21,13 @@
 .turn{border:1px solid var(--lil-line-soft);border-radius:12px;padding:10px 12px;background:var(--lil-panel-soft)}
 .turnHead{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--lil-muted);margin-bottom:6px}
 .turnHead b{color:var(--lil-ink);font-size:12px}
-.thinking summary{cursor:pointer;font-size:11px;color:var(--lil-muted);padding:2px 0}
+.thinking summary{cursor:pointer;font-size:11px;color:var(--lil-muted);padding:2px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.thinking summary i{font-style:normal;opacity:.65;margin-left:6px}
+.action{margin:6px 0;font-size:12.5px;line-height:1.6;color:var(--lil-muted)}
+.eventBadge{align-self:center;text-align:center;font-size:12px;padding:5px 14px;border-radius:999px;border:1px solid var(--lil-line);background:var(--lil-panel-soft);color:var(--lil-muted)}
+.eventBadge[data-event="published"]{border-color:var(--lil-accent-line);background:var(--lil-ok-soft);color:var(--lil-accent-strong)}
+.eventBadge[data-event="waiting_owner"]{border-color:#f2c76b;background:var(--lil-warn-soft);color:var(--lil-warn)}
+.eventBadge[data-event="needs_attention"],.eventBadge[data-event="cancelled"]{border-color:#f4b3ad;background:#fef3f2;color:var(--lil-danger)}
 .thinking pre{margin:6px 0;padding:9px 11px;background:var(--lil-code);border-radius:8px;font-size:11.5px;line-height:1.6;white-space:pre-wrap;word-break:break-word;max-height:220px;overflow:auto;color:#475467}
 .speech{margin:6px 0;font-size:13px;line-height:1.65}
 .tool{margin:6px 0;border-left:2px solid #d0d5dd;padding-left:10px}

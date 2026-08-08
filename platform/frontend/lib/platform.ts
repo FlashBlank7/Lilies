@@ -10,6 +10,7 @@ export type BuildTranscriptToolCall = {
 export type BuildTranscriptTurn = {
   recorded_at: string
   kind: string
+  event?: string
   turn: number
   actor: string
   model: string

@@ -29,6 +29,49 @@ type RunRecord = {
 
 const ACTIVE = new Set(['queued', 'building'])
 
+// 纯工具轮没有可读文字时，把工具调用翻译成一句业主能懂的动作描述。
+function describeToolCall(tool: string, args: Record<string, unknown>): string {
+  const node = (args.node && typeof args.node === 'object' ? args.node : args) as Record<string, unknown>
+  const name = String(node.title || node.node_id || args.node_id || args.id || '').trim()
+  const quoted = name ? `「${name}」` : ''
+  switch (tool) {
+    case 'draft_add_node': return `添加了${quoted || '一个'}环节`
+    case 'draft_update_node': return `调整了${quoted || '环节'}的配置`
+    case 'draft_remove_node': return `移除了${quoted || '一个'}环节`
+    case 'draft_upsert_agent': return '配置了智能体环节'
+    case 'draft_connect': return '接好了环节之间的流向'
+    case 'draft_remove_edge': return '断开了一条流向'
+    case 'draft_inspect': case 'draft_validate': return '核对了当前草稿'
+    case 'draft_publish': return '发布了正式版'
+    case 'test_add': return '准备了测试用例'
+    case 'test_remove': return '清理了测试用例'
+    case 'test_run': return '跑了一遍测试'
+    case 'run_inspect': return '检查了运行流水账'
+    case 'catalog_get': case 'catalog_search': case 'manual_get': case 'manual_search': return '查了积木手册'
+    case 'build_plan': return '更新了施工计划'
+    case 'architecture_blueprint': return '画了架构草图'
+    case 'template_expand': return '套用了现成模板'
+    case 'template_list': case 'template_suggestions': return '翻了模板库'
+    case 'spawn_teammate': case 'task': case 'send_message': return '安排了帮手分工'
+    case 'ask_owner': return '向你提了一个问题'
+    default:
+      if (tool.startsWith('knowledge')) return '整理了知识库'
+      if (tool.startsWith('workspace')) return '处理了工作区文件'
+      if (tool.startsWith('connector')) return '调试了外部连接'
+      return '做了一步内部操作'
+  }
+}
+
+function describeTurn(record: { tool_calls: Array<{ tool: string; arguments: Record<string, unknown> }> }): string {
+  const phrases: string[] = []
+  for (const call of record.tool_calls) {
+    const phrase = describeToolCall(call.tool, call.arguments || {})
+    if (!phrases.includes(phrase)) phrases.push(phrase)
+  }
+  if (!phrases.length) return ''
+  return phrases.slice(0, 3).join('，') + (phrases.length > 3 ? '……' : '')
+}
+
 const STATUS_LABEL: Record<string, string> = {
   queued: '排队中',
   building: '搭建中',
@@ -181,7 +224,7 @@ export default function Session({ params }: { params: Promise<{ id: string }> })
     const records = transcript?.records || []
     for (let index = records.length - 1; index >= 0; index -= 1) {
       const record = records[index]
-      if (record.kind !== 'owner' && (record.text || '').trim().length > 40) {
+      if (record.kind !== 'owner' && record.kind !== 'event' && (record.text || '').trim().length > 40) {
         return record.text.trim()
       }
     }
@@ -238,6 +281,10 @@ export default function Session({ params }: { params: Promise<{ id: string }> })
             ? <article className={styles.ownerTurn} key={index}>
                 <div className={styles.ownerBubble}>{record.text}</div>
               </article>
+            : record.kind === 'event'
+            ? <div className={styles.eventBadge} data-event={record.event || ''} key={index}>
+                {record.text}
+              </div>
             : <article className={styles.turn} key={index}>
             <div className={styles.turnHead}>
               <b>第 {record.turn} 轮</b>
@@ -245,10 +292,12 @@ export default function Session({ params }: { params: Promise<{ id: string }> })
               <small>r{record.draft_revision}</small>
             </div>
             {record.thinking && <details className={styles.thinking}>
-              <summary>思考</summary>
+              <summary>思考<i>{record.thinking.replace(/\s+/g, ' ').slice(0, 48)}…</i></summary>
               <pre>{record.thinking}</pre>
             </details>}
-            {record.text && <p className={styles.speech}>{record.text}</p>}
+            {record.text
+              ? <p className={styles.speech}>{record.text}</p>
+              : record.tool_calls.length > 0 && <p className={styles.action}>{describeTurn(record)}</p>}
             {record.tool_calls.map((call, index) => <details
               className={call.is_error ? `${styles.tool} ${styles.toolFailed}` : styles.tool}
               key={`${call.tool}-${index}`}

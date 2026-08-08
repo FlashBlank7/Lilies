@@ -179,6 +179,28 @@ def owner_record(*, text: str, draft_revision: int) -> dict[str, Any]:
     }
 
 
+def event_record(*, text: str, event: str, draft_revision: int = 0) -> dict[str, Any]:
+    """Record one platform milestone (发布/等待回复/取消) as a first-class stream item.
+
+    Turn text can be missed or skimmed; milestones must be unmissable. Renderers
+    key on ``kind == "event"`` and show these as centered system badges.
+    """
+
+    return {
+        "kind": "event",
+        "event": event,
+        "turn": 1,
+        "actor": "platform",
+        "model": "",
+        "thinking": "",
+        "text": redact(text),
+        "tool_calls": [],
+        "stop_reason": None,
+        "usage": {},
+        "draft_revision": draft_revision,
+    }
+
+
 def tool_call_record(
     *,
     name: str,

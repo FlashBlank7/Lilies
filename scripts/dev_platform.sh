@@ -45,6 +45,7 @@ if [[ "$API_CONNECT_AUTHORITY" == *:* && "$API_CONNECT_AUTHORITY" != \[*\] ]]; t
 fi
 API_CONNECT_URL="http://$API_CONNECT_AUTHORITY:$API_PORT"
 export LILIES_PLATFORM_BASE_URL="${LILIES_PLATFORM_BASE_URL:-$API_CONNECT_URL}"
+STUDIO_PLATFORM_URL="${STUDIO_PLATFORM_URL:-$API_CONNECT_URL}"
 
 if [[ "${1:-}" == "--check-env" ]]; then
   [[ -n "${DEEPSEEK_API_KEY:-}" ]] && echo "DEEPSEEK_API_KEY ok" || echo "DEEPSEEK_API_KEY missing"
@@ -247,10 +248,10 @@ fi
 .venv/bin/uvicorn agent_platform.api:app --host "$API_HOST" --port "$API_PORT" &
 
 echo "Starting Studio on http://$WEB_HOST:$WEB_PORT"
-echo "Studio proxy target: $API_CONNECT_URL"
+echo "Studio proxy target: $STUDIO_PLATFORM_URL"
 (
   cd platform/frontend
-  AGENT_PLATFORM_URL="$API_CONNECT_URL" API_TOKEN="$API_TOKEN" npm run dev -- --hostname "$WEB_HOST" --port "$WEB_PORT"
+  AGENT_PLATFORM_URL="$STUDIO_PLATFORM_URL" API_TOKEN="$API_TOKEN" npm run dev -- --hostname "$WEB_HOST" --port "$WEB_PORT"
 ) &
 
 wait

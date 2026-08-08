@@ -49,6 +49,20 @@ from run_benchmark import (  # noqa: E402
 )
 
 
+def executed_node_types(base: str, token: str, run_id: str) -> list[str]:
+    """实际执行过的节点类型——来自运行事件流，不是图。"""
+
+    try:
+        events = request(base, token, "GET", f"/v1/streams/{run_id}")
+    except Exception:
+        return []
+    return sorted({
+        str(event.get("data", {}).get("type") or "")
+        for event in events
+        if event.get("type") == "node.started"
+    } - {""})
+
+
 def resolve_path(value: object, dotted: str) -> object:
     node = value
     for part in dotted.split("."):

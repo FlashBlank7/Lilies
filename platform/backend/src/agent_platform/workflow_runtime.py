@@ -3375,28 +3375,42 @@ class WorkflowRuntime:
             "model_call",
             metadata={"node_id": node_id, "model": model, "mode": "text"},
         )
-        stream = self.provider.stream(
-            model=model,
-            system=system,
-            messages=[ChatMessage(role="user", content=[ContentBlock(type="text", text=prompt)])],
-            tools=[],
-            max_output_tokens=8_192,
-            thinking_enabled=True,
-            effort="xhigh",
-            user_id=run_id,
+        # 工作流里的模型环节是执行者不是设计者：medium 思考 + 16k 预算。
+        # 有些模型在逐条评分类任务上思考失控（idol 工作流：16k 预算全烧思考、正文为空），
+        # 所以截断出空正文时自动关思考重试一次——自愈优先，还不行才诚实失败。
+        for thinking_enabled in (True, False):
+            stream = self.provider.stream(
+                model=model,
+                system=system,
+                messages=[ChatMessage(role="user", content=[ContentBlock(type="text", text=prompt)])],
+                tools=[],
+                max_output_tokens=16_384,
+                thinking_enabled=thinking_enabled,
+                effort="medium" if thinking_enabled else "low",
+                user_id=run_id,
+            )
+            response = await self.agent_runtime._collect_stream(
+                run_id, stream, f"node.{node_id}.model", model
+            )
+            await self.harness.record_model_usage(
+                run_id,
+                response.usage,
+                model=model,
+                provider=self.provider.provider_name_for(model),
+                metadata={"node_id": node_id, "phase": "workflow_model_text"},
+            )
+            text = "".join(block.text or "" for block in response.blocks if block.type == "text")
+            if text.strip() or response.stop_reason != "max_tokens":
+                return text, response.usage
+            if thinking_enabled:
+                await self._emit(run_id, "node.model.retry_no_thinking", {
+                    "node_id": node_id,
+                    "reason": "思考消耗了全部输出预算，正文被截断为空；自动关闭思考重试一次",
+                })
+        raise RuntimeError(
+            f"模型环节「{node_id}」两次尝试的输出预算都被耗尽，正文始终为空。"
+            "请压缩这一环节的输入（例如只保留必要字段）或拆分任务后重试。"
         )
-        response = await self.agent_runtime._collect_stream(
-            run_id, stream, f"node.{node_id}.model", model
-        )
-        await self.harness.record_model_usage(
-            run_id,
-            response.usage,
-            model=model,
-            provider=self.provider.provider_name_for(model),
-            metadata={"node_id": node_id, "phase": "workflow_model_text"},
-        )
-        text = "".join(block.text or "" for block in response.blocks if block.type == "text")
-        return text, response.usage
 
     async def _model_turn_with_tools(
         self,
@@ -3438,9 +3452,9 @@ class WorkflowRuntime:
             system=system,
             messages=[ChatMessage(role="user", content=[ContentBlock(type="text", text=prompt)])],
             tools=definitions,
-            max_output_tokens=8_192,
+            max_output_tokens=16_384,
             thinking_enabled=True,
-            effort="xhigh",
+            effort="medium",
             tool_choice={"type": "auto"} if definitions else {"type": "none"},
             user_id=run_id,
         )

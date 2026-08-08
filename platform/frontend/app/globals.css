@@ -279,3 +279,49 @@
 .container-scope-bar button:hover { background: rgba(63, 181, 150, .12); }
 .container-scope-bar strong { font-size: 13px; }
 .container-scope-bar span { color: #93a0ae; font-size: 11.5px; }
+
+/* ===== 首页浅色统一：与会话/监理/使用页同一套 --lil-* 纸面语言。 =====
+   作用域限定在 .home-shell，画布 Studio 的深色工程风不受影响。只覆颜色，不动布局。 */
+.home-shell{background:var(--lil-paper);color:var(--lil-ink)}
+.home-shell .topbar{background:var(--lil-panel);border-bottom:1px solid var(--lil-line)}
+.home-shell .brand span{background:var(--lil-accent);color:#fff}
+.home-shell .lang-toggle{border-color:var(--lil-line);background:var(--lil-panel);color:var(--lil-muted)}
+.home-shell .status-dot{color:var(--lil-muted);border-color:var(--lil-line)}
+.home-shell .status-dot:before{background:var(--lil-accent);box-shadow:none}
+.home-shell .eyebrow,.home-shell .panel-kicker{color:var(--lil-accent)}
+.home-shell .hero h1 em{background:none;-webkit-background-clip:unset;color:var(--lil-accent)}
+.home-shell .hero>p{color:var(--lil-muted)}
+.home-shell .create-card{background:var(--lil-panel);border-color:var(--lil-line);box-shadow:0 16px 48px rgba(24,27,34,.07)}
+.home-shell .create-card textarea{color:var(--lil-ink)}
+.home-shell .create-card textarea::placeholder{color:var(--lil-muted)}
+.home-shell .create-footer{border-top-color:var(--lil-line-soft);color:var(--lil-muted)}
+.home-shell .create-copy span{color:var(--lil-muted)}
+.home-shell .create-copy small{color:var(--lil-accent-strong)}
+.home-shell :is(.create-footer button,.build-action,.wide){background:var(--lil-accent);color:#fff}
+.home-shell :is(.create-footer button,.build-action,.wide):hover{background:var(--lil-accent-strong)}
+.home-shell .secondary-action{background:var(--lil-panel);border:1px solid var(--lil-line);color:var(--lil-ink)}
+.home-shell .error-banner{color:var(--lil-danger)}
+.home-shell .success-banner{color:var(--lil-accent-strong)}
+.home-shell :is(.auth-card,.customer-intake-panel,.requirement-completion-panel,.requirement-completion-summary,.requirement-question-card,.selected-scenario-summary){background:var(--lil-panel);border-color:var(--lil-line);box-shadow:none;color:var(--lil-ink)}
+.home-shell .scenario-chip{background:var(--lil-panel-soft);border-color:var(--lil-line);color:var(--lil-ink)}
+.home-shell .section-heading span{color:var(--lil-muted)}
+.home-shell :is(.app-card,.empty-card){background:var(--lil-panel);border-color:var(--lil-line)}
+.home-shell .app-card:hover{border-color:var(--lil-accent-line);background:var(--lil-panel)}
+.home-shell .app-icon{background:var(--lil-ok-soft);color:var(--lil-accent)}
+.home-shell .app-card p{color:var(--lil-muted)}
+.home-shell .app-meta{color:var(--lil-muted)}
+.home-shell .empty-card{color:var(--lil-muted)}
+.home-shell .app-filter-toolbar button{border-color:var(--lil-line);background:var(--lil-panel);color:var(--lil-muted)}
+.home-shell .app-filter-toolbar button.active{border-color:var(--lil-accent);background:var(--lil-ok-soft);color:var(--lil-accent-strong)}
+.home-shell .app-filter-toolbar b{background:var(--lil-code);color:var(--lil-ink)}
+.home-shell .app-search-sort :is(input,select){border-color:var(--lil-line);background:var(--lil-panel);color:var(--lil-ink)}
+.home-shell .app-search-sort label{color:var(--lil-muted)}
+.home-shell .app-list-view-state{color:var(--lil-muted)}
+.home-shell .app-list-view-state span{border-color:var(--lil-line);background:var(--lil-panel-soft);color:var(--lil-muted)}
+.home-shell .app-list-view-actions button{border-color:var(--lil-line);background:var(--lil-panel);color:var(--lil-ink)}
+.home-shell .app-card-actions a{border-color:var(--lil-line);background:var(--lil-panel-soft);color:var(--lil-ink)}
+.home-shell .app-card-actions a:hover{border-color:var(--lil-accent);background:var(--lil-ok-soft)}
+.home-shell .app-readiness span{border-color:var(--lil-line);background:var(--lil-panel-soft);color:var(--lil-warn)}
+.home-shell .app-readiness span.ready{color:var(--lil-accent-strong);border-color:var(--lil-accent-line)}
+.home-shell .app-readiness b{color:var(--lil-muted)}
+.home-shell .app-next-action{color:var(--lil-accent-strong)}

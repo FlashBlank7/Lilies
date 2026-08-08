@@ -559,15 +559,14 @@ export default function Home() {
   const appCardQuickActions = (item: Application): AppQuickAction[] => {
     const state = appReadinessState(item)
     if (state === 'published') return [
-      { id: 'session', href: `/applications/${item.id}/session`, label: locale === 'zh' ? '会话' : 'Session' },
       { id: 'try', href: `/runtime/${item.id}`, label: t.appActionTry },
+      { id: 'canvas', href: `/applications/${item.id}`, label: locale === 'zh' ? '画布' : 'Canvas' },
     ]
     if (state === 'ready_to_publish') return [
-      { id: 'session', href: `/applications/${item.id}/session`, label: locale === 'zh' ? '会话' : 'Session' },
       { id: 'acceptance', href: `/applications/${item.id}?tab=test`, label: t.appActionAcceptance },
+      { id: 'canvas', href: `/applications/${item.id}`, label: locale === 'zh' ? '画布' : 'Canvas' },
     ]
     return [
-      { id: 'session', href: `/applications/${item.id}/session`, label: locale === 'zh' ? '会话' : 'Session' },
       { id: 'edit', href: `/applications/${item.id}?tab=edit`, label: t.appActionEdit },
       { id: 'acceptance', href: `/applications/${item.id}?tab=test`, label: t.appActionAcceptance },
     ]
@@ -730,8 +729,8 @@ export default function Home() {
       setApps(current => [app, ...current.filter(item => item.id !== app.id)])
       setCreatedApplicationId(app.id)
       resetAppListView()
-      const build = await launchBuilder(app, requirement)
-      window.location.href = `/applications/${app.id}?build=${build.build_id}`
+      await launchBuilder(app, requirement)
+      window.location.href = `/applications/${app.id}/session`
     } catch (cause) {
       const context = createdApp ? ` application_id=${createdApp.id}` : ''
       showError(`${String(cause)}${context}`)
@@ -897,7 +896,7 @@ export default function Home() {
         </div>}
         <div className="app-grid">
           {visibleApps.map(item => <article className="app-card" data-app-card-action-state={appReadinessState(item)} key={item.id}>
-            <Link className="app-card-main" href={`/applications/${item.id}`} aria-label={`${t.appActionOpen}: ${item.name}`}>
+            <Link className="app-card-main" href={`/applications/${item.id}/session`} aria-label={`${t.appActionOpen}: ${item.name}`}>
               <div className="app-icon">{item.name.slice(0, 1).toUpperCase()}</div>
               <div><h3>{item.name}</h3><p>{item.display_description || item.description || t.fallbackDescription}</p>
                 <div className="app-readiness" data-app-card-guidance="readiness">{appCardReadiness(item).map(signal => <span className={signal.ready ? 'ready' : ''} key={signal.label}><b>{signal.label}</b>{signal.value}</span>)}</div>
