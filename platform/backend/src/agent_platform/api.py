@@ -1702,6 +1702,14 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         await services.openapi_connectors.initialize()
         await services.workflow_store.fail_interrupted_runs()
         await services.workflow_store.fail_interrupted_builds()
+        archived = await services.storage.archive_events_before(
+            keep_days=settings.event_archive_keep_days
+        )
+        if archived["removed"]:
+            print(
+                f"[storage] 事件归档：DB 移除 {archived['removed']} 行"
+                f"（冷文件为权威全量），剩余 {archived['remaining']} 行"
+            )
         services.scheduler.start()
         await services.event_automation.start()
         local_lilies_recovery_task: asyncio.Task[Any] | None = None

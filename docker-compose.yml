@@ -1,0 +1,30 @@
+# 一客户一实例的最小部署单元：backend + frontend + 持久卷。
+# 用法：cp .env.example .env 填好密钥 → docker compose up -d
+# HTTPS：生产建议前置 Caddy/Nginx 反代 3000 端口（证书在反代层）。
+services:
+  backend:
+    build: .
+    env_file: .env
+    environment:
+      DATA_DIR: /app/data
+      WORKSPACE_ROOT: /app/workspaces
+    volumes:
+      - lilies-data:/app/data
+      - lilies-workspaces:/app/workspaces
+    ports:
+      - "8001:8001"
+    restart: unless-stopped
+
+  frontend:
+    build: platform/frontend
+    environment:
+      AGENT_PLATFORM_URL: http://backend:8001
+    depends_on:
+      - backend
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+
+volumes:
+  lilies-data:
+  lilies-workspaces:

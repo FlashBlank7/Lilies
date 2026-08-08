@@ -5107,7 +5107,9 @@ class WorkflowRuntime:
     def _redact(value: Any) -> Any:
         if isinstance(value, dict):
             return {
-                key: "***" if any(
+                # 计量复数（input_tokens 等）是审计数据不是凭证——豁免，
+                # 否则事件流里 usage 全成 ***（已知缺陷 #6）。
+                key: "***" if not key.casefold().replace("-", "_").endswith("_tokens") and any(
                     token in key.casefold()
                     for token in ("key", "secret", "token", "password", "authorization", "cookie", "credential")
                 ) else WorkflowRuntime._redact(item)

@@ -118,3 +118,18 @@ def test_missing_transcript_reports_unavailable_instead_of_failing(tmp_path: Pat
     store = BuildTranscriptStore(tmp_path / "build_transcripts")
     assert store.read("never-ran") == []
     assert store.summary("never-ran")["available"] is False
+
+
+def test_metering_tokens_survive_redaction() -> None:
+    """计量字段（*_tokens）是审计数据不是凭证——不许被脱敏成 ***（缺陷 #6）。"""
+
+    from agent_platform.build_transcript import redact
+
+    payload = {
+        "usage": {"input_tokens": 12345, "output_tokens": 67, "cache_read_input_tokens": 999},
+        "api_token": "sk-real-secret",
+        "Authorization": "Bearer xxx",
+    }
+    result = redact(payload)
+    assert result["usage"] == {"input_tokens": 12345, "output_tokens": 67, "cache_read_input_tokens": 999}
+    assert result["api_token"] == "***"

@@ -1,11 +1,16 @@
-ARG BASE_IMAGE=python:3.12-slim
-FROM ${BASE_IMAGE}
+# Lilies 后端（FastAPI + SQLite）
+FROM python:3.13-slim
 
-ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 WORKDIR /app
-RUN apt-get update && apt-get install -y --no-install-recommends docker-cli curl && rm -rf /var/lib/apt/lists/*
 COPY pyproject.toml README.md ./
-COPY platform/backend/src/agent_platform ./platform/backend/src/agent_platform
+COPY platform/backend ./platform/backend
 RUN pip install --no-cache-dir .
-EXPOSE 8000
-CMD ["uvicorn", "agent_platform.api:app", "--host", "0.0.0.0", "--port", "8000"]
+
+# 数据全部落在 /app/data（挂卷持久化）：SQLite、事件冷文件、构建转录、密钥
+ENV DATA_DIR=/app/data \
+    WORKSPACE_ROOT=/app/workspaces \
+    PYTHONUNBUFFERED=1
+VOLUME ["/app/data", "/app/workspaces"]
+
+EXPOSE 8001
+CMD ["uvicorn", "agent_platform.api:app", "--host", "0.0.0.0", "--port", "8001"]

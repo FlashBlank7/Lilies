@@ -1012,7 +1012,7 @@ class Storage:
             rows = conn.execute(
                 "SELECT * FROM events WHERE stream_id=? AND seq>? ORDER BY seq", (stream_id, after)
             ).fetchall()
-        return [
+        records = [
             EventRecord(
                 id=row["seq"],
                 stream_id=stream_id,
@@ -1022,6 +1022,62 @@ class Storage:
             )
             for row in rows
         ]
+        # 冷读回退：老事件被归档出 DB（追加式 JSONL 是权威全量副本）。
+        # DB 结果前段有缺口时从冷文件补齐——诊断能力不因归档丢失。
+        first_seq = records[0].id if records else None
+        if first_seq is None or first_seq > after + 1:
+            upper = first_seq if first_seq is not None else None
+            cold = self._read_cold_events(stream_id, after=after, before=upper)
+            if cold:
+                records = cold + records
+        return records
+
+    def _read_cold_events(
+        self, stream_id: str, *, after: int, before: int | None
+    ) -> list[EventRecord]:
+        path = self.events_dir / f"{stream_id}.jsonl"
+        if not path.is_file():
+            return []
+        seen: dict[int, EventRecord] = {}
+        with path.open(encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    record = EventRecord.model_validate_json(line)
+                except Exception:
+                    continue
+                if record.id <= after:
+                    continue
+                if before is not None and record.id >= before:
+                    continue
+                seen[record.id] = record
+        return [seen[key] for key in sorted(seen)]
+
+    async def archive_events_before(self, *, keep_days: int) -> dict[str, int]:
+        """把 DB 里的老事件删掉（JSONL 冷文件是权威全量，读取端自动回退）。
+
+        每个 stream 保留其最大 seq 行作哨兵：seq 由 MAX(seq)+1 生成，
+        全删会让新事件序号回退、与冷文件撞号。
+        """
+
+        return await asyncio.to_thread(self._archive_events_before_sync, keep_days)
+
+    def _archive_events_before_sync(self, keep_days: int) -> dict[str, int]:
+        cutoff = (
+            datetime.now(timezone.utc) - timedelta(days=max(0, keep_days))
+        ).isoformat()
+        with self._connect() as conn:
+            before = conn.execute("SELECT COUNT(*) AS c FROM events").fetchone()["c"]
+            conn.execute(
+                """DELETE FROM events WHERE created_at < ?
+                   AND seq < (SELECT MAX(seq) FROM events e2
+                              WHERE e2.stream_id = events.stream_id)""",
+                (cutoff,),
+            )
+            after_count = conn.execute("SELECT COUNT(*) AS c FROM events").fetchone()["c"]
+        return {"removed": before - after_count, "remaining": after_count}
 
     async def subscribe(self, stream_id: str, after: int = 0) -> AsyncIterator[EventRecord]:
         for event in await self.list_events(stream_id, after):

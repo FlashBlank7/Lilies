@@ -66,6 +66,9 @@ class Settings(BaseSettings):
     platform_harness_secret_kms_key_id: str = "primary"
     platform_harness_secret_kms_key: str = Field(default="", repr=False)
     platform_harness_secret_kms_previous_keys: dict[str, str] = Field(default_factory=dict, repr=False)
+    # 事件冷归档：启动时把早于 N 天的事件移出 DB（JSONL 冷文件是权威全量，
+    # 读取端自动回退）。斩断 events 表无节制增长（实测 82.8 万行/557MB）。
+    event_archive_keep_days: int = 7
     platform_harness_network_egress_policy: str = "full"
     platform_harness_network_egress_allowlist: list[str] = Field(default_factory=list)
     connector_pre_dispatch_attestations: dict[str, dict[str, str]] = Field(

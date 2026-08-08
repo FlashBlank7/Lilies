@@ -1,0 +1,42 @@
+# CI：每次 push/PR 跑后端全量回归 + 前端类型检查。
+# 测试全部使用桩 provider，不需要任何模型密钥或网络出口。
+name: ci
+
+on:
+  push:
+    branches: [main, "refactor/**"]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Pytest（443+ 回归）
+        run: pytest tests/ -q
+
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: platform/frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: platform/frontend/package-lock.json
+      - name: Install
+        run: npm ci
+      - name: 类型检查
+        run: npx tsc --noEmit

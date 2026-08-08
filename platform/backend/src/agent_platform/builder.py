@@ -2176,7 +2176,7 @@ class WorkflowBuilder:
     @staticmethod
     def _redact(value: Any) -> Any:
         if isinstance(value, dict):
-            return {key: "***" if any(word in key.casefold() for word in ("secret", "token", "password", "api_key")) else WorkflowBuilder._redact(item) for key, item in value.items()}
+            return {key: "***" if not key.casefold().replace("-", "_").endswith("_tokens") and any(word in key.casefold() for word in ("secret", "token", "password", "api_key")) else WorkflowBuilder._redact(item) for key, item in value.items()}
         if isinstance(value, list):
             return [WorkflowBuilder._redact(item) for item in value]
         return value

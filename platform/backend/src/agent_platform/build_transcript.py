@@ -22,6 +22,15 @@ from typing import Any
 
 MAX_TOOL_RESULT_CHARS = 200_000
 _SECRET_KEY_HINTS = ("secret", "token", "password", "api_key", "apikey", "credential")
+
+
+def _is_metering_key(key: str) -> bool:
+    """计量字段豁免：input_tokens/output_tokens 等是审计数据不是凭证。
+
+    误伤它们会把 usage 全打成 ***，诊断被迫绕道数据库（已知缺陷 #6）。
+    """
+
+    return key.casefold().replace("-", "_").endswith("_tokens")
 _SECRET_VALUE = re.compile(
     r"(?i)\b(?:sk|api[_-]?key|bearer)[-_ ]?[A-Za-z0-9]{16,}",
 )
@@ -38,7 +47,8 @@ def redact(value: Any) -> Any:
         return {
             key: (
                 "***"
-                if any(hint in str(key).casefold() for hint in _SECRET_KEY_HINTS)
+                if not _is_metering_key(str(key))
+                and any(hint in str(key).casefold() for hint in _SECRET_KEY_HINTS)
                 else redact(item)
             )
             for key, item in value.items()
