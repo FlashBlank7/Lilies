@@ -4435,10 +4435,29 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             else state.get("inputs")
         ) or {}
         inputs_line = json.dumps(services.harness.redact_payload(run_inputs) if hasattr(services.harness, "redact_payload") else run_inputs, ensure_ascii=False, default=str)[:600]
+        # 强制复现：平台自动用报障运行的原始输入发起一次新鲜运行。
+        # 盲测教训：历史里的错误结论会压过任何指令（"上次查过是空数据"），
+        # 只有新鲜账本能击穿旧信念——所以不指望她自觉重查，直接把复现
+        # 运行递到她手里。
+        replay_line = ""
+        try:
+            replay = await services.workflow_runtime.create_run(
+                application_id,
+                WorkflowRunRequest(inputs=dict(run_inputs), use_draft=False),
+                origin="repair_replay",
+            )
+            replay_line = (
+                f"平台已用完全相同的输入自动发起复现运行 {replay['run_id']}。\n"
+                "先 run_inspect 这个复现运行的新鲜账本，以它为准定位——"
+                "不要沿用你在早前轮次里得出的任何结论。\n"
+            )
+        except Exception:
+            replay_line = ""
         message = (
             f"业主对运行 {run_id} 的结果不满意，要求你自查并修复。\n"
             f"这次运行的输入参数：{inputs_line}\n"
-            "（若业主描述的现象与这份输入对不上，先用相同/业主提到的输入自跑一次复现，再定位。）\n\n"
+            + replay_line
+            + "\n"
             + complaint
             + ("平台自动体检发现：" + "；".join(suspicions) + "\n\n" if suspicions else "")
             + "这次运行的执行流水账摘要：\n" + ledger + "\n\n"

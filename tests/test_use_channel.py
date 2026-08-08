@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import time
 from pathlib import Path
 from typing import AsyncIterator
 
@@ -112,3 +113,98 @@ def test_run_ledger_summary_flags_template_echo() -> None:
     ]
     _, clean = _summarize_run_ledger(healthy, {"topical_items": [{"t": 1}]})
     assert clean == []
+
+
+def test_repair_auto_replays_run_with_same_inputs(tmp_path: Path) -> None:
+    """返修强制复现：平台自动用报障输入发起新鲜运行并写进证据（缺陷 #3）。
+
+    盲测教训：历史错误结论会压过任何指令，只有新鲜账本能击穿旧信念。
+    """
+
+    app = create_app(
+        Settings(
+            api_token="workflow-test",
+            data_dir=tmp_path / "data",
+            workspace_root=tmp_path / "workspaces",
+        ),
+        SilentProvider(),
+    )
+    with TestClient(app) as client:
+        application_id = client.post(
+            "/api/v1/applications", headers=HEADERS,
+            json={"name": "复现测试", "requirement": "对账流程。"},
+        ).json()["id"]
+        # 造一个最小可发布工作流：start -> end
+        from uuid import uuid4
+
+        def mutate(revision: int, op: str, data: dict) -> int:
+            response = client.post(
+                f"/api/v1/applications/{application_id}/draft",
+                headers=HEADERS,
+                json={
+                    "expected_revision": revision,
+                    "idempotency_key": str(uuid4()),
+                    "op": op,
+                    "data": data,
+                },
+            )
+            assert response.status_code == 200, response.text
+            return response.json()["revision"]
+
+        revision = client.get(
+            f"/api/v1/applications/{application_id}/draft", headers=HEADERS
+        ).json()["revision"]
+        revision = mutate(revision, "add_node", {"node": {
+            "id": "start", "type": "start", "title": "开始",
+            "config": {"settings": {"inputs": [{"name": "date", "label": "日期", "type": "string",
+                                                "required": True, "example": "2026-08-07"}]}}}})
+        revision = mutate(revision, "add_node", {"node": {
+            "id": "end", "type": "end", "title": "结束",
+            "config": {"outputs": {"echo": {"$ref": {"node_id": "start", "path": ["date"]}}}}}})
+        revision = mutate(revision, "add_edge", {"edge": {
+            "id": "e1", "source": "start", "target": "end",
+            "source_port": "output", "target_port": "input"}})
+        published = client.post(
+            f"/api/v1/applications/{application_id}/versions", headers=HEADERS,
+            json={"acknowledge_warnings": True},
+        )
+        assert published.status_code == 200, published.text
+
+        # repair 需要构建记录在案：造一个空转构建（SilentProvider 一轮收工）
+        build_id = client.post(
+            f"/api/v1/applications/{application_id}/builds", headers=HEADERS,
+            json={"requirement": "把两张对账表按单号对起来给运营看。", "auto_publish": False, "max_turns": 5},
+        ).json()["build_id"]
+        for _ in range(400):
+            status = client.get(f"/api/v1/builds/{build_id}", headers=HEADERS).json()["status"]
+            if status not in {"queued", "building"}:
+                break
+            time.sleep(0.01)
+
+        run = client.post(
+            f"/api/v1/applications/{application_id}/runs", headers=HEADERS,
+            json={"inputs": {"date": "2026-08-07"}},
+        ).json()
+        run_id = run["run_id"]
+        # 等运行落终态
+        for _ in range(200):
+            record = client.get(f"/api/v1/runs/{run_id}", headers=HEADERS).json()
+            if record["status"] not in {"queued", "running"}:
+                break
+            time.sleep(0.01)
+
+        before = client.get(
+            f"/api/v1/applications/{application_id}/runs?limit=10", headers=HEADERS
+        ).json()
+        repair = client.post(
+            f"/api/v1/applications/{application_id}/runs/{run_id}/repair",
+            headers=HEADERS, json={"note": "结果不对"},
+        )
+        assert repair.status_code == 200, repair.text
+        after = client.get(
+            f"/api/v1/applications/{application_id}/runs?limit=10", headers=HEADERS
+        ).json()
+        # 平台自动多发起了一次复现运行，且输入与报障运行一致
+        assert len(after) == len(before) + 1
+        replay = after[0]
+        assert replay["state"]["inputs"] == {"date": "2026-08-07"}

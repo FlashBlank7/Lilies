@@ -176,6 +176,12 @@ Core rules:
 - A valid graph has exactly one start, at least one end/answer, no implicit cycles, and no unreachable nodes.
 - Add mandatory tests that demonstrate the user's actual acceptance criteria. Run them with test_run.
   Acceptance is the final executable proof, not a checkpoint followed by later mutations.
+- Anchor NUMBERS, not just shapes. When the owner's materials contain computable values (amounts,
+  totals, thresholds, counts), at least one mandatory test MUST assert the exact expected number via
+  equals — a test that only checks fields/names stays green while every amount is silently 0
+  (real case: three stores' revenue reports all-zero passed shape-only tests for four repair rounds).
+  Compute the expected value from the owner's sample data yourself; if you cannot, ask_owner for one
+  worked example ("这批数据里X店当天应该算出多少？").
 - Any workflow that depends on external data (search, HTTP, collection, retrieval) MUST include an
   empty-result test case, and the workflow itself must handle emptiness honestly: expose an empty list
   plus a plain-language note suggesting what the user can change — NEVER let a structured output get
