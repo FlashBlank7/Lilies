@@ -35,6 +35,7 @@ from .capability_evidence import (
     VerificationStatus,
 )
 from .customer_runtime_projection import (
+    auto_view_tabs,
     default_hidden_nodes,
     project_runtime_application,
     project_runtime_definition,
@@ -43,6 +44,7 @@ from .customer_runtime_projection import (
     project_view_definition,
     project_view_run,
     resolve_view_layout,
+    synthesize_auto_view,
 )
 from .connector_sdk import (
     ConnectorAdapterError,
@@ -4545,14 +4547,18 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         return {"status": "deleted"}
 
     async def _resolve_use_view(
-        application_id: str, view_id: str
+        application_id: str, view_id: str, snapshot: Any = None
     ) -> dict[str, Any] | None:
-        """找界面方案：指定的查不到就回落默认；都没有 → None（自动推导）。"""
+        """找界面方案：存储的优先（业主命名/调整过），其次自动合成（极简/对话），
+        都没有 → None（管理界面，自动推导）。"""
 
         if view_id:
             stored = await services.workflow_store.get_view(application_id, view_id)
             if stored:
                 return stored
+            synthesized = synthesize_auto_view(snapshot, view_id)
+            if synthesized:
+                return synthesized
         return await services.workflow_store.get_view(application_id, "default")
 
     @app.get("/api/v1/use/{application_id}/definition")
@@ -4568,20 +4574,26 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         definition["application_name"] = application.get("name", "")
         snapshot = definition.get("snapshot")
         definition["view"] = project_view_definition(
-            snapshot, await _resolve_use_view(application_id, view)
+            snapshot, await _resolve_use_view(application_id, view, snapshot)
         )
-        # WaaS：一个服务一个入口，界面在服务里切换。标签栏 = 默认界面 + 业主命名的各界面。
+        # WaaS：一个服务一个入口，界面在服务里切换。
+        # 标签栏 = 自动生成的一组界面（管理/极简/对话）+ 业主命名的界面；
+        # 业主用同名标识（default/auto-simple/auto-chat）可覆盖自动界面。
         stored_views = await services.workflow_store.list_views(application_id)
-        stored_default = next(
-            (item for item in stored_views if item["view_id"] == "default"), None
-        )
-        tabs = [{
-            "view_id": stored_default["view_id"] if stored_default else "",
-            "name": stored_default["name"] if stored_default else "默认界面",
-            "layout": resolve_view_layout(
-                snapshot, stored_default["layout"] if stored_default else "auto"
-            ),
-        }]
+        stored_by_id = {item["view_id"]: item for item in stored_views}
+        tabs: list[dict[str, Any]] = []
+        auto_ids: set[str] = set()
+        for auto_tab in auto_view_tabs(snapshot):
+            storage_id = auto_tab["view_id"] or "default"
+            auto_ids.add(storage_id)
+            stored = stored_by_id.get(storage_id)
+            tabs.append({
+                "view_id": auto_tab["view_id"],
+                "name": stored["name"] if stored else auto_tab["name"],
+                "layout": resolve_view_layout(
+                    snapshot, stored["layout"] if stored else auto_tab["layout"]
+                ),
+            })
         tabs.extend(
             {
                 "view_id": item["view_id"],
@@ -4589,7 +4601,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
                 "layout": resolve_view_layout(snapshot, item["layout"]),
             }
             for item in stored_views
-            if item["view_id"] != "default"
+            if item["view_id"] not in auto_ids
         )
         definition["views"] = tabs
         report = acceptance_pm.load_report(services.settings.data_dir, application_id)
@@ -4630,7 +4642,15 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
     ) -> dict[str, Any]:
         await _require_use_access(application_id, code)
         run = await _use_run(application_id, run_id)
-        return project_view_run(run, await _resolve_use_view(application_id, view))
+        state = run.get("state")
+        snapshot = (
+            getattr(state, "snapshot", None)
+            if not isinstance(state, dict)
+            else state.get("snapshot")
+        )
+        return project_view_run(
+            run, await _resolve_use_view(application_id, view, snapshot)
+        )
 
     @app.post("/api/v1/use/{application_id}/runs/{run_id}/resume")
     async def use_resume_run(

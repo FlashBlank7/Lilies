@@ -17,10 +17,14 @@ from fastapi.testclient import TestClient
 from agent_platform.api import create_app
 from agent_platform.config import Settings
 from agent_platform.customer_runtime_projection import (
+    AUTO_VIEW_CHAT,
+    AUTO_VIEW_SIMPLE,
+    auto_view_tabs,
     default_hidden_nodes,
     project_view_definition,
     project_view_run,
     resolve_view_layout,
+    synthesize_auto_view,
 )
 from agent_platform.models import ChatMessage, StreamEvent, ToolDefinition
 from agent_platform.providers.base import ModelProvider, ProviderCapabilities
@@ -171,9 +175,9 @@ def test_view_crud_and_use_channel_projection(tmp_path: Path) -> None:
         )
         assert definition.status_code == 200
         assert definition.json()["view"]["view_id"] == "operator"
-        # WaaS 标签栏：默认界面排第一，业主命名的界面跟在后面
+        # WaaS 标签栏：自动生成的管理界面排第一，业主命名的界面跟在后面
         tabs = definition.json()["views"]
-        assert tabs[0]["name"] == "默认界面"
+        assert tabs[0]["name"] == "管理界面"
         assert {tab["view_id"] for tab in tabs} == {"", "operator", "manager"}
         # 查不到的视图回落（默认视图或自动推导），不 404
         fallback = client.get(
@@ -189,3 +193,39 @@ def test_view_crud_and_use_channel_projection(tmp_path: Path) -> None:
             f"/api/v1/applications/{application_id}/views", headers=HEADERS
         ).json()["views"]
         assert {v["view_id"] for v in views} == {"operator"}
+
+
+def test_every_workflow_gets_auto_views() -> None:
+    """每个工作流自动生成一组界面：管理 + 极简 +（模型类）对话——标注只是定制。"""
+
+    tabs = auto_view_tabs(SNAPSHOT)
+    # judge 是 llm 环节 → 支持对话；search/shape/judge 是中间环节 → 有极简
+    assert [(t["view_id"], t["name"], t["layout"]) for t in tabs] == [
+        ("", "管理界面", "form"),
+        (AUTO_VIEW_SIMPLE, "极简界面", "form"),
+        (AUTO_VIEW_CHAT, "对话界面", "chat"),
+    ]
+
+    # answer 终端的工作流：管理界面本身就是对话形态，不再重复"对话界面"标签
+    chat_snapshot = json.loads(json.dumps(SNAPSHOT))
+    chat_snapshot["workflow"]["nodes"][-1] = {"id": "end", "type": "answer", "title": "回答"}
+    chat_tabs = auto_view_tabs(chat_snapshot)
+    assert [t["view_id"] for t in chat_tabs] == ["", AUTO_VIEW_SIMPLE]
+    assert chat_tabs[0]["layout"] == "chat"
+
+
+def test_auto_simple_view_hides_every_stage() -> None:
+    simple = synthesize_auto_view(SNAPSHOT, AUTO_VIEW_SIMPLE)
+    assert simple is not None
+    assert set(simple["hidden_nodes"]) == {"search", "shape", "judge"}
+
+    projected = project_view_run(RUN, simple)
+    assert projected["stages"] == []
+    assert projected["outputs"] == {"verdict": "有风险", "confidence": 0.9}
+
+    # 对话自动界面只对模型类工作流存在
+    no_model = json.loads(json.dumps(SNAPSHOT))
+    for node in no_model["workflow"]["nodes"]:
+        if node["type"] == "llm":
+            node["type"] = "record_match"
+    assert synthesize_auto_view(no_model, AUTO_VIEW_CHAT) is None

@@ -420,6 +420,63 @@ def default_hidden_nodes(snapshot: Any) -> list[str]:
     ]
 
 
+# ── 自动界面：每个工作流天生带一组界面，标注只是定制 ──
+
+AUTO_VIEW_SIMPLE = "auto-simple"
+AUTO_VIEW_CHAT = "auto-chat"
+_CHAT_CAPABLE_TYPES = frozenset({"model_turn", "llm", "agent", "answer"})
+
+
+def _all_stage_node_ids(snapshot: Any) -> list[str]:
+    return [
+        str(node.get("id"))
+        for node in _snapshot_nodes(snapshot)
+        if node.get("id")
+        and str(node.get("type") or "") not in _TERMINAL_TYPES
+        and str(node.get("type") or "") != "start"
+    ]
+
+
+def workflow_supports_chat(snapshot: Any) -> bool:
+    types = {str(node.get("type") or "") for node in _snapshot_nodes(snapshot)}
+    return bool(types & _CHAT_CAPABLE_TYPES)
+
+
+def synthesize_auto_view(snapshot: Any, view_id: str) -> dict[str, Any] | None:
+    """合成自动界面：极简（全部中间环节隐藏）与对话（模型类工作流）。"""
+
+    if view_id == AUTO_VIEW_SIMPLE:
+        return {
+            "view_id": AUTO_VIEW_SIMPLE,
+            "name": "极简界面",
+            "layout": "form",
+            "hidden_nodes": _all_stage_node_ids(snapshot),
+        }
+    if view_id == AUTO_VIEW_CHAT and workflow_supports_chat(snapshot):
+        return {
+            "view_id": AUTO_VIEW_CHAT,
+            "name": "对话界面",
+            "layout": "chat",
+            "hidden_nodes": default_hidden_nodes(snapshot),
+        }
+    return None
+
+
+def auto_view_tabs(snapshot: Any) -> list[dict[str, Any]]:
+    """每个工作流自动生成的标签集合（不落库，运行时合成）。"""
+
+    tabs = [{
+        "view_id": "",
+        "name": "管理界面",
+        "layout": resolve_view_layout(snapshot, "auto"),
+    }]
+    if _all_stage_node_ids(snapshot):
+        tabs.append({"view_id": AUTO_VIEW_SIMPLE, "name": "极简界面", "layout": "form"})
+    if workflow_supports_chat(snapshot) and tabs[0]["layout"] != "chat":
+        tabs.append({"view_id": AUTO_VIEW_CHAT, "name": "对话界面", "layout": "chat"})
+    return tabs
+
+
 def resolve_view_layout(snapshot: Any, layout: str) -> str:
     """auto → 有 answer 节点的工作流长成对话界面，其余是表单。"""
 
