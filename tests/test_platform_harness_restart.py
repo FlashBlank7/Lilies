@@ -73,3 +73,29 @@ def test_worker_yields_when_build_already_running_elsewhere() -> None:
     handler = builder_build_handler(StubBuilder())
     result = asyncio.run(handler(Task()))
     assert result["status"] == "skipped_already_running"
+
+
+@pytest.mark.asyncio
+async def test_revived_task_budget_counts_per_segment(tmp_path: Path) -> None:
+    """预算按工作段计：返修 N 段的长寿命任务每段有完整预算，审计账保留全量。
+
+    ERP 盲测处决案：build 跨 7 段累计 204 次工具调用，任务级预算按
+    生命周期封顶——第 201 次记账当场处决，后续调用全撞
+    "platform task is not running"。
+    """
+
+    harness = await _harness(tmp_path)
+    harness.max_tool_calls_per_task = 5
+    await harness.start_task("b-1", kind="builder_build", owner_id="app", resource_id="b-1")
+    for _ in range(5):
+        await harness.record_usage("b-1", "tool_call")
+    await harness.finish_task("b-1", status="failed", error="boom")
+
+    # 复活 = 新工作段：基线重置，新段又有 5 次预算
+    await harness.start_task("b-1", kind="builder_build", owner_id="app", resource_id="b-1")
+    for _ in range(5):
+        await harness.record_usage("b-1", "tool_call")
+    task = await harness.get_task("b-1")
+    assert task.status == "running", task.error
+    # 审计账保留全生命周期
+    assert task.usage_counts["tool_call"] == 10

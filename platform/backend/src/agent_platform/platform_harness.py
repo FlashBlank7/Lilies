@@ -78,6 +78,10 @@ class PlatformTaskRecord(BaseModel):
     parent_task_id: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
     usage_counts: dict[str, int] = Field(default_factory=dict)
+    # 每次复活（返修/复工）时的用量快照：预算按"本工作段增量"检查，
+    # 而审计账（usage/usage_counts）保留完整生命周期。没有它，跨多段
+    # 返修的长寿命构建必然撞任务级预算（ERP 盲测 204>200 处决案）。
+    usage_baseline: dict[str, int] = Field(default_factory=dict)
     usage: list[PlatformUsageRecord] = Field(default_factory=list)
     error: str = ""
     worker_id: str | None = None
@@ -185,6 +189,8 @@ class PlatformHarness:
                     record.error = ""
                     record.updated_at = utc_now()
                     record.finished_at = None
+                    # 新工作段：预算从当前累计重新起算（审计账不动）。
+                    record.usage_baseline = dict(record.usage_counts)
                     if effective_lease_seconds > 0:
                         self._assign_lease(
                             record,
@@ -769,24 +775,30 @@ class PlatformHarness:
         return record.model_copy(deep=True)
 
     def _violation(self, record: PlatformTaskRecord, usage_type: UsageType) -> str:
-        counts = record.usage_counts
-        if usage_type == "model_call" and counts.get("model_call", 0) > self.max_model_calls_per_task:
+        # 预算按当前工作段增量计（累计 - 复活基线）：返修 N 段的长寿命
+        # 任务每段都有完整预算，而不是被历史段吃光后当场处决。
+        baseline = record.usage_baseline or {}
+
+        def segment(name: str) -> int:
+            return record.usage_counts.get(name, 0) - baseline.get(name, 0)
+
+        if usage_type == "model_call" and segment("model_call") > self.max_model_calls_per_task:
             return (
                 "model call budget exceeded: "
-                f"{counts['model_call']} > {self.max_model_calls_per_task}"
+                f"{segment('model_call')} > {self.max_model_calls_per_task}"
             )
-        if usage_type == "tool_call" and counts.get("tool_call", 0) > self.max_tool_calls_per_task:
+        if usage_type == "tool_call" and segment("tool_call") > self.max_tool_calls_per_task:
             return (
                 "tool call budget exceeded: "
-                f"{counts['tool_call']} > {self.max_tool_calls_per_task}"
+                f"{segment('tool_call')} > {self.max_tool_calls_per_task}"
             )
         if (
             usage_type == "node_execution"
-            and counts.get("node_execution", 0) > self.max_node_executions_per_task
+            and segment("node_execution") > self.max_node_executions_per_task
         ):
             return (
                 "node execution budget exceeded: "
-                f"{counts['node_execution']} > {self.max_node_executions_per_task}"
+                f"{segment('node_execution')} > {self.max_node_executions_per_task}"
             )
         return ""
 
