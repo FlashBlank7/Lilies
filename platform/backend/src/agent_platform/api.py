@@ -4409,8 +4409,19 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
                 merged.update(value)
         ledger, suspicions = _summarize_run_ledger(events, merged)
         complaint = f"业主备注：{body.note}\n\n" if body.note.strip() else ""
+        # 证据必须自带身份：这份账本对应哪次输入。缺了它，业主投诉"正常日
+        # 金额不对"而账本恰好来自空数据日时，两份证据自相矛盾，修复会被
+        # 带进"把 0 合理化"的沟里（ERP 盲测返修#3/#4 实案）。
+        run_inputs = (
+            getattr(state, "inputs", None)
+            if not isinstance(state, dict)
+            else state.get("inputs")
+        ) or {}
+        inputs_line = json.dumps(services.harness.redact_payload(run_inputs) if hasattr(services.harness, "redact_payload") else run_inputs, ensure_ascii=False, default=str)[:600]
         message = (
-            f"业主对运行 {run_id} 的结果不满意，要求你自查并修复。\n\n"
+            f"业主对运行 {run_id} 的结果不满意，要求你自查并修复。\n"
+            f"这次运行的输入参数：{inputs_line}\n"
+            "（若业主描述的现象与这份输入对不上，先用相同/业主提到的输入自跑一次复现，再定位。）\n\n"
             + complaint
             + ("平台自动体检发现：" + "；".join(suspicions) + "\n\n" if suspicions else "")
             + "这次运行的执行流水账摘要：\n" + ledger + "\n\n"
