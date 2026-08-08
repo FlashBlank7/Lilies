@@ -42,3 +42,34 @@ async def test_terminal_tasks_restart_and_accept_usage(
     # The old wall: "platform task is not running ... status=failed"
     usage = await harness.record_usage("build-1", "model_call")
     assert usage is not None
+
+
+def test_worker_yields_when_build_already_running_elsewhere() -> None:
+    """双执行者互斥：worker 撞"别处在跑"必须交还执行权，不许把任务打成 failed。
+
+    ERP 盲测两次死亡的真凶：租约到期 requeue → worker 再认领 → 撞 API 进程
+    正跑的构建 → finish(failed) → 正跑实例 record_usage 全线崩。
+    """
+
+    import asyncio
+
+    from agent_platform.worker_runner import builder_build_handler
+
+    class StubBuilder:
+        class workflow_store:  # noqa: N801 - 只为满足属性访问
+            @staticmethod
+            async def get_build(build_id: str):
+                raise AssertionError("不应该走到失败收集分支")
+
+        @staticmethod
+        async def run_claimed_build(build_id: str):
+            raise RuntimeError("build is already running")
+
+    class Task:
+        id = "b-1"
+        resource_id = "b-1"
+        metadata: dict = {}
+
+    handler = builder_build_handler(StubBuilder())
+    result = asyncio.run(handler(Task()))
+    assert result["status"] == "skipped_already_running"

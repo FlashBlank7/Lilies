@@ -201,6 +201,19 @@ class PlatformHarnessWorkerRunner:
             )
             return self._result(finished or claimed, "failed", error=str(error), metadata=metadata)
         await self._stop_renewal_task(renewal_task)
+        if isinstance(result_metadata, dict) and result_metadata.get("status") == "skipped_already_running":
+            # 任务在别的执行者手里活着：不 finish（打成 succeeded 同样会连坐
+            # 正跑实例），把租约状态还成 running 交还执行权。
+            released = await self.harness.release_task_lease(
+                claimed.id,
+                worker_id=self.worker_id,
+                next_status="running",
+            )
+            await self._record_heartbeat(
+                status="idle",
+                metadata={"phase": "task_skipped_already_running", "last_task_id": claimed.id},
+            )
+            return self._result(released or claimed, "skipped", metadata={"worker_runner": result_metadata})
         metadata = self._worker_metadata(
             status="succeeded",
             result=result_metadata,
@@ -769,6 +782,16 @@ def builder_build_handler(builder: Any) -> PlatformTaskHandler:
         try:
             result = await builder.run_claimed_build(build_id)
         except Exception as error:
+            if isinstance(error, RuntimeError) and "already running" in str(error):
+                # 另一执行者（API 直启的构建循环）正在跑这个 build。这不是失败——
+                # worker 把任务打成 failed 会连坐正跑的实例（record_usage 撞
+                # "not running: failed" 全线崩，ERP 盲测两次死亡的真凶）。
+                # 把执行权还回去，安静退出。
+                return {
+                    "build_id": build_id,
+                    "status": "skipped_already_running",
+                    "note": "build is executing in another runner; lease released without failing the task",
+                }
             failure_result: dict[str, Any] = {"build_id": build_id}
             try:
                 build = await builder.workflow_store.get_build(build_id)
