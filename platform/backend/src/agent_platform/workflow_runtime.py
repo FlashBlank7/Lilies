@@ -2277,6 +2277,9 @@ class WorkflowRuntime:
                     workspace_path,
                     run_id,
                     prefix=f"{scoped_id}[{index}].",
+                    # 嵌套执行必须继承运行状态：丢了它，owner 身份随之丢失，
+                    # 循环体内的 $secret 凭证引用会以空 owner 被拒（盲测返修#1 的真凶）。
+                    top_state=state,
                 )
                 loop_context = {"inputs": nested_inputs, "nodes": nested}
                 output = nested.get(config.output_node_id, {})
