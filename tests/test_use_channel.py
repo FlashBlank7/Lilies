@@ -84,3 +84,31 @@ def test_use_channel_access_and_table_parse(tmp_path: Path) -> None:
             f"/api/v1/use/{application_id}/runs?code={newcode}", json={"inputs": {}}
         )
         assert run.status_code in (404, 422)
+
+
+def test_run_ledger_summary_flags_template_echo() -> None:
+    from agent_platform.api import _summarize_run_ledger
+
+    class Event:
+        def __init__(self, type_, data):
+            self.type = type_
+            self.data = data
+
+    events = [
+        Event("node.completed", {"node_id": "web_search", "outputs": {"output": {"query": "x", "results": []}}}),
+        Event("node.completed", {"node_id": "analyze", "outputs": {"structured": {"analysis": {"a": 1}}}}),
+        Event("node.failed", {"node_id": "later", "error": "boom"}),
+    ]
+    ledger, suspicions = _summarize_run_ledger(
+        events, {"topical_items": {"title": "示例标题"}, "note": ""}
+    )
+    assert "web_search" in ledger and "results=[]" in ledger
+    assert "later 失败" in ledger
+    assert suspicions and "疑似" in suspicions[0]
+
+    # 上游有真数据时不误报
+    healthy = [
+        Event("node.completed", {"node_id": "web_search", "outputs": {"output": {"results": [{"t": 1}]}}}),
+    ]
+    _, clean = _summarize_run_ledger(healthy, {"topical_items": [{"t": 1}]})
+    assert clean == []

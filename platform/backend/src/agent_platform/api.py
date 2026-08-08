@@ -376,6 +376,56 @@ class AcceptanceInterviewRequest(BaseModel):
     examples: str = Field(min_length=5, max_length=20_000)
 
 
+def _summarize_run_ledger(
+    events: list[Any], final_outputs: dict[str, Any] | None
+) -> tuple[str, list[str]]:
+    """机械生成返修证据摘要 + 可疑信号（零模型消耗）。"""
+
+    lines: list[str] = []
+    suspicions: list[str] = []
+    empty_upstream: list[str] = []
+    for event in events:
+        data = getattr(event, "data", None) or {}
+        kind = getattr(event, "type", "")
+        node_id = str(data.get("node_id") or "")
+        if kind == "node.completed":
+            outputs = data.get("outputs") or {}
+            emptiness: list[str] = []
+            def _scan(value: Any, path: str) -> None:
+                if isinstance(value, list) and not value:
+                    emptiness.append(f"{path}=[]")
+                elif isinstance(value, dict):
+                    for key, item in list(value.items())[:8]:
+                        _scan(item, f"{path}.{key}" if path else key)
+            _scan(outputs, "")
+            note = f"；空集合：{'、'.join(emptiness[:3])}" if emptiness else ""
+            lines.append(f"- {node_id} 完成{note}")
+            if emptiness:
+                empty_upstream.append(node_id)
+        elif kind == "node.failed":
+            lines.append(f"- {node_id} 失败：{str(data.get('error'))[:160]}")
+        elif kind == "workflow.failed":
+            lines.append(f"- 整体失败：{str(data.get('error'))[:160]}")
+    if empty_upstream and final_outputs:
+        filled = [
+            key for key, value in final_outputs.items()
+            if (isinstance(value, list) and value)
+            or (isinstance(value, str) and len(value) > 40)
+            or (isinstance(value, dict) and value)
+        ]
+        if filled:
+            suspicions.append(
+                "上游节点（" + "、".join(empty_upstream[:3]) + "）返回了空集合，"
+                "但最终输出仍然填满（" + "、".join(filled[:4]) + "）——"
+                "疑似用格式示例或编造内容充数"
+            )
+    return "\n".join(lines[:24]), suspicions
+
+
+class RunRepairRequest(BaseModel):
+    note: str = Field(default="", max_length=4_000)
+
+
 class UseTableRequest(BaseModel):
     filename: str = Field(default="paste.txt", max_length=200)
     text: str | None = Field(default=None, max_length=2_000_000)
@@ -4317,6 +4367,78 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         )
         summary = await asyncio.to_thread(services.build_transcripts.summary, build_id)
         return {"build_id": build_id, "summary": summary, "records": records}
+
+    # ── 运行级返修：业主一键"让莉莉丝自己查"，流水账证据自动随单 ──
+
+    @app.post(
+        "/api/v1/applications/{application_id}/runs/{run_id}/repair",
+        dependencies=[Depends(require_token)],
+    )
+    async def request_run_repair(
+        application_id: str, run_id: str, body: RunRepairRequest
+    ) -> dict[str, Any]:
+        try:
+            run = await services.workflow_store.get_run(run_id)
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+        if str(run.get("application_id")) != application_id:
+            raise HTTPException(404, "这个运行不属于该应用")
+        builds = await services.workflow_store.list_builds(application_id)
+        if not builds:
+            raise HTTPException(409, "该应用没有可返修的构建")
+        build = builds[0]
+        if build["status"] in {"queued", "building"}:
+            raise HTTPException(409, "莉莉丝正在搭建中，等这轮结束再让她查")
+        events = await services.storage.list_events(run_id, 0)
+        state = run.get("state")
+        merged: dict[str, Any] = {}
+        for value in ((state.outputs if hasattr(state, "outputs") else {}) or {}).values():
+            if isinstance(value, dict):
+                merged.update(value)
+        ledger, suspicions = _summarize_run_ledger(events, merged)
+        complaint = f"业主备注：{body.note}\n\n" if body.note.strip() else ""
+        message = (
+            f"业主对运行 {run_id} 的结果不满意，要求你自查并修复。\n\n"
+            + complaint
+            + ("平台自动体检发现：" + "；".join(suspicions) + "\n\n" if suspicions else "")
+            + "这次运行的执行流水账摘要：\n" + ledger + "\n\n"
+            + "要求：先用 run_inspect 核对这次运行的完整证据，找到根因再动手修；"
+            + "修好后必须自测（含空结果/异常输入的用例）确认问题消失，再重新发布。"
+            + "不许只调提示词碰运气，不许拿格式示例充当结果。"
+        )
+        services.builder.queue_resume_message(build["id"], message[:8_000])
+        await asyncio.to_thread(
+            services.build_transcripts.append,
+            build["id"],
+            owner_record(text=f"[对运行 {run_id[:8]} 不满意，发起自查] {body.note}".strip(), draft_revision=build["team_state"].revision),
+        )
+        await services.workflow_store.update_build(build["id"], status="queued", error="")
+        services.builder.start(build["id"])
+        return {
+            "application_id": application_id,
+            "build_id": build["id"],
+            "status": "queued",
+            "suspicions": suspicions,
+        }
+
+    @app.get(
+        "/api/v1/applications/{application_id}/runs/{run_id}/health",
+        dependencies=[Depends(require_token)],
+    )
+    async def run_health(application_id: str, run_id: str) -> dict[str, Any]:
+        """零模型体检：给试运行页出"结果可疑"横幅用。"""
+
+        run = await services.workflow_store.get_run(run_id)
+        if str(run.get("application_id")) != application_id:
+            raise HTTPException(404, "这个运行不属于该应用")
+        events = await services.storage.list_events(run_id, 0)
+        state = run.get("state")
+        merged: dict[str, Any] = {}
+        for value in ((state.outputs if hasattr(state, "outputs") else {}) or {}).values():
+            if isinstance(value, dict):
+                merged.update(value)
+        _, suspicions = _summarize_run_ledger(events, merged)
+        return {"run_id": run_id, "suspicions": suspicions}
 
     # ── 使用者通道：一应用一码，链接即交付（永不出示总钥匙） ──
 

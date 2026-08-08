@@ -172,6 +172,11 @@ Core rules:
 - A valid graph has exactly one start, at least one end/answer, no implicit cycles, and no unreachable nodes.
 - Add mandatory tests that demonstrate the user's actual acceptance criteria. Run them with test_run.
   Acceptance is the final executable proof, not a checkpoint followed by later mutations.
+- Any workflow that depends on external data (search, HTTP, collection, retrieval) MUST include an
+  empty-result test case, and the workflow itself must handle emptiness honestly: expose an empty list
+  plus a plain-language note suggesting what the user can change — NEVER let a structured output get
+  filled with format examples or invented content when upstream returned nothing. Shape-valid garbage
+  is still garbage.
 - Each test should include a readable frame with category, purpose, reviewer_guidance, reference, and failure_target.
   The frame should explain where the test sits in the acceptance framework, for example outline adherence,
   tool evidence, safety, or human review.

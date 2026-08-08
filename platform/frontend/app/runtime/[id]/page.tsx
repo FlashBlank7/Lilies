@@ -543,6 +543,10 @@ export default function CustomerRuntimePage() {
   const [definition, setDefinition] = useState<RuntimeDefinition | null>(null)
   const [fields, setFields] = useState<RuntimeField[]>([])
   const [run, setRun] = useState<RunRecord | null>(null)
+  const [runSuspicions, setRunSuspicions] = useState<string[]>([])
+  const [repairNote, setRepairNote] = useState('')
+  const [repairNotice, setRepairNotice] = useState('')
+  const [repairBusy, setRepairBusy] = useState(false)
   const [events, setEvents] = useState<StoredEvent[]>([])
   const [loading, setLoading] = useState(true)
   const [starting, setStarting] = useState(false)
@@ -763,6 +767,18 @@ export default function CustomerRuntimePage() {
 
   const running = run?.status === 'queued' || run?.status === 'running'
 
+  // 运行终态后做一次零模型体检（空上游+满输出=可疑），并复位返修面板
+  useEffect(() => {
+    if (!run || running) return
+    setRepairNotice('')
+    let cancelled = false
+    void api<{ suspicions: string[] }>(`/api/v1/applications/${id}/runs/${run.id}/health`)
+      .then(result => { if (!cancelled) setRunSuspicions(result.suspicions || []) })
+      .catch(() => { if (!cancelled) setRunSuspicions([]) })
+    return () => { cancelled = true }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [run?.id, run?.status, running])
+
   const runtimeReady = !loading && !authNeeded && Boolean(application && displaySnapshot)
 
   return <main
@@ -858,6 +874,37 @@ export default function CustomerRuntimePage() {
           <div className={styles.sectionHeading}><div><span>03</span><div><h2 id="runtime-result-title">本次结果</h2><p>{run?.status === 'succeeded' ? '结果已经整理完成。' : run?.status === 'failed' ? '这次运行没有完成，下面给出了恢复建议。' : '工作流完成后，结果会显示在这里。'}</p></div></div>{run?.updated_at && <time><Clock3 size={14} />{new Date(run.updated_at).toLocaleTimeString()}</time>}</div>
           {boundedConnectorReceipt && <dl className={connectorStyles.receipt} data-customer-connector-receipt="redacted"><div><dt>执行状态</dt><dd data-connector-receipt-status={text(boundedConnectorReceipt.status, 'unknown')}>{connectorStatusLabel(boundedConnectorReceipt.status)}</dd></div><div><dt>副作用</dt><dd data-connector-side-effect={text(boundedConnectorReceipt.side_effect_state, 'unknown')}>{connectorSideEffectLabel(boundedConnectorReceipt.side_effect_state)}</dd></div><div><dt>外部引用</dt><dd>{text(boundedConnectorReceipt.external_reference, '尚未生成')}</dd></div><div><dt>下一步</dt><dd>{boundedConnectorReceipt.status === 'dry_run' ? '等待维护人员核对并授权' : boundedConnectorReceipt.compensation_execution_id ? '补偿已记录' : '查看最终结果'}</dd></div></dl>}
           {resultMarkdown && !connectorWorkflow ? <MarkdownResultCard source={resultMarkdown} emptyLabel="暂无结果" title="工作流结果" description="已按可读格式整理" openLabel="展开阅读" closeLabel="关闭" dataSurface="customer-runtime-result" /> : !boundedConnectorReceipt && <div className={styles.emptyResult}><Workflow size={24} /><span>{running ? '正在生成结果' : run?.status === 'failed' ? '这次运行没有生成可用结果' : '尚无运行结果'}</span></div>}
+          {run && !running && <div data-run-repair="panel" style={{ marginTop: 14, borderTop: '1px solid rgba(148,163,184,.25)', paddingTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {runSuspicions.length > 0 && <p style={{ margin: 0, fontSize: 13, lineHeight: 1.7, color: '#b45309', background: 'rgba(245,158,11,.12)', border: '1px solid rgba(245,158,11,.4)', borderRadius: 10, padding: '8px 12px' }}>
+              ⚠ 平台体检：{runSuspicions.join('；')}
+            </p>}
+            {repairNotice
+              ? <p style={{ margin: 0, fontSize: 13 }}>{repairNotice} <Link href={`/applications/${id}/session`} style={{ textDecoration: 'underline' }}>去会话空间看她的进展 ↗</Link></p>
+              : <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <input
+                    onChange={event => setRepairNote(event.target.value)}
+                    placeholder="不满意的地方（可留空）"
+                    style={{ flex: '1 1 240px', border: '1px solid rgba(148,163,184,.4)', borderRadius: 8, padding: '8px 10px', fontSize: 13, background: 'transparent', color: 'inherit' }}
+                    value={repairNote}
+                  />
+                  <button
+                    disabled={repairBusy}
+                    onClick={() => {
+                      if (!run) return
+                      setRepairBusy(true)
+                      void api<{ build_id: string }>(`/api/v1/applications/${id}/runs/${run.id}/repair`, {
+                        method: 'POST',
+                        body: JSON.stringify({ note: repairNote }),
+                      })
+                        .then(() => setRepairNotice('莉莉丝已带着这次运行的完整证据开始自查。'))
+                        .catch(error => setRepairNotice(String(error)))
+                        .finally(() => setRepairBusy(false))
+                    }}
+                    style={{ border: 0, borderRadius: 8, padding: '9px 16px', fontSize: 13, cursor: 'pointer', background: '#0e7a5f', color: '#fff' }}
+                    type="button"
+                  >{repairBusy ? '提交中…' : '不满意？让莉莉丝自己查'}</button>
+                </div>}
+          </div>}
         </section>
         </>}
       </section>
