@@ -4794,11 +4794,27 @@ class WorkflowRuntime:
             return len(resolved)
         if operator == "$sum":
             items, path, where = cls._assignment_collection_spec(operand, context)
-            values = [
-                cls._assignment_path(item, path)
-                for item in items
-                if cls._assignment_where(item, where)
-            ]
+            values = []
+            shape_errors = 0
+            for item in items:
+                if where is not None:
+                    try:
+                        matched = cls._assignment_path(item, list(where["path"])) == where["equals"]
+                    except (KeyError, IndexError, TypeError, ValueError):
+                        shape_errors += 1
+                        continue
+                    if not matched:
+                        continue
+                values.append(cls._assignment_path(item, path))
+            # 诚实失败哨兵：过滤条件在每一个元素上都取不到字段，说明集合形状
+            # 不对（常见：多页数据按页嵌套成了列表的列表）。静默返回 0 会把
+            # 正确的工作流拖进"金额全 0"的无声深渊（ERP 盲测四轮返修实案）。
+            if items and where is not None and shape_errors == len(items):
+                raise TypeError(
+                    f"$sum 的过滤条件在全部 {len(items)} 个元素上都取不到字段"
+                    f" {list(where['path'])}——元素可能不是记录（例如按页嵌套的列表）；"
+                    "多页数据请先合并成一份平铺列表再聚合"
+                )
             if any(isinstance(item, bool) or not isinstance(item, (int, float)) for item in values):
                 raise TypeError("$sum selected values must be numbers")
             return sum(values)
@@ -4832,6 +4848,14 @@ class WorkflowRuntime:
             or len(where["path"]) > 32
         ):
             raise ValueError("collection expression where must contain path and equals")
+        if where is not None:
+            # equals 允许是 $ref/嵌套操作符：必须先解析再比较。不解析的话，
+            # {"$ref": ...} 字典与行字段永远不相等，where 永远不匹配，
+            # $sum 静默归零（ERP 盲测把正确工作流拖死四轮的真凶）。
+            where = {
+                "path": list(where["path"]),
+                "equals": cls._resolve_assignment(where["equals"], context),
+            }
         return items, path, where
 
     @staticmethod

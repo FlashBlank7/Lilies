@@ -86,3 +86,53 @@ def test_computed_assignment_rejects_unsafe_or_mistyped_expressions() -> None:
         )
     with pytest.raises(TypeError, match=r"\$json_encode value must be JSON serializable"):
         WorkflowRuntime._resolve_assignment({"$json_encode": {1, 2}}, context)
+
+
+def test_sum_where_equals_resolves_references() -> None:
+    """where.equals 是 $ref 时必须先解析再比较——不解析则永远不匹配，$sum 静默归零。
+
+    ERP 盲测实案：正确的工作流被这里拖死四轮返修。
+    """
+
+    from agent_platform.workflow_runtime import WorkflowRuntime
+
+    context = {
+        "inputs": {"store": "华东一店"},
+        "nodes": {"rows": {"output": [
+            {"store": "华东一店", "amount": 100},
+            {"store": "华东二店", "amount": 999},
+            {"store": "华东一店", "amount": 23},
+        ]}},
+    }
+    value = WorkflowRuntime._resolve_assignment({
+        "$sum": {
+            "items": {"$ref": {"node_id": "rows", "path": ["output"]}},
+            "path": ["amount"],
+            "where": {"path": ["store"], "equals": {"$ref": {"node_id": "$inputs", "path": ["store"]}}},
+        }
+    }, context)
+    assert value == 123
+
+
+def test_sum_where_on_nested_pages_fails_loud() -> None:
+    """按页嵌套的列表（元素不是记录）必须诚实报错，不许静默 0。"""
+
+    import pytest as _pytest
+
+    from agent_platform.workflow_runtime import WorkflowRuntime
+
+    context = {
+        "inputs": {},
+        "nodes": {"pages": {"output": [
+            [{"store": "A", "amount": 1}],
+            [{"store": "A", "amount": 2}],
+        ]}},
+    }
+    with _pytest.raises(TypeError, match="平铺列表"):
+        WorkflowRuntime._resolve_assignment({
+            "$sum": {
+                "items": {"$ref": {"node_id": "pages", "path": ["output"]}},
+                "path": ["amount"],
+                "where": {"path": ["store"], "equals": "A"},
+            }
+        }, context)
