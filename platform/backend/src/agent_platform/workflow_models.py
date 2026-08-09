@@ -331,13 +331,6 @@ class ManualScheduleTriggerRequest(BaseModel):
     idempotency_key: str | None = Field(default=None, min_length=8, max_length=200)
 
 
-class ClyinsRunRequest(BaseModel):
-    """Request to run the Clyins AI project manager workflow on meeting input."""
-    meeting_transcript: str = Field(min_length=50, max_length=50_000)
-    team_context: str = Field(default="", max_length=5_000)
-    meeting_date: str = Field(default="", max_length=50)
-
-
 class WorkflowRunState(BaseModel):
     run_id: str
     application_id: str

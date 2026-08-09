@@ -18,21 +18,8 @@ class Settings(BaseSettings):
     workspace_root: Path = Path("workspaces")
     workspace_host_root: Path | None = None
 
-    # ── Provider API keys ──────────────────────────────────────
     deepseek_api_key: str | None = Field(default=None, repr=False)
-    openai_api_key: str | None = Field(default=None, repr=False)
-    anthropic_api_key: str | None = Field(default=None, repr=False)
-
-    # ── Provider base URLs ─────────────────────────────────────
     deepseek_base_url: str = "https://api.deepseek.com/anthropic"
-    openai_base_url: str = "https://api.openai.com/v1"
-    anthropic_base_url: str = "https://api.anthropic.com"
-
-    # ── Provider timeouts ──────────────────────────────────────
-    deepseek_timeout_seconds: float = 600.0
-
-    # ── Default model selection ────────────────────────────────
-    # The deepseek_ prefix is historical; these are used as the platform-wide defaults.
     deepseek_generator_model: str = "deepseek-v4-pro"
     deepseek_runtime_model: str = "deepseek-v4-flash"
     deepseek_timeout_seconds: float = 600.0

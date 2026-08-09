@@ -439,6 +439,8 @@ _ZH_BLOCKS = {
     "event_recorder": ("事件记录器", "向 Trace 写入结构化事件。"),
     "hook_point": ("钩子点", "在工作流中插入可被外部系统监听的钩子。"),
 }
+# Merge cluster block ZH names
+_ZH_BLOCKS.update(_ZH_CLUSTER_BLOCKS)
 
 
 _EDITOR_FIELDS: dict[str, list[dict[str, Any]]] = {
@@ -942,6 +944,8 @@ _EDITOR_FIELDS: dict[str, list[dict[str, Any]]] = {
         {"path": "checkpoint_each_iteration", "label": "Checkpoint every iteration", "label_zh": "每轮保存检查点", "control": "boolean", "description": "Persist iteration state for inspection and recovery."},
     ],
 }
+# Merge cluster block editor fields
+_EDITOR_FIELDS.update(_CLUSTER_EDITOR_FIELDS)
 
 
 _EDITOR_NOTICES: dict[str, list[dict[str, str]]] = {
@@ -1974,13 +1978,7 @@ class BlockRegistry:
         return deepest
 
     def validate_node(self, node: NodeSpec) -> BaseModel:
-        try:
-            definition = self.get(node.type)
-        except KeyError:
-            known = sorted(self._blocks.keys())
-            similar = [b for b in known if node.type.casefold() in b.casefold() or b.casefold() in node.type.casefold()]
-            hint = f" Did you mean: {similar[:5]}?" if similar else f" Available blocks: {known[:15]}..."
-            raise KeyError(f"unknown block type: {node.type}.{hint}") from None
+        definition = self.get(node.type)
         if not definition.available:
             raise ValueError(f"block is not available: {node.type}")
         if node.block_version != definition.version:
@@ -2325,7 +2323,6 @@ def _definition(
     block_kind: Literal["business_workflow", "agent_architecture", "legacy_compatibility"] = "business_workflow",
     manual: dict[str, Any] | None = None,
     available: bool = True,
-    family: str | None = None,
 ) -> BlockDefinition:
     manual = manual or _manual(block_type, title, description, "Business workflow primitive")
     output_descriptions = output_descriptions or {}
@@ -2861,13 +2858,10 @@ def build_block_registry() -> BlockRegistry:
         (_definition("end", "End", "Return named workflow outputs.", "output", EndConfig, inputs=[("input", ValueType.any)], outputs=[]), EndConfig),
         (_definition("answer", "Answer", "Return a chat answer.", "output", AnswerConfig, inputs=[("input", ValueType.any)], outputs=[]), AnswerConfig),
     ]
-    from .block_families import get_family
     for block_type, title, description, mapping in _AGENT_ARCHITECTURE_BLOCKS:
         is_soft = (block_type == "soft_block")
         config_model: type[BaseModel]
-        if is_soft:
-            config_model = SoftBlockConfig
-        elif block_type == "model_turn":
+        if block_type == "model_turn":
             config_model = ModelTurnConfig
         elif block_type == "tool_executor":
             config_model = ToolExecutorConfig
@@ -2875,16 +2869,15 @@ def build_block_registry() -> BlockRegistry:
             config_model = AgentArchitectureConfig
         blocks.append((
             _definition(
-                block_type, title, description, "agent", AgentArchitectureConfig,
+                block_type, title, description, "agent", config_model,
                 inputs=[("input", ValueType.any)],
                 outputs=[("output", ValueType.any), ("state", ValueType.object)],
                 retry=block_type in {"model_turn", "tool_executor", "mcp_gateway"},
                 error_branch=True,
                 block_kind="agent_architecture",
                 manual=_manual(block_type, title, description, mapping),
-                family=get_family(block_type),
             ),
-            AgentArchitectureConfig,
+            config_model,
         ))
     for definition, model in blocks:
         registry.register(definition, model)

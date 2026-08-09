@@ -26,6 +26,12 @@ from .blocks import (
     BlockRegistry,
     ClaudeAgentConfig,
     ClassifierConfig,
+    ClusterAcquireConfig,
+    ClusterDiscoverConfig,
+    ClusterPublishConfig,
+    ClusterRegisterConfig,
+    ClusterReleaseConfig,
+    ClusterSubscribeConfig,
     CollectionDigestConfig,
     ConnectorActionConfig,
     Condition,
@@ -56,6 +62,9 @@ from .blocks import (
     VariableAggregatorConfig,
     VariableAssignerConfig,
     WebCollectionConfig,
+)
+from .cluster_messaging import (
+    ClusterMessageBus, ClusterRegistry, ConflictDetector, create_cluster_infrastructure,
 )
 from .connector_sdk import ConnectorExecutionRequest, ConnectorService
 from .event_automation import (
@@ -246,6 +255,17 @@ class WorkflowRuntime:
         self._writable_connector_operations: dict[str, frozenset[str]] = {}
         self._permission_connector_operations: dict[str, frozenset[str]] = {}
         self._compensation_connector_operations: dict[str, frozenset[str]] = {}
+
+    async def _ensure_cluster(self) -> tuple[ClusterMessageBus, ClusterRegistry, ConflictDetector]:
+        """Lazy-initialize cluster infrastructure on first use."""
+        if self._cluster_bus is None:
+            async with self._cluster_init_lock:
+                if self._cluster_bus is None:
+                    bus, reg, det = await create_cluster_infrastructure(self.storage.data_dir)
+                    self._cluster_bus = bus
+                    self._cluster_registry = reg
+                    self._conflict_detector = det
+        return self._cluster_bus, self._cluster_registry, self._conflict_detector
 
     async def create_run(
         self,
@@ -2212,6 +2232,91 @@ class WorkflowRuntime:
                 "receipt": receipt,
                 "response": execution.response,
             }
+        # ── Cluster coordination blocks ──────────────────────
+        if isinstance(config, ClusterPublishConfig):
+            bus, _, _ = await self._ensure_cluster()
+            topic = str(self._resolve(config.topic, context))
+            publisher_id = str(self._resolve(config.publisher_id, context))
+            payload = self._resolve(config.payload, context) if config.payload else {}
+            msg = await bus.publish(topic, publisher_id, payload if isinstance(payload, dict) else {"data": payload})
+            await self._emit(run_id, "cluster.published", {
+                "node_id": scoped_id, "topic": topic,
+                "msg_id": msg.id, "sequence": msg.sequence,
+            })
+            return {"output": {"topic": topic, "msg_id": msg.id, "sequence": msg.sequence, "payload": payload}}
+
+        if isinstance(config, ClusterSubscribeConfig):
+            bus, _, _ = await self._ensure_cluster()
+            topic = str(self._resolve(config.topic, context))
+            subscriber_id = str(self._resolve(config.subscriber_id, context))
+            timeout = float(self._resolve(config.timeout_seconds, context) or 30.0)
+            await bus.subscribe(topic, subscriber_id)
+            if config.poll_mode:
+                msgs = await bus.poll_messages(topic, subscriber_id)
+            else:
+                msg = await bus.await_message(topic, subscriber_id, timeout=timeout)
+                msgs = [msg] if msg else []
+            await self._emit(run_id, "cluster.subscribed", {
+                "node_id": scoped_id, "topic": topic,
+                "message_count": len(msgs),
+            })
+            return {
+                "output": {"topic": topic, "count": len(msgs)},
+                "messages": [{"id": m.id, "publisher_id": m.publisher_id, "payload": m.payload, "sequence": m.sequence} for m in msgs],
+            }
+
+        if isinstance(config, ClusterRegisterConfig):
+            _, registry, _ = await self._ensure_cluster()
+            agent_id = str(self._resolve(config.agent_id, context))
+            capabilities = self._resolve(config.capabilities, context)
+            if not isinstance(capabilities, list):
+                capabilities = [str(capabilities)]
+            metadata = self._resolve(config.metadata, context) or {}
+            await registry.register(agent_id, [str(c) for c in capabilities], metadata if isinstance(metadata, dict) else {})
+            await self._emit(run_id, "cluster.registered", {
+                "node_id": scoped_id, "agent_id": agent_id, "capabilities": capabilities,
+            })
+            return {"output": {"agent_id": agent_id, "capabilities": capabilities, "status": "registered"}}
+
+        if isinstance(config, ClusterDiscoverConfig):
+            _, registry, _ = await self._ensure_cluster()
+            capability = str(self._resolve(config.capability, context) or "")
+            agent_id = str(self._resolve(config.agent_id, context))
+            agents = await registry.discover(capability if capability else None)
+            await self._emit(run_id, "cluster.discovered", {
+                "node_id": scoped_id, "capability": capability,
+                "found": len(agents),
+            })
+            return {
+                "output": {"query": capability, "found": len(agents)},
+                "agents": [{"agent_id": a.agent_id, "capabilities": a.capabilities, "status": a.status, "metadata": a.metadata} for a in agents],
+            }
+
+        if isinstance(config, ClusterAcquireConfig):
+            _, _, detector = await self._ensure_cluster()
+            resource_id = str(self._resolve(config.resource_id, context))
+            agent_id = str(self._resolve(config.agent_id, context) or scoped_id)
+            mode = str(self._resolve(config.mode, context) or "write")
+            ttl = float(self._resolve(config.ttl_seconds, context) or 300.0)
+            acquired = await detector.acquire(resource_id, agent_id, mode, ttl)  # type: ignore[arg-type]
+            await self._emit(run_id, "cluster.acquired" if acquired else "cluster.conflict", {
+                "node_id": scoped_id, "resource_id": resource_id,
+                "agent_id": agent_id, "mode": mode, "acquired": acquired,
+            })
+            return {"output": {"resource_id": resource_id, "acquired": acquired, "mode": mode}, "acquired": acquired}
+
+        if isinstance(config, ClusterReleaseConfig):
+            _, _, detector = await self._ensure_cluster()
+            resource_id = str(self._resolve(config.resource_id, context))
+            agent_id = str(self._resolve(config.agent_id, context) or scoped_id)
+            released = await detector.release(resource_id, agent_id)
+            await self._emit(run_id, "cluster.released", {
+                "node_id": scoped_id, "resource_id": resource_id, "agent_id": agent_id,
+            })
+            return {"output": {"resource_id": resource_id, "released": released}}
+
+        # ── End cluster blocks ────────────────────────────────
+
         if isinstance(config, IterationConfig):
             items = self._resolve(config.items, context)
             if not isinstance(items, list):
@@ -2984,7 +3089,7 @@ class WorkflowRuntime:
             for idx, task in enumerate(ordered):
                 dispatched.append({
                     "order": idx,
-                    "name": task.get("name", task.get("subject", task.get("title", f"task-{idx}"))),
+                    "name": task.get("name", task.get("subject", f"task-{idx}")),
                     "dependencies": task.get("dependencies", task.get("blocked_by", [])),
                     "owner": task.get("owner"),
                     "status": "ready" if idx == 0 else "waiting",
@@ -5063,106 +5168,6 @@ class WorkflowRuntime:
     def _is_structural_assertion(operator: str) -> bool:
         """Return True if the operator only checks structure, not content."""
         return operator in {"exists", "type", "min_length", "max_length"}
-
-    @classmethod
-    def _render_test_diagnostics(
-        cls, results: list[dict[str, Any]], snapshot: Any
-    ) -> str:
-        """Harness-layer diagnostic renderer — pure, deterministic, testable.
-
-        Converts raw test assertion data into a concise, actionable diff
-        that the Builder LLM can use to make targeted repairs.
-
-        Architecture: belongs in WorkflowRuntime (Harness), not in Builder
-        (LLM).  Diagnostics is a testing/auditing function per the
-        Harness+LLM composite design rules.
-        """
-        lines: list[str] = []
-        node_map = {n.id: n for n in snapshot.workflow.nodes}
-
-        for test in results:
-            test_name = test.get("name", "unnamed")
-            test_passed = test.get("passed", False)
-            assertions = test.get("assertions", [])
-
-            if test_passed:
-                lines.append(f"✅ {test_name}: PASSED")
-                continue
-
-            lines.append(f"❌ {test_name}: FAILED")
-
-            # Structural gate checks
-            te = test.get("tool_evidence", {})
-            if not te.get("required_node_types_passed", True):
-                missing = set(te.get("required_node_types", [])) - set(te.get("node_types", []))
-                lines.append(f"   🧱 缺节点类型: {sorted(missing)}")
-                lines.append(f"   当前节点: {te.get('node_types', [])}")
-                lines.append(f"   → 添加类型为 {sorted(missing)} 的节点")
-            if not te.get("required_tool_nodes_passed", True):
-                missing = set(te.get("required_tool_nodes", [])) - set(te.get("tool_node_names", []))
-                lines.append(f"   🔧 缺 tool 节点: {sorted(missing)}")
-                lines.append(f"   → 添加 tool 积木, tool_name 设为 {sorted(missing)} 之一")
-            if not te.get("required_tools_passed", True):
-                missing = set(te.get("required_tools", [])) - set(te.get("used_tools", []))
-                lines.append(f"   🔨 工具未被调用: {sorted(missing)}")
-                lines.append(f"   已调用: {te.get('used_tools', [])}")
-                lines.append(f"   → 确保工作流中的 tool 节点调用了 {sorted(missing)}")
-            if not te.get("minimum_calls_passed", True):
-                actual = len(te.get("used_tools", []))
-                required = te.get("minimum_tool_calls", 0)
-                lines.append(f"   📞 工具调用次数不足: {actual}/{required}")
-                lines.append(f"   → 增加 tool 调用或确保 tool 节点被正确连接")
-            if not te.get("citation_passed", True):
-                lines.append(f"   📎 输出中的 URL 未在工具调用中找到证据")
-                lines.append(f"   输出 URL: {te.get('output_urls', [])}")
-                lines.append(f"   证据 URL: {te.get('cited_tool_urls', [])}")
-                lines.append(f"   未验证: {te.get('unverified_output_urls', [])}")
-                lines.append(f"   → 确保 LLM/tool 节点的输出引用来自实际工具调用结果")
-
-            # Per-assertion diff
-            for a in assertions:
-                if a.get("passed"):
-                    continue
-                path = ".".join(a.get("path", []))
-                operator = a.get("operator", "?")
-                expected = a.get("expected")
-                actual = a.get("actual")
-                error = a.get("error")
-                structural = a.get("structural", False)
-
-                if error:
-                    lines.append(f"   ❌ 断言 [{path}] {operator}: 执行错误 — {error}")
-                    if "KeyError" in error or "index" in error.lower():
-                        # Path into output doesn't exist — the node didn't produce this field
-                        if path:
-                            node_hint = path.split(".")[0] if "." in path else path
-                            node = node_map.get(node_hint)
-                            if node:
-                                lines.append(f"      → 节点 '{node_hint}' ({node.type}) 未产生字段 '{path}'")
-                                lines.append(f"      → 检查节点 '{node_hint}' 的输出端口配置是否包含所需字段")
-                else:
-                    actual_str = cls._truncate(str(actual), 100)
-                    expected_str = cls._truncate(str(expected), 100)
-                    tag = "🔧" if structural else "📝"
-                    lines.append(f"   ❌ {tag} [{path}] {operator}: 期望={expected_str}, 实际={actual_str}")
-                    if operator == "exists":
-                        lines.append(f"      → 节点输出中缺少字段 '{path}'")
-                        lines.append(f"      → 确保上游节点产生了此输出字段")
-                    elif operator == "type":
-                        lines.append(f"      → 字段类型应为 {expected}，当前为 {type(actual).__name__}")
-                    elif operator in ("equals", "contains"):
-                        node_hint = path.split(".")[0] if "." in path else ""
-                        lines.append(f"      → 输出内容不匹配。检查节点 '{node_hint}' 的 prompt/system 配置")
-                    elif operator in ("min_length", "max_length"):
-                        lines.append(f"      → 输出长度不符合要求。当前长度: {len(str(actual)) if actual else 0}")
-
-        return "\n".join(lines) if lines else "All tests passed."
-
-    @staticmethod
-    def _truncate(value: str, max_len: int) -> str:
-        if len(value) <= max_len:
-            return value
-        return value[:max_len] + f"...({len(value)} total)"
 
     @staticmethod
     def _extract_urls(value: Any) -> set[str]:
