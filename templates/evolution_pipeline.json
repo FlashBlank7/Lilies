@@ -1,0 +1,165 @@
+{
+  "meta": {
+    "name": "evolution_pipeline",
+    "title": "模板进化流水线",
+    "description": "确定性工作流：接收 Builder 产出的候选 BlockFlow → 复杂度门控 → 去重检查 → 相似度匹配 → 合并进化或新建种子模板。全程无 LLM 调用，所有门控均为纯 Harness 计算。",
+    "category": "agent_architecture",
+    "icon": "workflow",
+    "tags": ["evolution", "template", "harness", "deterministic"],
+    "expected_inputs": {
+      "candidate_json": "string",
+      "requirement": "string",
+      "build_id": "string"
+    },
+    "expected_outputs": {
+      "evolution_result": "object",
+      "mode": "string",
+      "template_name": "string"
+    },
+    "author": "platform",
+    "version": 1,
+    "min_blocks_required": ["tool", "if_else", "variable_assigner", "template_transform", "event_recorder"],
+    "provenance": [
+      {
+        "source_type": "expert_manual",
+        "identifier": "platform:evolution_pipeline.json",
+        "created_at": "2026-07-14T00:00:00Z",
+        "user_id": null
+      }
+    ],
+    "confidence": 0.85,
+    "seed_template": true,
+    "usage_count": 0,
+    "rating_sum": 0,
+    "rating_count": 0
+  },
+  "workflow": {
+    "nodes": [
+      {
+        "id": "start",
+        "type": "start",
+        "title": "进化输入",
+        "config": {
+          "inputs": [
+            {"name": "candidate_json", "label": "候选 WorkflowSpec JSON", "type": "string"},
+            {"name": "requirement", "label": "需求描述", "type": "string", "required": false, "default": ""},
+            {"name": "build_id", "label": "构建 ID", "type": "string", "required": false, "default": ""}
+          ]
+        }
+      },
+      {
+        "id": "run_evolution",
+        "type": "tool",
+        "title": "执行进化流水线",
+        "config": {
+          "tool_name": "evolution_gate",
+          "input": {
+            "candidate_json": {"$ref": {"node_id": "start", "path": ["candidate_json"]}},
+            "requirement": {"$ref": {"node_id": "start", "path": ["requirement"]}},
+            "build_id": {"$ref": {"node_id": "start", "path": ["build_id"]}}
+          }
+        }
+      },
+      {
+        "id": "mode_check",
+        "type": "if_else",
+        "title": "进化模式?",
+        "config": {
+          "cases": [
+            {
+              "id": "evolved",
+              "conditions": [
+                {"value": {"$ref": {"node_id": "run_evolution", "path": ["output", "evolved"]}}, "operator": "equals", "expected": true},
+                {"value": {"$ref": {"node_id": "run_evolution", "path": ["output", "mode"]}}, "operator": "equals", "expected": "evolve"}
+              ],
+              "logical_operator": "and"
+            },
+            {
+              "id": "created",
+              "conditions": [
+                {"value": {"$ref": {"node_id": "run_evolution", "path": ["output", "evolved"]}}, "operator": "equals", "expected": true},
+                {"value": {"$ref": {"node_id": "run_evolution", "path": ["output", "mode"]}}, "operator": "equals", "expected": "create_new"}
+              ],
+              "logical_operator": "and"
+            }
+          ],
+          "default_branch": "rejected"
+        }
+      },
+      {
+        "id": "fmt_evolve",
+        "type": "template_transform",
+        "title": "格式化：进化成功",
+        "config": {
+          "template": "## 模板进化成功\n\n- 目标模板: {{ target }}\n- 相似度: {{ similarity }}\n- 置信度: {{ confidence }}\n- 新增节点: {{ nodes_added }}\n- 新增边: {{ edges_added }}",
+          "variables": {
+            "target": {"$ref": {"node_id": "run_evolution", "path": ["output", "template_name"]}},
+            "similarity": {"$ref": {"node_id": "run_evolution", "path": ["output", "similarity_score"]}},
+            "confidence": {"$ref": {"node_id": "run_evolution", "path": ["output", "confidence_after"]}},
+            "nodes_added": {"$ref": {"node_id": "run_evolution", "path": ["output", "nodes_added"]}},
+            "edges_added": {"$ref": {"node_id": "run_evolution", "path": ["output", "edges_added"]}}
+          }
+        }
+      },
+      {
+        "id": "fmt_create",
+        "type": "template_transform",
+        "title": "格式化：新建模板",
+        "config": {
+          "template": "## 新模板已创建\n\n- 模板名: {{ name }}\n- 置信度: {{ confidence }}\n- 节点数: {{ nodes_added }}\n- 边数: {{ edges_added }}",
+          "variables": {
+            "name": {"$ref": {"node_id": "run_evolution", "path": ["output", "template_name"]}},
+            "confidence": {"$ref": {"node_id": "run_evolution", "path": ["output", "confidence_after"]}},
+            "nodes_added": {"$ref": {"node_id": "run_evolution", "path": ["output", "nodes_added"]}},
+            "edges_added": {"$ref": {"node_id": "run_evolution", "path": ["output", "edges_added"]}}
+          }
+        }
+      },
+      {
+        "id": "fmt_reject",
+        "type": "template_transform",
+        "title": "格式化：被拒绝",
+        "config": {
+          "template": "## 进化被门控拒绝\n\n- 原因: {{ reason }}\n- 模式: {{ mode }}",
+          "variables": {
+            "reason": {"$ref": {"node_id": "run_evolution", "path": ["output", "gate_reason"]}},
+            "mode": {"$ref": {"node_id": "run_evolution", "path": ["output", "mode"]}}
+          }
+        }
+      },
+      {
+        "id": "recorder",
+        "type": "event_recorder",
+        "title": "记录进化结果",
+        "config": {
+          "input": {"$ref": {"node_id": "run_evolution", "path": ["output"]}},
+          "settings": {"label": "evolution_pipeline_result"}
+        }
+      },
+      {
+        "id": "end",
+        "type": "end",
+        "title": "进化输出",
+        "config": {
+          "outputs": {
+            "evolution_result": {"$ref": {"node_id": "run_evolution", "path": ["output"]}},
+            "mode": {"$ref": {"node_id": "run_evolution", "path": ["output", "mode"]}},
+            "template_name": {"$ref": {"node_id": "run_evolution", "path": ["output", "template_name"]}},
+            "report": {"$ref": {"node_id": "fmt_evolve", "path": ["text"], "optional": true}}
+          }
+        }
+      }
+    ],
+    "edges": [
+      {"id": "e_start_tool", "source": "start", "target": "run_evolution", "source_port": "output", "target_port": "input"},
+      {"id": "e_tool_check", "source": "run_evolution", "target": "mode_check", "source_port": "output", "target_port": "input"},
+      {"id": "e_evolve_fmt", "source": "mode_check", "target": "fmt_evolve", "source_port": "branch", "target_port": "input", "branch": "evolved"},
+      {"id": "e_create_fmt", "source": "mode_check", "target": "fmt_create", "source_port": "branch", "target_port": "input", "branch": "created"},
+      {"id": "e_reject_fmt", "source": "mode_check", "target": "fmt_reject", "source_port": "branch", "target_port": "input", "branch": "rejected"},
+      {"id": "e_fmt_evolve_rec", "source": "fmt_evolve", "target": "recorder", "source_port": "text", "target_port": "input"},
+      {"id": "e_fmt_create_rec", "source": "fmt_create", "target": "recorder", "source_port": "text", "target_port": "input"},
+      {"id": "e_fmt_reject_rec", "source": "fmt_reject", "target": "recorder", "source_port": "text", "target_port": "input"},
+      {"id": "e_rec_end", "source": "recorder", "target": "end", "source_port": "output", "target_port": "input"}
+    ]
+  }
+}

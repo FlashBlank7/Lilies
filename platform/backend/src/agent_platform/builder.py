@@ -49,14 +49,9 @@ from .workflow_storage import WorkflowStorage
 from .tools import ToolRegistry
 
 
-from .meta_cognition import DecisionTracker
-
-
 BUILDER_SYSTEM_PROMPT = """You coordinate a persistent team that builds production-ready agent workflows.
 
-You do not generate source code or a whole workflow JSON document. You and your teammates can only build by
-using the supplied block-catalog and incremental draft tools. Every requirement must map to a task, one or more
-nodes, and a mandatory test. Inspect manuals and schemas before configuring unfamiliar blocks.
+## Decision Tree (follow in order — do NOT skip steps)
 
 Core rules:
 - The complete block catalog (one line per block) is already in the build request. Inspect the draft, then go
@@ -495,8 +490,6 @@ class WorkflowBuilder:
                     + contract_context
                 ),
             )])]
-        # Create a DecisionTracker to record the Builder's choices
-        tracker = DecisionTracker(f"Build-{build_id[:8]}")
         try:
             agent_loop = self._agent_loop(
                 build_id,
@@ -579,7 +572,9 @@ class WorkflowBuilder:
             if manage_harness_task:
                 await self.harness.finish_task(build_id, status="succeeded")
             await self._emit(build_id, "build.completed", {
-                "status": status, "published_version": state.published_version
+                "status": status,
+                "published_version": state.published_version,
+                "build_metadata": build_metadata,
             })
             # A terminal build status is the public commit marker. Publish it only
             # after the task record and terminal event are durable.
@@ -933,6 +928,31 @@ class WorkflowBuilder:
             turn_discovery_progress = False
             turn_verification_progress = False
             for call in calls:
+                # ── JSON parse error handler (P0 fix) ──
+                if getattr(call, "input_parse_error", None):
+                    content = (
+                        f"JSON_PARSE_ERROR: {call.input_parse_error}\n\n"
+                        f"Your tool call for '{call.name}' had malformed JSON. "
+                        f"Please retry with correct JSON. Common causes:\n"
+                        f"1. Missing comma between object fields\n"
+                        f"2. Unescaped quotes inside string values\n"
+                        f"3. Trailing comma in object/array\n"
+                        f"4. String value not properly quoted\n"
+                    )
+                    is_error = True
+                    results.append(ContentBlock(
+                        type="tool_result", tool_use_id=call.id,
+                        content=content, is_error=True,
+                    ))
+                    await self._emit(build_id, "build.operation", {
+                        "actor": teammate or "coordinator",
+                        "tool": call.name,
+                        "input": {"error": "json_parse_error"},
+                        "success": False,
+                        "result": content[:500],
+                    })
+                    continue
+
                 try:
                     await self.harness.record_usage(
                         build_id,
@@ -1172,8 +1192,11 @@ class WorkflowBuilder:
                 item for item in self.blocks.list()
                 if not query or query in f"{item.type} {item.title} {item.description} {item.category}".casefold()
             ]
+            # ── Core-block priority (Habel-Plump-Lafont) ──
+            definitions.sort(key=lambda d: (0 if d.type in CORE_BLOCKS else 1, d.type))
             results: list[dict[str, Any]] = [
-                {"type": item.type, "title": item.title, "description": item.description, "category": item.category}
+                {"type": item.type, "title": item.title, "description": item.description,
+                 "category": item.category, "core": item.type in CORE_BLOCKS}
                 for item in definitions
             ]
             for application in await self.workflow_store.list_applications():
@@ -1445,6 +1468,80 @@ class WorkflowBuilder:
                     requested_version,
                 ),
             }
+        if tool == "template_adapt":
+            # ── Insight 2: Cross-granularity learning ──
+            # Expand a template then compute minimal edits needed to match requirement.
+            # This is the "middle path" between full-expand and from-scratch.
+            template_name = str(data["name"])
+            requirement = str(data.get("requirement", ""))
+            state.expanded_from_template = template_name
+            prefix = str(data.get("prefix") or f"{template_name}_adapted")
+            position = data.get("position") if isinstance(data.get("position"), dict) else {}
+            x_pos = float(position.get("x", 0))
+            y_pos = float(position.get("y", 0))
+
+            if self.template_store:
+                wf = self.template_store.expand_into_workflow(
+                    template_name, prefix=prefix, x=x_pos, y=y_pos,
+                )
+            else:
+                wf = self.blocks.expand_template(
+                    template_name, prefix=prefix, x=x_pos, y=y_pos,
+                )
+
+            # Compute graph edit distance vs the requirement — identify what needs changing
+            from .workflow_quality import suggest_minimal_repair
+
+            # Get the original template workflow (un-prefixed) for comparison
+            if self.template_store:
+                orig = self.template_store.expand_into_workflow(
+                    template_name, prefix="__orig__", x=0, y=0,
+                )
+            else:
+                orig = self.blocks.expand_template(template_name, prefix="__orig__", x=0, y=0)
+
+            repair_hints = suggest_minimal_repair(orig, wf)
+
+            # Add all nodes/edges to draft
+            draft = await self.workflow_store.get_draft(application_id)
+            revision = int(draft["revision"])
+            for node in wf.nodes:
+                result = await self.applications.apply_operation(
+                    application_id,
+                    DraftOperation(
+                        expected_revision=revision,
+                        idempotency_key=f"{build_id}:template_adapt:{template_name}:{node.id}",
+                        op="add_node",
+                        data={"node": node.model_dump(mode="json")},
+                    ),
+                )
+                revision = int(result["revision"])
+            for edge in wf.edges:
+                result = await self.applications.apply_operation(
+                    application_id,
+                    DraftOperation(
+                        expected_revision=revision,
+                        idempotency_key=f"{build_id}:template_adapt:{template_name}:{edge.id}",
+                        op="add_edge",
+                        data={"edge": edge.model_dump(mode="json")},
+                    ),
+                )
+                revision = int(result["revision"])
+            state.revision = revision
+            return {
+                "template": template_name,
+                "mode": "adapt",
+                "revision": revision,
+                "nodes": [node.id for node in wf.nodes],
+                "edges": [edge.id for edge in wf.edges],
+                "repair_hints": repair_hints,
+                "instruction": (
+                    f"Template '{template_name}' expanded with {len(wf.nodes)} nodes. "
+                    f"Requirement: {requirement[:200]}. "
+                    f"Now use draft_update_node to adapt specific nodes to match the requirement. "
+                    f"Repair hints: {'; '.join(repair_hints[:5])}"
+                ),
+            }
         if tool == "draft_inspect":
             draft = await self.workflow_store.get_draft(application_id)
             state.revision = int(draft["revision"])
@@ -1461,7 +1558,24 @@ class WorkflowBuilder:
             draft = await self.workflow_store.get_draft(application_id)
             if tool == "draft_add_node":
                 node = NodeSpec.model_validate(data["node"])
-                definition = self.blocks.get(node.type)
+                # ── Block-type validation with helpful error ──
+                try:
+                    definition = self.blocks.get(node.type)
+                except KeyError:
+                    known = [b.type for b in self.blocks.list()]
+                    known_tools = list(self.core_tools.names())
+                    similar_blocks = [b for b in known if node.type.casefold() in b.casefold() or b.casefold() in node.type.casefold()]
+                    similar_tools = [t for t in known_tools if node.type.casefold() in t.casefold() or t.casefold() in node.type.casefold()]
+                    hints = []
+                    if similar_blocks:
+                        hints.append(f"Did you mean one of these blocks: {similar_blocks[:5]}?")
+                    if similar_tools:
+                        hints.append(f"'{node.type}' is a Tool, not a Block. To use it, add a 'tool' block with tool_name='{node.type}'.")
+                    if not hints:
+                        hints.append(f"Available blocks: {sorted(known)[:20]}")
+                    raise RuntimeError(
+                        f"unknown block type: {node.type}. {' '.join(hints)}"
+                    ) from None
                 if definition.block_kind == "agent_architecture" and node.type not in state.manual_lookups:
                     raise RuntimeError(f"manual lookup required before using agent architecture block: {node.type}")
                 op, payload = "add_node", {
@@ -1504,16 +1618,6 @@ class WorkflowBuilder:
                 application_id,
                 operation,
             )
-            # Record design decisions for meta-cognition
-            if tracker and tool in ("draft_add_node", "draft_connect", "draft_publish", "template_expand"):
-                decision_label = {
-                    "draft_add_node": f"Add node: {data.get('node', {}).get('type', '?')}",
-                    "draft_connect": f"Connect: {data.get('edge', {}).get('source', '?')}→{data.get('edge', {}).get('target', '?')}",
-                    "draft_publish": "Publish workflow",
-                    "template_expand": f"Expand template: {data.get('name', '?')}",
-                }.get(tool, tool)
-                tracker._current = tracker.ask(decision_label, f"Build {build_id[:8]}")
-                tracker.answer("proceed", f"Revision {result['revision']}", f"{tool} succeeded")
             state.revision = result["revision"]
             if tool in {"draft_update_node", "draft_remove_node", "draft_connect", "draft_remove_edge", "test_add"}:
                 result["validation"] = await self._draft_validation_summary(application_id)
@@ -1743,7 +1847,13 @@ class WorkflowBuilder:
     ) -> list[ToolDefinition]:
         object_schema = {"type": "object", "additionalProperties": True}
         definitions = [
-            ToolDefinition(name="catalog_search", description="Search available workflow bricks.", input_schema={"type": "object", "properties": {"query": {"type": "string"}}}),
+            # ── Step 1: MATCH (template-first strategy) ──
+            ToolDefinition(name="template_suggestions", description="🔍 STEP 1 — Search template marketplace. ALWAYS call this FIRST before any catalog search. Returns matching templates with confidence scores.", input_schema={"type": "object", "properties": {"requirement": {"type": "string", "description": "Natural language requirement to match against templates"}}, "required": ["requirement"]}),
+            ToolDefinition(name="template_list", description="List all available templates with categories and descriptions.", input_schema={"type": "object", "properties": {}}),
+            ToolDefinition(name="template_adapt", description="🎯 PREFERRED — Expand template + get graph-edit-distance repair hints. Use when confidence >= 0.5. Gives you the minimal edits needed to adapt the template to your requirement.", input_schema={"type": "object", "properties": {"name": {"type": "string"}, "requirement": {"type": "string"}, "prefix": {"type": "string"}, "position": {"type": "object", "additionalProperties": True}}, "required": ["name", "requirement"]}),
+            ToolDefinition(name="template_expand", description="Expand a template as-is into the draft (use template_adapt if you need customization hints).", input_schema={"type": "object", "properties": {"name": {"type": "string"}, "prefix": {"type": "string"}, "position": {"type": "object", "additionalProperties": True}}, "required": ["name"]}),
+            # ── Step 2: BUILD (core blocks first) ──
+            ToolDefinition(name="catalog_search", description="Search available workflow bricks. Results are sorted: core blocks first, then others.", input_schema={"type": "object", "properties": {"query": {"type": "string"}}}),
             ToolDefinition(name="catalog_get", description="Read the exact schema and ports for one brick.", input_schema={"type": "object", "properties": {"type": {"type": "string"}}, "required": ["type"]}),
             ToolDefinition(name="manual_search", description="Search block manuals before selecting agent architecture bricks.", input_schema={"type": "object", "properties": {"query": {"type": "string"}, "block_kind": {"enum": ["business_workflow", "agent_architecture", "legacy_compatibility"]}}}),
             ToolDefinition(name="manual_get", description="Read one block manual, including when to use it, examples, anti-patterns, and Claude architecture mapping.", input_schema={"type": "object", "properties": {"type": {"type": "string"}}, "required": ["type"]}),

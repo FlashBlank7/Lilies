@@ -147,6 +147,7 @@ from .workflow_models import (
     ApplicationCreateRequest,
     ApplicationSnapshot,
     BuildRequest,
+    ClyinsRunRequest,
     DraftOperation,
     ResumeRunRequest,
     ManualScheduleTriggerRequest,
@@ -1801,6 +1802,12 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             "docker_available": shutil.which("docker") is not None,
             "provider": services.provider.name,
             "tools": services.tools.names(),
+            "configured_providers": getattr(services.provider, "configured_providers", []),
+            "providers": {
+                "deepseek": bool(settings.deepseek_api_key),
+                "openai": bool(settings.openai_api_key),
+                "anthropic": bool(settings.anthropic_api_key),
+            },
         }
 
     @app.get("/v1/models", dependencies=[Depends(require_token)])
@@ -3755,13 +3762,13 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             "has_module_name": "module_name" in parsed,
         }
 
-    # ── Soft Block Strategies ──────────────────────────────────
+    # ── Block Families (agent architecture grouping) ───────────
 
     @app.get(
-        "/api/v1/soft-block/strategies",
+        "/api/v1/blocks/families",
         dependencies=[Depends(require_token)],
     )
-    async def list_soft_block_strategies(
+    async def list_block_families(
         family: str | None = None,
     ) -> dict[str, Any]:
         """List available soft-block strategies, grouped by family."""
@@ -3772,25 +3779,25 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         )
 
         if family and family in FAMILY_MAP:
-            strategies = {
+            members = {
                 s: {
                     "help": strategy_help(s),
-                    "maps_to": get_discrete_block_type(s),
+                    "block_type": get_discrete_block_type(s),
                 }
                 for s in FAMILY_MAP[family]
             }
-            return {"family": family, "strategies": strategies}
+            return {"family": family, "members": members}
 
         result = {}
         for fam, strategies in FAMILY_MAP.items():
             result[fam] = {
                 s: {
                     "help": strategy_help(s),
-                    "maps_to": get_discrete_block_type(s),
+                    "block_type": get_discrete_block_type(s),
                 }
                 for s in strategies
             }
-        return {"families": list(FAMILY_MAP.keys()), "strategies": result}
+        return {"families": list_families(), "members_by_family": result}
 
     # ── Tools ────────────────────────────────────────────────
 
@@ -5335,38 +5342,40 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         events = await services.storage.list_events(stream_id, after)
         return [event.model_dump(mode="json") for event in events]
 
-    # ── Auto meta-cognition hook: Builder → template extraction ──
+    # ── Auto meta-cognition hook: Builder → template evolution ──
 
     async def _auto_extract_from_build(build_id: str) -> None:
-        """After a build publishes, try to extract a reusable template from it.
-        Runs as a fire-and-forget background task — never blocks the build response.
+        """After a build completes, evolve templates from the ACTUAL built workflow.
+
+        Uses GovernedTask for timeout, cancellation, state machine, and audit events,
+        closing the governance gap identified in the Platform Harness asset.
+
+        Runs as a fire-and-forget governed task — never blocks the build response.
         """
-        try:
+        gov = GovernedTask(
+            name=f"auto-evolve:{build_id[:8]}",
+            max_timeout_seconds=120,
+            emit=services.storage.append_event,
+        )
+        services.governed_tasks[build_id] = gov
+
+        async def _evolve() -> None:
             build = await services.workflow_store.get_build(build_id)
             if build.get("status") not in ("published", "ready"):
                 return
 
-            from .extraction_gate import ExtractionGate
-            from .merge_engine import MergeEngine
-            from .template_models import ProvenanceSource
-            from datetime import datetime, timezone
+            from .evolution_engine import EvolutionEngine
 
-            # Use the real DecisionTracker from Builder — each draft_add_node,
-            # draft_connect, template_expand, and draft_publish call was recorded.
-            tracker = services.builder._trackers.pop(build_id, None)
-            if tracker is None or len(tracker.roots) == 0:
-                print(f"[auto-extract] Build {build_id[:8]}: no decision data")
-                return
-
-            requirement = build.get("requirement", "")
+            # Use the ACTUAL built workflow, not DecisionTracker's derived version
             draft = await services.workflow_store.get_draft(build["application_id"])
             node_types = [node.type for node in draft["snapshot"].workflow.nodes]
 
-            gate = ExtractionGate(services.templates)
-            should, reason = gate.should_propose(tracker.roots)
-            if not should:
-                print(f"[auto-extract] Build {build_id[:8]}: not proposed ({reason})")
-                return
+            await services.storage.append_event(build_id, "template.evolution.started", {
+                "build_id": build_id,
+                "node_count": len(candidate_wf.nodes),
+                "edge_count": len(candidate_wf.edges),
+                "requirement": requirement[:200],
+            })
 
             wf = tracker.extract_workflow()
             if wf is None:
@@ -5403,7 +5412,20 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         except Exception as exc:
             print(f"[auto-extract] Build {build_id[:8]} failed: {exc}")
 
-    # Wire the meta-cognition hook: every completed build triggers extraction
+        bg_task = gov.run(build_id, _evolve())
+        # Cleanup completed tasks from the registry (keeps memory bounded)
+        async def _cleanup(task: asyncio.Task[Any]) -> None:
+            try:
+                await task
+            except Exception:
+                pass
+            services.governed_tasks.pop(build_id, None)
+
+        services.background_tasks.add(
+            asyncio.create_task(_cleanup(bg_task))
+        )
+
+    # Wire the evolution hook: every completed build triggers template evolution
     services.builder.on_build_complete = _auto_extract_from_build
 
     # ── PWA DingTalk App ─────────────────────────────────────
@@ -5466,6 +5488,443 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         p = _pwa_dir / "dashboard.html"
         return p.read_text(encoding="utf-8") if p.exists() else "<h1>Dashboard not found</h1>"
 
+    # ── BlockFlow Canvas ──────────────────────────────────────
+
+    @app.get("/canvas.html", response_class=HTMLResponse)
+    async def canvas_page() -> str:
+        p = _pwa_dir / "canvas.html"
+        return p.read_text(encoding="utf-8") if p.exists() else "<h1>Canvas not found</h1>"
+
+    # ── Template Marketplace ──────────────────────────────────
+
+    @app.get("/marketplace.html", response_class=HTMLResponse)
+    async def marketplace_page() -> str:
+        p = _pwa_dir / "marketplace.html"
+        return p.read_text(encoding="utf-8") if p.exists() else "<h1>Marketplace not found</h1>"
+
+    # ── Clyins: Upload meeting → generate schedule ─────────
+
+    @app.post(
+        "/api/v1/clyins/run",
+        status_code=202,
+        dependencies=[Depends(require_token)],
+    )
+    async def clyins_run(body: ClyinsRunRequest) -> dict[str, Any]:
+        """Upload a meeting transcript, run the Clyins workflow, return a run_id.
+
+        The frontend polls GET /api/v1/runs/{run_id} and auto-resumes at the
+        human_input verification step to produce the final schedule.
+        """
+        # 1. Create application
+        app = await services.workflow_store.create_application(
+            ApplicationCreateRequest(
+                name=f"Clyins {body.meeting_date or '会议'}",
+                description="Clyins 自动生成的会议日程",
+                requirement="从上传的会议记录中提取行动项并生成日程表",
+            )
+        )
+        application_id = app["id"]
+
+        # 2. Expand Clyins template
+        try:
+            expanded = services.templates.expand_into_workflow(
+                "clyins", prefix="cy", x=0, y=0,
+            )
+        except KeyError:
+            raise HTTPException(500, "Clyins template not found in template store")
+
+        # 3. Populate draft with all nodes
+        draft = await services.workflow_store.get_draft(application_id)
+        revision = int(draft["revision"])
+        draft_key_prefix = f"clyins-api-{application_id[:8]}"
+
+        for node in expanded.nodes:
+            result = await services.applications.apply_operation(
+                application_id,
+                DraftOperation(
+                    expected_revision=revision,
+                    idempotency_key=f"{draft_key_prefix}-n-{node.id}",
+                    op="add_node",
+                    data={"node": node.model_dump(mode="json")},
+                ),
+            )
+            revision = int(result["revision"])
+
+        for edge in expanded.edges:
+            result = await services.applications.apply_operation(
+                application_id,
+                DraftOperation(
+                    expected_revision=revision,
+                    idempotency_key=f"{draft_key_prefix}-e-{edge.id}",
+                    op="add_edge",
+                    data={"edge": edge.model_dump(mode="json")},
+                ),
+            )
+            revision = int(result["revision"])
+
+        # 4. Create workflow run
+        run_result = await services.workflow_runtime.create_run(
+            application_id,
+            WorkflowRunRequest(
+                inputs={
+                    "meeting_transcript": body.meeting_transcript,
+                    "team_context": body.team_context,
+                    "meeting_date": body.meeting_date,
+                },
+                use_draft=True,
+                workspace_path=".",
+            ),
+        )
+        run_id = run_result["run_id"]
+
+        # 5. Auto-resume when workflow pauses at human_input
+        async def _auto_resume() -> None:
+            """Background task: wait for the human_input pause, then auto-approve."""
+            await asyncio.sleep(2)
+            for _ in range(120):
+                try:
+                    run_record = await services.workflow_store.get_run(run_id)
+                except KeyError:
+                    break
+                if run_record["status"] == "paused":
+                    try:
+                        await services.workflow_runtime.resume(
+                            run_id,
+                            {"approved": True, "corrections": "", "assign_to_lilies": True},
+                        )
+                    except Exception:
+                        pass
+                    break
+                if run_record["status"] in ("succeeded", "failed", "cancelled"):
+                    break
+                await asyncio.sleep(1)
+
+        bg = asyncio.create_task(_auto_resume())
+        services.background_tasks.add(bg)
+        bg.add_done_callback(services.background_tasks.discard)
+
+        return {
+            "run_id": run_id,
+            "application_id": application_id,
+            "status": "queued",
+        }
+
+    # ── Workflow Quality Analysis ────────────────────────
+
+    @app.post(
+        "/api/v1/workflows/analyze",
+        dependencies=[Depends(require_token)],
+    )
+    async def analyze_workflow_quality(body: dict[str, Any]) -> dict[str, Any]:
+        """Static analysis of a WorkflowSpec: quality score, issues, suggestions.
+
+        Accepts a full WorkflowSpec JSON. Returns a WorkflowQualityReport
+        with graph-theoretic metrics, Petri-net checks, and suggestions.
+        """
+        from .workflow_models import WorkflowSpec as WS
+        from .workflow_quality import analyze_workflow
+
+        try:
+            wf = WS.model_validate(body.get("workflow", body))
+        except Exception as e:
+            raise HTTPException(422, f"invalid workflow: {e}")
+
+        report = analyze_workflow(wf)
+        return {
+            "score": report.score,
+            "grade": report.grade,
+            "structural": {
+                "dead_code": report.structural.dead_code,
+                "orphan_inputs": report.structural.orphan_inputs,
+                "redundant_chain": report.structural.redundant_chain,
+            },
+            "robustness": {
+                "missing_error_handling": report.robustness.missing_error_handling,
+                "unguarded_tool": report.robustness.unguarded_tool,
+            },
+            "complexity": {
+                "node_count": report.complexity.node_count,
+                "edge_count": report.complexity.edge_count,
+                "cyclomatic": report.complexity.cyclomatic,
+                "max_depth": report.complexity.max_depth,
+                "max_width": report.complexity.max_width,
+                "dependency_density": report.complexity.dependency_density,
+            },
+            "petrinet": {
+                "siphon_cycle": report.petrinet.siphon_cycle,
+                "unbound_parallelism": report.petrinet.unbound_parallelism,
+                "missing_break": report.petrinet.missing_break,
+            },
+            "coend": {
+                "ambiguous_refs": report.coend.ambiguous_refs,
+                "missing_optional": report.coend.missing_optional,
+                "aggregator_mode_mismatch": report.coend.aggregator_mode_mismatch,
+            },
+            "suggestions": report.suggestions,
+        }
+
+    # ── Clyins: Dispatch tasks to Lilies Builder ────────
+
+    @app.post(
+        "/api/v1/clyins/dispatch",
+        status_code=202,
+        dependencies=[Depends(require_token)],
+    )
+    async def clyins_dispatch(body: dict[str, Any]) -> dict[str, Any]:
+        """Human-reviewed: dispatch selected tasks to Lilies Builder Team.
+
+        Each task becomes a Lilies Application + Builder Team build.
+        Deduplication: if a task with the same name was already dispatched,
+        returns the existing build instead of creating a duplicate.
+        """
+        tasks = body.get("tasks", [])
+        if not tasks:
+            raise HTTPException(422, "at least one task is required")
+
+        # Pre-load all existing Clyins-dispatched apps for dedup
+        all_apps = await services.workflow_store.list_applications()
+        clyins_apps = {
+            app["name"]: app
+            for app in all_apps
+            if app["name"].startswith("[Clyins] ")
+        }
+
+        dispatched = []
+        skipped = []
+        for task in tasks:
+            task_name = task.get("name", "Unnamed task")
+            app_name = f"[Clyins] {task_name[:80]}"
+
+            # ── Dedup: check if already dispatched ──
+            if app_name in clyins_apps:
+                existing_app = clyins_apps[app_name]
+                existing_builds = await services.workflow_store.list_builds(
+                    existing_app["id"]
+                )
+                if existing_builds:
+                    latest = existing_builds[0]
+                    skipped.append({
+                        "task_name": task_name,
+                        "application_id": existing_app["id"],
+                        "build_id": latest["id"],
+                        "status": latest["status"],
+                        "duplicate": True,
+                        "message": "任务已下达过，跳过重复创建",
+                    })
+                    continue
+
+            task_owner = task.get("owner", "")
+            task_deadline = task.get("deadline", "")
+            task_desc = task.get("description", task_name)
+
+            requirement = f"实现任务: {task_name}"
+            if task_owner:
+                requirement += f"\n负责人: {task_owner}"
+            if task_deadline:
+                requirement += f"\n截止日期: {task_deadline}"
+            requirement += f"\n\n{task_desc}"
+
+            app = await services.workflow_store.create_application(
+                ApplicationCreateRequest(
+                    name=app_name,
+                    description=f"由 Clyins 下达。负责人: {task_owner or '待分配'}。截止: {task_deadline or '待定'}",
+                    requirement=requirement,
+                )
+            )
+            app_id = app["id"]
+            clyins_apps[app_name] = app  # track for dedup within this batch too
+
+            build_id = str(uuid4())
+            await services.workflow_store.create_build(
+                build_id, app_id, requirement,
+                auto_publish=True,
+                max_turns=60,
+                max_repair_cycles=4,
+            )
+            services.builder.start(build_id)
+
+            dispatched.append({
+                "task_name": task_name,
+                "application_id": app_id,
+                "build_id": build_id,
+                "status": "queued",
+                "duplicate": False,
+            })
+
+        all_tasks = dispatched + skipped
+
+        # ── Auto-retry background task ──
+        if dispatched:
+            async def _monitor_and_retry() -> None:
+                """Monitor builds, auto-resume on failure up to 3 times."""
+                retry_counts: dict[str, int] = {}
+                for _ in range(60):  # monitor for up to 30 min
+                    await asyncio.sleep(30)
+                    for task_info in dispatched:
+                        bid = task_info["build_id"]
+                        try:
+                            build = await services.workflow_store.get_build(bid)
+                        except KeyError:
+                            continue
+                        status = build.get("status", "")
+                        if status == "published":
+                            continue  # success, stop monitoring
+                        if status == "needs_attention":
+                            retry_counts[bid] = retry_counts.get(bid, 0) + 1
+                            if retry_counts[bid] <= 3:
+                                try:
+                                    await services.workflow_store.update_build(
+                                        bid, status="queued", error="",
+                                    )
+                                    services.builder.start(bid)
+                                    print(f"[auto-retry] Build {bid[:12]}... "
+                                          f"retry {retry_counts[bid]}/3")
+                                except Exception:
+                                    pass
+                        # If building/queued, keep waiting
+                    # Stop if all published or exhausted retries
+                    all_done = True
+                    for task_info in dispatched:
+                        try:
+                            b = await services.workflow_store.get_build(task_info["build_id"])
+                            if b["status"] not in ("published",):
+                                if b["status"] == "needs_attention" and retry_counts.get(task_info["build_id"], 0) >= 3:
+                                    continue  # exhausted retries
+                                all_done = False
+                        except KeyError:
+                            pass
+                    if all_done:
+                        break
+
+            bg = asyncio.create_task(_monitor_and_retry())
+            services.background_tasks.add(bg)
+            bg.add_done_callback(services.background_tasks.discard)
+
+        return {
+            "dispatched": len(dispatched),
+            "skipped": len(skipped),
+            "tasks": all_tasks,
+        }
+
+    # ── Clyins: Dispatch status ──────────────────────────
+
+    @app.get(
+        "/api/v1/clyins/status",
+        dependencies=[Depends(require_token)],
+    )
+    async def clyins_status() -> list[dict[str, Any]]:
+        """Return status of all Clyins-dispatched builds."""
+        all_apps = await services.workflow_store.list_applications()
+        result = []
+        for app in all_apps:
+            if not app["name"].startswith("[Clyins] "):
+                continue
+            builds = await services.workflow_store.list_builds(app["id"])
+            if not builds:
+                continue
+            latest = builds[0]
+            # Count events for progress
+            event_count = 0
+            try:
+                events = await services.storage.list_events(latest["id"])
+                event_count = len(events)
+            except Exception:
+                pass
+            result.append({
+                "task_name": app["name"].replace("[Clyins] ", ""),
+                "application_id": app["id"],
+                "build_id": latest["id"],
+                "status": latest["status"],
+                "error": latest.get("error", ""),
+                "active_version": app.get("active_version"),
+                "event_count": event_count,
+                "created_at": latest.get("created_at", ""),
+            })
+        return result
+
+    # ── Clyins: AI planning ──────────────────────────────
+
+    @app.post(
+        "/api/v1/clyins/plan",
+        dependencies=[Depends(require_token)],
+    )
+    async def clyins_plan(body: dict[str, Any]) -> dict[str, Any]:
+        """Generate AI-powered planning suggestions from current task board."""
+        tasks = body.get("tasks", [])
+        today = body.get("today", "")
+
+        # Build a compact summary of the current state
+        lines = [f"当前日期: {today}", f"总任务数: {len(tasks)}", ""]
+        cats = {}
+        for t in tasks:
+            c = t.get("cat", "其他")
+            cats.setdefault(c, [])
+            cats[c].append(t)
+
+        for cat, items in cats.items():
+            lines.append(f"## {cat} ({len(items)}项)")
+            for t in items:
+                s = t.get("status", "?")
+                p = t.get("priority", "?")
+                lines.append(f"  [{s}] {t.get('name','?')} | {t.get('owner','?')} | {t.get('start','?')}→{t.get('end','?')} | 优先级:{p}")
+
+        prompt = "\n".join(lines)
+        prompt += "\n\n请基于以上任务看板，分析并提出：\n"
+        prompt += "1. 未来一周的关键行动项（按优先级排序）\n"
+        prompt += "2. 潜在的风险和阻塞点\n"
+        prompt += "3. 资源优化建议（谁的工作量过大/过少，任务是否可以并行）\n"
+        prompt += "4. 紧凑度评估和改进方案\n"
+        prompt += "请用简洁的中文回答，适合决策者快速阅读。"
+
+        try:
+            from .models import ChatMessage, ContentBlock
+            stream = services.provider.stream(
+                model=services.settings.deepseek_runtime_model,
+                system="你是 Clyins，一个 AI 项目经理和战略顾问。你的分析应简洁、有洞察力，适合决策者快速阅读。每次建议不超过 500 字。",
+                messages=[ChatMessage(role="user", content=[ContentBlock(type="text", text=prompt)])],
+                tools=[],
+                max_output_tokens=2048,
+                thinking_enabled=True,
+                effort="xhigh",
+                user_id="clyins-plan",
+            )
+            response = await services.agent_runtime._collect_stream(
+                "clyins-plan", stream, "plan.model", services.settings.deepseek_runtime_model
+            )
+            plan_text = "".join(block.text or "" for block in response.blocks if block.type == "text")
+        except Exception as e:
+            # Fallback: deterministic analysis without LLM
+            plan_text = _deterministic_plan(tasks, today)
+
+        # Parse out risks and suggestions
+        risks = []
+        suggestions = []
+        for line in plan_text.split("\n"):
+            line = line.strip()
+            if any(kw in line for kw in ["风险", "阻塞", "延迟", "逾期", "瓶颈"]):
+                risks.append(line.lstrip("•-* 1234567890."))
+            if any(kw in line for kw in ["建议", "优化", "改进", "调整", "可以"]):
+                suggestions.append(line.lstrip("•-* 1234567890."))
+
+        return {
+            "plan": plan_text,
+            "risks": risks[:5] if risks else [
+                f"任务「{t['name']}」已逾期" for t in tasks if t.get("status") != "completed" and t.get("end", "") < today
+            ][:3],
+            "suggestions": suggestions[:5] if suggestions else [
+                "优先处理高优先级逾期任务",
+                "检查资源分配是否均衡",
+            ],
+        }
+
+
+    # ── Run Result Viewer (Clyins 输出可读页面) ──────────────
+
+    @app.get("/run-view.html", response_class=HTMLResponse)
+    async def run_view_page() -> str:
+        p = _pwa_dir / "run-view.html"
+        return p.read_text(encoding="utf-8") if p.exists() else "<h1>Run Viewer not found</h1>"
+
     # ── Debug ────────────────────────────────────────────────
 
     @app.get("/debug", response_class=HTMLResponse)
@@ -5487,6 +5946,33 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
 
 
     return app
+
+
+def _deterministic_plan(tasks: list, today: str) -> str:
+    """Deterministic fallback planner when LLM is unavailable."""
+    pending = [t for t in tasks if t.get("status") != "completed"]
+    overdue = [t for t in pending if t.get("end", "") < today]
+    critical = [t for t in pending if t.get("priority") == "critical"]
+
+    lines = ["## Clyins 计划分析（确定性模式）", ""]
+
+    if overdue:
+        lines.append(f"⚠️ {len(overdue)} 项任务已逾期，需立即关注：")
+        for t in overdue[:5]:
+            lines.append(f"  • {t.get('name')} ({t.get('owner')}) — 截止 {t.get('end')}")
+
+    if critical:
+        lines.append(f"\n🔥 {len(critical)} 项紧急任务进行中：")
+        for t in critical[:5]:
+            lines.append(f"  • {t.get('name')} ({t.get('owner')})")
+
+    lines.append(f"\n📊 统计：待完成 {len(pending)}/{len(tasks)}，逾期 {len(overdue)}，紧急 {len(critical)}")
+    lines.append(f"\n💡 建议：")
+    lines.append("  1. 优先处理所有逾期任务")
+    lines.append("  2. 对高优先级任务进行每日站会跟踪")
+    lines.append("  3. 评估是否有任务可以并行或委派")
+
+    return "\n".join(lines)
 
 
 app = create_app()

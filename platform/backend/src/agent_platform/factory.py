@@ -129,11 +129,9 @@ class AgentFactory:
                 system=AGENT_GENERATOR_PROMPT,
                 messages=messages,
                 tools=[definition],
-                max_output_tokens=4_096,  # Reduced: less room for JSON truncation
+                max_output_tokens=4_096,
                 thinking_enabled=True,
                 effort="xhigh",
-                # DeepSeek thinking mode rejects forced tool_choice. The generator
-                # prompt requires this call and the repair loop enforces it.
                 tool_choice={"type": "auto"},
                 user_id=generation_id,
             )
@@ -162,7 +160,9 @@ class AgentFactory:
                 raw = dict(call.input or {})
                 raw["id"] = str(uuid4())
                 profile = raw.setdefault("provider_profile", {})
-                profile["provider"] = "deepseek"
+                # Use the first configured provider as default
+                configured = getattr(self.provider, "configured_providers", ["deepseek"])
+                profile["provider"] = configured[0] if configured else "deepseek"
                 profile.setdefault("model", self.settings.deepseek_runtime_model)
                 spec = AgentSpec.model_validate(raw)
                 self._validate_spec_capabilities(spec)
@@ -189,8 +189,12 @@ class AgentFactory:
             raise ValueError(f"unknown tools: {sorted(unknown)}")
         if not spec.tools:
             raise ValueError("generated agent must select at least one tool")
-        if spec.provider_profile.provider != "deepseek":
-            raise ValueError("only the deepseek provider is currently installed")
+        configured = getattr(self.provider, "configured_providers", ["deepseek"])
+        if spec.provider_profile.provider not in configured:
+            raise ValueError(
+                f"provider '{spec.provider_profile.provider}' is not configured. "
+                f"Available: {', '.join(configured)}"
+            )
         if spec.permission_mode in {PermissionMode.bypass, PermissionMode.plan}:
             spec.permission_mode = PermissionMode.default
 

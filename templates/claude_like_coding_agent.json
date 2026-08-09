@@ -1,0 +1,1353 @@
+{
+  "meta": {
+    "name": "claude_like_coding_agent",
+    "title": "Claude-like Coding Agent Architecture",
+    "description": "Full agent loop: context assembly → workspace injection → skill loading → MCP gateway → capability registry → conversation memory → context compaction → budget gating → round limiting → permission gating → sandbox boundary → multi-round loop (model turn → tool routing → tool execution → result normalization → stop/continue) → error classification → subagent spawn → task dispatch → dependency gate → mailbox → checkpoint → cancellation → event recording → output.",
+    "category": "agent_architecture",
+    "icon": "cpu",
+    "tags": [
+      "agent",
+      "loop",
+      "claude",
+      "coding",
+      "architecture",
+      "multi-turn"
+    ],
+    "expected_inputs": {
+      "task": "string",
+      "workspace_path": "string"
+    },
+    "expected_outputs": {
+      "trace": "object",
+      "loop": "object",
+      "checkpoint": "object"
+    },
+    "author": "platform",
+    "version": 1,
+    "min_blocks_required": [
+      "context_assembler",
+      "model_turn",
+      "tool_call_router",
+      "tool_executor",
+      "tool_result_normalizer",
+      "stop_continue_controller",
+      "permission_gate",
+      "budget_gate",
+      "sandbox_boundary"
+    ],
+    "provenance": [
+      {
+        "source_type": "expert_manual",
+        "identifier": "platform:claude_like_coding_agent.json",
+        "created_at": "2026-07-14T00:00:00Z",
+        "user_id": null
+      }
+    ],
+    "confidence": 0.85,
+    "seed_template": true,
+    "usage_count": 0,
+    "rating_sum": 0.0,
+    "rating_count": 0,
+    "success_rate": 0.0,
+    "total_uses": 0,
+    "total_successes": 0
+  },
+  "workflow": {
+    "nodes": [
+      {
+        "id": "start",
+        "type": "start",
+        "block_version": 1,
+        "title": "Agent Input",
+        "description": "",
+        "config": {
+          "inputs": [
+            {
+              "name": "task",
+              "label": "Task",
+              "type": "string"
+            },
+            {
+              "name": "workspace_path",
+              "label": "Workspace path",
+              "type": "string",
+              "required": false,
+              "default": "."
+            }
+          ]
+        },
+        "position": {
+          "x": 0.0,
+          "y": 0.0
+        },
+        "retry": {
+          "enabled": false,
+          "max_attempts": 1,
+          "delay_seconds": 0.5
+        },
+        "error_strategy": "fail",
+        "contract": null,
+        "degraded_value": null,
+        "fallback_value": null
+      },
+      {
+        "id": "context",
+        "type": "context_assembler",
+        "block_version": 1,
+        "title": "Context Assembler",
+        "description": "",
+        "config": {
+          "settings": {
+            "fragments": [
+              {
+                "$ref": {
+                  "node_id": "start",
+                  "path": [
+                    "task"
+                  ]
+                }
+              }
+            ]
+          },
+          "input": {
+            "$ref": {
+              "node_id": "start",
+              "path": [
+                "output"
+              ]
+            }
+          }
+        },
+        "position": {
+          "x": 260.0,
+          "y": 0.0
+        },
+        "retry": {
+          "enabled": false,
+          "max_attempts": 1,
+          "delay_seconds": 0.5
+        },
+        "error_strategy": "fail",
+        "contract": null,
+        "degraded_value": null,
+        "fallback_value": null
+      },
+      {
+        "id": "workspace",
+        "type": "workspace_context_injector",
+        "block_version": 1,
+        "title": "Workspace Context",
+        "description": "",
+        "config": {
+          "settings": {
+            "scope": "current_workspace",
+            "files": [
+              "README.md",
+              "tests/"
+            ]
+          },
+          "input": {
+            "$ref": {
+              "node_id": "context",
+              "path": [
+                "output"
+              ]
+            }
+          }
+        },
+        "position": {
+          "x": 520.0,
+          "y": 0.0
+        },
+        "retry": {
+          "enabled": false,
+          "max_attempts": 1,
+          "delay_seconds": 0.5
+        },
+        "error_strategy": "fail",
+        "contract": null,
+        "degraded_value": null,
+        "fallback_value": null
+      },
+      {
+        "id": "skills",
+        "type": "skill_loader",
+        "block_version": 1,
+        "title": "Skill Loader",
+        "description": "",
+        "config": {
+          "settings": {
+            "skills": [
+              "code-repair",
+              "test-triage"
+            ]
+          },
+          "input": {
+            "$ref": {
+              "node_id": "workspace",
+              "path": [
+                "output"
+              ]
+            }
+          }
+        },
+        "position": {
+          "x": 780.0,
+          "y": 0.0
+        },
+        "retry": {
+          "enabled": false,
+          "max_attempts": 1,
+          "delay_seconds": 0.5
+        },
+        "error_strategy": "fail",
+        "contract": null,
+        "degraded_value": null,
+        "fallback_value": null
+      },
+      {
+        "id": "mcp",
+        "type": "mcp_gateway",
+        "block_version": 1,
+        "title": "MCP Gateway",
+        "description": "",
+        "config": {
+          "settings": {
+            "servers": []
+          },
+          "input": {
+            "$ref": {
+              "node_id": "skills",
+              "path": [
+                "output"
+              ]
+            }
+          }
+        },
+        "position": {
+          "x": 1040.0,
+          "y": 0.0
+        },
+        "retry": {
+          "enabled": false,
+          "max_attempts": 1,
+          "delay_seconds": 0.5
+        },
+        "error_strategy": "fail",
+        "contract": null,
+        "degraded_value": null,
+        "fallback_value": null
+      },
+      {
+        "id": "capabilities",
+        "type": "capability_registry",
+        "block_version": 1,
+        "title": "Capability Registry",
+        "description": "",
+        "config": {
+          "settings": {
+            "tools": [
+              "Read",
+              "Write",
+              "Bash"
+            ]
+          },
+          "input": {
+            "$ref": {
+              "node_id": "mcp",
+              "path": [
+                "output"
+              ]
+            }
+          }
+        },
+        "position": {
+          "x": 1300.0,
+          "y": 0.0
+        },
+        "retry": {
+          "enabled": false,
+          "max_attempts": 1,
+          "delay_seconds": 0.5
+        },
+        "error_strategy": "fail",
+        "contract": null,
+        "degraded_value": null,
+        "fallback_value": null
+      },
+      {
+        "id": "memory",
+        "type": "conversation_memory",
+        "block_version": 1,
+        "title": "Conversation Memory",
+        "description": "",
+        "config": {
+          "settings": {
+            "facts": [
+              "Preserve tool evidence and user instructions across turns."
+            ]
+          },
+          "input": {
+            "$ref": {
+              "node_id": "capabilities",
+              "path": [
+                "output"
+              ]
+            }
+          }
+        },
+        "position": {
+          "x": 1560.0,
+          "y": 0.0
+        },
+        "retry": {
+          "enabled": false,
+          "max_attempts": 1,
+          "delay_seconds": 0.5
+        },
+        "error_strategy": "fail",
+        "contract": null,
+        "degraded_value": null,
+        "fallback_value": null
+      },
+      {
+        "id": "compact",
+        "type": "context_compactor",
+        "block_version": 1,
+        "title": "Context Compactor",
+        "description": "",
+        "config": {
+          "settings": {
+            "max_chars": 6000,
+            "preserved_facts": [
+              "task",
+              "tool evidence",
+              "failed tests",
+              "permission decisions"
+            ]
+          },
+          "input": {
+            "$ref": {
+              "node_id": "memory",
+              "path": [
+                "output"
+              ]
+            }
+          }
+        },
+        "position": {
+          "x": 1820.0,
+          "y": 0.0
+        },
+        "retry": {
+          "enabled": false,
+          "max_attempts": 1,
+          "delay_seconds": 0.5
+        },
+        "error_strategy": "fail",
+        "contract": null,
+        "degraded_value": null,
+        "fallback_value": null
+      },
+      {
+        "id": "budget",
+        "type": "budget_gate",
+        "block_version": 1,
+        "title": "Budget Gate",
+        "description": "",
+        "config": {
+          "settings": {
+            "max_cost_usd": 1.0,
+            "spent_cost_usd": 0
+          },
+          "input": {
+            "$ref": {
+              "node_id": "compact",
+              "path": [
+                "output"
+              ]
+            }
+          }
+        },
+        "position": {
+          "x": 2080.0,
+          "y": 0.0
+        },
+        "retry": {
+          "enabled": false,
+          "max_attempts": 1,
+          "delay_seconds": 0.5
+        },
+        "error_strategy": "fail",
+        "contract": null,
+        "degraded_value": null,
+        "fallback_value": null
+      },
+      {
+        "id": "rounds",
+        "type": "round_limit",
+        "block_version": 1,
+        "title": "Round Limit",
+        "description": "",
+        "config": {
+          "settings": {
+            "current_round": 0,
+            "max_rounds": 8
+          },
+          "input": {
+            "$ref": {
+              "node_id": "budget",
+              "path": [
+                "output"
+              ]
+            }
+          }
+        },
+        "position": {
+          "x": 2340.0,
+          "y": 0.0
+        },
+        "retry": {
+          "enabled": false,
+          "max_attempts": 1,
+          "delay_seconds": 0.5
+        },
+        "error_strategy": "fail",
+        "contract": null,
+        "degraded_value": null,
+        "fallback_value": null
+      },
+      {
+        "id": "permission",
+        "type": "permission_gate",
+        "block_version": 1,
+        "title": "Permission Gate",
+        "description": "",
+        "config": {
+          "settings": {
+            "reason": "Allow workspace reads/writes and test execution for this coding task.",
+            "auto_approve": true
+          },
+          "input": {
+            "$ref": {
+              "node_id": "rounds",
+              "path": [
+                "output"
+              ]
+            }
+          }
+        },
+        "position": {
+          "x": 2600.0,
+          "y": 0.0
+        },
+        "retry": {
+          "enabled": false,
+          "max_attempts": 1,
+          "delay_seconds": 0.5
+        },
+        "error_strategy": "fail",
+        "contract": null,
+        "degraded_value": null,
+        "fallback_value": null
+      },
+      {
+        "id": "sandbox",
+        "type": "sandbox_boundary",
+        "block_version": 1,
+        "title": "Sandbox Boundary",
+        "description": "",
+        "config": {
+          "settings": {
+            "network_policy": "none",
+            "workspace": {
+              "$ref": {
+                "node_id": "start",
+                "path": [
+                  "workspace_path"
+                ]
+              }
+            }
+          },
+          "input": {
+            "$ref": {
+              "node_id": "permission",
+              "path": [
+                "output"
+              ]
+            }
+          }
+        },
+        "position": {
+          "x": 2860.0,
+          "y": 0.0
+        },
+        "retry": {
+          "enabled": false,
+          "max_attempts": 1,
+          "delay_seconds": 0.5
+        },
+        "error_strategy": "fail",
+        "contract": null,
+        "degraded_value": null,
+        "fallback_value": null
+      },
+      {
+        "id": "loop",
+        "type": "loop",
+        "block_version": 1,
+        "title": "Multi-round Agent Loop",
+        "description": "",
+        "config": {
+          "workflow": {
+            "nodes": [
+              {
+                "id": "loop_start",
+                "type": "start",
+                "block_version": 1,
+                "title": "Loop State",
+                "description": "",
+                "config": {
+                  "inputs": [
+                    {
+                      "name": "iteration",
+                      "type": "number"
+                    },
+                    {
+                      "name": "previous",
+                      "type": "object",
+                      "required": false
+                    }
+                  ]
+                },
+                "position": {
+                  "x": 0.0,
+                  "y": 0.0
+                },
+                "retry": {
+                  "enabled": false,
+                  "max_attempts": 1,
+                  "delay_seconds": 0.5
+                },
+                "error_strategy": "fail",
+                "contract": null,
+                "degraded_value": null,
+                "fallback_value": null
+              },
+              {
+                "id": "loop_model_turn",
+                "type": "model_turn",
+                "block_version": 1,
+                "title": "Model Turn",
+                "description": "",
+                "config": {
+                  "settings": {
+                    "prompt": {
+                      "$ref": {
+                        "node_id": "loop_start",
+                        "path": [
+                          "output"
+                        ]
+                      }
+                    }
+                  },
+                  "input": {
+                    "$ref": {
+                      "node_id": "loop_start",
+                      "path": [
+                        "output"
+                      ]
+                    }
+                  }
+                },
+                "position": {
+                  "x": 0.0,
+                  "y": 0.0
+                },
+                "retry": {
+                  "enabled": false,
+                  "max_attempts": 1,
+                  "delay_seconds": 0.5
+                },
+                "error_strategy": "fail",
+                "contract": null,
+                "degraded_value": null,
+                "fallback_value": null
+              },
+              {
+                "id": "loop_tool_router",
+                "type": "tool_call_router",
+                "block_version": 1,
+                "title": "Tool Call Router",
+                "description": "",
+                "config": {
+                  "settings": {},
+                  "input": {
+                    "$ref": {
+                      "node_id": "loop_model_turn",
+                      "path": [
+                        "output"
+                      ]
+                    }
+                  }
+                },
+                "position": {
+                  "x": 0.0,
+                  "y": 0.0
+                },
+                "retry": {
+                  "enabled": false,
+                  "max_attempts": 1,
+                  "delay_seconds": 0.5
+                },
+                "error_strategy": "fail",
+                "contract": null,
+                "degraded_value": null,
+                "fallback_value": null
+              },
+              {
+                "id": "loop_tool_executor",
+                "type": "tool_executor",
+                "block_version": 1,
+                "title": "Tool Executor",
+                "description": "",
+                "config": {
+                  "settings": {
+                    "tool_name": "Read",
+                    "tool_input": {
+                      "path": "README.md"
+                    }
+                  },
+                  "input": {
+                    "$ref": {
+                      "node_id": "loop_tool_router",
+                      "path": [
+                        "output"
+                      ]
+                    }
+                  }
+                },
+                "position": {
+                  "x": 0.0,
+                  "y": 0.0
+                },
+                "retry": {
+                  "enabled": false,
+                  "max_attempts": 1,
+                  "delay_seconds": 0.5
+                },
+                "error_strategy": "fail",
+                "contract": null,
+                "degraded_value": null,
+                "fallback_value": null
+              },
+              {
+                "id": "loop_tool_result",
+                "type": "tool_result_normalizer",
+                "block_version": 1,
+                "title": "Tool Result Normalizer",
+                "description": "",
+                "config": {
+                  "settings": {},
+                  "input": {
+                    "$ref": {
+                      "node_id": "loop_tool_executor",
+                      "path": [
+                        "output"
+                      ]
+                    }
+                  }
+                },
+                "position": {
+                  "x": 0.0,
+                  "y": 0.0
+                },
+                "retry": {
+                  "enabled": false,
+                  "max_attempts": 1,
+                  "delay_seconds": 0.5
+                },
+                "error_strategy": "fail",
+                "contract": null,
+                "degraded_value": null,
+                "fallback_value": null
+              },
+              {
+                "id": "loop_continue",
+                "type": "stop_continue_controller",
+                "block_version": 1,
+                "title": "Stop / Continue",
+                "description": "",
+                "config": {
+                  "settings": {
+                    "stop_reason": "tool_use"
+                  },
+                  "input": {
+                    "$ref": {
+                      "node_id": "loop_tool_result",
+                      "path": [
+                        "output"
+                      ]
+                    }
+                  }
+                },
+                "position": {
+                  "x": 0.0,
+                  "y": 0.0
+                },
+                "retry": {
+                  "enabled": false,
+                  "max_attempts": 1,
+                  "delay_seconds": 0.5
+                },
+                "error_strategy": "fail",
+                "contract": null,
+                "degraded_value": null,
+                "fallback_value": null
+              },
+              {
+                "id": "loop_end",
+                "type": "end",
+                "block_version": 1,
+                "title": "Loop Output",
+                "description": "",
+                "config": {
+                  "outputs": {
+                    "state": {
+                      "$ref": {
+                        "node_id": "loop_continue",
+                        "path": [
+                          "state"
+                        ]
+                      }
+                    },
+                    "tool_result": {
+                      "$ref": {
+                        "node_id": "loop_tool_result",
+                        "path": [
+                          "output"
+                        ]
+                      }
+                    }
+                  }
+                },
+                "position": {
+                  "x": 0.0,
+                  "y": 0.0
+                },
+                "retry": {
+                  "enabled": false,
+                  "max_attempts": 1,
+                  "delay_seconds": 0.5
+                },
+                "error_strategy": "fail",
+                "contract": null,
+                "degraded_value": null,
+                "fallback_value": null
+              }
+            ],
+            "edges": [
+              {
+                "id": "loop_start_model",
+                "source": "loop_start",
+                "target": "loop_model_turn",
+                "source_port": "output",
+                "target_port": "input",
+                "branch": null
+              },
+              {
+                "id": "loop_model_router",
+                "source": "loop_model_turn",
+                "target": "loop_tool_router",
+                "source_port": "output",
+                "target_port": "input",
+                "branch": null
+              },
+              {
+                "id": "loop_router_tool",
+                "source": "loop_tool_router",
+                "target": "loop_tool_executor",
+                "source_port": "output",
+                "target_port": "input",
+                "branch": null
+              },
+              {
+                "id": "loop_tool_result",
+                "source": "loop_tool_executor",
+                "target": "loop_tool_result",
+                "source_port": "output",
+                "target_port": "input",
+                "branch": null
+              },
+              {
+                "id": "loop_result_continue",
+                "source": "loop_tool_result",
+                "target": "loop_continue",
+                "source_port": "output",
+                "target_port": "input",
+                "branch": null
+              },
+              {
+                "id": "loop_continue_end",
+                "source": "loop_continue",
+                "target": "loop_end",
+                "source_port": "output",
+                "target_port": "input",
+                "branch": null
+              }
+            ],
+            "viewport": {
+              "x": 0.0,
+              "y": 0.0,
+              "zoom": 0.8
+            }
+          },
+          "variables": {
+            "agent_context": {
+              "$ref": {
+                "node_id": "sandbox",
+                "path": [
+                  "output"
+                ]
+              }
+            }
+          },
+          "break_condition": {
+            "value": false,
+            "operator": "equals",
+            "expected": true
+          },
+          "break_value": {
+            "$ref": {
+              "node_id": "loop_continue",
+              "path": [
+                "state",
+                "continue"
+              ]
+            }
+          },
+          "max_iterations": 2,
+          "output_node_id": "loop_end"
+        },
+        "position": {
+          "x": 3120.0,
+          "y": 0.0
+        },
+        "retry": {
+          "enabled": false,
+          "max_attempts": 1,
+          "delay_seconds": 0.5
+        },
+        "error_strategy": "fail",
+        "contract": null,
+        "degraded_value": null,
+        "fallback_value": null
+      },
+      {
+        "id": "retry",
+        "type": "retry_error_classifier",
+        "block_version": 1,
+        "title": "Retry / Error Classifier",
+        "description": "",
+        "config": {
+          "settings": {
+            "error": ""
+          },
+          "input": {
+            "$ref": {
+              "node_id": "loop",
+              "path": [
+                "output"
+              ]
+            }
+          }
+        },
+        "position": {
+          "x": 3380.0,
+          "y": 0.0
+        },
+        "retry": {
+          "enabled": false,
+          "max_attempts": 1,
+          "delay_seconds": 0.5
+        },
+        "error_strategy": "fail",
+        "contract": null,
+        "degraded_value": null,
+        "fallback_value": null
+      },
+      {
+        "id": "subagent",
+        "type": "subagent_spawn",
+        "block_version": 1,
+        "title": "Subagent Spawn",
+        "description": "",
+        "config": {
+          "settings": {
+            "name": "test-triage",
+            "task": "Inspect failing tests and return evidence.",
+            "budget": {
+              "max_rounds": 3
+            }
+          },
+          "input": {
+            "$ref": {
+              "node_id": "retry",
+              "path": [
+                "output"
+              ]
+            }
+          }
+        },
+        "position": {
+          "x": 3640.0,
+          "y": 0.0
+        },
+        "retry": {
+          "enabled": false,
+          "max_attempts": 1,
+          "delay_seconds": 0.5
+        },
+        "error_strategy": "fail",
+        "contract": null,
+        "degraded_value": null,
+        "fallback_value": null
+      },
+      {
+        "id": "dispatch",
+        "type": "task_dispatcher",
+        "block_version": 1,
+        "title": "Task Dispatcher",
+        "description": "",
+        "config": {
+          "settings": {
+            "tasks": [
+              "read files",
+              "run tests",
+              "patch code",
+              "rerun tests"
+            ]
+          },
+          "input": {
+            "$ref": {
+              "node_id": "subagent",
+              "path": [
+                "output"
+              ]
+            }
+          }
+        },
+        "position": {
+          "x": 3900.0,
+          "y": 0.0
+        },
+        "retry": {
+          "enabled": false,
+          "max_attempts": 1,
+          "delay_seconds": 0.5
+        },
+        "error_strategy": "fail",
+        "contract": null,
+        "degraded_value": null,
+        "fallback_value": null
+      },
+      {
+        "id": "deps",
+        "type": "dependency_gate",
+        "block_version": 1,
+        "title": "Dependency Gate",
+        "description": "",
+        "config": {
+          "settings": {
+            "dependencies": [
+              "read files",
+              "run tests"
+            ],
+            "completed": [
+              "read files",
+              "run tests"
+            ]
+          },
+          "input": {
+            "$ref": {
+              "node_id": "dispatch",
+              "path": [
+                "output"
+              ]
+            }
+          }
+        },
+        "position": {
+          "x": 4160.0,
+          "y": 0.0
+        },
+        "retry": {
+          "enabled": false,
+          "max_attempts": 1,
+          "delay_seconds": 0.5
+        },
+        "error_strategy": "fail",
+        "contract": null,
+        "degraded_value": null,
+        "fallback_value": null
+      },
+      {
+        "id": "mailbox",
+        "type": "mailbox_wait_wake",
+        "block_version": 1,
+        "title": "Mailbox Wait / Wake",
+        "description": "",
+        "config": {
+          "settings": {
+            "messages": [
+              "triage complete"
+            ]
+          },
+          "input": {
+            "$ref": {
+              "node_id": "deps",
+              "path": [
+                "output"
+              ]
+            }
+          }
+        },
+        "position": {
+          "x": 4420.0,
+          "y": 0.0
+        },
+        "retry": {
+          "enabled": false,
+          "max_attempts": 1,
+          "delay_seconds": 0.5
+        },
+        "error_strategy": "fail",
+        "contract": null,
+        "degraded_value": null,
+        "fallback_value": null
+      },
+      {
+        "id": "checkpoint",
+        "type": "checkpoint_resume",
+        "block_version": 1,
+        "title": "Checkpoint / Resume",
+        "description": "",
+        "config": {
+          "settings": {
+            "checkpoint_id": "coding-agent-after-triage"
+          },
+          "input": {
+            "$ref": {
+              "node_id": "mailbox",
+              "path": [
+                "output"
+              ]
+            }
+          }
+        },
+        "position": {
+          "x": 4680.0,
+          "y": 0.0
+        },
+        "retry": {
+          "enabled": false,
+          "max_attempts": 1,
+          "delay_seconds": 0.5
+        },
+        "error_strategy": "fail",
+        "contract": null,
+        "degraded_value": null,
+        "fallback_value": null
+      },
+      {
+        "id": "cancel",
+        "type": "cancellation_point",
+        "block_version": 1,
+        "title": "Cancellation Point",
+        "description": "",
+        "config": {
+          "settings": {
+            "cancelled": false
+          },
+          "input": {
+            "$ref": {
+              "node_id": "checkpoint",
+              "path": [
+                "output"
+              ]
+            }
+          }
+        },
+        "position": {
+          "x": 4940.0,
+          "y": 0.0
+        },
+        "retry": {
+          "enabled": false,
+          "max_attempts": 1,
+          "delay_seconds": 0.5
+        },
+        "error_strategy": "fail",
+        "contract": null,
+        "degraded_value": null,
+        "fallback_value": null
+      },
+      {
+        "id": "trace",
+        "type": "event_recorder",
+        "block_version": 1,
+        "title": "Event Recorder",
+        "description": "",
+        "config": {
+          "settings": {
+            "label": "claude_like_coding_agent_trace"
+          },
+          "input": {
+            "$ref": {
+              "node_id": "cancel",
+              "path": [
+                "output"
+              ]
+            }
+          }
+        },
+        "position": {
+          "x": 5200.0,
+          "y": 0.0
+        },
+        "retry": {
+          "enabled": false,
+          "max_attempts": 1,
+          "delay_seconds": 0.5
+        },
+        "error_strategy": "fail",
+        "contract": null,
+        "degraded_value": null,
+        "fallback_value": null
+      },
+      {
+        "id": "end",
+        "type": "end",
+        "block_version": 1,
+        "title": "Agent Output",
+        "description": "",
+        "config": {
+          "outputs": {
+            "trace": {
+              "$ref": {
+                "node_id": "trace",
+                "path": [
+                  "state"
+                ]
+              }
+            },
+            "loop": {
+              "$ref": {
+                "node_id": "loop",
+                "path": [
+                  "output"
+                ]
+              }
+            },
+            "checkpoint": {
+              "$ref": {
+                "node_id": "checkpoint",
+                "path": [
+                  "state"
+                ]
+              }
+            }
+          }
+        },
+        "position": {
+          "x": 5460.0,
+          "y": 0.0
+        },
+        "retry": {
+          "enabled": false,
+          "max_attempts": 1,
+          "delay_seconds": 0.5
+        },
+        "error_strategy": "fail",
+        "contract": null,
+        "degraded_value": null,
+        "fallback_value": null
+      }
+    ],
+    "edges": [
+      {
+        "id": "start_to_context",
+        "source": "start",
+        "target": "context",
+        "source_port": "output",
+        "target_port": "input",
+        "branch": null
+      },
+      {
+        "id": "context_to_workspace",
+        "source": "context",
+        "target": "workspace",
+        "source_port": "output",
+        "target_port": "input",
+        "branch": null
+      },
+      {
+        "id": "workspace_to_skills",
+        "source": "workspace",
+        "target": "skills",
+        "source_port": "output",
+        "target_port": "input",
+        "branch": null
+      },
+      {
+        "id": "skills_to_mcp",
+        "source": "skills",
+        "target": "mcp",
+        "source_port": "output",
+        "target_port": "input",
+        "branch": null
+      },
+      {
+        "id": "mcp_to_capabilities",
+        "source": "mcp",
+        "target": "capabilities",
+        "source_port": "output",
+        "target_port": "input",
+        "branch": null
+      },
+      {
+        "id": "capabilities_to_memory",
+        "source": "capabilities",
+        "target": "memory",
+        "source_port": "output",
+        "target_port": "input",
+        "branch": null
+      },
+      {
+        "id": "memory_to_compact",
+        "source": "memory",
+        "target": "compact",
+        "source_port": "output",
+        "target_port": "input",
+        "branch": null
+      },
+      {
+        "id": "compact_to_budget",
+        "source": "compact",
+        "target": "budget",
+        "source_port": "output",
+        "target_port": "input",
+        "branch": null
+      },
+      {
+        "id": "budget_to_rounds",
+        "source": "budget",
+        "target": "rounds",
+        "source_port": "output",
+        "target_port": "input",
+        "branch": null
+      },
+      {
+        "id": "rounds_to_permission",
+        "source": "rounds",
+        "target": "permission",
+        "source_port": "output",
+        "target_port": "input",
+        "branch": null
+      },
+      {
+        "id": "permission_to_sandbox",
+        "source": "permission",
+        "target": "sandbox",
+        "source_port": "output",
+        "target_port": "input",
+        "branch": null
+      },
+      {
+        "id": "sandbox_to_loop",
+        "source": "sandbox",
+        "target": "loop",
+        "source_port": "output",
+        "target_port": "input",
+        "branch": null
+      },
+      {
+        "id": "loop_to_retry",
+        "source": "loop",
+        "target": "retry",
+        "source_port": "output",
+        "target_port": "input",
+        "branch": null
+      },
+      {
+        "id": "retry_to_subagent",
+        "source": "retry",
+        "target": "subagent",
+        "source_port": "output",
+        "target_port": "input",
+        "branch": null
+      },
+      {
+        "id": "subagent_to_dispatch",
+        "source": "subagent",
+        "target": "dispatch",
+        "source_port": "output",
+        "target_port": "input",
+        "branch": null
+      },
+      {
+        "id": "dispatch_to_deps",
+        "source": "dispatch",
+        "target": "deps",
+        "source_port": "output",
+        "target_port": "input",
+        "branch": null
+      },
+      {
+        "id": "deps_to_mailbox",
+        "source": "deps",
+        "target": "mailbox",
+        "source_port": "output",
+        "target_port": "input",
+        "branch": null
+      },
+      {
+        "id": "mailbox_to_checkpoint",
+        "source": "mailbox",
+        "target": "checkpoint",
+        "source_port": "output",
+        "target_port": "input",
+        "branch": null
+      },
+      {
+        "id": "checkpoint_to_cancel",
+        "source": "checkpoint",
+        "target": "cancel",
+        "source_port": "output",
+        "target_port": "input",
+        "branch": null
+      },
+      {
+        "id": "cancel_to_trace",
+        "source": "cancel",
+        "target": "trace",
+        "source_port": "output",
+        "target_port": "input",
+        "branch": null
+      },
+      {
+        "id": "trace_to_end",
+        "source": "trace",
+        "target": "end",
+        "source_port": "output",
+        "target_port": "input",
+        "branch": null
+      }
+    ],
+    "viewport": {
+      "x": 0.0,
+      "y": 0.0,
+      "zoom": 0.8
+    }
+  }
+}

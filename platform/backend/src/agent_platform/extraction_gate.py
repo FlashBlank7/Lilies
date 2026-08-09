@@ -1,10 +1,15 @@
-"""Extraction gate — decide whether a session's decision points are worth
-extracting into a reusable workflow template.
+"""Extraction gate — decide whether a workflow is worth evolving into or
+registering as a template.
 
-Uses a three-layer filter:
-  1. Minimum decision count (>= 2)
-  2. Template coverage check (not already handled by existing templates)
-  3. Novelty check (contains branches not seen in existing templates)
+.. deprecated::
+    This module operates on DecisionPoint lists from DecisionTracker and is
+    only used by the legacy POST /sessions/{id}/extract-template endpoint.
+    New code should use EvolutionGate (evolution_engine.py) which operates on
+    real WorkflowSpec objects produced by Builder Team.
+
+v2: Gates now operate on the real WorkflowSpec produced by Builder Team,
+not on DecisionTracker metadata. The old DecisionPoint-based gates are
+preserved for backward compatibility with the session extraction API.
 """
 
 from __future__ import annotations
@@ -17,7 +22,11 @@ if TYPE_CHECKING:
 
 
 class ExtractionGate:
-    """Quality gate for session-to-template extraction proposals."""
+    """Quality gate for session-to-template extraction proposals.
+
+    Preserved for backward compatibility with POST /sessions/{id}/extract-template.
+    For the Builder auto-extract flow, use EvolutionGate instead.
+    """
 
     def __init__(self, template_store: "TemplateStore | None" = None) -> None:
         self._store = template_store
@@ -26,21 +35,15 @@ class ExtractionGate:
         self,
         decision_points: list["DecisionPoint"],
     ) -> tuple[bool, str]:
-        """Return (should_propose, reason).
-
-        All three gates must pass for a proposal to be made.
-        """
-        # Gate 1 ────────────────────────────────────────────────
+        """Return (should_propose, reason)."""
         if len(decision_points) < 2:
             return False, f"insufficient_decisions ({len(decision_points)})"
 
-        # Gate 2 ────────────────────────────────────────────────
         if self._store is not None:
             for template in self._store.list():
                 if self._is_covered(decision_points, template):
                     return False, f"covered_by:{template.name}"
 
-        # Gate 3 ────────────────────────────────────────────────
         if self._store is not None:
             existing = [
                 t for t in self._store.list()
@@ -51,40 +54,26 @@ class ExtractionGate:
 
         return True, "proposed"
 
-    # ── helpers ────────────────────────────────────────────────
+    # ── helpers ────────────────────────────────────────────────────
 
     @staticmethod
     def _is_covered(decision_points: list["DecisionPoint"], template) -> bool:
-        """Check via tag overlap between session and template."""
         session_tags = ExtractionGate._extract_tags(decision_points)
         template_tags = set(getattr(template, "tags", []) or [])
         return len(session_tags & template_tags) >= 2
 
     @staticmethod
     def _extract_tags(decision_points: list["DecisionPoint"]) -> set[str]:
-        """Extract keyword tags from decision question/answer text."""
         tags: set[str] = set()
         for dp in decision_points:
             text = (dp.question + " " + dp.context).casefold()
-            if "api" in text:
-                tags.add("api")
-            if "automation" in text or "自动" in text:
-                tags.add("automation")
-            if "app" in text or "应用" in text:
-                tags.add("app")
-            if "schedule" in text or "定时" in text:
-                tags.add("scheduled")
-            if "web" in text or "http" in text:
-                tags.add("web")
-            if "test" in text or "测试" in text:
-                tags.add("testing")
-            if "deploy" in text or "部署" in text:
-                tags.add("deployment")
-            if "debug" in text or "调试" in text:
-                tags.add("debugging")
-            if "security" in text or "安全" in text:
-                tags.add("security")
-            # Also tag decision outcome text
+            for keyword in (
+                "api", "automation", "自动", "app", "应用", "schedule", "定时",
+                "web", "http", "test", "测试", "deploy", "部署",
+                "debug", "调试", "security", "安全",
+            ):
+                if keyword in text:
+                    tags.add(keyword.rstrip("自动应用定时测试部署调试安全"))
             for branch in dp.branches:
                 outcome_text = (branch.answer + " " + branch.outcome).casefold()
                 for keyword in ("api", "web", "app", "automation", "schedule",
@@ -98,7 +87,6 @@ class ExtractionGate:
         decision_points: list["DecisionPoint"],
         templates: list,
     ) -> bool:
-        """At least some branch structure is novel vs existing templates."""
         if not templates:
             return True
         branch_count = sum(len(dp.branches) for dp in decision_points)

@@ -1,6 +1,6 @@
 # The Primitive Is The Pair: Harness+LLM as the Atomic Unit of Agent Architectures
 
-**Jiang Zhijun** · June 2026
+**Li Haotian & Jiang Zhijun** · June 2026
 
 ---
 

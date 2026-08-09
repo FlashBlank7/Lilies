@@ -1,0 +1,1055 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Clyins 日程表</title>
+<style>
+  :root {
+    --bg: #fafaf9; --card: #ffffff; --border: #e7e5e4;
+    --text: #292524; --muted: #78716c; --accent: #6366f1;
+    --high: #ef4444; --medium: #f59e0b; --low: #22c55e;
+    --ready: #10b981; --waiting: #f59e0b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1c1917; --card: #292524; --border: #44403c;
+      --text: #e7e5e4; --muted: #a8a29e;
+    }
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font: 15px/1.6 system-ui, -apple-system, sans-serif;
+    background: var(--bg); color: var(--text);
+    max-width: 960px; margin: 0 auto; padding: 1.5rem;
+  }
+  .header {
+    text-align: center; padding: 1.5rem 0 1rem;
+    border-bottom: 2px solid var(--accent); margin-bottom: 1.5rem;
+  }
+  .header h1 { font-size: 1.6rem; font-weight: 700; }
+  .header .sub { color: var(--muted); font-size: .85rem; margin-top: .25rem; }
+
+  /* ── Tabs ─────────────────────────────── */
+  .tabs { display: flex; gap: 0; margin-bottom: 1.5rem; border-bottom: 2px solid var(--border); }
+  .tab {
+    padding: .6rem 1.5rem; cursor: pointer; font-weight: 600; font-size: .9rem;
+    color: var(--muted); border-bottom: 2px solid transparent; margin-bottom: -2px;
+    transition: all .2s; background: none; border-top: none; border-left: none; border-right: none;
+  }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .tab:hover { color: var(--text); }
+
+  /* ── Cards ─────────────────────────────── */
+  .card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 12px; padding: 1.5rem; margin-bottom: 1.2rem;
+  }
+  .card h2 { font-size: 1.1rem; margin-bottom: .8rem; color: var(--accent); }
+
+  /* ── Form ──────────────────────────────── */
+  textarea, input[type=text], input[type=date] {
+    width: 100%; padding: .7rem; border: 1px solid var(--border);
+    border-radius: 8px; font: inherit; background: var(--bg); color: var(--text);
+    resize: vertical;
+  }
+  textarea:focus, input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(99,102,241,.1); }
+  textarea { min-height: 200px; }
+  .field { margin-bottom: 1rem; }
+  .field label { display: block; font-weight: 600; font-size: .85rem; margin-bottom: .3rem; color: var(--muted); }
+  .field .hint { font-size: .78rem; color: var(--muted); margin-top: .2rem; }
+  .row { display: flex; gap: 1rem; }
+  .row .field { flex: 1; }
+
+  /* ── Buttons ───────────────────────────── */
+  .btn {
+    display: inline-block; padding: .65rem 1.5rem; border-radius: 8px;
+    border: 1px solid var(--accent); color: var(--accent); text-decoration: none;
+    font-weight: 600; font-size: .9rem; cursor: pointer; transition: all .2s;
+    background: transparent;
+  }
+  .btn:hover { background: var(--accent); color: #fff; }
+  .btn-primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .btn-primary:hover { opacity: .85; }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+  .actions { display: flex; gap: .8rem; margin-top: 1rem; justify-content: center; flex-wrap: wrap; }
+
+  /* ── Progress ──────────────────────────── */
+  .progress { text-align: center; padding: 2rem; }
+  .spinner {
+    display: inline-block; width: 40px; height: 40px;
+    border: 3px solid var(--border); border-top-color: var(--accent);
+    border-radius: 50%; animation: spin .8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .progress-text { margin-top: .8rem; color: var(--muted); font-size: .9rem; }
+  .progress-steps { font-size: .82rem; color: var(--muted); margin-top: .5rem; }
+
+  /* ── Results ───────────────────────────── */
+  .summary-text { line-height: 1.8; font-size: 1.05rem; }
+  table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+  th, td { padding: .55rem .65rem; text-align: left; border-bottom: 1px solid var(--border); }
+  th { background: #f5f5f4; font-weight: 600; font-size: .78rem; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); }
+  @media (prefers-color-scheme: dark) { th { background: #1c1917; } }
+  tr:hover td { background: rgba(99,102,241,.04); }
+  .pill {
+    display: inline-block; padding: .12rem .55rem; border-radius: 999px;
+    font-size: .75rem; font-weight: 600;
+  }
+  .pill-high { background: #fef2f2; color: var(--high); }
+  .pill-medium { background: #fffbeb; color: var(--medium); }
+  .pill-low { background: #f0fdf4; color: var(--low); }
+  .pill-ready { background: #ecfdf5; color: var(--ready); }
+  .pill-waiting { background: #fffbeb; color: var(--waiting); }
+  .dep-list { font-size: .8rem; color: var(--muted); list-style: none; padding: 0; }
+  .dep-list li::before { content: "↳ "; color: var(--accent); }
+  .status-bar { display: flex; gap: 1.5rem; flex-wrap: wrap; margin-top: .8rem; font-size: .85rem; }
+  .empty { text-align: center; padding: 3rem; color: var(--muted); }
+  .error-box { background: #fef2f2; color: #dc2626; padding: 1rem; border-radius: 8px; margin: .5rem 0; }
+  .schedule-content { line-height: 1.8; }
+  .schedule-content h1,.schedule-content h2,.schedule-content h3 { margin-top: 1rem; margin-bottom: .5rem; }
+  .schedule-content hr { border: none; border-top: 1px solid var(--border); margin: 1rem 0; }
+  .schedule-content table { margin: .8rem 0; }
+  @media print {
+    body { background: #fff; color: #000; max-width: 100%; padding: 0; }
+    .card { box-shadow: none; border: 1px solid #ddd; break-inside: avoid; }
+    .actions, .no-print, .tabs, #login-overlay { display: none; }
+  }
+  .footer-note { text-align: center; color: var(--muted); font-size: .78rem; margin-top: 2rem; padding: 1rem; }
+  #view-tab-content, #new-tab-content, #cal-tab-content { display: none; }
+  #view-tab-content.active, #new-tab-content.active, #cal-tab-content.active { display: block; }
+  #main-app { opacity: 0; transition: opacity .3s; }
+  #main-app.visible { opacity: 1; }
+
+  /* ── Calendar / Gantt ──────────────────────── */
+  .cal-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: .8rem; margin-bottom: 1rem; }
+  .stat-card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 1rem; text-align: center; }
+  .stat-card .val { font-size: 2rem; font-weight: 800; color: var(--accent); }
+  .stat-card .lbl { font-size: .78rem; color: var(--muted); margin-top: .2rem; }
+  .stat-card.warn .val { color: #f59e0b; }
+  .stat-card.good .val { color: #10b981; }
+
+  .cal-toolbar { display: flex; gap: .5rem; flex-wrap: wrap; margin-bottom: 1rem; align-items: center; }
+  .cal-toolbar button, .cal-toolbar select {
+    padding: .4rem .8rem; border: 1px solid var(--border); border-radius: 6px;
+    background: var(--card); color: var(--text); font: inherit; font-size: .82rem; cursor: pointer;
+  }
+  .cal-toolbar button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .cal-scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: 10px; background: var(--card); }
+  .cal-table { border-collapse: collapse; min-width: 800px; width: 100%; font-size: .8rem; }
+  .cal-table th, .cal-table td { padding: 3px 4px; border: 1px solid var(--border); text-align: center; white-space: nowrap; }
+  .cal-table .row-hdr { text-align: left; padding: 4px 8px; font-weight: 600; position: sticky; left: 0; background: var(--card); z-index: 1; min-width: 120px; max-width: 160px; overflow: hidden; text-overflow: ellipsis; font-size: .78rem; }
+  .cal-table .cat-hdr { text-align: left; padding: 4px 8px; font-weight: 800; position: sticky; left: 0; background: var(--card); z-index: 2; font-size: .82rem; }
+  .cal-table thead th { background: #f5f5f4; font-size: .7rem; position: sticky; top: 0; z-index: 3; }
+  @media (prefers-color-scheme: dark) { .cal-table thead th { background: #1c1917; } }
+  .cal-table .day-weekend { background: rgba(0,0,0,.03); }
+  @media (prefers-color-scheme: dark) { .cal-table .day-weekend { background: rgba(255,255,255,.03); } }
+  .cal-table .day-today { background: rgba(99,102,241,.08); }
+  .cal-bar {
+    display: block; height: 20px; border-radius: 4px; margin: 1px 0;
+    cursor: pointer; transition: filter .15s; position: relative;
+  }
+  .cal-bar:hover { filter: brightness(.9); }
+  .cal-bar.completed { opacity: .6; }
+  .cal-bar.cat-routine { background: #6366f1; }
+  .cal-bar.cat-project { background: #f59e0b; }
+  .cal-bar.cat-product { background: #10b981; }
+  .cal-bar.cat-comm { background: #8b5cf6; }
+  .cal-bar.cat-urgent { background: #ef4444; }
+
+  .cal-popup {
+    position: fixed; inset: 0; z-index: 10000; display: flex; align-items: center; justify-content: center;
+    background: rgba(0,0,0,.4);
+  }
+  .cal-popup.hidden { display: none; }
+  .cal-popup-inner {
+    background: var(--card); border-radius: 14px; padding: 1.8rem; max-width: 500px; width: 90%;
+    box-shadow: 0 8px 40px rgba(0,0,0,.15);
+  }
+  .cal-popup-inner h3 { margin-bottom: .8rem; }
+  .cal-popup-inner .meta { font-size: .85rem; color: var(--muted); margin-bottom: .3rem; }
+  .cal-popup-inner .close-btn { float: right; background: none; border: none; font-size: 1.3rem; cursor: pointer; color: var(--muted); }
+
+  .plan-box { background: #eef2ff; border: 1px solid #c7d2fe; border-radius: 10px; padding: 1rem; margin-top: 1rem; font-size: .88rem; }
+  @media (prefers-color-scheme: dark) { .plan-box { background: #1e1b4b; border-color: #4338ca; } }
+  .plan-box h4 { color: var(--accent); margin-bottom: .5rem; }
+  .plan-box li { margin: .3rem 0; }
+
+  /* ── Login overlay ────────────────────────── */
+  #login-overlay {
+    position: fixed; inset: 0; z-index: 9999;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--bg);
+  }
+  #login-overlay.hidden { display: none; }
+  .login-card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 16px; padding: 2.5rem 2rem; width: 100%; max-width: 400px;
+    box-shadow: 0 4px 24px rgba(0,0,0,.08); text-align: center;
+  }
+  .login-card .logo { font-size: 3rem; margin-bottom: .5rem; }
+  .login-card h2 { font-size: 1.3rem; margin-bottom: .3rem; color: var(--text); }
+  .login-card .subtitle { color: var(--muted); font-size: .85rem; margin-bottom: 1.8rem; }
+  .login-card input {
+    width: 100%; padding: .75rem 1rem; border: 1px solid var(--border);
+    border-radius: 10px; font: inherit; font-size: 1rem; text-align: center;
+    background: var(--bg); color: var(--text); letter-spacing: 2px;
+    transition: border-color .2s;
+  }
+  .login-card input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(99,102,241,.1); }
+  .login-card .login-btn {
+    width: 100%; margin-top: 1.2rem; padding: .75rem;
+    border-radius: 10px; border: none; background: var(--accent);
+    color: #fff; font: inherit; font-weight: 700; font-size: 1rem;
+    cursor: pointer; transition: opacity .2s;
+  }
+  .login-card .login-btn:hover { opacity: .85; }
+  .login-card .login-btn:disabled { opacity: .5; cursor: not-allowed; }
+  .login-error { color: #ef4444; font-size: .85rem; margin-top: .8rem; min-height: 1.2rem; }
+  #main-app { opacity: 0; transition: opacity .3s; }
+  #main-app.visible { opacity: 1; }
+</style>
+</head>
+<body>
+
+<!-- ═══════════ LOGIN OVERLAY ═══════════ -->
+<div id="login-overlay">
+  <div class="login-card">
+    <div class="logo">📋</div>
+    <h2>Clyins AI 项目经理</h2>
+    <div class="subtitle">请输入访问密码</div>
+    <form onsubmit="doLogin(); return false">
+      <input type="password" id="login-password" placeholder="输入密码" autofocus autocomplete="off">
+      <button type="submit" class="login-btn" id="login-btn">🔐 登录</button>
+    </form>
+    <div class="login-error" id="login-error"></div>
+  </div>
+</div>
+
+<!-- ═══════════ MAIN APP ═══════════ -->
+<div id="main-app">
+
+<div class="header">
+  <h1>📋 Clyins AI 项目经理</h1>
+  <div class="sub">上传会议记录 → 自动生成日程表与行动项</div>
+</div>
+
+<div class="tabs no-print">
+  <button class="tab active" onclick="switchTab('new')" id="tab-new">📝 新建日程</button>
+  <button class="tab" onclick="switchTab('view')" id="tab-view">🔍 查看已有日程</button>
+  <button class="tab" onclick="switchTab('cal')" id="tab-cal">📅 日历看板</button>
+</div>
+
+<!-- ═══════════ NEW SCHEDULE TAB ═══════════ -->
+<div id="new-tab-content" class="active">
+  <div class="card">
+    <h2>📝 上传会议记录</h2>
+    <div class="field">
+      <label>会议记录文本 *</label>
+      <textarea id="meeting-text" placeholder="粘贴或输入会议记录...&#10;&#10;例：&#10;# 周例会记录 - 2026年7月16日&#10;&#10;## 参会人员&#10;若楠（项目经理）、昊天（后端）&#10;&#10;## 讨论内容&#10;若楠：上周大家辛苦了。我们先过一下进度..."></textarea>
+      <div class="hint">支持文本格式。会议记录越详细，生成的日程表越准确。</div>
+    </div>
+    <div class="row">
+      <div class="field">
+        <label>会议日期</label>
+        <input type="date" id="meeting-date">
+      </div>
+      <div class="field">
+        <label>团队背景（可选）</label>
+        <input type="text" id="team-context" placeholder="例：钟昊洋-架构；昊天-后端；明白自己-产品">
+      </div>
+    </div>
+    <button class="btn btn-primary" onclick="generateSchedule()" id="btn-generate">
+      🚀 生成日程表
+    </button>
+  </div>
+  <div id="new-result"></div>
+</div>
+
+<!-- ═══════════ VIEW SCHEDULE TAB ═══════════ -->
+<div id="view-tab-content">
+  <div class="card">
+    <h2>🔍 查看已有日程</h2>
+    <div style="display:flex;gap:.5rem">
+      <input id="view-run-id" placeholder="输入 run_id..." style="flex:1">
+      <button class="btn btn-primary" onclick="viewRun()">查看</button>
+    </div>
+  </div>
+  <div id="view-result"></div>
+</div>
+
+
+<!-- ═══════════ CALENDAR TAB ═══════════ -->
+<div id="cal-tab-content">
+  <div class="card">
+    <h2>📅 全员工作表 · 日历看板</h2>
+    <div class="cal-stats" id="cal-stats"></div>
+    <div class="cal-toolbar no-print">
+      <select id="cal-week" onchange="renderCalendar()"><option>本周</option></select>
+      <button class="active" onclick="filterCal('all',this)">全部</button>
+      <button onclick="filterCal('常规',this)">常规</button>
+      <button onclick="filterCal('项目',this)">项目</button>
+      <button onclick="filterCal('产品',this)">产品</button>
+      <button onclick="filterCal('交流',this)">交流</button>
+      <button onclick="filterCal('紧急',this)">紧急</button>
+      <button id="btn-quality" onclick="analyzeQuality()">📊 质量分析</button>
+      <button id="btn-plan" onclick="requestPlan()" style="margin-left:auto">🤖 智能规划</button>
+    </div>
+    <div class="cal-scroll" id="cal-grid"></div>
+    <div id="plan-result"></div>
+  </div>
+</div>
+
+</div><!-- /#main-app -->
+
+<div class="footer-note">
+  Generated by <strong>Clyins AI 项目经理</strong> · Powered by <a href="https://github.com/jiangzhijun/Lilies" style="color:var(--accent)">Lilies</a>
+</div>
+
+<script>
+// ── Login ──────────────────────────────────────────
+const AUTH_KEY = 'clyins_auth';
+const DEFAULT_PASSWORD = 'admin123';
+
+function doLogin() {
+  const pwd = document.getElementById('login-password').value;
+  const btn = document.getElementById('login-btn');
+  const err = document.getElementById('login-error');
+
+  if (pwd === DEFAULT_PASSWORD) {
+    sessionStorage.setItem(AUTH_KEY, '1');
+    document.getElementById('login-overlay').classList.add('hidden');
+    document.getElementById('main-app').classList.add('visible');
+    initApp();
+  } else {
+    err.textContent = '❌ 密码错误，请重试';
+    document.getElementById('login-password').value = '';
+    document.getElementById('login-password').focus();
+  }
+}
+
+// ── Main init deferred until after login ────────────
+// ── Config ──────────────────────────────────────────
+const TOKEN = localStorage.getItem('api_token') || new URLSearchParams(location.search).get('token') || 'test-token-2024';
+const H = { 'Authorization': 'Bearer ' + TOKEN, 'Content-Type': 'application/json' };
+
+// ── Tab switching ──────────────────────────────────
+function switchTab(tab) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('#new-tab-content, #view-tab-content, #cal-tab-content').forEach(c => c.classList.remove('active'));
+  document.getElementById('tab-' + tab).classList.add('active');
+  document.getElementById(tab + '-tab-content').classList.add('active');
+}
+
+// ── Generate new schedule ──────────────────────────
+async function generateSchedule() {
+  const transcript = document.getElementById('meeting-text').value.trim();
+  if (transcript.length < 50) { alert('会议记录至少需要 50 个字符'); return; }
+
+  const btn = document.getElementById('btn-generate');
+  btn.disabled = true;
+  btn.textContent = '⏳ 正在提交...';
+
+  const resultDiv = document.getElementById('new-result');
+  resultDiv.innerHTML = `<div class="card progress">
+    <div class="spinner"></div>
+    <div class="progress-text">正在提交会议记录到 Clyins...</div>
+  </div>`;
+
+  try {
+    // 1. Submit to Clyins API
+    const resp = await fetch('/api/v1/clyins/run', {
+      method: 'POST', headers: H,
+      body: JSON.stringify({
+        meeting_transcript: transcript,
+        team_context: document.getElementById('team-context').value.trim(),
+        meeting_date: document.getElementById('meeting-date').value || new Date().toISOString().slice(0,10),
+      })
+    });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error(err.detail || 'API error: ' + resp.status);
+    }
+    const { run_id } = await resp.json();
+
+    // 2. Poll for completion
+    resultDiv.innerHTML = `<div class="card progress">
+      <div class="spinner"></div>
+      <div class="progress-text">Clyins 正在分析会议记录...</div>
+      <div class="progress-steps" id="progress-steps">启动中...</div>
+    </div>`;
+
+    await pollRun(run_id, 'new-result');
+
+  } catch (e) {
+    resultDiv.innerHTML = `<div class="card error-box">❌ ${escHtml(e.message)}</div>`;
+    btn.disabled = false;
+    btn.textContent = '🚀 生成日程表';
+  }
+}
+
+// ── View existing run ──────────────────────────────
+function viewRun() {
+  const runId = document.getElementById('view-run-id').value.trim();
+  if (!runId) { alert('请输入 run_id'); return; }
+  const url = new URL(location);
+  url.searchParams.set('run_id', runId);
+  history.pushState(null, '', url);
+  loadRunData(runId, 'view-result');
+}
+
+// ── Poll for run completion ────────────────────────
+async function pollRun(runId, containerId) {
+  const stepsEl = document.getElementById('progress-steps');
+  const steps = ['启动中...', '正在组合分析提示...', '正在提取行动项（LLM 分析中）...', '正在依赖排序...', '正在生成日程表...', '正在核验...'];
+
+  for (let i = 0; i < 240; i++) {
+    await sleep(1500);
+
+    try {
+      const resp = await fetch('/api/v1/runs/' + runId, { headers: H });
+      if (!resp.ok) { if (i > 60) throw new Error('Run expired'); continue; }
+
+      const run = await resp.json();
+      const status = run.status;
+      const state = run.state || {};
+      const completed = (state.completed || []).length;
+      const total = 7;
+
+      // Update progress
+      if (stepsEl && completed < steps.length) {
+        stepsEl.textContent = `步骤 ${Math.min(completed + 1, total)}/${total}: ${steps[Math.min(completed, steps.length - 1)]}`;
+      }
+
+      if (status === 'succeeded' || status === 'failed') {
+        const outputs = run.outputs || {};
+        const btn = document.getElementById('btn-generate');
+        if (btn) { btn.disabled = false; btn.textContent = '🚀 生成日程表'; }
+
+        if (status === 'failed') {
+          document.getElementById(containerId).innerHTML =
+            `<div class="card error-box">❌ 生成失败: ${escHtml(run.error || '未知错误')}</div>`;
+          return;
+        }
+
+        renderResults(outputs, runId, containerId);
+        // Switch to view tab to show results
+        if (containerId === 'new-result') {
+          document.getElementById('view-run-id').value = runId;
+        }
+        return;
+      }
+    } catch (e) {
+      if (i > 60) throw e;
+    }
+  }
+  throw new Error('生成超时，请稍后通过 run_id 查看结果');
+}
+
+// ── Render results ─────────────────────────────────
+function renderResults(outputs, runId, containerId) {
+  let html = '<div class="actions no-print">' +
+    '<button class="btn btn-primary" onclick="window.print()">🖨️ 打印</button>' +
+    '<button class="btn" onclick="copyResults()">📋 复制</button>' +
+    '</div>';
+
+  // Summary
+  if (outputs.summary) {
+    html += `<div class="card"><h2>📝 会议摘要</h2>
+      <div class="summary-text">${escHtml(outputs.summary)}</div></div>`;
+  }
+
+  // Schedule
+  if (outputs.schedule) {
+    html += `<div class="card"><h2>📊 日程表</h2>
+      <div class="schedule-content">${simpleMd(outputs.schedule)}</div></div>`;
+  }
+
+  // Tasks table with dispatch checkboxes
+  if (outputs.tasks && outputs.tasks.length) {
+    const owners = [...new Set(outputs.tasks.map(t => t.owner).filter(Boolean))];
+    html += `<div class="card"><h2>📋 任务明细 (${outputs.tasks.length} 项 · ${owners.length} 位负责人)</h2>
+      ${renderTaskTable(outputs.tasks)}
+      <div class="status-bar">
+        <span>✅ 就绪: ${outputs.tasks.filter(t => t.status === 'ready').length}</span>
+        <span>⏳ 等待依赖: ${outputs.tasks.filter(t => t.status === 'waiting').length}</span>
+        <span>👥 ${owners.join(', ')}</span>
+      </div></div>`;
+
+    // ── Dispatch card: human review → send to Lilies ──
+    const dispatchable = outputs.tasks.filter(t => t.status === 'ready');
+    html += `<div class="card" id="dispatch-card">
+      <h2>🚀 审核下达 · 交由 Lilies 自动执行</h2>
+      <p style="color:var(--muted);font-size:.85rem;margin-bottom:.8rem">
+        人工审核后，勾选需要 Lilies 自动搭建工作流的任务，点击「确认下达」。
+        Lilies Builder Team 将为每个选中任务自动搭建 BlockFlow。
+      </p>`;
+
+    if (dispatchable.length === 0) {
+      html += `<p style="color:var(--muted)">⏳ 所有任务当前依赖未满足，暂无就绪任务可下达。</p>`;
+    } else {
+      dispatchable.forEach((t, i) => {
+        const dispKey = 'clyins-dispatch-' + t.name;
+        const alreadyDispatched = sessionStorage.getItem(dispKey);
+        if (alreadyDispatched) {
+          html += `<div style="display:flex;align-items:center;gap:.6rem;padding:.4rem 0;border-bottom:1px solid var(--border);opacity:.7">
+            <span style="color:var(--ready)">✅ 已下达</span>
+            <span style="flex:1;font-size:.9rem"><strong>${escHtml(t.name)}</strong>
+              <span style="color:var(--muted);margin-left:.5rem">👤 ${escHtml(t.owner||'待定')}</span></span>
+            <span style="font-size:.78rem;color:var(--muted)">build: ${alreadyDispatched.slice(0,10)}...</span>
+          </div>`;
+        } else {
+          html += `<div style="display:flex;align-items:center;gap:.6rem;padding:.4rem 0;border-bottom:1px solid var(--border)">
+            <input type="checkbox" id="dispatch-${i}" checked style="width:18px;height:18px;cursor:pointer">
+            <label for="dispatch-${i}" style="flex:1;cursor:pointer;font-size:.9rem">
+              <strong>${escHtml(t.name)}</strong>
+              <span style="color:var(--muted);margin-left:.5rem">👤 ${escHtml(t.owner||'待定')}</span>
+            </label>
+          </div>`;
+        }
+      });
+      html += `<button class="btn btn-primary" onclick="dispatchToLilies('${runId}')" id="btn-dispatch" style="margin-top:.8rem">
+        ✅ 确认下达给 Lilies
+      </button>`;
+    }
+    html += `<div id="dispatch-result" style="margin-top:.8rem"></div></div>`;
+  }
+
+  // Run metadata
+  html += `<div class="card"><h2>🔍 运行信息</h2>
+    <span>状态: ${outputs.verified ? '✅ 已审核' : '⏳ 待审核'}</span>
+    <span style="margin-left:1.5rem">run_id: ${runId.slice(0,12)}...</span>
+  </div>`;
+
+  document.getElementById(containerId).innerHTML = html;
+
+  // Auto-merge into calendar
+  if (outputs.tasks && outputs.tasks.length) { mergeClyinsTasks(outputs); }
+}
+
+// ── Dispatch to Lilies ─────────────────────────────
+async function dispatchToLilies(runId) {
+  const btn = document.getElementById('btn-dispatch');
+  const resultDiv = document.getElementById('dispatch-result');
+  btn.disabled = true; btn.textContent = '⏳ 正在下达...';
+  resultDiv.innerHTML = '<div class="progress"><div class="spinner"></div><div class="progress-text">Lilies Builder Team 正在搭建工作流...</div></div>';
+
+  // Collect checked tasks
+  const checkboxes = document.querySelectorAll('#dispatch-card input[type=checkbox]');
+  const tasks = [];
+  checkboxes.forEach((cb, i) => {
+    if (cb.checked) {
+      const label = cb.nextElementSibling;
+      tasks.push({
+        name: (label.querySelector('strong') || {}).textContent || '',
+        owner: (label.querySelector('span') || {}).textContent?.replace('👤 ','') || '',
+      });
+    }
+  });
+
+  if (!tasks.length) {
+    resultDiv.innerHTML = '<p style="color:var(--muted)">未选择任何任务。</p>';
+    btn.disabled = false; btn.textContent = '✅ 确认下达给 Lilies';
+    return;
+  }
+
+  try {
+    const resp = await fetch('/api/v1/clyins/dispatch', {
+      method: 'POST', headers: H,
+      body: JSON.stringify({
+        tasks: tasks.map(t => ({
+          name: t.name,
+          owner: t.owner,
+          description: `Clyins 从会议中提取的行动项: ${t.name}。负责人: ${t.owner}。请 Builder Team 自动搭建可执行的工作流。`,
+        })),
+      }),
+    });
+    if (!resp.ok) { const e = await resp.json().catch(()=>({})); throw new Error(e.detail || 'Dispatch failed'); }
+    const data = await resp.json();
+
+    // Persist dispatched tasks to prevent re-dispatch
+    tasks.forEach(t => {
+      const key = 'clyins-dispatch-' + t.name;
+      const existing = data.tasks.find(dt => dt.task_name === t.name);
+      if (existing && !existing.duplicate) {
+        sessionStorage.setItem(key, existing.build_id);
+      }
+    });
+
+    resultDiv.innerHTML = `<div style="background:#ecfdf5;border:1px solid #a7f3d0;border-radius:10px;padding:1rem;margin-top:.8rem">
+      <strong>✅ 已下达 ${data.dispatched} 个新任务${data.skipped > 0 ? '，' + data.skipped + ' 个跳过（已下达过）' : ''}</strong>
+      <div style="margin-top:.5rem;font-size:.82rem">
+      ${data.tasks.map(t => {
+        if (t.duplicate) {
+          return `<div style="padding:.3rem 0;border-bottom:1px solid #fef3c7;color:var(--muted)">
+            ⏭️ <strong>${escHtml(t.task_name)}</strong> — 已下达过 (${t.status})
+          </div>`;
+        }
+        return `<div style="padding:.3rem 0;border-bottom:1px solid #d1fae5" id="build-${t.build_id.slice(0,8)}">
+          📦 <strong>${escHtml(t.task_name)}</strong>
+          <span id="status-${t.build_id.slice(0,8)}" style="font-size:.82rem"> · ${t.status}</span>
+        </div>`;
+      }).join('')}
+      </div>
+      ${data.dispatched > 0 ? '<p style="font-size:.75rem;color:var(--muted);margin-top:.5rem">自动监控中，失败会自动重试（最多3次）</p>' : ''}
+    </div>`;
+
+    // Auto-poll for status updates (every 15s for 10 min)
+    if (data.dispatched > 0) {
+      let polls = 0;
+      const pollInterval = setInterval(async () => {
+        polls++;
+        if (polls > 40) { clearInterval(pollInterval); return; }
+        try {
+          const sr = await fetch('/api/v1/clyins/status', { headers: H });
+          if (!sr.ok) return;
+          const statuses = await sr.json();
+          let allDone = true;
+          statuses.forEach(s => {
+            const short = s.build_id.slice(0,8);
+            const el = document.getElementById('status-' + short);
+            if (el) {
+              const emoji = {published:'✅',building:'⏳',queued:'⏳',needs_attention:'⚠️',failed:'❌'}[s.status] || '·';
+              el.textContent = ` ${emoji} ${s.status}`;
+              if (s.status !== 'published') allDone = false;
+            }
+          });
+          if (allDone) clearInterval(pollInterval);
+        } catch(e) {}
+      }, 15000);
+    }
+  } catch (e) {
+    resultDiv.innerHTML = `<div class="error-box">❌ 下达失败: ${escHtml(e.message)}</div>`;
+  }
+  btn.disabled = false; btn.textContent = '✅ 确认下达给 Lilies';
+}
+
+// ── Quality analysis ──────────────────────────────
+async function analyzeQuality() {
+  const btn = document.getElementById('btn-quality');
+  const box = document.getElementById('plan-result');
+  btn.disabled = true; btn.textContent = '⏳ 分析中...';
+  box.innerHTML = '';
+
+  try {
+    // Collect workflow data from dispatched Clyins builds
+    const resp = await fetch('/api/v1/applications', { headers: H });
+    const apps = await resp.json();
+    const clyinsApps = apps.filter(a => a.name.startsWith('[Clyins]'));
+
+    if (!clyinsApps.length) {
+      box.innerHTML = '<div class="plan-box"><h4>📊 质量分析</h4><p>暂无 Clyins 下达的工作流可分析。请先通过会议生成并下达任务。</p></div>';
+      btn.disabled = false; btn.textContent = '📊 质量分析';
+      return;
+    }
+
+    let html = '<div class="plan-box"><h4>📊 工作流质量分析</h4>';
+    for (const app of clyinsApps.slice(0, 5)) {
+      try {
+        const draftResp = await fetch(`/api/v1/applications/${app.id}/draft`, { headers: H });
+        if (!draftResp.ok) continue;
+        const draft = await draftResp.json();
+        const wf = draft.snapshot?.workflow;
+        if (!wf) continue;
+
+        const qResp = await fetch('/api/v1/workflows/analyze', {
+          method: 'POST', headers: H,
+          body: JSON.stringify({ workflow: wf })
+        });
+        if (!qResp.ok) continue;
+        const q = await qResp.json();
+
+        const gradeColor = {A:'#10b981',B:'#6366f1',C:'#f59e0b',D:'#ef4444'}[q.grade]||'#78716c';
+        html += `<div style="margin:.6rem 0;padding:.5rem;border:1px solid var(--border);border-radius:8px">
+          <strong>${escHtml(app.name)}</strong>
+          <span style="float:right;font-weight:800;font-size:1.2rem;color:${gradeColor}">${q.grade} · ${q.score}分</span>
+          <div style="font-size:.8rem;color:var(--muted);margin-top:.3rem">
+            ${q.complexity.node_count}节点 ${q.complexity.edge_count}边 ·
+            深度${q.complexity.max_depth} · 圈复杂度${q.complexity.cyclomatic} ·
+            依赖密度${q.complexity.dependency_density}
+          </div>`;
+        if (q.suggestions?.length) {
+          html += '<div style="font-size:.78rem;margin-top:.3rem">' + q.suggestions.map(s => escHtml(s)).join('<br>') + '</div>';
+        }
+        html += '</div>';
+      } catch(e) {}
+    }
+    html += '</div>';
+    box.innerHTML = html;
+  } catch(e) {
+    box.innerHTML = `<div class="error-box">❌ ${escHtml(e.message)}</div>`;
+  }
+  btn.disabled = false; btn.textContent = '📊 质量分析';
+}
+
+// ── Check build status ─────────────────────────────
+async function checkBuildStatus(buildId) {
+  try {
+    const resp = await fetch('/api/v1/builds/' + buildId, { headers: H });
+    if (!resp.ok) throw new Error('Build not found');
+    const build = await resp.json();
+    alert(`Build: ${buildId.slice(0,12)}...\n状态: ${build.status}\n${build.error ? '错误: '+build.error : ''}\n应用: ${build.application_id}`);
+  } catch(e) { alert('查询失败: ' + e.message); }
+}
+
+// ── Load existing run data ─────────────────────────
+async function loadRunData(runId, containerId) {
+  document.getElementById(containerId).innerHTML = '<div class="card progress"><div class="spinner"></div><div class="progress-text">加载中...</div></div>';
+  try {
+    const resp = await fetch('/api/v1/runs/' + runId, { headers: H });
+    if (!resp.ok) throw new Error('Run not found');
+    const run = await resp.json();
+    renderResults(run.outputs || {}, runId, containerId);
+  } catch (e) {
+    document.getElementById(containerId).innerHTML = `<div class="card error-box">❌ ${escHtml(e.message)}</div>`;
+  }
+}
+
+// ── Helpers ────────────────────────────────────────
+function renderTaskTable(tasks) {
+  if (!tasks || !tasks.length) return '<p class="empty">无任务</p>';
+  const rows = tasks.map((t, i) => `<tr>
+    <td>${i + 1}</td>
+    <td><strong>${escHtml(t.name || '?')}</strong></td>
+    <td>${escHtml(t.owner || '?')}</td>
+    <td>${statusPill(t.status)}</td>
+    <td>${priorityPill(t.priority || 'medium')}</td>
+    <td>${(t.dependencies || []).length ? '<ul class="dep-list">' + t.dependencies.map(d => '<li>' + escHtml(d) + '</li>').join('') + '</ul>' : '—'}</td>
+  </tr>`).join('');
+  return `<table><thead><tr><th>#</th><th>任务</th><th>负责人</th><th>状态</th><th>优先级</th><th>依赖</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+function priorityPill(p) {
+  const map = {high: ['pill-high','🔴 高'], medium: ['pill-medium','🟡 中'], low: ['pill-low','🟢 低']};
+  const [cls, label] = map[p] || ['','?'];
+  return `<span class="pill ${cls}">${label}</span>`;
+}
+
+function statusPill(s) {
+  const map = {ready: ['pill-ready','✅ 就绪'], waiting: ['pill-waiting','⏳ 等待']};
+  const [cls, label] = map[s] || ['','?'];
+  return `<span class="pill ${cls}">${label}</span>`;
+}
+
+function simpleMd(md) {
+  if (!md) return '';
+  return ('<p>' + String(md)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+    .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+    .replace(/^# (.+)$/gm, '<h1>$1</h1>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/^---$/gm, '<hr>')
+    .replace(/\n\n/g, '</p><p>')
+    .replace(/\n/g, '<br>') + '</p>');
+}
+
+function escHtml(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+function copyResults() {
+  const text = (document.getElementById('new-result') || document.getElementById('view-result')).innerText;
+  navigator.clipboard.writeText(text).then(() => {
+    alert('已复制到剪贴板');
+  });
+}
+
+// ── Calendar Data (Project → Tasks hierarchy) ──────
+// Each row = one project/initiative. Sub-tasks stack in the same row.
+const PROJECTS = [
+  // ═══ 常规 ═══
+  {id:'r1',cat:'常规',name:'内容发布',owner:'运营',tasks:[
+    {name:'发文章',owner:'运营',start:'2026-07-13',rrule:'weekly-monday',status:'completed',priority:'low'},
+    {name:'发B站',owner:'运营',start:'2026-07-14',rrule:'weekly-tuesday,thursday',status:'in_progress',priority:'low'},
+  ]},
+  {id:'r2',cat:'常规',name:'招聘与公众号运营',owner:'人事',tasks:[
+    {name:'发招聘和公众号',owner:'人事',start:'2026-07-13',end:'2026-08-11',rrule:'weekday',status:'in_progress',priority:'medium'},
+  ]},
+  {id:'r3',cat:'常规',name:'技术分享会',owner:'各组',tasks:[
+    {name:'算法组15分钟分享',owner:'算法组',start:'2026-07-15',rrule:'biweekly-wednesday',status:'pending',priority:'low'},
+    {name:'数分组/开发组分享',owner:'各组',start:'2026-07-22',rrule:'biweekly-wednesday',status:'pending',priority:'low'},
+  ]},
+  {id:'r4',cat:'常规',name:'财务工作',owner:'财务',tasks:[
+    {name:'财务核算',owner:'财务',start:'2026-08-07',rrule:'monthly-7th',status:'pending',priority:'high'},
+    {name:'发薪和报销',owner:'财务',start:'2026-08-11',rrule:'monthly-11th',status:'pending',priority:'high'},
+  ]},
+  {id:'r5',cat:'常规',name:'周例会与讨论',owner:'全员',tasks:[
+    {name:'早9点项目会',owner:'全员',start:'2026-07-13',rrule:'weekly-monday',status:'completed',priority:'high'},
+    {name:'下午3点论文讨论会',owner:'全员',start:'2026-07-14',rrule:'weekly-tuesday',status:'pending',priority:'high'},
+  ]},
+  // ═══ 项目 ═══
+  {id:'p1',cat:'项目',name:'Lilies 开发',owner:'钟昊洋 / 昊天 / 明白自己',tasks:[
+    {name:'并发revision bug修复',owner:'钟昊洋',start:'2026-07-16',end:'2026-07-20',status:'in_progress',priority:'high'},
+    {name:'API接口设计文档',owner:'钟昊洋',start:'2026-07-16',end:'2026-07-17',status:'pending',priority:'high'},
+    {name:'Demo后端接口',owner:'钟昊洋',start:'2026-07-18',end:'2026-07-22',status:'pending',priority:'high',deps:'API文档'},
+    {name:'Demo前端页面',owner:'昊天',start:'2026-07-17',end:'2026-07-22',status:'pending',priority:'high',deps:'API文档'},
+    {name:'产品文档review',owner:'明白自己',start:'2026-07-16',end:'2026-07-17',status:'pending',priority:'medium'},
+  ]},
+  {id:'p2',cat:'项目',name:'图书馆项目',owner:'项目组A',tasks:[
+    {name:'DEMO演示',owner:'项目组A',start:'2026-07-15',end:'2026-07-15',status:'completed',priority:'high'},
+  ]},
+  {id:'p3',cat:'项目',name:'光电自研项目',owner:'项目组B',tasks:[
+    {name:'内部讨论',owner:'项目组B',start:'2026-07-14',end:'2026-07-14',status:'completed',priority:'high'},
+  ]},
+  {id:'p4',cat:'项目',name:'司法大模型项目',owner:'项目组C',tasks:[
+    {name:'改出协议(70万合同额)',owner:'项目组C',start:'2026-07-13',end:'2026-07-17',status:'in_progress',priority:'critical'},
+  ]},
+  // ═══ 产品 ═══
+  {id:'pd1',cat:'产品',name:'专家搜索',owner:'产品组',tasks:[
+    {name:'域名上线',owner:'产品组',start:'2026-07-13',end:'2026-07-13',status:'completed',priority:'high'},
+  ]},
+  {id:'pd2',cat:'产品',name:'一级市场投资',owner:'产品组',tasks:[
+    {name:'调研与方案',owner:'产品组',start:'2026-07-15',end:'2026-08-10',status:'pending',priority:'medium'},
+  ]},
+  {id:'pd3',cat:'产品',name:'行业知识库',owner:'产品组',tasks:[
+    {name:'搭建知识库',owner:'产品组',start:'2026-07-20',end:'2026-08-15',status:'pending',priority:'low'},
+  ]},
+  // ═══ 交流 ═══
+  {id:'c1',cat:'交流',name:'外部企业来访/出访',owner:'管理层',tasks:[
+    {name:'吊舱企业来访',owner:'管理层',start:'2026-07-15',end:'2026-07-16',status:'pending',priority:'medium'},
+    {name:'拜访无人机企业',owner:'管理层',start:'2026-07-13',end:'2026-07-13',status:'completed',priority:'medium'},
+  ]},
+  // ═══ 紧急 ═══
+  {id:'u1',cat:'紧急',name:'财务审计',owner:'财务',tasks:[
+    {name:'台账梳理(25-26年)',owner:'财务',start:'2026-07-13',end:'2026-07-17',status:'in_progress',priority:'critical'},
+    {name:'ERP核对',owner:'财务',start:'2026-07-17',end:'2026-07-24',status:'pending',priority:'critical'},
+  ]},
+  {id:'u2',cat:'紧急',name:'股权合同',owner:'法务',tasks:[
+    {name:'合同签署',owner:'法务',start:'2026-07-13',end:'2026-07-13',status:'completed',priority:'critical'},
+  ]},
+];
+let CAL_PROJECTS = [...PROJECTS];
+let CAL_FILTER = 'all';
+let CAL_WEEK_OFFSET = 0;
+const CAL_WEEK_START = new Date('2026-07-13');
+
+// ── Calendar Helpers ───────────────────────────────
+function getWeekRange(offset) {
+  const start = new Date(CAL_WEEK_START);
+  start.setDate(start.getDate() + offset * 7);
+  const days = [];
+  for (let i = 0; i < 14; i++) { const d = new Date(start); d.setDate(d.getDate() + i); days.push(d); }
+  return days;
+}
+function fmtDate(d) { return d.toISOString().slice(0,10); }
+function isWeekend(d) { return d.getDay() === 0 || d.getDay() === 6; }
+function isToday(d) { return fmtDate(d) === fmtDate(new Date()); }
+function taskOnDate(task, dateStr) {
+  if (task.start > dateStr || (task.end && task.end < dateStr)) return false;
+  if (!task.rrule) return true;
+  const d = new Date(dateStr + 'T00:00:00'), dow = d.getDay(), dom = d.getDate();
+  const rules = { 'weekday': dow >= 1 && dow <= 5, 'weekly-monday': dow === 1, 'weekly-tuesday': dow === 2, 'biweekly-wednesday': dow === 3, 'weekly-tuesday,thursday': dow === 2 || dow === 4, 'monthly-7th': dom === 7, 'monthly-11th': dom === 11 };
+  return rules[task.rrule] || true;
+}
+function allTasks(projects) {
+  const out = [];
+  projects.forEach(p => p.tasks.forEach(t => out.push({...t, cat:p.cat, projName:p.name, projOwner:p.owner, projId:p.id})));
+  return out;
+}
+function statusDot(s) { const m = {completed:'🟢',in_progress:'🔵',pending:'⚪'}; return m[s]||'⚪'; }
+function catIcon(c) { const m = {常规:'🔄',项目:'📦',产品:'🚀',交流:'🤝',紧急:'🔥'}; return m[c]||'📋'; }
+
+function computeStats(projects, days) {
+  const tasks = allTasks(projects).filter(t => CAL_FILTER === 'all' || t.cat === CAL_FILTER);
+  const today = fmtDate(new Date());
+  const total = tasks.length, completed = tasks.filter(t => t.status === 'completed').length;
+  const inProgress = tasks.filter(t => t.status === 'in_progress').length;
+  const overdue = tasks.filter(t => t.status !== 'completed' && t.end && t.end < today).length;
+  const critical = tasks.filter(t => t.priority === 'critical').length;
+  const activeNow = tasks.filter(t => days.some(d => taskOnDate(t, fmtDate(d)))).length;
+  return { total, completed, inProgress, overdue, critical, compactness: total > 0 ? Math.round(activeNow / total * 100) : 0, completion: total > 0 ? Math.round(completed / total * 100) : 0, activeNow };
+}
+
+// ── Calendar Rendering ────────────────────────────
+function renderCalendar() {
+  const days = getWeekRange(CAL_WEEK_OFFSET);
+  const projects = CAL_PROJECTS.filter(p => CAL_FILTER === 'all' || p.cat === CAL_FILTER);
+  const stats = computeStats(CAL_PROJECTS, days);
+
+  document.getElementById('cal-stats').innerHTML =
+    `<div class="stat-card ${stats.completion < 30 ? 'warn' : 'good'}"><div class="val">${stats.completion}%</div><div class="lbl">完成率</div></div>` +
+    `<div class="stat-card ${stats.compactness > 70 ? 'warn' : ''}"><div class="val">${stats.compactness}%</div><div class="lbl">紧凑度</div></div>` +
+    `<div class="stat-card"><div class="val">${stats.total}</div><div class="lbl">子任务</div></div>` +
+    `<div class="stat-card"><div class="val">${projects.length}</div><div class="lbl">项目/事项</div></div>` +
+    `<div class="stat-card ${stats.overdue > 0 ? 'warn' : ''}"><div class="val">${stats.overdue}</div><div class="lbl">已逾期</div></div>` +
+    `<div class="stat-card"><div class="val">${stats.critical}</div><div class="lbl">紧急</div></div>`;
+
+  // Week selector
+  const sel = document.getElementById('cal-week');
+  sel.innerHTML = '';
+  for (let o = -2; o <= 8; o++) {
+    const ws = new Date(CAL_WEEK_START); ws.setDate(ws.getDate() + o * 7);
+    const we = new Date(ws); we.setDate(we.getDate() + 13);
+    sel.innerHTML += `<option value="${o}" ${o === CAL_WEEK_OFFSET ? 'selected' : ''}>${ws.getMonth()+1}/${ws.getDate()} - ${we.getMonth()+1}/${we.getDate()}</option>`;
+  }
+  sel.onchange = function() { CAL_WEEK_OFFSET = parseInt(this.value); renderCalendar(); };
+
+  // Group by category
+  const cats = ['常规','项目','产品','交流','紧急'];
+  const grouped = {}; cats.forEach(c => grouped[c] = projects.filter(p => p.cat === c));
+
+  // Build table: each row = one project
+  let html = '<table class="cal-table"><thead><tr><th style="min-width:160px;position:sticky;left:0;z-index:4">事项 / 项目</th>';
+  days.forEach(d => {
+    const cls = (isWeekend(d) ? 'day-weekend' : '') + (isToday(d) ? ' day-today' : '');
+    html += `<th class="${cls}">${d.getMonth()+1}/${d.getDate()}<br>${['日','一','二','三','四','五','六'][d.getDay()]}</th>`;
+  });
+  html += '</tr></thead><tbody>';
+
+  cats.forEach(cat => {
+    const projs = grouped[cat];
+    if (!projs.length) return;
+    html += `<tr><td class="cat-hdr" colspan="${days.length + 1}">${catIcon(cat)} ${cat}</td></tr>`;
+    projs.forEach(proj => {
+      html += '<tr>';
+      const doneCount = proj.tasks.filter(t => t.status === 'completed').length;
+      html += `<td class="row-hdr" onclick="showProjDetail('${proj.id}')" style="cursor:pointer" title="点击查看详情">
+        <strong>${escHtml(proj.name)}</strong>
+        <br><small style="color:var(--muted)">👤 ${proj.owner} · ${doneCount}/${proj.tasks.length}</small>
+      </td>`;
+      days.forEach(d => {
+        const ds = fmtDate(d);
+        let cellHtml = '';
+        proj.tasks.forEach(task => {
+          if (taskOnDate(task, ds)) {
+            const catClass = {常规:'cat-routine',项目:'cat-project',产品:'cat-product',交流:'cat-comm',紧急:'cat-urgent'}[proj.cat] || '';
+            const done = task.status === 'completed' ? ' completed' : '';
+            const label = task.name.length > 10 ? task.name.slice(0,10)+'…' : task.name;
+            cellHtml += `<span class="cal-bar ${catClass}${done}" title="${task.name} | ${task.owner} | ${task.status}" onclick="event.stopPropagation();showTaskDetail('${proj.id}','${task.name}')">${label}</span>`;
+          }
+        });
+        html += `<td class="${isWeekend(d)?'day-weekend':''}${isToday(d)?'day-today':''}">${cellHtml}</td>`;
+      });
+      html += '</tr>';
+    });
+  });
+  html += '</tbody></table>';
+  document.getElementById('cal-grid').innerHTML = html;
+}
+
+// ── Popups ─────────────────────────────────────────
+function showProjDetail(projId) {
+  const proj = CAL_PROJECTS.find(p => p.id === projId);
+  if (!proj) return;
+  removePopup();
+  const done = proj.tasks.filter(t => t.status === 'completed').length;
+  const popup = document.createElement('div'); popup.id = 'task-popup'; popup.className = 'cal-popup';
+  popup.innerHTML = `<div class="cal-popup-inner" style="max-width:650px">
+    <button class="close-btn" onclick="removePopup()">✕</button>
+    <h3>${catIcon(proj.cat)} ${escHtml(proj.name)}</h3>
+    <div class="meta">👤 负责人: ${proj.owner} · 📂 ${proj.cat} · 完成 ${done}/${proj.tasks.length} (${Math.round(done/proj.tasks.length*100)}%)</div>
+    <table style="margin-top:.8rem;font-size:.82rem;width:100%"><thead><tr><th>任务</th><th>负责人</th><th>时间</th><th>优先级</th><th>状态</th></tr></thead><tbody>
+    ${proj.tasks.map(t => `<tr>
+      <td>${escHtml(t.name)}</td><td>👤 ${t.owner}</td>
+      <td>${t.start}${t.end?' → '+t.end:''}${t.rrule?' 🔁':''}</td>
+      <td>${priorityPill(t.priority)}</td>
+      <td><select onchange="updateTaskStatus('${proj.id}','${t.name}',this.value)" style="padding:.2rem;border:1px solid var(--border);border-radius:4px;font-size:.75rem">
+        <option value="pending" ${t.status==='pending'?'selected':''}>待开始</option>
+        <option value="in_progress" ${t.status==='in_progress'?'selected':''}>进行中</option>
+        <option value="completed" ${t.status==='completed'?'selected':''}>已完成</option>
+      </select></td>
+    </tr>`).join('')}
+    </tbody></table>
+  </div>`;
+  popup.onclick = function(e) { if (e.target === popup) removePopup(); };
+  document.body.appendChild(popup);
+}
+
+function showTaskDetail(projId, taskName) {
+  const proj = CAL_PROJECTS.find(p => p.id === projId);
+  if (!proj) return;
+  const task = proj.tasks.find(t => t.name === taskName);
+  if (!task) return;
+  removePopup();
+  const popup = document.createElement('div'); popup.id = 'task-popup'; popup.className = 'cal-popup';
+  popup.innerHTML = `<div class="cal-popup-inner">
+    <button class="close-btn" onclick="removePopup()">✕</button>
+    <h3>${escHtml(task.name)}</h3>
+    <div class="meta" style="color:var(--muted)">📂 ${proj.cat} · ${escHtml(proj.name)}</div>
+    <div class="meta">👤 ${task.owner} | 📅 ${task.start}${task.end?' → '+task.end:''}${task.rrule?' 🔁 '+task.rrule:''}</div>
+    <div class="meta">⚠️ 优先级: ${task.priority} | ${statusDot(task.status)} ${task.status}</div>
+    ${task.deps?'<div class="meta">🔗 依赖: '+escHtml(task.deps)+'</div>':''}
+    ${task.desc?'<div class="meta">📝 '+escHtml(task.desc)+'</div>':''}
+    <button class="btn" style="margin-top:.5rem" onclick="removePopup();showProjDetail('${proj.id}')">📋 查看完整项目</button>
+  </div>`;
+  popup.onclick = function(e) { if (e.target === popup) removePopup(); };
+  document.body.appendChild(popup);
+}
+
+function removePopup() { const p = document.getElementById('task-popup'); if (p) p.remove(); }
+
+function updateTaskStatus(projId, taskName, newStatus) {
+  const proj = CAL_PROJECTS.find(p => p.id === projId);
+  if (proj) { const t = proj.tasks.find(t => t.name === taskName); if (t) t.status = newStatus; }
+  renderCalendar();
+  removePopup();
+}
+
+function filterCal(cat, btn) {
+  CAL_FILTER = cat;
+  document.querySelectorAll('.cal-toolbar button').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  else document.querySelector('.cal-toolbar button').classList.add('active');
+  renderCalendar();
+}
+
+// ── AI Planning ────────────────────────────────────
+async function requestPlan() {
+  const btn = document.getElementById('btn-plan');
+  btn.disabled = true; btn.textContent = '⏳ 分析中...';
+  const box = document.getElementById('plan-result'); box.innerHTML = '';
+  try {
+    const tasksSummary = allTasks(CAL_PROJECTS).map(t => ({
+      name: t.name, cat: t.cat, proj: t.projName, owner: t.owner,
+      status: t.status, priority: t.priority, start: t.start, end: t.end || '', deps: t.deps || ''
+    }));
+    const resp = await fetch('/api/v1/clyins/plan', { method: 'POST', headers: H, body: JSON.stringify({ tasks: tasksSummary, today: new Date().toISOString().slice(0,10) }) });
+    if (!resp.ok) throw new Error('Planning API error');
+    const data = await resp.json();
+    box.innerHTML = `<div class="plan-box">
+      <h4>🤖 Clyins 智能规划</h4>
+      <div style="white-space:pre-line;line-height:1.7">${escHtml(data.plan)}</div>
+      ${data.risks?.length ? '<div style="margin-top:.8rem"><strong>⚠️ 风险:</strong><br>'+data.risks.map(r=>'• '+escHtml(r)).join('<br>')+'</div>' : ''}
+      ${data.suggestions?.length ? '<div style="margin-top:.8rem"><strong>💡 建议:</strong><br>'+data.suggestions.map(s=>'• '+escHtml(s)).join('<br>')+'</div>' : ''}
+    </div>`;
+  } catch (e) { box.innerHTML = `<div class="error-box">❌ ${escHtml(e.message)}</div>`; }
+  btn.disabled = false; btn.textContent = '🤖 智能规划';
+}
+
+// ── Merge Clyins output into calendar ──────────────
+function mergeClyinsTasks(clyinsOutput) {
+  if (!clyinsOutput.tasks?.length) return;
+  const today = new Date().toISOString().slice(0,10);
+  let proj = CAL_PROJECTS.find(p => p.id === 'clyins-meeting');
+  if (!proj) {
+    proj = { id: 'clyins-meeting', cat: '项目', name: 'Clyins 会议产出', owner: '待分配', tasks: [] };
+    CAL_PROJECTS.unshift(proj);
+  }
+  clyinsOutput.tasks.forEach(t => {
+    if (!proj.tasks.find(ex => ex.name === t.name)) {
+      proj.tasks.push({ name: t.name, owner: t.owner || '待定', start: today, end: t.deadline || today, status: 'pending', priority: t.priority || 'medium', deps: (t.dependencies || []).join(', ') });
+    }
+  });
+  renderCalendar();
+}
+function initApp() {
+  renderCalendar();
+  const runId = new URLSearchParams(location.search).get('run_id');
+  if (runId) {
+    switchTab('view');
+    document.getElementById('view-run-id').value = runId;
+    viewRun();
+  }
+  document.getElementById('meeting-date').value = new Date().toISOString().slice(0, 10);
+}
+
+// Check auth on page load
+(function() {
+  if (sessionStorage.getItem(AUTH_KEY) === '1') {
+    document.getElementById('login-overlay').classList.add('hidden');
+    document.getElementById('main-app').classList.add('visible');
+    initApp();
+  }
+})();
+</script>
+</body>
+</html>
