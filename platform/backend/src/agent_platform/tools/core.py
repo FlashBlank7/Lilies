@@ -442,6 +442,4 @@ def build_core_registry(program_profiles_file: Path | None = None) -> ToolRegist
         ProgramTool(program_profiles_file),
     ):
         registry.register(tool)
-    if template_store is not None:
-        registry.register(EvolutionGateTool(template_store))
     return registry

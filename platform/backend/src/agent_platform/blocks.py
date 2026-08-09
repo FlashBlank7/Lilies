@@ -439,8 +439,7 @@ _ZH_BLOCKS = {
     "event_recorder": ("事件记录器", "向 Trace 写入结构化事件。"),
     "hook_point": ("钩子点", "在工作流中插入可被外部系统监听的钩子。"),
 }
-# Merge cluster block ZH names
-_ZH_BLOCKS.update(_ZH_CLUSTER_BLOCKS)
+# (集群积木已由 lean-core 架构移除——不再注册 cluster 积木)
 
 
 _EDITOR_FIELDS: dict[str, list[dict[str, Any]]] = {
@@ -944,8 +943,7 @@ _EDITOR_FIELDS: dict[str, list[dict[str, Any]]] = {
         {"path": "checkpoint_each_iteration", "label": "Checkpoint every iteration", "label_zh": "每轮保存检查点", "control": "boolean", "description": "Persist iteration state for inspection and recovery."},
     ],
 }
-# Merge cluster block editor fields
-_EDITOR_FIELDS.update(_CLUSTER_EDITOR_FIELDS)
+# (集群积木的编辑器字段已随集群积木移除)
 
 
 _EDITOR_NOTICES: dict[str, list[dict[str, str]]] = {
