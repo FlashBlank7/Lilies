@@ -19,6 +19,7 @@ from agent_platform.builder import WorkflowBuilder
 from agent_platform.config import Settings
 from agent_platform.models import ChatMessage, ContentBlock, StreamEvent, ToolDefinition
 from agent_platform.permissions import PermissionBroker
+from agent_platform.platform_harness import PlatformHarness
 from agent_platform.providers.base import ModelProvider, ProviderCapabilities
 from agent_platform.runtime import AgentRuntime
 from agent_platform.sandbox import SandboxManager
@@ -129,6 +130,7 @@ def make_builder(
         tools=tools,
         sandboxes=sandboxes,  # type: ignore[arg-type]
         permissions=permissions,
+        harness=PlatformHarness(storage=storage),
     )
     workflow_runtime = WorkflowRuntime(
         storage=storage,
@@ -140,6 +142,7 @@ def make_builder(
         tools=tools,
         sandboxes=sandboxes,  # type: ignore[arg-type]
         runtime_model="deepseek/deepseek-v4-pro",
+        harness=PlatformHarness(storage=storage),
     )
     return WorkflowBuilder(
         storage=storage,
@@ -152,6 +155,7 @@ def make_builder(
         generator_model="deepseek/deepseek-v4-pro",
         core_tools=tools,
         template_store=template_store,
+        harness=PlatformHarness(storage=storage),
     )
 
 
@@ -404,8 +408,9 @@ async def test_execute_template_suggestions(
         "build-1", app_id, state, "template_suggestions",
         {"requirement": "greeting workflow"}, max_repair_cycles=3, auto_publish=True,
     )
-    assert isinstance(results, list)
-    assert any(r["name"] == "greeting_template" for r in results)
+    # template_suggestions 现返回结构化 dict,模板列表在 "templates" 键下
+    assert isinstance(results["templates"], list)
+    assert any(r["name"] == "greeting_template" for r in results["templates"])
 
 
 @pytest.mark.asyncio
@@ -452,7 +457,7 @@ async def test_execute_template_expand(
         {"name": "greet_tpl", "prefix": "greet"},
         max_repair_cycles=3, auto_publish=True,
     )
-    assert state.expanded_from_template == "greet_tpl"
+    assert result["template"] == "greet_tpl"  # 模板名现在在 result dict 中
     assert result["revision"] >= 3  # 3 nodes + 2 edges = 5 operations
 
 
@@ -527,7 +532,44 @@ async def test_execute_repair_cycle_limit_enforced(
 ) -> None:
     """test_run should raise when repair_cycles exceeds max."""
     builder = make_builder(storage, workflow_store, applications, blocks, tools, MockProvider())
-    state.repair_cycles = 3  # exhausted
+
+    # 先建 delivery-complete 草稿(start/end + 强制验收测试),使交付门通过
+    for node_data in [
+        {"id": "start", "type": "start", "title": "Input",
+         "config": {"inputs": [{"name": "name", "type": "string"}]}},
+        {"id": "tpl", "type": "template_transform", "title": "Greet",
+         "config": {"template": "Hello {{ name }}",
+                    "variables": {"name": {"$ref": {"node_id": "start", "path": ["name"]}}}}},
+        {"id": "end", "type": "end", "title": "End",
+         "config": {"outputs": {"greeting": {"$ref": {"node_id": "tpl", "path": ["text"]}}}}},
+    ]:
+        await builder._execute(
+            "build-1", app_id, state, "draft_add_node",
+            {"node": node_data}, max_repair_cycles=3, auto_publish=True,
+        )
+    for edge_data in [
+        {"id": "e1", "source": "start", "target": "tpl", "source_port": "output", "target_port": "input"},
+        {"id": "e2", "source": "tpl", "target": "end", "source_port": "text", "target_port": "input"},
+    ]:
+        await builder._execute(
+            "build-1", app_id, state, "draft_connect",
+            {"edge": edge_data}, max_repair_cycles=3, auto_publish=True,
+        )
+    await builder._execute(
+        "build-1", app_id, state, "test_add",
+        {"test": {
+            "name": "Greets",
+            "requirement": "Greeting should contain the name",
+            "inputs": {"name": "Ada"},
+            "assertions": [{"path": ["greeting"], "operator": "exists"}],
+            "required_node_types": ["start", "template_transform", "end"],
+        }},
+        max_repair_cycles=3, auto_publish=True,
+    )
+
+    # 耗尽修复预算:达到 max 且 last_failed_test_revision 未清除
+    state.repair_cycles = 3  # == max_repair_cycles
+    state.last_failed_test_revision = state.revision
     with pytest.raises(RuntimeError, match="maximum repair cycles"):
         await builder._execute(
             "build-1", app_id, state, "test_run",
@@ -688,6 +730,10 @@ async def test_builder_full_flow_greeting_workflow(
         text=f"Build and verify: Create a greeting workflow.\nApplication id: {app_id}. Auto publish: true.",
     )])]
 
+    await builder.harness.start_task(
+        "build-e2e-1", kind="builder_build", owner_id=app_id, resource_id="build-e2e-1",
+        metadata={"application_id": app_id, "workflow_id": app_id, "model": "deepseek/deepseek-v4-pro"},
+    )
     final = await builder._agent_loop(
         build_id="build-e2e-1",
         application_id=app_id,
@@ -741,6 +787,10 @@ async def test_builder_respects_max_turns(
     )])]
 
     # max_turns=3, so after 3 turns, the loop exits with empty final
+    await builder.harness.start_task(
+        "build-max-turns", kind="builder_build", owner_id=app_id, resource_id="build-max-turns",
+        metadata={"application_id": app_id, "workflow_id": app_id, "model": "deepseek/deepseek-v4-pro"},
+    )
     final = await builder._agent_loop(
         build_id="build-max-turns",
         application_id=app_id,
@@ -786,6 +836,10 @@ async def test_builder_empty_requirement(
         type="text", text=f"Build: \nApplication id: {app_id}. Auto publish: false.",
     )])]
 
+    await builder.harness.start_task(
+        "build-empty", kind="builder_build", owner_id=app_id, resource_id="build-empty",
+        metadata={"application_id": app_id, "workflow_id": app_id, "model": "deepseek/deepseek-v4-pro"},
+    )
     final = await builder._agent_loop(
         build_id="build-empty", application_id=app_id, state=state, messages=messages,
         max_turns=5, max_repair_cycles=1, auto_publish=False, teammate=None,

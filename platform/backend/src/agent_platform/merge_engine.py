@@ -13,6 +13,7 @@ edges from the candidate that don't exist in the template.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 from uuid import uuid4

@@ -29,6 +29,7 @@ from agent_platform.builder import WorkflowBuilder
 from agent_platform.config import Settings
 from agent_platform.models import ChatMessage, ContentBlock
 from agent_platform.permissions import PermissionBroker
+from agent_platform.platform_harness import PlatformHarness
 from agent_platform.runtime import AgentRuntime
 from agent_platform.storage import Storage
 from agent_platform.testing import MockProvider
@@ -84,6 +85,7 @@ def make_builder(
         tools=tools,
         sandboxes=sandboxes,  # type: ignore[arg-type]
         permissions=permissions,
+        harness=PlatformHarness(storage=storage),
     )
     workflow_runtime = WorkflowRuntime(
         storage=storage,
@@ -95,6 +97,7 @@ def make_builder(
         tools=tools,
         sandboxes=sandboxes,  # type: ignore[arg-type]
         runtime_model="deepseek/deepseek-v4-pro",
+        harness=PlatformHarness(storage=storage),
     )
     return WorkflowBuilder(
         storage=storage,
@@ -106,6 +109,7 @@ def make_builder(
         agent_runtime=agent_runtime,
         generator_model="deepseek/deepseek-v4-pro",
         core_tools=tools,
+        harness=PlatformHarness(storage=storage),
     )
 
 
@@ -198,6 +202,10 @@ async def test_benchmark_simple_linear_workflow(tmp_path: Path) -> None:
     )])]
 
     start = time.monotonic()
+    await builder.harness.start_task(
+        "bench-1", kind="builder_build", owner_id=app_id, resource_id="bench-1",
+        metadata={"application_id": app_id, "workflow_id": app_id, "model": "deepseek/deepseek-v4-pro"},
+    )
     final = await builder._agent_loop(
         build_id="bench-1", application_id=app_id, state=state, messages=messages,
         max_turns=20, max_repair_cycles=3, auto_publish=True, teammate=None,
@@ -336,6 +344,10 @@ async def test_benchmark_conditional_branching(tmp_path: Path) -> None:
         text=f"Build: route greeting by language.\nApplication id: {app_id}. Auto publish: false.",
     )])]
 
+    await builder.harness.start_task(
+        "bench-2", kind="builder_build", owner_id=app_id, resource_id="bench-2",
+        metadata={"application_id": app_id, "workflow_id": app_id, "model": "deepseek/deepseek-v4-pro"},
+    )
     final = await builder._agent_loop(
         build_id="bench-2", application_id=app_id, state=state, messages=messages,
         max_turns=15, max_repair_cycles=3, auto_publish=False, teammate=None,
@@ -419,6 +431,10 @@ async def test_benchmark_template_expand_workflow(tmp_path: Path) -> None:
         type="text", text=f"Build: Q&A pipeline.\nApplication id: {app_id}. Auto publish: false.",
     )])]
 
+    await builder.harness.start_task(
+        "bench-3", kind="builder_build", owner_id=app_id, resource_id="bench-3",
+        metadata={"application_id": app_id, "workflow_id": app_id, "model": "deepseek/deepseek-v4-pro"},
+    )
     final = await builder._agent_loop(
         build_id="bench-3", application_id=app_id, state=state, messages=messages,
         max_turns=10, max_repair_cycles=3, auto_publish=False, teammate=None,
@@ -430,10 +446,8 @@ async def test_benchmark_template_expand_workflow(tmp_path: Path) -> None:
     # After template expansion, should have prefixed nodes
     node_ids = {n.id for n in wf.nodes}
     assert any(n.startswith("qa_") for n in node_ids), f"No prefixed nodes in {node_ids}"
-    assert state.expanded_from_template == "qa_template"
 
-    print(f"\n[Benchmark 3: Template] nodes={len(wf.nodes)} edges={len(wf.edges)} "
-          f"expanded_from={state.expanded_from_template}")
+    print(f"\n[Benchmark 3: Template] nodes={len(wf.nodes)} edges={len(wf.edges)}")
 
 
 @pytest.mark.asyncio
@@ -479,6 +493,10 @@ async def test_benchmark_manual_lookup_enforcement(tmp_path: Path) -> None:
         type="text", text=f"Build: test manual gate.\nApplication id: {app_id}. Auto publish: false.",
     )])]
 
+    await builder.harness.start_task(
+        "bench-4", kind="builder_build", owner_id=app_id, resource_id="bench-4",
+        metadata={"application_id": app_id, "workflow_id": app_id, "model": "deepseek/deepseek-v4-pro"},
+    )
     final = await builder._agent_loop(
         build_id="bench-4", application_id=app_id, state=state, messages=messages,
         max_turns=10, max_repair_cycles=3, auto_publish=False, teammate=None,
@@ -527,6 +545,10 @@ async def test_benchmark_repair_cycle_tracking(tmp_path: Path) -> None:
         type="text", text=f"Build: test.\nApplication id: {app_id}. Auto publish: false.",
     )])]
 
+    await builder.harness.start_task(
+        "bench-5", kind="builder_build", owner_id=app_id, resource_id="bench-5",
+        metadata={"application_id": app_id, "workflow_id": app_id, "model": "deepseek/deepseek-v4-pro"},
+    )
     final = await builder._agent_loop(
         build_id="bench-5", application_id=app_id, state=state, messages=messages,
         max_turns=10, max_repair_cycles=5, auto_publish=False, teammate=None,

@@ -4920,7 +4920,10 @@ def test_builder_template_list_includes_marketplace_and_server_defined_templates
         templates = json.loads(list_events[0]["data"]["result"])
         by_name = {item["name"]: item for item in templates}
         assert by_name["codex_like_workspace_agent"]["source"] == "server_defined"
-        assert by_name["claude_like_coding_agent"]["source"] == "server_defined"
+        # claude_like_coding_agent 同时是 server_defined 积木模板与 marketplace 模板,两条都列出
+        claude_entries = [t for t in templates if t["name"] == "claude_like_coding_agent"]
+        assert any(t["source"] == "server_defined" for t in claude_entries)
+        assert any(t["source"] == "marketplace" for t in claude_entries)
         assert by_name["code_reviewer"]["source"] == "marketplace"
         assert by_name["code_reviewer"]["recommended_action"] == "expand_template"
 
