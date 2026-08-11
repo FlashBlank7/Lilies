@@ -26,7 +26,7 @@
 - Builder 去门禁：失败的构建**保留半成品草稿**供检查续作，不再回滚；交付缺口降级为警告
 - 修复端口默认值缺陷：普通连线不再要求记住每种积木的端口名
 - 历史战役文档全部归档至 [`docs/archive/`](docs/archive/)
-- 测试全绿：401 passed / 0 failed
+- 测试全绿：496 passed / 0 failed
 
 保留的核心保证：端口/图结构校验、强制冒烟测试、发布前测试套件、修复循环与轮次预算、Docker 沙盒、revision 乐观锁、幂等键。
 
@@ -34,7 +34,7 @@
 
 ### 积木系统
 
-46 个积木分三类：**业务积木**（LLM、If/Else、Iteration、Loop、Human Input、HTTP、Connector、受控网页采集、知识检索、typed workbook、记录管线……）、**Agent 架构积木**（Context Assembler、Model Turn、Tool Executor、Permission Gate、Subagent Spawn、Budget Gate、Checkpoint/Resume……）以及 soft block 元积木。Agent 的内部循环被拆解为画布上可编排、可审计的一等节点。
+61 个积木分三类：**业务积木**（LLM、If/Else、Iteration、Loop、Human Input、HTTP、Connector、受控网页采集、知识检索、typed workbook、记录管线……）、**Agent 架构积木**（Context Assembler、Model Turn、Tool Executor、Permission Gate、Subagent Spawn、Budget Gate、Checkpoint/Resume……）以及 soft block 元积木。Agent 的内部循环被拆解为画布上可编排、可审计的一等节点。
 
 ### 莉莉丝自动搭建
 
@@ -111,7 +111,7 @@ Lilies/
 │   │   └── providers/            ModelProvider 抽象 + DeepSeek
 │   └── frontend/                 Next.js + React Flow Studio
 ├── templates/                    历史工作流样例
-├── tests/                        行为测试（401 项，全绿）
+├── tests/                        行为测试（496 项，全绿）
 ├── docs/                         北极星、业务逻辑；archive/ 存历史
 └── compose.yaml                  Docker Compose
 ```
