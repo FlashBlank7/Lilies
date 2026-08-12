@@ -2988,6 +2988,10 @@ class WorkflowRuntime:
                         self._validate_runtime_tool_target(
                             tool_name, self._runtime_tool_allowlists.get(run_id)
                         )
+                    # 并行子 agent 是有界推理者:默认无工具。空 tools 不得被
+                    # definitions_for 的 `agent.tools or self._tools` 当作"全部工具",
+                    # 否则真实模型会看到工具并循环 tool_use 直到 max_turns。
+                    disallowed_tools = list(self.tools.names()) if not tools else []
                     allowed_network_hosts = self._network_host_allowlists.get(run_id)
                     budget = agent_cfg.get("budget", {}) if isinstance(agent_cfg.get("budget", {}), dict) else {}
                     max_turns = int(budget.get("max_rounds", agent_cfg.get("max_turns", 4)))
@@ -3000,6 +3004,7 @@ class WorkflowRuntime:
                             "Use only the assigned context, report concise evidence, and stop when the task is complete."
                         )),
                         tools=tools,
+                        disallowed_tools=disallowed_tools,
                         permission_mode=PermissionMode.bypass,
                         network_policy=(
                             "allowlist"
