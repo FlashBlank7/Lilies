@@ -3035,6 +3035,7 @@ class WorkflowRuntime:
                         "task": task_text,
                         "budget": {"max_turns": max_turns, "max_budget_usd": max_budget_usd},
                     })
+                    result = ""
                     try:
                         result = await self.agent_runtime.run_turn_and_wait(session, task_text)
                     finally:
