@@ -979,6 +979,7 @@ _AGENT_ARCHITECTURE_BLOCKS: list[tuple[str, str, str, str]] = [
     ("mcp_gateway", "MCP Gateway", "Expose MCP servers and tool surfaces as workflow capabilities.", "MCP tool bridge"),
     ("capability_registry", "Capability Registry", "Collect tools, skills, MCP servers, and workflow tools into one registry.", "Capability discovery"),
     ("subagent_spawn", "Subagent Spawn", "Create a subagent work package with independent context, tools, and budget.", "Sub-agent spawning"),
+    ("parallel_agents", "Parallel Agents", "Run independent subagents concurrently and aggregate their outputs.", "Parallel sub-agent spawning"),
     ("task_dispatcher", "Task Dispatcher", "Assign tasks by owner and dependency state.", "Task dispatch"),
     ("mailbox_wait_wake", "Mailbox Wait/Wake", "Persist mailbox waits and wake execution when messages arrive.", "Mailbox coordination"),
     ("dependency_gate", "Dependency Gate", "Block until declared dependencies are completed.", "Task dependency gate"),
@@ -1891,7 +1892,7 @@ class BlockRegistry:
             "model_loop": ["model_turn", "tool_call_router", "stop_continue_controller", "retry_error_classifier"],
             "tools": ["tool_executor", "tool_result_normalizer", "permission_gate", "sandbox_boundary"],
             "skill_mcp": ["skill_loader", "mcp_gateway", "capability_registry"],
-            "multi_agent": ["subagent_spawn", "task_dispatcher", "mailbox_wait_wake", "dependency_gate"],
+            "multi_agent": ["subagent_spawn", "parallel_agents", "task_dispatcher", "mailbox_wait_wake", "dependency_gate"],
             "governance": ["budget_gate", "round_limit", "cancellation_point", "checkpoint_resume", "event_recorder"],
         }
         return {

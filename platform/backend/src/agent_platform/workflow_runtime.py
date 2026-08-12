@@ -2964,6 +2964,107 @@ class WorkflowRuntime:
                 },
             }
 
+        if node.type == "parallel_agents":
+            # 有界涌现层级 3:并行局部规则(CA 同步并行的借鉴)。
+            # settings.agents 是 [{name, task, system_prompt, budget, tools}, ...];
+            # 每个子智能体独立上下文/预算,按声明邻域并行运行,输出聚合为全局模式。
+            agents_cfg = settings.get("agents", [])
+            if not isinstance(agents_cfg, list) or not agents_cfg:
+                raise ValueError(
+                    "parallel_agents.settings.agents is required "
+                    "(list of {name, task, system_prompt, budget})"
+                )
+            parallelism = int(settings.get("parallelism", len(agents_cfg)))
+            semaphore = asyncio.Semaphore(max(1, parallelism))
+
+            async def _run_parallel_agent(agent_cfg: dict[str, Any], index: int) -> dict[str, Any]:
+                agent_name = str(agent_cfg.get("name") or f"agent_{index}")
+                task_text = str(self._resolve(agent_cfg.get("task"), context))
+                if not task_text:
+                    raise ValueError(f"parallel_agents.settings.agents[{index}].task is required")
+                async with semaphore:
+                    tools = [str(item) for item in agent_cfg.get("tools", [])]
+                    for tool_name in tools:
+                        self._validate_runtime_tool_target(
+                            tool_name, self._runtime_tool_allowlists.get(run_id)
+                        )
+                    allowed_network_hosts = self._network_host_allowlists.get(run_id)
+                    budget = agent_cfg.get("budget", {}) if isinstance(agent_cfg.get("budget", {}), dict) else {}
+                    max_turns = int(budget.get("max_rounds", agent_cfg.get("max_turns", 4)))
+                    max_budget_usd = budget.get("max_cost_usd", agent_cfg.get("max_budget_usd"))
+                    subagent = AgentSpec(
+                        name=agent_name,
+                        description=str(agent_cfg.get("description") or "Executes one bounded parallel subtask."),
+                        system_prompt=str(agent_cfg.get("system_prompt") or (
+                            "You are a bounded parallel subagent spawned by a workflow architecture block. "
+                            "Use only the assigned context, report concise evidence, and stop when the task is complete."
+                        )),
+                        tools=tools,
+                        permission_mode=PermissionMode.bypass,
+                        network_policy=(
+                            "allowlist"
+                            if allowed_network_hosts
+                            else "none"
+                            if allowed_network_hosts is not None
+                            else "full"
+                        ),
+                        network_allowlist=sorted(allowed_network_hosts or ()),
+                        max_turns=max_turns,
+                        max_budget_usd=float(max_budget_usd) if max_budget_usd is not None else None,
+                        allow_subagents=False,
+                    )
+                    subagent = self._restricted_agent(subagent, self._runtime_tool_allowlists.get(run_id))
+                    version = await self.storage.save_agent_version(subagent, "workflow-parallel-agent")
+                    session_id = f"{run_id}-{scoped_id}-{agent_name}"
+                    session = await self.agent_runtime.create_session(
+                        subagent,
+                        version,
+                        self._workspace_for_run(
+                            run_id,
+                            str(self._resolve(agent_cfg.get("workspace_path") or workspace_path, context)),
+                        ),
+                        session_id=session_id,
+                        governance_owner_id=state.application_id if state else None,
+                        governance_application_id=state.application_id if state else None,
+                        allow_secret_references=run_id not in self._runtime_tool_allowlists,
+                    )
+                    await self._emit(run_id, "agent.started", {
+                        "node_id": scoped_id,
+                        "agent": agent_name,
+                        "session_id": session.id,
+                        "task": task_text,
+                        "budget": {"max_turns": max_turns, "max_budget_usd": max_budget_usd},
+                    })
+                    try:
+                        result = await self.agent_runtime.run_turn_and_wait(session, task_text)
+                    finally:
+                        await self._emit(run_id, "agent.completed", {
+                            "node_id": scoped_id,
+                            "agent": agent_name,
+                            "session_id": session.id,
+                            "usage": session.usage.model_dump(mode="json"),
+                            "result": result[:20_000],
+                        })
+                    return {
+                        "name": agent_name,
+                        "result": result,
+                        "session_id": session.id,
+                        "usage": session.usage.model_dump(mode="json"),
+                    }
+
+            results = await asyncio.gather(
+                *(_run_parallel_agent(cfg, i) for i, cfg in enumerate(agents_cfg))
+            )
+            return {
+                "output": {r["name"]: r["result"] for r in results},
+                "agents": results,
+                "state": {
+                    "mechanism": node.type,
+                    "count": len(results),
+                    "names": [r["name"] for r in results],
+                },
+            }
+
         if node.type == "task_dispatcher":
             tasks = settings.get("tasks", [])
             if isinstance(value, list) and not tasks:
