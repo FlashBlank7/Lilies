@@ -8,6 +8,7 @@ import {
   api,
   withFrontendToken,
   type BuildTranscript,
+  type BuildTranscriptTurn,
   type Draft,
 } from '@/lib/platform'
 import OutputView from '@/app/components/OutputView'
@@ -74,6 +75,58 @@ function describeTurn(record: { tool_calls: Array<{ tool: string; arguments: Rec
   }
   if (!phrases.length) return ''
   return phrases.slice(0, 3).join('，') + (phrases.length > 3 ? '……' : '')
+}
+
+// 长会话按"工作段"折叠：每条业主发言是天然的段界。少于这个数就不分组。
+const SEGMENT_MIN_RECORDS = 15
+
+type Segment = { start: number; records: BuildTranscriptTurn[]; turns: number; startedAt: string }
+
+function formatSegmentTime(iso: string): string {
+  if (!iso) return ''
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return ''
+  const pad = (value: number) => String(value).padStart(2, '0')
+  return `${date.getMonth() + 1}/${date.getDate()} ${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
+// 单条记录的渲染：业主气泡 / 事件徽章 / 智能体轮次卡片。
+function renderRecord(record: BuildTranscriptTurn, key: number) {
+  return record.kind === 'owner'
+    ? <article className={styles.ownerTurn} key={key}>
+        <div className={styles.ownerBubble}>{record.text}</div>
+      </article>
+    : record.kind === 'event'
+    ? <div className={styles.eventBadge} data-event={record.event || ''} key={key}>
+        {record.text}
+      </div>
+    : <article className={styles.turn} key={key}>
+    <div className={styles.turnHead}>
+      <b>第 {record.turn} 轮</b>
+      <span>{record.actor}</span>
+      <small>r{record.draft_revision}</small>
+    </div>
+    {record.thinking && <details className={styles.thinking}>
+      <summary>思考<i>{record.thinking.replace(/\s+/g, ' ').slice(0, 48)}…</i></summary>
+      <pre>{record.thinking}</pre>
+    </details>}
+    {record.text
+      ? <p className={styles.speech}>{record.text}</p>
+      : record.tool_calls.length > 0 && <p className={styles.action}>{describeTurn(record)}</p>}
+    {record.tool_calls.map((call, index) => <details
+      className={call.is_error ? `${styles.tool} ${styles.toolFailed}` : styles.tool}
+      key={`${call.tool}-${index}`}
+      open={call.is_error}
+    >
+      <summary><code>{call.tool}</code>{call.is_error && <em>失败</em>}</summary>
+      <div>
+        <small>参数</small>
+        <pre>{JSON.stringify(call.arguments, null, 2)}</pre>
+        <small>返回</small>
+        <pre>{call.result}{call.truncated ? '\n…' : ''}</pre>
+      </div>
+    </details>)}
+  </article>
 }
 
 const STATUS_LABEL: Record<string, string> = {
@@ -232,6 +285,22 @@ export default function Session({ params }: { params: Promise<{ id: string }> })
     return merged
   }, [latestRun, draft])
 
+  // 记录多了就按业主发言切成工作段，只展开最后一段；记录少时保持原样平铺。
+  const segments = useMemo<Segment[]>(() => {
+    const records = transcript?.records || []
+    if (records.length < SEGMENT_MIN_RECORDS) return []
+    const result: Segment[] = []
+    records.forEach((record, index) => {
+      if (record.kind === 'owner' || result.length === 0) {
+        result.push({ start: index, records: [], turns: 0, startedAt: formatSegmentTime(record.recorded_at || '') })
+      }
+      const segment = result[result.length - 1]
+      segment.records.push(record)
+      if (record.kind !== 'owner' && record.kind !== 'event') segment.turns += 1
+    })
+    return result
+  }, [transcript])
+
   const pendingQuestion = build?.status === 'needs_attention'
     ? build.team_state.pending_question || ''
     : ''
@@ -355,41 +424,18 @@ export default function Session({ params }: { params: Promise<{ id: string }> })
           {!transcript?.summary.available && <div className={styles.empty}>
             <p>发一句话，莉莉丝就开始搭建；她的每一轮思考、每次工具调用都会出现在这里。</p>
           </div>}
-          {transcript?.records.map((record, index) => record.kind === 'owner'
-            ? <article className={styles.ownerTurn} key={index}>
-                <div className={styles.ownerBubble}>{record.text}</div>
-              </article>
-            : record.kind === 'event'
-            ? <div className={styles.eventBadge} data-event={record.event || ''} key={index}>
-                {record.text}
-              </div>
-            : <article className={styles.turn} key={index}>
-            <div className={styles.turnHead}>
-              <b>第 {record.turn} 轮</b>
-              <span>{record.actor}</span>
-              <small>r{record.draft_revision}</small>
-            </div>
-            {record.thinking && <details className={styles.thinking}>
-              <summary>思考<i>{record.thinking.replace(/\s+/g, ' ').slice(0, 48)}…</i></summary>
-              <pre>{record.thinking}</pre>
-            </details>}
-            {record.text
-              ? <p className={styles.speech}>{record.text}</p>
-              : record.tool_calls.length > 0 && <p className={styles.action}>{describeTurn(record)}</p>}
-            {record.tool_calls.map((call, index) => <details
-              className={call.is_error ? `${styles.tool} ${styles.toolFailed}` : styles.tool}
-              key={`${call.tool}-${index}`}
-              open={call.is_error}
-            >
-              <summary><code>{call.tool}</code>{call.is_error && <em>失败</em>}</summary>
-              <div>
-                <small>参数</small>
-                <pre>{JSON.stringify(call.arguments, null, 2)}</pre>
-                <small>返回</small>
-                <pre>{call.result}{call.truncated ? '\n…' : ''}</pre>
-              </div>
-            </details>)}
-          </article>)}
+          {segments.length > 0
+            ? segments.map((segment, segIndex) => <details
+                className={styles.segment}
+                key={segment.start}
+                open={segIndex === segments.length - 1}
+              >
+                <summary>第 {segIndex + 1} 段 · {segment.turns} 轮{segment.startedAt ? ` · ${segment.startedAt}` : ''}</summary>
+                <div className={styles.segmentBody}>
+                  {segment.records.map((record, offset) => renderRecord(record, segment.start + offset))}
+                </div>
+              </details>)
+            : transcript?.records.map((record, index) => renderRecord(record, index))}
           {pendingQuestion && <div className={styles.question}>
             <b>莉莉丝在等你回复</b>
             <p>{pendingQuestion}</p>

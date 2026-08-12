@@ -223,6 +223,15 @@ def test_live_message_reaches_next_coordinator_turn(tmp_path: Path) -> None:
         build_id = _start_build(client, "做一个日报统计报表工作流。")
 
         _wait_status(client, build_id, {"building"})
+        # 竞争点根治：status=building 落库发生在第 1 轮开场收信（_live_messages.pop）
+        # 之前，中间还隔着若干 await。高负载下若此刻立刻投递留言，会被第 1 轮收走、
+        # 进不了第 2 轮的提示词。等 provider 真正开始第 1 轮流式调用（calls 自增是
+        # stream 体第一行，此时第 1 轮收信必已执行完）再投递，留言就只能落到第 2 轮。
+        for _ in range(3000):
+            if provider.calls >= 1:
+                break
+            time.sleep(0.01)
+        assert provider.calls >= 1, "第 1 轮模型调用迟迟未开始"
         response = client.post(
             f"/api/v1/builds/{build_id}/messages",
             headers=HEADERS,

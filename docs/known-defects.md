@@ -12,7 +12,7 @@
 
 ## 二、接真实客户单就会咬的
 
-- [~] **4. 商用外壳四缺**（部署初版 36a5210；镜像验证+报价基准 本提交）— Dockerfile ×2 已本机构建通过；compose 全栈冒烟三连绿（backend 直连 / frontend 页面 / 容器间代理）；backup.sh 真实跑通。报价基准 [pricing-baseline.md](pricing-baseline.md)：五个真实项目成本地板 + 三刀修正系数。缓存折扣已入账（9f1fbb0：三段计价，cache_read 缺省 1/10）。并发已实测（scripts/concurrency_probe.py：确定性运行 5/10 并发 30/30 全绿，无锁错误，10 并发时长 <0.7s）。仍缺：权限体系（一客户一实例路线可绕开）。
+- [~] **4. 商用外壳四缺**（部署初版 36a5210；镜像验证+报价基准 本提交）— Dockerfile ×2 已本机构建通过；compose 全栈冒烟三连绿（backend 直连 / frontend 页面 / 容器间代理）；backup.sh 真实跑通。报价基准 [pricing-baseline.md](pricing-baseline.md)：五个真实项目成本地板 + 三刀修正系数。缓存折扣已入账（9f1fbb0：三段计价，cache_read 缺省 1/10）。并发已实测（scripts/concurrency_probe.py：确定性运行 5/10 并发 30/30 全绿，无锁错误，10 并发时长 <0.7s）。仍缺：权限体系（一客户一实例路线可绕开）。备份定时化：compose backup profile（每日容器内兜底）+ scripts/backup.sh 宿主 cron（推荐）。
 - [ ] **5. 双执行体系并存** — worker 循环不默认启动（需显式 API 开启），当前 compose 部署无 worker，影响面已收窄；连坐防护有测试。架构收敛（单一执行权）排后。
 - [x] **6. 审计脱敏误伤计量字段**（36a5210）— 三处 redact 统一豁免 `*_tokens` 计量复数，凭证语义保留，带回归测试。
 

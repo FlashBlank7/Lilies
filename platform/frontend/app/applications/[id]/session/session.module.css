@@ -39,6 +39,10 @@
 .tool div{margin-top:6px}
 .tool small{color:var(--lil-muted);font-size:10.5px}
 .tool pre{margin:3px 0 8px;padding:8px 10px;background:var(--lil-code);border-radius:8px;font-size:11px;line-height:1.55;white-space:pre-wrap;word-break:break-word;max-height:200px;overflow:auto}
+.segment>summary{display:flex;align-items:center;gap:10px;cursor:pointer;font-size:12px;color:var(--lil-muted);padding:3px 2px;user-select:none;white-space:nowrap}
+.segment>summary:hover{color:var(--lil-ink)}
+.segment>summary::after{content:'';flex:1;border-top:1px solid var(--lil-line-soft)}
+.segmentBody{display:flex;flex-direction:column;gap:14px;padding-top:10px}
 .ownerTurn{display:flex;justify-content:flex-end}
 .ownerBubble{max-width:82%;background:var(--lil-accent);color:var(--lil-panel);border-radius:14px 14px 4px 14px;padding:9px 13px;font-size:13px;line-height:1.65;white-space:pre-wrap;word-break:break-word;max-height:240px;overflow-y:auto}
 .question{border:1px solid #f2c76b;background:var(--lil-warn-soft);border-radius:12px;padding:11px 13px}

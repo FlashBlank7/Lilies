@@ -436,7 +436,8 @@ def test_batched_builder_tasks_are_persisted_one_operation_at_a_time(tmp_path: P
                 "max_turns": 5,
             },
         ).json()["build_id"]
-        for _ in range(200):
+        # 高负载全量回归下 2s 窗口不够（多轮模型调用+落库），放宽到 30s；跑得快不多花时间
+        for _ in range(3000):
             build = client.get(f"/api/v1/builds/{build_id}", headers=HEADERS).json()
             if build["status"] == "needs_attention":
                 break
@@ -480,7 +481,8 @@ def test_builder_preserves_valid_draft_and_completes_verified_task_ledger(tmp_pa
         assert response.status_code == 202, response.text
         created = response.json()
         build_id = created["build_id"]
-        for _ in range(500):
+        # 高负载全量回归下 5s 窗口不够，放宽到 30s
+        for _ in range(3000):
             build = client.get(f"/api/v1/builds/{build_id}", headers=HEADERS).json()
             if build["status"] in {"published", "needs_attention"}:
                 break
@@ -538,7 +540,8 @@ def test_builder_stops_after_repeated_turns_without_durable_progress(tmp_path: P
             headers=HEADERS,
             json={"requirement": "Build a tested workflow.", "auto_publish": False},
         ).json()["build_id"]
-        for _ in range(500):
+        # 高负载全量回归下 5s 窗口不够，放宽到 30s
+        for _ in range(3000):
             build = client.get(f"/api/v1/builds/{build_id}", headers=HEADERS).json()
             if build["status"] == "needs_attention":
                 break
@@ -578,7 +581,8 @@ def test_builder_allows_bounded_novel_schema_discovery_before_delivery(tmp_path:
                 "max_turns": 10,
             },
         ).json()["build_id"]
-        for _ in range(500):
+        # 高负载全量回归下 5s 窗口不够，放宽到 30s
+        for _ in range(3000):
             build = client.get(f"/api/v1/builds/{build_id}", headers=HEADERS).json()
             if build["status"] in {"ready", "published", "needs_attention"}:
                 break
@@ -618,7 +622,8 @@ def test_builder_preserves_partial_draft_when_a_build_stops_mid_repair(tmp_path:
             headers=HEADERS,
             json={"requirement": "Build a verified greeting workflow.", "auto_publish": False},
         ).json()["build_id"]
-        for _ in range(500):
+        # 高负载全量回归下 5s 窗口不够，放宽到 30s
+        for _ in range(3000):
             build = client.get(f"/api/v1/builds/{build_id}", headers=HEADERS).json()
             if build["status"] == "needs_attention":
                 break
