@@ -1,0 +1,14 @@
+{
+  "project_id": "elevator-exam-blind",
+  "name": "电梯 IoT 故障检测（原题盲测）",
+  "stamp": "20260812-090908",
+  "application_id": "e7875e12-fbf6-435b-83f2-72afb4e3e8de",
+  "build_id": "5f026eda-f98a-4a20-b925-b7dbadcbada5",
+  "build_status": "needs_attention",
+  "build_error": "builder progress stalled: no durable draft, plan, task, or repair progress for 6 consecutive turns",
+  "node_types": [],
+  "architecture_missing": [],
+  "architecture_pass": true,
+  "cases": [],
+  "accepted": false
+}
