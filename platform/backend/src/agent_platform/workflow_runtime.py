@@ -2876,6 +2876,10 @@ class WorkflowRuntime:
                     tool_name,
                     self._runtime_tool_allowlists.get(run_id),
                 )
+            # 与 parallel_agents 对齐:未配置工具时显式禁止全部工具,
+            # 否则 definitions_for 的 `agent.tools or self._tools` 会把空 tools
+            # 当作"全部工具",真实模型可能循环 tool_use 直到 max_turns。
+            disallowed_tools = list(self.tools.names()) if not tools else []
             allowed_network_hosts = self._network_host_allowlists.get(run_id)
             budget = settings.get("budget", {}) if isinstance(settings.get("budget", {}), dict) else {}
             max_turns = int(budget.get("max_rounds", settings.get("max_turns", 4)))
@@ -2889,6 +2893,7 @@ class WorkflowRuntime:
                     "and stop when the bounded task is complete."
                 )),
                 tools=tools,
+                disallowed_tools=disallowed_tools,
                 permission_mode=PermissionMode.bypass,
                 network_policy=(
                     "allowlist"
