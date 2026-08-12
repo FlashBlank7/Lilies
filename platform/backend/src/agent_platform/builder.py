@@ -840,8 +840,13 @@ class WorkflowBuilder:
         max_elapsed_seconds: float | None = None,
     ) -> str:
         final = ""
+        # 有界涌现层级 1:团队能力由复杂度路由的 allow_team 决策门控。
+        # 默认(无路由决策)保守关闭团队;复杂需求由 create_build 写入的
+        # state.complexity_router.allow_team 开放。显式 teammate 时总是允许。
+        router = state.complexity_router or {}
+        allow_team = teammate is None and bool(router.get("allow_team", False))
         tools = self._definitions(
-            allow_team=teammate is None,
+            allow_team=allow_team,
             planning_mode=state.planning_mode,
         )
         progress_fingerprint = self._durable_progress_fingerprint(state)

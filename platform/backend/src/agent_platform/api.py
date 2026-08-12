@@ -22,6 +22,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
 from . import PRODUCT_PHASE, __version__
+from .complexity_router import classify_requirement
 from .config import Settings, get_settings
 from .applications import ApplicationService
 from .agent_runtime_factory import build_agent_runtime_core
@@ -4337,6 +4338,9 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         except KeyError as error:
             raise HTTPException(404, str(error)) from error
         build_id = str(uuid4())
+        # 有界涌现层级 1:确定性相位触发——按需求复杂度决定是否开放团队能力。
+        # 决策写入 team_state.complexity_router,供 _agent_loop 门控 allow_team 且可观测。
+        router = classify_requirement(body.requirement)
         await services.workflow_store.create_build(
             build_id,
             application_id,
@@ -4346,6 +4350,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             body.max_repair_cycles,
             body.max_elapsed_seconds,
             body.planning_mode,
+            complexity_router=router,
         )
         await asyncio.to_thread(
             services.build_transcripts.append,
