@@ -17,9 +17,18 @@ from .build_transcript import (
     turn_record,
 )
 from .models import ChatMessage, ContentBlock, ToolDefinition
+from .models import NetworkPolicy
 from .providers import ModelProvider, ProviderError
 from .runtime import AgentRuntime, INVALID_TOOL_INPUT_JSON_KEY
 from .storage import Storage
+from .tabular_models import (
+    EvaluateTabularModelRequest,
+    FeatureContract,
+    LabeledObservation,
+    PromoteTabularModelRequest,
+    TrainTabularModelRequest,
+)
+from .tools.base import ToolContext
 from .models import AgentSpec
 from .platform_harness import PlatformHarness
 from .template_strategy import (
@@ -211,6 +220,13 @@ Core rules:
   define_view to hide them (keep business-meaningful stages visible); pick layout "chat" for Q&A-style
   workflows. A minimal operator profile plus an audit profile is a good default for review-heavy flows.
   Mention in the delivery note, in owner language, which interface suits which audience.
+- Hands-on work happens in the application workspace: when the owner supplies raw data files, use
+  Bash/Read/Write/Glob to explore and preprocess them there (network is off; nothing outside the
+  workspace is reachable). Python3 is available in the sandbox. For learning tasks, engineer features
+  yourself, write a labeled rows file, then train_tabular_model → evaluate_tabular_model (held-out
+  data, never training rows) → promote_tabular_model; workflows then call the deployment via the
+  deployed_model_inference brick. Report honest metrics from the held-out evaluation — never metrics
+  computed on training data.
 """
 
 
@@ -321,6 +337,8 @@ class WorkflowBuilder:
         on_build_complete: Callable[[str], Awaitable[None]] | None = None,
         template_store: Any | None = None,
         transcripts: BuildTranscriptStore | None = None,
+        sandboxes: Any | None = None,
+        tabular_models: Any | None = None,
     ) -> None:
         self.storage = storage
         self.workflow_store = workflow_store
@@ -335,6 +353,8 @@ class WorkflowBuilder:
         self.on_build_complete = on_build_complete
         self.template_store = template_store
         self.transcripts = transcripts
+        self.sandboxes = sandboxes
+        self.tabular_models = tabular_models
         self.active: dict[str, asyncio.Task[Any]] = {}
         self._trackers: dict[str, DecisionTracker] = {}  # build_id → tracker
         self._resume_messages: dict[str, str] = {}  # build_id → pending user note
@@ -1096,6 +1116,56 @@ class WorkflowBuilder:
     ) -> Any:
         if state.planning_mode == "disabled" and tool == "build_plan":
             raise RuntimeError("build_plan is disabled for this build planning_mode")
+        if tool in ("Bash", "Read", "Write", "Glob"):
+            if self.sandboxes is None:
+                raise RuntimeError("构建期执行沙盒未接入（sandboxes 未配置）")
+            context = await self._workspace_tool_context(build_id, application_id)
+            result = await self.core_tools.get(tool).execute(data, context)
+            return {"output": result.content, "is_error": result.is_error}
+        if tool == "train_tabular_model":
+            if self.tabular_models is None:
+                raise RuntimeError("平台训练服务未接入")
+            raw_features = data.get("features") or []
+            contracts = [
+                FeatureContract(
+                    name=str(item.get("name") if isinstance(item, dict) else item),
+                    unit=str(item.get("unit") or "unitless") if isinstance(item, dict) else "unitless",
+                )
+                for item in raw_features
+            ]
+            request = TrainTabularModelRequest(
+                model_name=str(data["model_name"]),
+                features=contracts,
+                rows=self._read_labeled_rows(application_id, str(data["rows_file"])),
+                threshold=float(data.get("threshold") or 0.65),
+                epochs=int(data.get("epochs") or 400),
+                learning_rate=float(data.get("learning_rate") or 0.08),
+                source={"build_id": build_id},
+                idempotency_key=f"build-{build_id}-{uuid4()}",
+            )
+            return await self.tabular_models.train(request)
+        if tool == "evaluate_tabular_model":
+            if self.tabular_models is None:
+                raise RuntimeError("平台训练服务未接入")
+            request = EvaluateTabularModelRequest(
+                rows=self._read_labeled_rows(application_id, str(data["rows_file"])),
+                idempotency_key=f"build-{build_id}-{uuid4()}",
+            )
+            return await self.tabular_models.evaluate(
+                str(data["model_id"]), int(data["version"]), request
+            )
+        if tool == "promote_tabular_model":
+            if self.tabular_models is None:
+                raise RuntimeError("平台训练服务未接入")
+            request = PromoteTabularModelRequest(
+                model_id=str(data["model_id"]),
+                version=int(data["version"]),
+                evaluation_id=str(data["evaluation_id"]),
+                approved_by="builder",
+                approval_reason=str(data.get("approval_reason") or "构建期训练流程晋升"),
+                idempotency_key=f"build-{build_id}-{uuid4()}",
+            )
+            return await self.tabular_models.promote(str(data["deployment_name"]), request)
         if tool == "ask_owner":
             question = str(data.get("question", "")).strip()
             if not question:
@@ -1744,6 +1814,10 @@ class WorkflowBuilder:
         object_schema = {"type": "object", "additionalProperties": True}
         definitions = [
             ToolDefinition(name="catalog_search", description="Search available workflow bricks.", input_schema={"type": "object", "properties": {"query": {"type": "string"}}}),
+            # ── 构建期动手能力：应用工作区内的数据分析与模型训练 ──
+            ToolDefinition(name="train_tabular_model", description="Train an in-platform tabular classifier (logistic regression) from a labeled feature table you prepared in the workspace. rows_file is a workspace-relative JSON/JSONL file of {features:{name:number}, label:0|1} rows. Returns model_id/version/metrics.", input_schema={"type": "object", "properties": {"model_name": {"type": "string"}, "features": {"type": "array", "items": {"type": "object", "properties": {"name": {"type": "string"}, "unit": {"type": "string"}}, "required": ["name"]}}, "rows_file": {"type": "string"}, "threshold": {"type": "number"}, "epochs": {"type": "integer"}, "learning_rate": {"type": "number"}}, "required": ["model_name", "features", "rows_file"]}),
+            ToolDefinition(name="evaluate_tabular_model", description="Evaluate a trained tabular model version against a held-out labeled rows_file (workspace-relative). Returns accuracy/precision/recall metrics and an evaluation_id required for promotion.", input_schema={"type": "object", "properties": {"model_id": {"type": "string"}, "version": {"type": "integer", "minimum": 1}, "rows_file": {"type": "string"}}, "required": ["model_id", "version", "rows_file"]}),
+            ToolDefinition(name="promote_tabular_model", description="Promote an evaluated model version to a named deployment so workflows can call it via the deployed_model_inference brick. Requires the evaluation_id from evaluate_tabular_model.", input_schema={"type": "object", "properties": {"deployment_name": {"type": "string"}, "model_id": {"type": "string"}, "version": {"type": "integer", "minimum": 1}, "evaluation_id": {"type": "string"}, "approval_reason": {"type": "string"}}, "required": ["deployment_name", "model_id", "version", "evaluation_id", "approval_reason"]}),
             ToolDefinition(name="catalog_get", description="Read the exact schema and ports for one brick.", input_schema={"type": "object", "properties": {"type": {"type": "string"}}, "required": ["type"]}),
             ToolDefinition(name="manual_search", description="Search block manuals before selecting agent architecture bricks.", input_schema={"type": "object", "properties": {"query": {"type": "string"}, "block_kind": {"enum": ["business_workflow", "agent_architecture", "legacy_compatibility"]}}}),
             ToolDefinition(name="manual_get", description="Read one block manual, including when to use it, examples, anti-patterns, and Claude architecture mapping.", input_schema={"type": "object", "properties": {"type": {"type": "string"}}, "required": ["type"]}),
@@ -1777,6 +1851,12 @@ class WorkflowBuilder:
                 ToolDefinition(name="send_message", description="Wake an existing teammate with a follow-up message while retaining its context.", input_schema={"type": "object", "properties": {"name": {"type": "string"}, "message": {"type": "string"}, "max_turns": {"type": "integer"}}, "required": ["name", "message"]}),
                 ToolDefinition(name="ask_owner", description="Pause the build and ask the owner one batched set of blocking questions. Use only when required information cannot be responsibly inferred; the build stops until the owner replies.", input_schema={"type": "object", "properties": {"question": {"type": "string"}}, "required": ["question"]}),
             ])
+        # 构建期执行工具：在应用工作区沙盒里做数据探索/预处理/报告写作。
+        # 网络关闭；工作区外不可达。定义直接复用核心工具的 schema。
+        if self.sandboxes is not None:
+            for exec_name in ("Bash", "Read", "Write", "Glob"):
+                if exec_name in self.core_tools.names():
+                    definitions.append(self.core_tools.get(exec_name).definition())
         return definitions
 
     @staticmethod
@@ -2140,6 +2220,57 @@ class WorkflowBuilder:
                 text = getattr(block, "content", None)
                 if isinstance(text, str) and len(text) > 200:
                     block.content = "[早期工具结果已归档以控制上下文成本；需要这份数据请用相应工具重新查询。]"
+
+    async def _workspace_tool_context(self, build_id: str, application_id: str) -> ToolContext:
+        """构建期执行沙盒：cwd=应用工作区、网络关闭、工作区外不可达。"""
+
+        workspace = self.sandboxes.resolve_workspace(application_id, create=True)
+        sandbox = await self.sandboxes.get_or_create(
+            f"build-{build_id}",
+            str(workspace),
+            NetworkPolicy.none,
+            [],
+        )
+
+        async def _noop_emit(kind: str, payload: dict[str, Any]) -> None:
+            return None
+
+        async def _no_spawn(prompt: str, model: str | None = None) -> str:
+            raise RuntimeError("构建期执行工具不支持子代理")
+
+        return ToolContext(
+            session_id=build_id,
+            agent=None,  # 这些工具只用 sandbox；无代理语义
+            sandbox=sandbox,
+            emit=_noop_emit,
+            spawn_subagent=_no_spawn,
+        )
+
+    def _read_labeled_rows(self, application_id: str, rows_file: str) -> list[LabeledObservation]:
+        """从应用工作区读标注特征表（JSON 数组或 JSONL），越界即拒。"""
+
+        if self.sandboxes is None:
+            raise RuntimeError("构建期执行沙盒未接入")
+        workspace = self.sandboxes.resolve_workspace(application_id)
+        path = (workspace / rows_file).resolve()
+        if path != workspace and workspace not in path.parents:
+            raise RuntimeError("rows_file 必须位于应用工作区内")
+        if not path.is_file():
+            raise RuntimeError(f"rows_file 不存在：{rows_file}（相对应用工作区）")
+        text = path.read_text(encoding="utf-8")
+        raw = (
+            json.loads(text)
+            if text.lstrip().startswith("[")
+            else [json.loads(line) for line in text.splitlines() if line.strip()]
+        )
+        rows: list[LabeledObservation] = []
+        for item in raw:
+            features = {str(k): float(v) for k, v in (item.get("features") or {}).items()}
+            units = {str(k): str(v) for k, v in (item.get("units") or {}).items()}
+            for name in features:
+                units.setdefault(name, "unitless")
+            rows.append(LabeledObservation(features=features, units=units, label=int(item["label"])))
+        return rows
 
     def _record_event(self, build_id: str, event: str, text: str) -> None:
         """Milestones (发布/等待/取消/故障) go into the transcript as system badges.

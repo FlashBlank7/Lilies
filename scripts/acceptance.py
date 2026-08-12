@@ -156,6 +156,19 @@ def main() -> None:
         app_id = app["id"]
     report["application_id"] = app_id
 
+    # 甲方数据包投递：spec.workspace_seed_dir 的内容复制进应用工作区，
+    # 等同"客户把原始数据发过来了"。
+    seed_dir = spec.get("workspace_seed_dir")
+    if seed_dir:
+        import shutil
+
+        workspace_root = Path(os.environ.get("WORKSPACE_ROOT", "workspaces"))
+        target = workspace_root / app_id
+        target.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(Path(seed_dir), target, dirs_exist_ok=True)
+        copied = sum(1 for _ in target.rglob("*") if _.is_file())
+        print(f"数据包已投递工作区：{copied} 个文件 → {target}")
+
     if not args.skip_build:
         build = request(args.base_url, token, "POST", f"/api/v1/applications/{app_id}/builds", {
             "requirement": spec["requirement"],

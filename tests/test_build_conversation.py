@@ -398,3 +398,38 @@ def test_budget_note_stays_out_of_persistent_history_and_system() -> None:
     tail_assistant = base[:2]
     appended = WorkflowBuilder._with_budget_note(tail_assistant, "note")
     assert appended[-1].role == "user" and appended[-1].content[0].text == "note"
+
+
+def test_read_labeled_rows_parses_and_rejects_escape(tmp_path: Path) -> None:
+    """训练工具的数据入口：JSON/JSONL 两种形态、缺省单位补齐、越界即拒。"""
+
+    import pytest as _pytest
+
+    from agent_platform.builder import WorkflowBuilder
+    from agent_platform.config import Settings
+    from agent_platform.sandbox import SandboxManager
+
+    settings = Settings(
+        api_token="t", data_dir=tmp_path / "d", workspace_root=tmp_path / "w",
+    )
+    settings.prepare() if hasattr(settings, "prepare") else None
+    (tmp_path / "w").mkdir(parents=True, exist_ok=True)
+    manager = SandboxManager(settings)
+
+    class Stub:
+        sandboxes = manager
+
+    workspace = manager.resolve_workspace("app-1", create=True)
+    (workspace / "rows.jsonl").write_text(
+        '{"features": {"a": 1.5, "b": 2}, "label": 1}\n'
+        '{"features": {"a": 0.5, "b": 9}, "units": {"a": "m/s"}, "label": 0}\n',
+        encoding="utf-8",
+    )
+    rows = WorkflowBuilder._read_labeled_rows(Stub(), "app-1", "rows.jsonl")
+    assert len(rows) == 2
+    assert rows[0].features == {"a": 1.5, "b": 2.0}
+    assert rows[0].units == {"a": "unitless", "b": "unitless"}
+    assert rows[1].units["a"] == "m/s" and rows[1].units["b"] == "unitless"
+
+    with _pytest.raises(RuntimeError, match="工作区内"):
+        WorkflowBuilder._read_labeled_rows(Stub(), "app-1", "../escape.json")

@@ -10,7 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     rm -rf /var/lib/apt/lists/* && \
     groupadd --gid ${SANDBOX_GID} agent 2>/dev/null || true && \
     useradd --create-home --uid ${SANDBOX_UID} --gid ${SANDBOX_GID} agent && \
-    pip install --no-cache-dir pytest
+    pip install --no-cache-dir pytest pandas openpyxl numpy scipy matplotlib
 COPY --from=node_runtime /usr/local/bin/node /usr/local/bin/node
 USER agent
 WORKDIR /workspace

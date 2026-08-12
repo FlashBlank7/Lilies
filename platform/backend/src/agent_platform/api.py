@@ -1612,6 +1612,8 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
         harness=harness,
         template_store=templates,
         transcripts=build_transcripts,
+        sandboxes=sandboxes,
+        tabular_models=tabular_models,
     )
     scheduler = WorkflowScheduler(
         storage=storage,
