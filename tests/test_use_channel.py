@@ -156,8 +156,8 @@ def test_repair_auto_replays_run_with_same_inputs(tmp_path: Path) -> None:
         ).json()["revision"]
         revision = mutate(revision, "add_node", {"node": {
             "id": "start", "type": "start", "title": "开始",
-            "config": {"settings": {"inputs": [{"name": "date", "label": "日期", "type": "string",
-                                                "required": True, "example": "2026-08-07"}]}}}})
+            "config": {"inputs": [{"name": "date", "label": "日期", "type": "string",
+                                           "required": True, "example": "2026-08-07"}]}}})
         revision = mutate(revision, "add_node", {"node": {
             "id": "end", "type": "end", "title": "结束",
             "config": {"outputs": {"echo": {"$ref": {"node_id": "start", "path": ["date"]}}}}}})
