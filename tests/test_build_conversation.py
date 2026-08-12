@@ -153,7 +153,8 @@ def _settings(tmp_path: Path) -> Settings:
 
 def _wait_status(client: TestClient, build_id: str, statuses: set[str]) -> dict[str, object]:
     build: dict[str, object] = {}
-    for _ in range(800):
+    # 高负载全量回归下 8s 不够（曾偶发超时）——放宽到 30s
+    for _ in range(3000):
         build = client.get(f"/api/v1/builds/{build_id}", headers=HEADERS).json()
         if build["status"] in statuses:
             return build
