@@ -36,6 +36,16 @@
 - `asset_clyins_workflow_as_product.md`、`asset_lilies_competitive_strategy.md`、`asset_adaptive_*.md`、`asset_platform_harness_task_monitor_boundary.md` 等 —— 各自独立资产
 - `asset_the_pair_poem.md` —— The Pair 诗(作为格言保留,非理论)
 
+## 本次会话观察(关联文档)
+
+本索引是理论核心的权威入口;与本次会话产生的工程/设计观察配套使用:
+
+- [design_architecture_observations_v1](../current-design/design_architecture_observations_v1.md) —— 合并后 lean-core 的架构观察(安全/执行引擎/数据层/测试/过程/集群,标注已解决/待核)
+- [design_bounded_emergence_v1](../current-design/design_bounded_emergence_v1.md) —— 有界涌现设计 + 元胞自动机借鉴(团队分歧的裁决与实现)
+- [plan_workflow_server_roadmap_v1](../workingon/plan_workflow_server_roadmap_v1.md) —— workflow-as-server 路线图(P0 收敛与安全 / P1 三个真实场景 / P2 架构卫生 / P3 涌现实现)
+
+**理论内核如何支撑这些文档**:R1-R4(验证分层)、R7/R10(组合闭合)、R11(完备相对)、workflow-as-server(server 为壳、composition 为核)作为设计与路线的决策依据;已撤回内容(范畴论/集群)不再用于论证。
+
 ## 减法说明
 
 - **时间**:2026-08-05。
