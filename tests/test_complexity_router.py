@@ -60,3 +60,43 @@ def test_deterministic_same_input_same_output() -> None:
     """确定性:同输入必同输出(相位触发不是随机涌现)。"""
     req = "搭建一个简单的翻译工作流,把中文翻译成英文"
     assert classify_requirement(req) == classify_requirement(req)
+
+
+def test_build_exposes_team_decision() -> None:
+    """层级4 可观测:build 响应暴露复杂度决策(为什么开放团队)。"""
+    import time as _time
+    from pathlib import Path
+    from tempfile import TemporaryDirectory
+
+    from fastapi.testclient import TestClient
+
+    from agent_platform.api import create_app
+    from agent_platform.config import Settings
+    from agent_platform.testing import MockProvider
+
+    H = {"Authorization": "Bearer workflow-test"}
+    tmp = TemporaryDirectory()
+    settings = Settings(api_token="workflow-test",
+                        data_dir=Path(tmp.name) / "data",
+                        workspace_root=Path(tmp.name) / "workspaces")
+    settings.prepare()
+    app = create_app(settings, MockProvider())
+    with TestClient(app) as client:
+        app_id = client.post("/api/v1/applications", headers=H, json={
+            "name": "x", "requirement": "测试",
+        }).json()["id"]
+        # 复杂需求(含协作信号)→ 团队开放
+        b1 = client.post(f"/api/v1/applications/{app_id}/builds", headers=H, json={
+            "requirement": "搭建一个多智能体协作工作流,写手和审核并行分工完成投稿,需要评审和复核",
+            "auto_publish": False, "max_turns": 5,
+        }).json()
+        d1 = client.get(f"/api/v1/builds/{b1['build_id']}", headers=H).json()
+        assert d1["team_state"]["complexity_router"]["allow_team"] is True
+        # 简单需求 → 单单元
+        b2 = client.post(f"/api/v1/applications/{app_id}/builds", headers=H, json={
+            "requirement": "搭建一个翻译工作流,把中文翻译成英文",
+            "auto_publish": False, "max_turns": 5,
+        }).json()
+        d2 = client.get(f"/api/v1/builds/{b2['build_id']}", headers=H).json()
+        assert d2["team_state"]["complexity_router"]["allow_team"] is False
+    tmp.cleanup()

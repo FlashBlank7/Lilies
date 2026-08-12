@@ -90,3 +90,17 @@
 - 本设计不引入新"涌现框架";它复用现有积木 + 一个被删但可恢复的路由器。
 - 与理论内核的关系:R11(完备相对)→ 协作模式是需求驱动;R4(验证上界)→ 不静态验证涌现,观测它;workflow-as-server → 协作是服务组合。
 - 不移植 CA 的"无代价自由涌现"——每次升级都受预算与可观测约束。
+
+## 8. 实现状态(2026-08,feat/workflow-as-server)
+
+| 层级 | 内容 | 状态 |
+|------|------|------|
+| **1 · 相位触发器** | `complexity_router.py`(确定性 classify_requirement);api.py create_build 写入 team_state.complexity_router;builder.py `_agent_loop` 门控 allow_team(默认保守) | ✅ 已实现 + 测试 |
+| **2 · 显式团队组装** | `submission_team` 场景(写手+审核 subagent_spawn,依赖图+独立预算),注册进 ScenarioCatalog | ✅ 已实现 + 端到端测试 |
+| **3 · 并行局部规则** | `parallel_agents` 积木:多个独立子智能体 asyncio.gather 并行执行,输出聚合为 name→result | ✅ 已实现 + 测试 |
+| **4 · 边界与可观测** | 预算边界(已有);**build 决策可观测**(GET build → team_state.complexity_router.allow_team);**agent 事件可观测**(agent.started/completed 含 usage) | ✅ 后端已实现;前端 per-agent 视图为后续项 |
+
+**仍待办(不在本次范围)**:
+- 前端 runtime/use 页拆出 per-agent 独立阶段(当前折叠为单一 "collaborate")。
+- 团队级遥测聚合视图(谁/为什么/每 agent 的 turn/cost/result 的集中展示)。
+- 三个真实客户场景(数据/RAG/企业API)的端到端闭环验证(见 roadmap)。
