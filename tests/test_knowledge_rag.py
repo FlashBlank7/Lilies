@@ -564,3 +564,42 @@ async def test_list_source_ids_supports_replace_semantics(tmp_path: Path) -> Non
         ),
     )
     assert await service.list_source_ids("runtime-kb") == ["safety"]
+
+
+def test_index_write_isolation_between_applications(tmp_path) -> None:
+    """写隔离读共享：他应用写入被拒（可读中文指路），shared=True 放行（缺陷 #8）。"""
+
+    import asyncio
+
+    import pytest as _pytest
+
+    from agent_platform.knowledge_rag import (
+        KnowledgeIndexConflict,
+        KnowledgeSyncRequest,
+    )
+
+    async def scenario() -> None:
+        service = await _service(tmp_path)
+        doc = {"source_id": "s1", "title": "t", "content": "内容一", "revision": "1", "url": ""}
+
+        await service.sync("shared-name", KnowledgeSyncRequest.model_validate({
+            "documents": [doc], "event_id": "evt-a-000001", "application_id": "app-a",
+        }))
+        # 他应用写 → 拒，且报错指路 shared
+        with _pytest.raises(KnowledgeIndexConflict, match="shared"):
+            await service.sync("shared-name", KnowledgeSyncRequest.model_validate({
+                "documents": [doc], "event_id": "evt-b-000001", "application_id": "app-b",
+            }))
+        # 显式共享 → 放行
+        result = await service.sync("shared-name", KnowledgeSyncRequest.model_validate({
+            "documents": [dict(doc, source_id="s2")], "event_id": "evt-b-000002",
+            "application_id": "app-b", "shared": True,
+        }))
+        assert isinstance(result, dict) and result  # 共享写入成功返回同步结果
+        # 属主自己继续写 → 无阻
+        await service.sync("shared-name", KnowledgeSyncRequest.model_validate({
+            "documents": [dict(doc, source_id="s3")], "event_id": "evt-a-000002",
+            "application_id": "app-a",
+        }))
+
+    asyncio.run(scenario())

@@ -1831,6 +1831,10 @@ class WorkflowRuntime:
                         "documents": documents,
                         "deleted_source_ids": deleted_source_ids,
                         "event_id": event_id,
+                        # 写隔离：带上运行归属应用的身份；跨应用共享写入
+                        # 需要节点配置显式声明 shared
+                        "application_id": state.application_id if state else "",
+                        "shared": bool(config.shared),
                     }
                 ),
             )

@@ -199,6 +199,10 @@ class KnowledgeSyncRequest(BaseModel):
     documents: list[KnowledgeDocument] = Field(default_factory=list, max_length=2_000)
     deleted_source_ids: list[str] = Field(default_factory=list, max_length=2_000)
     event_id: str = Field(min_length=8, max_length=200)
+    # 写隔离（读共享）：首个写入的应用登记为属主；他应用写入必须显式
+    # shared=True（防止两个客户项目撞名互踩——缺陷 #8）。
+    application_id: str = ""
+    shared: bool = False
 
     @model_validator(mode="after")
     def unique_sources(self) -> KnowledgeSyncRequest:
@@ -247,6 +251,8 @@ class KnowledgeIndexSyncConfig(BaseModel):
     # in the index is deleted first. The right mode when the workflow input
     # provides the documents each run (stale runs must not pollute retrieval).
     replace: bool = False
+    # shared=True：明知该索引归属另一个应用仍要共享写入（默认写隔离）。
+    shared: bool = False
 
 
 class KnowledgeRetrievalConfig(BaseModel):
@@ -297,7 +303,8 @@ class KnowledgeIndexService:
                   revision INTEGER NOT NULL,
                   content_digest TEXT NOT NULL,
                   created_at TEXT NOT NULL,
-                  updated_at TEXT NOT NULL
+                  updated_at TEXT NOT NULL,
+                  owner_application_id TEXT NOT NULL DEFAULT ''
                 );
                 CREATE TABLE IF NOT EXISTS knowledge_documents (
                   index_name TEXT NOT NULL,
@@ -337,6 +344,13 @@ class KnowledgeIndexService:
                   ON knowledge_chunks(index_name, source_id, ordinal);
                 """
             )
+            # 旧库迁移：补 owner_application_id 列（新库建表已自带，此处吞重复错）
+            try:
+                connection.execute(
+                    "ALTER TABLE knowledge_indexes ADD COLUMN owner_application_id TEXT NOT NULL DEFAULT ''"
+                )
+            except Exception:
+                pass
             connection.commit()
         finally:
             connection.close()
@@ -534,15 +548,38 @@ class KnowledgeIndexService:
                     """
                     INSERT INTO knowledge_indexes(
                       name, embedding_model, chunk_size, chunk_overlap, revision,
-                      content_digest, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, 0, ?, ?, ?)
+                      content_digest, created_at, updated_at, owner_application_id
+                    ) VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?)
                     """,
-                    (name, EMBEDDING_MODEL, 1_000, 120, _sha256([]), now, now),
+                    (name, EMBEDDING_MODEL, 1_000, 120, _sha256([]), now, now,
+                     request.application_id or ""),
                 )
                 index = connection.execute(
                     "SELECT * FROM knowledge_indexes WHERE name = ?",
                     (name,),
                 ).fetchone()
+            else:
+                # 写隔离（读共享）：索引归属首个写入的应用；他应用写入必须
+                # 显式 shared=True——两个客户项目撞了索引名，静默互踩比
+                # 报错贵一万倍（缺陷 #8）。
+                owner = str(
+                    index["owner_application_id"]
+                    if "owner_application_id" in index.keys()
+                    else ""
+                )
+                caller = request.application_id or ""
+                if owner and caller and owner != caller and not request.shared:
+                    raise KnowledgeIndexConflict(
+                        f"知识库「{name}」归属另一个应用（{owner[:8]}…）。"
+                        "如果确实要共享写入，请在同步环节的配置里声明 shared: true；"
+                        "否则请换一个索引名。"
+                    )
+                if not owner and caller:
+                    # 旧索引补登记：第一个带身份的写入者成为属主
+                    connection.execute(
+                        "UPDATE knowledge_indexes SET owner_application_id=? WHERE name=?",
+                        (caller, name),
+                    )
             replay = connection.execute(
                 """
                 SELECT request_digest, response_json
