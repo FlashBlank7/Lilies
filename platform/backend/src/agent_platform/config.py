@@ -3,7 +3,7 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -14,6 +14,21 @@ class Settings(BaseSettings):
     api_token: str = "change-me"
     host: str = "127.0.0.1"
     port: int = 8000
+
+    @field_validator("api_token")
+    @classmethod
+    def _reject_default_token(cls, value: str) -> str:
+        """P0 安全:拒绝默认/弱 token。
+
+        'change-me' 是全链路默认值(config/compose/.env.example/前端代理回退)。
+        若启动时仍用它,公网暴露或共享环境等于无鉴权。测试与部署必须显式设置。
+        """
+        if not value or value.strip().lower() in {"change-me", "changeme", "change_me"}:
+            raise ValueError(
+                "api_token must not be the default 'change-me'; set a real token "
+                "in .env (API_TOKEN=...) before starting the platform"
+            )
+        return value
     data_dir: Path = Path("data")
     workspace_root: Path = Path("workspaces")
     workspace_host_root: Path | None = None

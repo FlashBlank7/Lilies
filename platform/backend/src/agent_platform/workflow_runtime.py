@@ -240,6 +240,8 @@ class WorkflowRuntime:
         self._workspace_boundaries: dict[str, Path] = {}
         self._nested_application_allowlists: dict[str, frozenset[str]] = {}
         self._runtime_tool_allowlists: dict[str, frozenset[str]] = {}
+        # R10 版本锁定:每个 run 记录其发布时快照的 module_refs {workflow_id: version}
+        self._module_refs: dict[str, dict[str, int]] = {}
         self._network_host_allowlists: dict[str, frozenset[str]] = {}
         self._model_access_policies: dict[str, bool] = {}
         self._connector_operation_allowlists: dict[str, frozenset[str]] = {}
@@ -290,12 +292,15 @@ class WorkflowRuntime:
         current_call_chain = [*ancestor_chain, application_id]
         published_policy: ExecutionPolicySnapshot | None = None
         effective_policy: ExecutionPolicySnapshot | None = None
+        module_refs: dict[str, int] = {}
         if request.use_draft:
             draft = await self.workflow_store.get_draft(application_id)
             snapshot, version, draft_revision = draft["snapshot"], None, int(draft["revision"])
         else:
             published = await self.workflow_store.get_version(application_id, request.version)
             snapshot, version, draft_revision = published["snapshot"], int(published["version"]), None
+            # R10 版本锁定:加载发布时的 module_refs 快照(workflow: 子调用锁定该版本)
+            module_refs = dict((published.get("publication_decision") or {}).get("module_refs") or {})
             raw_policy = (published.get("publication_decision") or {}).get(
                 "execution_policy_snapshot"
             )
@@ -471,6 +476,8 @@ class WorkflowRuntime:
                 max_payload_bytes=max_connector_payload_bytes,
             )
         run_id = str(uuid4())
+        if module_refs:
+            self._module_refs[run_id] = module_refs
         inputs = await self._inputs_with_governed_memory(
             application_id=application_id,
             inputs=request.inputs,
@@ -3208,13 +3215,21 @@ class WorkflowRuntime:
                     "spent": spent,
                     "max": max_cost,
                 })
-            await emit_harness_signal("budget", "allowed" if allowed else "blocked", {
+                await emit_harness_signal("budget", "blocked", {
+                    "spent_cost_usd": spent,
+                    "max_cost_usd": max_cost,
+                })
+                # R4b 运行时防御:预算超限即拦停运行(不是被动仪表)
+                raise RuntimeError(
+                    f"budget exceeded: spent ${spent:.4f} > max ${max_cost}"
+                )
+            await emit_harness_signal("budget", "allowed", {
                 "spent_cost_usd": spent,
                 "max_cost_usd": max_cost,
             })
             return {
-                "output": {"input": value, "allowed": allowed, "spent_cost_usd": spent, "max_cost_usd": max_cost},
-                "state": {"mechanism": node.type, "allowed": allowed, "spent_cost_usd": spent, "max_cost_usd": max_cost},
+                "output": {"input": value, "allowed": True, "spent_cost_usd": spent, "max_cost_usd": max_cost},
+                "state": {"mechanism": node.type, "allowed": True, "spent_cost_usd": spent, "max_cost_usd": max_cost},
             }
 
         if node.type == "round_limit":
@@ -3227,13 +3242,19 @@ class WorkflowRuntime:
                     "current": current_round,
                     "max": max_rounds,
                 })
-            await emit_harness_signal("round_limit", "allowed" if allowed else "blocked", {
+                await emit_harness_signal("round_limit", "blocked", {
+                    "current_round": current_round,
+                    "max_rounds": max_rounds,
+                })
+                # R4b 运行时防御:达到轮次上限即拦停运行
+                raise RuntimeError(f"round limit reached ({current_round} >= {max_rounds})")
+            await emit_harness_signal("round_limit", "allowed", {
                 "current_round": current_round,
                 "max_rounds": max_rounds,
             })
             return {
-                "output": {"input": value, "allowed": allowed, "current_round": current_round, "max_rounds": max_rounds},
-                "state": {"mechanism": node.type, "allowed": allowed, "current_round": current_round, "max_rounds": max_rounds},
+                "output": {"input": value, "allowed": True, "current_round": current_round, "max_rounds": max_rounds},
+                "state": {"mechanism": node.type, "allowed": True, "current_round": current_round, "max_rounds": max_rounds},
             }
 
         if node.type == "hook_point":
@@ -3614,9 +3635,16 @@ class WorkflowRuntime:
                 "nested_workflow_call",
                 metadata={"node_id": node_id, "application_id": application_id},
             )
+            # R10 版本锁定:调用方发布时快照了子工作流版本,此处使用锁定版本,
+            # 子工作流重发不得静默改变已发布调用方的结果。
+            pinned_version = self._module_refs.get(run_id, {}).get(application_id)
             nested = await self.create_run(
                 application_id,
-                WorkflowRunRequest(inputs=self._resolve(config.input, context), workspace_path=workspace_path),
+                WorkflowRunRequest(
+                    inputs=self._resolve(config.input, context),
+                    workspace_path=workspace_path,
+                    version=pinned_version,
+                ),
                 parent_task_id=run_id,
                 origin="nested_workflow_tool",
                 workspace_boundary=(
@@ -4326,12 +4354,18 @@ class WorkflowRuntime:
                             assertion.path,
                         )
                         semantic_unwrap = True
+                    # R2/R4c 降级:structural_only 测试或 structural 断言只检查
+                    # 结构属性(exists/type/length),不检查内容相等。内容算子在此
+                    # 降级为 exists——LLM 非确定性输出不作精确断言。
+                    operator = assertion.operator
+                    expected = assertion.expected
+                    if (
+                        getattr(test, "structural_only", False) or assertion.structural
+                    ) and not self._is_structural_assertion(operator):
+                        operator = "exists"
+                        expected = None
                     assertion_result = {
-                        "passed": self._assert(
-                            actual,
-                            assertion.operator,
-                            assertion.expected,
-                        ),
+                        "passed": self._assert(actual, operator, expected),
                         "actual": actual,
                         **assertion.model_dump(mode="json"),
                     }

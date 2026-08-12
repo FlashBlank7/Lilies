@@ -1117,6 +1117,19 @@ class WorkflowStorage:
                 acknowledge_warnings and decision["warnings"]
             )
             decision["decided_at"] = now
+            # R10 版本锁定:发布时快照被引用工作流的当前活动版本,
+            # 使已发布的调用方锁定其构建时看到的子版本——子工作流重发
+            # 不得静默改变已发布调用方的结果。
+            module_refs: dict[str, int] = {}
+            snapshot = json.loads(draft["snapshot_json"])
+            for ref_id in self.referenced_workflow_ids(snapshot):
+                row = conn.execute(
+                    "SELECT MAX(version) AS v FROM application_versions WHERE application_id=?",
+                    (ref_id,),
+                ).fetchone()
+                if row and row["v"] is not None:
+                    module_refs[ref_id] = int(row["v"])
+            decision["module_refs"] = module_refs
             if execution_policy_snapshot is not None:
                 decision["execution_policy_snapshot"] = (
                     execution_policy_snapshot.model_dump(mode="json")
