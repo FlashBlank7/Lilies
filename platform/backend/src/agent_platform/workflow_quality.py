@@ -69,6 +69,8 @@ class PetrinetIssues:
     """iteration nodes without explicit parallelism cap."""
     missing_break: list[str] = field(default_factory=list)
     """loop nodes whose break_condition may never be satisfied."""
+    parallel_external_coupling: list[str] = field(default_factory=list)
+    """R3: iteration 并行体内多个节点访问同一外部资源——并行可能暴露不一致快照."""
 
 
 @dataclass(slots=True)
@@ -303,6 +305,35 @@ def _analyze_petrinet(
             if parallelism is None or int(parallelism) > 8:
                 p.unbound_parallelism.append(node.id)
 
+    # R3 外部因果耦合(最小检测):iteration 并行体内多个节点访问同一外部资源
+    def _resource_key(n: dict[str, Any]) -> str | None:
+        url = n.get("config", {}).get("url") if isinstance(n.get("config"), dict) else None
+        if n.get("type") == "http_request" and isinstance(url, str) and url:
+            return f"http:{url}"
+        cid = n.get("config", {}).get("connector_id") if isinstance(n.get("config"), dict) else None
+        if n.get("type") == "connector_action" and cid:
+            return f"connector:{cid}"
+        hosts = n.get("config", {}).get("allowed_hosts") if isinstance(n.get("config"), dict) else None
+        if n.get("type") == "web_collection" and isinstance(hosts, list):
+            return f"host:{sorted(str(h) for h in hosts)}"
+        return None
+
+    for node in workflow.nodes:
+        if node.type != "iteration":
+            continue
+        parallelism = node.config.get("parallelism", 1)
+        nested = node.config.get("workflow") if isinstance(node.config.get("workflow"), dict) else {}
+        sub_nodes = nested.get("nodes", []) if isinstance(nested, dict) else []
+        if int(parallelism) > 1 and sub_nodes:
+            seen: dict[str, str] = {}
+            for sub in sub_nodes:
+                key = _resource_key(sub)
+                if key and key in seen:
+                    p.parallel_external_coupling.append(node.id)
+                    break
+                if key:
+                    seen[key] = str(sub.get("id"))
+
     # Loop without break condition
     for node in workflow.nodes:
         if node.type == "loop":
@@ -492,6 +523,14 @@ def _compute_score(
     if mb:
         score -= mb * 5
         suggestions.append(f"🔄 {mb} 个 loop 节点缺少显式 break_condition")
+
+    pec = len(petrinet.parallel_external_coupling)
+    if pec:
+        score -= pec * 8
+        suggestions.append(
+            f"⚠️ {pec} 个 iteration 并行体内多个节点访问同一外部资源(可能不一致快照, R3): "
+            f"{petrinet.parallel_external_coupling}"
+        )
 
     # Coend/data-flow deductions
     ar = len(coend.ambiguous_refs)
