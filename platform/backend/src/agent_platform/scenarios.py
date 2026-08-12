@@ -6,7 +6,14 @@ from pydantic import BaseModel, Field
 
 from .blocks import BlockRegistry
 from .connector_sdk import ConnectorService
-from .workflow_models import TestAssertion, TestFrameSpec, WorkflowSpec, WorkflowTestCase
+from .workflow_models import (
+    EdgeSpec,
+    NodeSpec,
+    TestAssertion,
+    TestFrameSpec,
+    WorkflowSpec,
+    WorkflowTestCase,
+)
 
 
 class ScenarioEvidenceProfile(BaseModel):
@@ -56,6 +63,7 @@ class ScenarioCatalog:
             self.get("codex_like_workspace_agent").summary(),
             self.get("daily_web_collection").summary(),
             self.get("customer_system_embedding").summary(),
+            self.get("submission_team").summary(),
         ]
 
     def get(self, scenario_id: str) -> ScenarioDefinition:
@@ -63,6 +71,8 @@ class ScenarioCatalog:
             return self._daily_web_collection()
         if scenario_id == "customer_system_embedding":
             return self._customer_system_embedding()
+        if scenario_id == "submission_team":
+            return self._submission_team()
         if scenario_id != "codex_like_workspace_agent":
             raise KeyError(f"unknown scenario: {scenario_id}")
         prefix = "codex"
@@ -535,6 +545,141 @@ class ScenarioCatalog:
                 mandatory=True,
                 structural_only=True,
                 capability_ids=["G.provenance", "X.site_access", "X.notification"],
+            ),
+        ]
+
+    def _submission_team(self) -> ScenarioDefinition:
+        """投稿双人组:写手 + 审核 的显式团队场景。
+
+        有界涌现设计层级 2(design_bounded_emergence_v1.md):
+        - 角色分解:写手(writer)、审核(reviewer)——两个 subagent_spawn
+        - 依赖图:reviewer 依赖 writer 的产出(审阅草稿)
+        - 协调:模板节点把一方的输出组装成另一方的任务
+        团队是显式组装的(确定性),每个子 agent 有独立上下文与预算。
+        """
+        prefix = "team"
+        nodes = [
+            NodeSpec(id="start", type="start", title="材料输入", config={
+                "inputs": [{"name": "materials", "type": "string"}],
+            }),
+            NodeSpec(id="writer_task", type="template_transform", title="写手任务", config={
+                "template": (
+                    "你是资深公众号写手。根据以下材料撰写一篇投稿,"
+                    "包含标题、引言、正文和结尾:\n\n{{materials}}"
+                ),
+                "variables": {
+                    "materials": {"$ref": {"node_id": "start", "path": ["materials"]}},
+                },
+            }),
+            NodeSpec(id="writer", type="subagent_spawn", title="写手", config={
+                "settings": {
+                    "name": "writer",
+                    "task": {"$ref": {"node_id": "writer_task", "path": ["text"]}},
+                    "system_prompt": "你是资深公众号写手,直接输出投稿全文,不要解释。",
+                    "budget": {"max_rounds": 3},
+                },
+            }),
+            NodeSpec(id="review_task", type="template_transform", title="审核任务", config={
+                "template": (
+                    "你是公众号审核编辑。请审核以下投稿草稿,输出审核结论"
+                    "(通过,或具体的修改意见):\n\n{{draft}}"
+                ),
+                "variables": {
+                    "draft": {"$ref": {"node_id": "writer", "path": ["output"]}},
+                },
+            }),
+            NodeSpec(id="reviewer", type="subagent_spawn", title="审核", config={
+                "settings": {
+                    "name": "reviewer",
+                    "task": {"$ref": {"node_id": "review_task", "path": ["text"]}},
+                    "system_prompt": "你是公众号审核编辑,直接输出审核结论,不要解释。",
+                    "budget": {"max_rounds": 3},
+                },
+            }),
+            NodeSpec(id="format", type="template_transform", title="汇总", config={
+                "template": "【投稿草稿】\n{{draft}}\n\n【审核意见】\n{{review}}",
+                "variables": {
+                    "draft": {"$ref": {"node_id": "writer", "path": ["output"]}},
+                    "review": {"$ref": {"node_id": "reviewer", "path": ["output"]}},
+                },
+            }),
+            NodeSpec(id="end", type="end", title="输出", config={
+                "outputs": {
+                    "result": {"$ref": {"node_id": "format", "path": ["text"]}},
+                    "draft": {"$ref": {"node_id": "writer", "path": ["output"]}},
+                    "review": {"$ref": {"node_id": "reviewer", "path": ["output"]}},
+                },
+            }),
+        ]
+        edges = [
+            EdgeSpec(id="a", source="start", target="writer_task", source_port="output", target_port="input"),
+            EdgeSpec(id="b", source="writer_task", target="writer", source_port="text", target_port="input"),
+            EdgeSpec(id="c", source="writer", target="review_task", source_port="output", target_port="input"),
+            EdgeSpec(id="d", source="review_task", target="reviewer", source_port="text", target_port="input"),
+            EdgeSpec(id="e", source="reviewer", target="format", source_port="output", target_port="input"),
+            EdgeSpec(id="f", source="format", target="end", source_port="text", target_port="input"),
+        ]
+        workflow = WorkflowSpec(nodes=nodes, edges=edges)
+        validation_errors = self.blocks.validate_workflow(workflow)
+        if validation_errors:
+            raise ValueError("invalid submission_team scenario: " + "; ".join(validation_errors))
+        return ScenarioDefinition(
+            id="submission_team",
+            title="投稿双人组(写手 + 审核)",
+            description=(
+                "根据材料,由一个写手智能体撰写公众号投稿,再由一个审核智能体评审,"
+                "输出草稿与审核意见。团队是显式组装的(有界涌现层级 2)。"
+            ),
+            customer_outcome="给一段材料,收到一篇投稿草稿 + 审核意见,可据此定稿发布。",
+            capability_set=["multi_agent"],
+            required_envelope="E2 local interactive workspace; E3 only when durable cross-process execution is configured",
+            external_contracts=[
+                "model: provider-neutral model calls",
+            ],
+            runtime_inputs=[
+                {"name": "materials", "type": "string", "required": True, "customer_visible": True},
+            ],
+            structural_contract={
+                "outer_graph": "acyclic",
+                "top_level_node_types": [
+                    "start",
+                    "template_transform",
+                    "subagent_spawn",
+                    "end",
+                ],
+            },
+            evidence_profile=ScenarioEvidenceProfile(
+                profile_id="submission_team_h1_h2",
+                selected_level="H2",
+                status="component_verified",
+                model_boundary="deterministic scripted model for the recorded replay",
+                tool_boundary="none (subagents use model only)",
+                environment_boundary="single-process test API",
+                claim_scope="explicit two-role team (writer + reviewer) assembles and runs; reviewer depends on writer output",
+                excluded_claims=[
+                    "parallel team execution",
+                    "live model behavior",
+                    "cross-process durable completion",
+                ],
+            ),
+            workflow=workflow,
+            acceptance_cases=self._submission_team_acceptance_cases(prefix),
+        )
+
+    @staticmethod
+    def _submission_team_acceptance_cases(prefix: str) -> list[WorkflowTestCase]:
+        return [
+            WorkflowTestCase(
+                name="Team structure present",
+                requirement="团队必须包含写手与审核两个子智能体,并输出草稿与审核意见",
+                inputs={"materials": "样例材料"},
+                assertions=[
+                    TestAssertion(path=["result"], operator="exists"),
+                    TestAssertion(path=["draft"], operator="exists"),
+                    TestAssertion(path=["review"], operator="exists"),
+                ],
+                required_node_types=["start", "template_transform", "subagent_spawn", "end"],
+                structural_only=True,
             ),
         ]
 
