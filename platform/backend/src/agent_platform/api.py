@@ -4507,6 +4507,68 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             "suspicions": suspicions,
         }
 
+    @app.post(
+        "/api/v1/applications/{application_id}/acceptance/repair",
+        dependencies=[Depends(require_token)],
+    )
+    async def repair_from_acceptance(application_id: str) -> dict[str, Any]:
+        """把最近一次监理验收的失败项组装成改单，交给莉莉丝返修。
+
+        焊接两个既有闭环：监考（机械验收）→ 返修（自查修复）。客户点一下
+        "按验收单返修"，失败用例的期望 vs 实际差异就是证据，不需要任何人
+        写技术描述。
+        """
+
+        report = acceptance_pm.load_report(services.settings.data_dir, application_id)
+        if not report:
+            raise HTTPException(404, "还没有验收记录——先在监理页跑一次验收")
+        if report.get("accepted"):
+            raise HTTPException(409, "最近一次验收是通过的，没有需要返修的失败项")
+        builds = await services.workflow_store.list_builds(application_id)
+        if not builds:
+            raise HTTPException(409, "该应用没有可返修的构建")
+        build = builds[0]
+        if build["status"] in {"queued", "building"}:
+            raise HTTPException(409, "莉莉丝正在搭建中，等这轮结束再返修")
+
+        lines: list[str] = []
+        for missing in report.get("architecture_missing") or []:
+            lines.append(f"- 结构审查不过：缺少环节类型 {missing}")
+        for missing in report.get("lineage_missing") or []:
+            lines.append(f"- 执行审计不过：{missing} 没有真实参与产出")
+        for case in report.get("cases") or []:
+            if case.get("passed"):
+                continue
+            lines.append(f"- 用例「{case.get('name')}」不过（运行 {case.get('run_status')}）：")
+            for check in case.get("checks") or []:
+                if not check.get("passed"):
+                    lines.append(
+                        f"    · {check.get('check')} —— 实际：{str(check.get('actual'))[:160]}"
+                    )
+        message = (
+            "独立验收没有通过，以下是验收单上的全部失败项（期望 vs 实际），"
+            "逐项修复后重新发布：\n\n" + "\n".join(lines[:60])
+            + "\n\n要求：先用 run_inspect 查失败用例对应运行的账本定位根因；"
+            "修复后自测确认每一项都消失，再重新发布。不许削弱验收口径来凑绿。"
+        )
+        services.builder.queue_resume_message(build["id"], message[:8_000])
+        await asyncio.to_thread(
+            services.build_transcripts.append,
+            build["id"],
+            owner_record(
+                text=f"[验收不通过，按验收单发起返修] 共 {len(lines)} 项失败",
+                draft_revision=build["team_state"].revision,
+            ),
+        )
+        await services.workflow_store.update_build(build["id"], status="queued", error="")
+        services.builder.start(build["id"])
+        return {
+            "application_id": application_id,
+            "build_id": build["id"],
+            "status": "queued",
+            "failure_items": len(lines),
+        }
+
     @app.get(
         "/api/v1/applications/{application_id}/runs/{run_id}/health",
         dependencies=[Depends(require_token)],

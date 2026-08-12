@@ -163,6 +163,18 @@ export default function PmPage({ params }: { params: Promise<{ id: string }> }) 
               }}
               type="button"
             >下载验收单</button>
+            {!report.accepted && <button
+              className={styles.download}
+              disabled={busy === 'repair'}
+              onClick={() => {
+                setBusy('repair')
+                void api<{ failure_items: number }>(`/api/v1/applications/${id}/acceptance/repair`, { method: 'POST', body: '{}' })
+                  .then(result => setError(`✅ 已按验收单发起返修（${result.failure_items} 项失败作为证据），莉莉丝开工了——去会话页看进展。`))
+                  .catch(error => setError(String(error)))
+                  .finally(() => setBusy(''))
+              }}
+              type="button"
+            >{busy === 'repair' ? '发起中…' : '按验收单返修'}</button>}
           </div>
           {!report.architecture_pass && <p className={styles.err}>结构核验不通过：缺 {report.architecture_missing.join('、')}</p>}
           {report.lineage_pass === false && <p className={styles.err}>血缘核验不通过：{(report.lineage_missing || []).join('、')} 的结果没有被最终输出使用</p>}

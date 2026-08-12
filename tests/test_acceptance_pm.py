@@ -251,3 +251,77 @@ def test_collect_node_types_recurses_into_iteration() -> None:
     types = collect_node_types(nodes)
     assert "variable_assigner" in types
     assert "iteration" in types
+
+
+def test_acceptance_repair_bridges_failed_report_to_build(tmp_path) -> None:
+    """监理验收失败 → 一键按验收单返修：失败项组装成改单证据并复活构建。"""
+
+    import json as _json
+    from pathlib import Path as _Path
+
+    from fastapi.testclient import TestClient
+
+    from agent_platform.acceptance_pm import save_report
+    from agent_platform.api import create_app
+    from agent_platform.config import Settings
+
+    from tests.test_use_channel import HEADERS, SilentProvider
+
+    settings = Settings(
+        api_token="workflow-test",
+        data_dir=tmp_path / "data",
+        workspace_root=tmp_path / "workspaces",
+    )
+    app = create_app(settings, SilentProvider())
+    with TestClient(app) as client:
+        application_id = client.post(
+            "/api/v1/applications", headers=HEADERS,
+            json={"name": "验收返修桥", "requirement": "对账流程要能被验收驱动返修。"},
+        ).json()["id"]
+        # 没有验收记录 → 404 人话
+        assert client.post(
+            f"/api/v1/applications/{application_id}/acceptance/repair", headers=HEADERS,
+            json={},
+        ).status_code == 404
+
+        # 存一份失败验收单 + 一个终态构建
+        save_report(settings.data_dir, application_id, {
+            "application_id": application_id,
+            "application_name": "验收返修桥",
+            "version": 1,
+            "summary": "金额必须对上",
+            "required_node_types": [],
+            "required_any_node_types": [],
+            "architecture_pass": True,
+            "lineage_pass": False,
+            "stamp": "t",
+            "accepted": False,
+            "architecture_missing": [],
+            "lineage_missing": ["deployed_model"],
+            "cases": [{
+                "name": "金额核对", "passed": False, "run_status": "succeeded",
+                "checks": [{"check": "total = 4780", "passed": False, "actual": "0"}],
+            }],
+            "passed_cases": 0,
+        })
+        build_id = client.post(
+            f"/api/v1/applications/{application_id}/builds", headers=HEADERS,
+            json={"requirement": "对账流程要能被验收驱动返修。", "auto_publish": False, "max_turns": 5},
+        ).json()["build_id"]
+        import time as _time
+        for _ in range(400):
+            if client.get(f"/api/v1/builds/{build_id}", headers=HEADERS).json()["status"] not in {"queued", "building"}:
+                break
+            _time.sleep(0.01)
+
+        result = client.post(
+            f"/api/v1/applications/{application_id}/acceptance/repair", headers=HEADERS,
+            json={},
+        )
+        assert result.status_code == 200, result.text
+        assert result.json()["failure_items"] >= 2  # 血缘 + 用例检查项
+
+        # 改单进了会话流（owner 记录），构建被复活
+        transcript = client.get(f"/api/v1/builds/{build_id}/transcript", headers=HEADERS).json()
+        owners = [r for r in transcript["records"] if r.get("kind") == "owner"]
+        assert any("验收不通过" in (r.get("text") or "") for r in owners)
