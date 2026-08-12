@@ -1992,6 +1992,32 @@ class BlockRegistry:
                     f"容器嵌套超过 {self.MAX_CONTAINER_DEPTH} 层（当前 {depth} 层）。"
                     "循环里再套循环通常说明该拆成两步或改用批量积木；请重构而不是加深。"
                 )
+        # 未知配置键即报错：Pydantic 默认静默忽略多余键，后果是配置"看着
+        # 填了"实际全空（实案：start 的输入写进 settings.inputs 被吞，
+        # 输入永远为空且测试照绿）。静默垃圾必须变诚实失败。
+        if isinstance(node.config, dict):
+            model = self._config_models[node.type]
+            known = set(model.model_fields.keys())
+            for field in model.model_fields.values():
+                if field.alias:
+                    known.add(field.alias)
+                if isinstance(field.validation_alias, str):
+                    known.add(field.validation_alias)
+            unknown = [
+                key
+                for key in node.config.keys()
+                if key not in known
+                # x_ 前缀是显式扩展字段惯例（往返透传）；merge_config 是
+                # 更新语义标志，由上游提升处理
+                and not str(key).startswith("x_")
+                and key != "merge_config"
+            ]
+            if unknown:
+                expected = "、".join(sorted(known))
+                raise ValueError(
+                    f"积木「{definition.title}」的配置里有不认识的键：{'、'.join(unknown)}。"
+                    f"它们会被静默忽略——这几乎一定是写错了位置。合法的配置键：{expected}。"
+                )
         try:
             return self._config_models[node.type].model_validate(node.config)
         except ValidationError as error:

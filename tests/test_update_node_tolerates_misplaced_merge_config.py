@@ -55,7 +55,7 @@ def test_merge_config_nested_inside_changes_is_hoisted_not_rejected(tmp_path: Pa
             "id": "answer",
             "type": "answer",
             "title": "Answer",
-            "config": {"answer": "ok", "note": "keep me"},
+            "config": {"answer": "ok", "x_note": "keep me"},
         }}).json()["revision"]
 
         # merge_config=False misplaced inside changes: full config replacement.
@@ -74,11 +74,11 @@ def test_merge_config_nested_inside_changes_is_hoisted_not_rejected(tmp_path: Pa
         merged = _mutate(client, application_id, replaced.json()["revision"], "update_node", {
             "node_id": "answer",
             "merge_config": True,
-            "changes": {"merge_config": False, "config": {"note": "merged back"}},
+            "changes": {"merge_config": False, "config": {"x_note": "merged back"}},
         })
         assert merged.status_code == 200, merged.text
         snapshot = client.get(
             f"/api/v1/applications/{application_id}/draft", headers=HEADERS,
         ).json()["snapshot"]
         answer = next(n for n in snapshot["workflow"]["nodes"] if n["id"] == "answer")
-        assert answer["config"] == {"answer": "replaced", "note": "merged back"}
+        assert answer["config"] == {"answer": "replaced", "x_note": "merged back"}
