@@ -291,7 +291,12 @@ class TabularModelService:
                 "INSERT INTO tabular_model_versions VALUES(?,?,?,?,?)",
                 (model_id, 1, "train_new", _canonical_json(spec), created_at),
             )
-            response = self._public_version(spec)
+            response = {
+                **self._public_version(spec),
+                "data_scale_warnings": self._training_scale_warnings(
+                    [row.label for row in request.rows]
+                ),
+            }
             self._save_idempotency(
                 conn, "train", request.idempotency_key, _sha256(payload), response
             )
@@ -500,6 +505,7 @@ class TabularModelService:
                 "model_digest": spec["model_digest"],
                 "dataset_digest": dataset_digest,
                 "metrics": metrics,
+                "data_scale_warnings": self._evaluation_scale_warnings(len(request.rows)),
                 "created_at": created_at,
             }
             conn.execute(
@@ -975,6 +981,33 @@ class TabularModelService:
             "brier": brier,
             "threshold": threshold,
         }
+
+    @staticmethod
+    def _training_scale_warnings(labels: list[int]) -> list[str]:
+        warnings: list[str] = []
+        total = len(labels)
+        if total < 100:
+            warnings.append(
+                f"训练样本仅 {total} 个，模型可能无法泛化，请核对数据是否应进一步切分/扩充"
+            )
+        counts = {label: labels.count(label) for label in (0, 1)}
+        for label, count in sorted(counts.items()):
+            if count < 10:
+                warnings.append(f"类别 {label} 样本仅 {count} 个，该类别的规律很难学到，相关指标不可靠")
+        minority = min(counts.values())
+        majority = max(counts.values())
+        if minority > 0 and majority > 3 * minority:
+            warnings.append(
+                f"类别失衡：多数类与少数类样本比约 {majority / minority:.1f}:1（超过 3:1），"
+                "准确率等指标可能被多数类抬高"
+            )
+        return warnings
+
+    @staticmethod
+    def _evaluation_scale_warnings(count: int) -> list[str]:
+        if count < 30:
+            return [f"测试集仅 {count} 条，指标无统计显著性，不能作为验收依据"]
+        return []
 
     @staticmethod
     def _sigmoid(value: float) -> float:

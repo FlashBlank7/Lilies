@@ -73,6 +73,19 @@
 .delivery{border-bottom:1px solid var(--lil-line);background:var(--lil-ok-soft)}
 .delivery summary{cursor:pointer;padding:9px 16px;font-size:12px;font-weight:600;color:var(--lil-accent-strong)}
 .delivery p{margin:0;padding:0 16px 12px;font-size:12.5px;line-height:1.75;white-space:pre-wrap;color:var(--lil-ink)}
+.exportWrap{position:relative}
+.exportBtn{border:1px solid var(--lil-line);border-radius:8px;padding:6px 12px;font-size:12px;color:var(--lil-ink);background:var(--lil-panel);cursor:pointer}
+.exportBtn:hover{border-color:#9fd8c5}
+.exportPanel{position:absolute;top:calc(100% + 6px);right:0;width:264px;display:flex;flex-direction:column;gap:8px;padding:10px;background:var(--lil-panel);border:1px solid var(--lil-line);border-radius:10px;box-shadow:0 8px 24px rgba(16,24,40,.1);z-index:60}
+.exportPanel .exportItem{display:block;border:1px solid var(--lil-line);border-radius:8px;padding:7px 10px;font-size:12px;color:var(--lil-ink);text-decoration:none;background:var(--lil-panel-soft)}
+.exportPanel .exportItem:hover{border-color:#9fd8c5}
+.exportSection{border-top:1px solid var(--lil-line-soft);padding-top:8px}
+.exportSection>small{display:block;color:var(--lil-muted);font-size:10.5px;margin-bottom:6px}
+.exportPanel .exportFile{display:flex;align-items:baseline;justify-content:space-between;gap:8px;border:0;border-radius:6px;padding:5px 6px;font-size:12px;color:var(--lil-ink);text-decoration:none;background:transparent}
+.exportPanel .exportFile:hover{background:var(--lil-panel-soft)}
+.exportFile span{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.exportFile small{color:var(--lil-muted);font-size:10.5px;flex-shrink:0}
+.exportEmpty{margin:0;padding:2px 6px;font-size:12px;color:var(--lil-muted)}
 .share{border:0;border-radius:8px;padding:6px 12px;font-size:12px;cursor:pointer;background:var(--lil-accent);color:#fff}
 .shareGhost{border:1px solid var(--lil-accent-line);border-radius:8px;padding:6px 12px;font-size:12px;cursor:pointer;background:var(--lil-panel);color:var(--lil-accent-strong)}
 .share:hover{background:var(--lil-accent-strong)}

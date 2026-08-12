@@ -227,6 +227,11 @@ Core rules:
   data, never training rows) → promote_tabular_model; workflows then call the deployment via the
   deployed_model_inference brick. Report honest metrics from the held-out evaluation — never metrics
   computed on training data.
+- Reconcile data scale BEFORE training: if the owner's materials state a data volume (e.g. 'N data
+  points'), your sample count must match it or you must explain the gap in your report / ask_owner.
+  A 10x mismatch you cannot explain means your unit of analysis is wrong (e.g. one file may contain
+  many events that need segmentation). Never let a toy-scale test (a handful of rows) stand as
+  acceptance evidence — say plainly that it is statistically insufficient.
 """
 
 

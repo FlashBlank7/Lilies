@@ -4539,6 +4539,111 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             "use_path": f"/use/{application_id}?code={code}",
         }
 
+    # ── 业主侧：工作区文件与工作流定义导出 ──
+
+    @app.get(
+        "/api/v1/applications/{application_id}/workspace/files",
+        dependencies=[Depends(require_token)],
+    )
+    async def list_workspace_files(application_id: str) -> list[dict[str, Any]]:
+        """列应用工作区里的全部文件（含子目录），工作区还没建就给空列表。"""
+
+        from datetime import datetime, timezone
+
+        def _collect() -> list[dict[str, Any]]:
+            try:
+                root = services.sandboxes.resolve_workspace(application_id)
+            except Exception:
+                return []
+            items: list[dict[str, Any]] = []
+            for path in root.rglob("*"):
+                if not path.is_file():
+                    continue
+                stat = path.stat()
+                items.append({
+                    "path": str(path.relative_to(root)),
+                    "size": stat.st_size,
+                    "modified_at": datetime.fromtimestamp(
+                        stat.st_mtime, tz=timezone.utc
+                    ).isoformat(),
+                })
+            items.sort(key=lambda item: item["path"])
+            return items[:2000]
+
+        return await asyncio.to_thread(_collect)
+
+    @app.get(
+        "/api/v1/applications/{application_id}/workspace/files/{file_path:path}",
+        dependencies=[Depends(require_token)],
+    )
+    async def download_workspace_file(application_id: str, file_path: str) -> Any:
+        from fastapi.responses import FileResponse
+
+        try:
+            root = await asyncio.to_thread(
+                services.sandboxes.resolve_workspace, application_id
+            )
+        except Exception:
+            raise HTTPException(404, "文件不存在")
+        target = (root / file_path).resolve()
+        if root.resolve() not in target.parents and target != root.resolve():
+            raise HTTPException(404, "文件不存在")
+        if not target.is_file():
+            raise HTTPException(404, "文件不存在")
+        return FileResponse(target, filename=target.name)
+
+    @app.get(
+        "/api/v1/applications/{application_id}/export",
+        dependencies=[Depends(require_token)],
+    )
+    async def export_application_workflow(application_id: str) -> Any:
+        """导出工作流定义 JSON：有发布版导发布版，否则导当前草稿。"""
+
+        from fastapi.responses import JSONResponse
+
+        try:
+            application = await services.workflow_store.get_application(application_id)
+            active_version = application.get("active_version")
+            if active_version is not None:
+                published = await services.workflow_store.get_version(
+                    application_id, int(active_version)
+                )
+                workflow = published["snapshot"].model_dump(mode="json")
+                source = "published"
+                version: int | None = int(published["version"])
+            else:
+                draft = await services.workflow_store.get_draft(application_id)
+                workflow = draft["snapshot"].model_dump(mode="json")
+                source = "draft"
+                version = None
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+        payload = {
+            "application": {
+                "id": str(application.get("id") or application_id),
+                "name": application.get("name"),
+                "description": application.get("description"),
+                "requirement": application.get("requirement"),
+                "mode": application.get("mode"),
+                "delivery_mode": application.get("delivery_mode"),
+                "active_version": active_version,
+                "created_at": application.get("created_at"),
+                "updated_at": application.get("updated_at"),
+                "source": source,
+                "version": version,
+            },
+            "workflow": workflow,
+            "views": await services.workflow_store.list_views(application_id),
+        }
+        return JSONResponse(
+            content=payload,
+            headers={
+                "Content-Disposition": (
+                    f'attachment; filename="workflow-{application_id}.json"'
+                )
+            },
+        )
+
     # ── 界面方案：标注环节显隐，同一工作流生成不同使用界面 ──
 
     @app.get(

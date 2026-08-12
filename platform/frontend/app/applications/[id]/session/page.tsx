@@ -6,6 +6,7 @@ import { Background, ReactFlow, type Edge, type Node } from '@xyflow/react'
 import { use, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   api,
+  withFrontendToken,
   type BuildTranscript,
   type Draft,
 } from '@/lib/platform'
@@ -26,6 +27,8 @@ type RunRecord = {
   status: string
   state: { outputs?: Record<string, Record<string, unknown>>; waiting_node_id?: string | null; error?: string | null }
 }
+
+type WorkspaceFile = { path: string; size: number }
 
 const ACTIVE = new Set(['queued', 'building'])
 
@@ -92,6 +95,9 @@ export default function Session({ params }: { params: Promise<{ id: string }> })
   const [message, setMessage] = useState('')
   const [sending, setSending] = useState(false)
   const [notice, setNotice] = useState('')
+  const [exportOpen, setExportOpen] = useState(false)
+  const [workspaceFiles, setWorkspaceFiles] = useState<WorkspaceFile[] | null>(null)
+  const [workspaceError, setWorkspaceError] = useState('')
   const streamRef = useRef<HTMLDivElement>(null)
   const lastTurnRef = useRef(0)
 
@@ -133,6 +139,21 @@ export default function Session({ params }: { params: Promise<{ id: string }> })
   }, [transcript])
 
   const building = Boolean(build && ACTIVE.has(build.status))
+
+  // 展开导出面板时才去拉工作区文件列表，收起时不打扰后端。
+  function toggleExport() {
+    const next = !exportOpen
+    setExportOpen(next)
+    if (!next) return
+    setWorkspaceFiles(null)
+    setWorkspaceError('')
+    void api<{ files?: WorkspaceFile[] } | WorkspaceFile[]>(`/api/v1/applications/${id}/workspace/files`)
+      .then(result => setWorkspaceFiles(Array.isArray(result) ? result : result.files || []))
+      .catch(error => {
+        setWorkspaceFiles([])
+        setWorkspaceError(`工作区文件读不出来：${String(error)}`)
+      })
+  }
 
   async function send() {
     const text = message.trim()
@@ -273,6 +294,36 @@ export default function Session({ params }: { params: Promise<{ id: string }> })
         <Link href={`/applications/${id}/views`}>界面方案</Link>
         <Link href={`/applications/${id}`}>画布编辑</Link>
         <Link href={`/runtime/${id}`}>试运行</Link>
+        <div className={styles.exportWrap}>
+          <button className={styles.exportBtn} onClick={toggleExport} type="button">
+            导出{exportOpen ? ' ▴' : ' ▾'}
+          </button>
+          {exportOpen && <div className={styles.exportPanel}>
+            <a
+              className={styles.exportItem}
+              download
+              href={withFrontendToken(`/api/platform/api/v1/applications/${id}/export`)}
+            >工作流定义 (JSON)</a>
+            <div className={styles.exportSection}>
+              <small>工作区文件</small>
+              {workspaceFiles === null
+                ? <p className={styles.exportEmpty}>正在读取…</p>
+                : workspaceError
+                ? <p className={styles.exportEmpty}>{workspaceError}</p>
+                : workspaceFiles.length === 0
+                ? <p className={styles.exportEmpty}>工作区暂无文件</p>
+                : workspaceFiles.map(file => <a
+                    className={styles.exportFile}
+                    download
+                    href={withFrontendToken(`/api/platform/api/v1/applications/${id}/workspace/files/${encodeURIComponent(file.path)}`)}
+                    key={file.path}
+                  >
+                    <span>{file.path}</span>
+                    <small>{(file.size / 1024).toFixed(1)} KB</small>
+                  </a>)}
+            </div>
+          </div>}
+        </div>
       </nav>
     </header>
 
