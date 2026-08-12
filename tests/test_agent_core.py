@@ -110,7 +110,8 @@ async def test_collect_model_stream_hides_private_thinking_by_default() -> None:
     assert response.usage.output_tokens == 5
     assert response.usage.cache_read_input_tokens == 3
     assert response.usage.reasoning_tokens == 2
-    assert response.usage.cost_usd == pytest.approx(0.00002)
+    # 缓存命中 token 按 input 费率 1/10 计入（3 tok cache_read）
+    assert response.usage.cost_usd == pytest.approx(0.0000203)
     assert response.usage.cost_source == "estimated_configured_price"
     event_types = [kind for kind, _ in emitted]
     assert "model.thinking.delta" not in event_types
@@ -217,3 +218,30 @@ def test_redact_sensitive_fields_is_recursive_and_non_mutating() -> None:
         "credential_id": "***",
     }
     assert source["credential_id"] == "credential-1"
+
+
+def test_price_usage_charges_cached_tokens() -> None:
+    """缓存命中 token 必须计价（缺省 1/10 费率），否则缓存纪律生效后账单漏记大头。"""
+
+    from agent_platform.agent_core import price_usage
+    from agent_platform.models import Usage
+
+    usage = Usage(
+        input_tokens=10_000,
+        output_tokens=1_000,
+        cache_read_input_tokens=100_000,
+        field_support={"input_tokens": "reported", "output_tokens": "reported"},
+    )
+    price_usage(usage, "m", {"m": {"input_tokens": 1.0, "output_tokens": 2.0}})
+    # 10k×1 + 100k×0.1 + 1k×2 = 22k / 1M = 0.022
+    assert abs(usage.cost_usd - 0.022) < 1e-9
+
+    # 显式配置缓存费率时按配置价
+    usage2 = Usage(
+        input_tokens=10_000,
+        output_tokens=0,
+        cache_read_input_tokens=100_000,
+        field_support={"input_tokens": "reported", "output_tokens": "reported"},
+    )
+    price_usage(usage2, "m", {"m": {"input_tokens": 1.0, "output_tokens": 2.0, "cache_read_input_tokens": 0.5}})
+    assert abs(usage2.cost_usd - 0.06) < 1e-9

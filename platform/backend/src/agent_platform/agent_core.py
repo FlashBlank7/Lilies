@@ -133,8 +133,26 @@ def price_usage(
     assert rates is not None
     input_rate = float(rates["input_tokens"])
     output_rate = float(rates["output_tokens"])
+    # 缓存命中部分单独计价：DeepSeek/Anthropic 的 input_tokens 都不含
+    # cache_read——不计它就是漏账（缓存纪律生效后一次调用可有 10 万
+    # cache_read token）。费率可配，缺省按行业惯例 input 的 1/10。
+    cache_read_rate = rates.get("cache_read_input_tokens")
+    cache_read_rate = (
+        float(cache_read_rate)
+        if isinstance(cache_read_rate, (int, float)) and not isinstance(cache_read_rate, bool)
+        else input_rate * 0.1
+    )
+    cache_write_rate = rates.get("cache_creation_input_tokens")
+    cache_write_rate = (
+        float(cache_write_rate)
+        if isinstance(cache_write_rate, (int, float)) and not isinstance(cache_write_rate, bool)
+        else input_rate
+    )
     usage.cost_usd = (
-        usage.input_tokens * input_rate + usage.output_tokens * output_rate
+        usage.input_tokens * input_rate
+        + usage.cache_read_input_tokens * cache_read_rate
+        + usage.cache_creation_input_tokens * cache_write_rate
+        + usage.output_tokens * output_rate
     ) / 1_000_000
     usage.cost_source = "estimated_configured_price"
     usage.field_support["cost_usd"] = "estimated"

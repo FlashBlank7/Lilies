@@ -1712,6 +1712,31 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
                 f"[storage] 事件归档：DB 移除 {archived['removed']} 行"
                 f"（冷文件为权威全量），剩余 {archived['remaining']} 行"
             )
+        compressed = await services.storage.compress_cold_event_files(
+            older_than_days=settings.event_compress_after_days
+        )
+        if compressed["compressed"]:
+            print(
+                f"[storage] 冷文件压缩：{compressed['compressed']} 个，"
+                f"省 {compressed['bytes_saved'] / 1e6:.1f} MB"
+            )
+        # 运行产物过期清除（产物可由重跑再生，客户已通过使用页下载）
+        import shutil as _shutil
+        import time as _time
+
+        artifacts_root = settings.workspace_root / ".workflow-run-artifacts"
+        if artifacts_root.is_dir():
+            cutoff = _time.time() - settings.run_artifacts_keep_days * 86_400
+            purged = 0
+            for run_dir in artifacts_root.iterdir():
+                try:
+                    if run_dir.is_dir() and run_dir.stat().st_mtime < cutoff:
+                        _shutil.rmtree(run_dir, ignore_errors=True)
+                        purged += 1
+                except OSError:
+                    continue
+            if purged:
+                print(f"[storage] 运行产物清理：{purged} 个过期运行目录")
         services.scheduler.start()
         await services.event_automation.start()
         local_lilies_recovery_task: asyncio.Task[Any] | None = None

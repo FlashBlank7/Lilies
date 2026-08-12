@@ -63,3 +63,41 @@ def test_archive_keeps_full_history_readable(tmp_path: Path) -> None:
         assert len(fresh) == 1
 
     asyncio.run(scenario())
+
+
+def test_cold_file_compression_roundtrip(tmp_path: Path) -> None:
+    """冷文件 gzip 压缩后读取无感；stream 复活（.gz + 新 .jsonl 并存）合并去重。"""
+
+    import os
+
+    async def scenario() -> None:
+        storage = Storage(tmp_path / "data")
+        if hasattr(storage, "initialize"):
+            await storage.initialize()
+        for index in range(5):
+            await storage.append_event("run-z", "node.completed", {"i": index})
+
+        # 老化文件 mtime → 压缩
+        cold = storage.events_dir / "run-z.jsonl"
+        old = 10_000_000
+        os.utime(cold, (old, old))
+        result = await storage.compress_cold_event_files(older_than_days=14)
+        assert result["compressed"] == 1
+        assert not cold.exists()
+        assert (storage.events_dir / "run-z.jsonl.gz").exists()
+
+        # 模拟真实归档语义：保留每 stream 最大 seq 哨兵行
+        with storage._connect() as conn:
+            conn.execute("DELETE FROM events WHERE stream_id='run-z' AND seq < 5")
+        events = await storage.list_events("run-z", 0)
+        assert [e.id for e in events] == [1, 2, 3, 4, 5]
+
+        # 复活：追加新事件（新 .jsonl，seq 接续哨兵），读取合并 .gz + .jsonl
+        appended = await storage.append_event("run-z", "workflow.completed", {})
+        assert appended.id == 6
+        with storage._connect() as conn:
+            conn.execute("DELETE FROM events WHERE stream_id='run-z' AND seq < 6")
+        merged = await storage.list_events("run-z", 0)
+        assert [e.id for e in merged] == [1, 2, 3, 4, 5, 6]
+
+    asyncio.run(scenario())

@@ -69,6 +69,9 @@ class Settings(BaseSettings):
     # 事件冷归档：启动时把早于 N 天的事件移出 DB（JSONL 冷文件是权威全量，
     # 读取端自动回退）。斩断 events 表无节制增长（实测 82.8 万行/557MB）。
     event_archive_keep_days: int = 7
+    # 生命周期：不活跃事件冷文件 gzip 压缩（不删除）；运行产物过期清除。
+    event_compress_after_days: int = 14
+    run_artifacts_keep_days: int = 14
     platform_harness_network_egress_policy: str = "full"
     platform_harness_network_egress_allowlist: list[str] = Field(default_factory=list)
     connector_pre_dispatch_attestations: dict[str, dict[str, str]] = Field(

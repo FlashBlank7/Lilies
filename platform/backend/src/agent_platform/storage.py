@@ -1035,25 +1035,64 @@ class Storage:
     def _read_cold_events(
         self, stream_id: str, *, after: int, before: int | None
     ) -> list[EventRecord]:
-        path = self.events_dir / f"{stream_id}.jsonl"
-        if not path.is_file():
-            return []
+        import gzip
+
         seen: dict[int, EventRecord] = {}
-        with path.open(encoding="utf-8") as handle:
-            for line in handle:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    record = EventRecord.model_validate_json(line)
-                except Exception:
-                    continue
-                if record.id <= after:
-                    continue
-                if before is not None and record.id >= before:
-                    continue
-                seen[record.id] = record
+        # 压缩归档（.jsonl.gz）与活跃追加（.jsonl）可能并存：压缩后 stream
+        # 复活（返修）会新开 .jsonl——两者都读，seen 按序号去重。
+        candidates = [
+            (self.events_dir / f"{stream_id}.jsonl.gz", gzip.open),
+            (self.events_dir / f"{stream_id}.jsonl", open),
+        ]
+        for path, opener in candidates:
+            if not path.is_file():
+                continue
+            with opener(path, "rt", encoding="utf-8") as handle:
+                for line in handle:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        record = EventRecord.model_validate_json(line)
+                    except Exception:
+                        continue
+                    if record.id <= after:
+                        continue
+                    if before is not None and record.id >= before:
+                        continue
+                    seen[record.id] = record
         return [seen[key] for key in sorted(seen)]
+
+    async def compress_cold_event_files(self, *, older_than_days: int) -> dict[str, int]:
+        """把长期不活跃的事件冷文件 gzip 压缩（JSONL 压缩率约 10:1）。
+
+        权威全量不删除；读取端自动兼容 .jsonl.gz。
+        """
+
+        return await asyncio.to_thread(self._compress_cold_event_files_sync, older_than_days)
+
+    def _compress_cold_event_files_sync(self, older_than_days: int) -> dict[str, int]:
+        import gzip
+        import time as _time
+
+        cutoff = _time.time() - max(0, older_than_days) * 86_400
+        compressed = 0
+        saved = 0
+        for path in self.events_dir.glob("*.jsonl"):
+            try:
+                if path.stat().st_mtime >= cutoff:
+                    continue
+                target = path.with_suffix(".jsonl.gz")
+                original = path.stat().st_size
+                with path.open("rb") as src, gzip.open(target, "wb") as dst:
+                    while chunk := src.read(1 << 20):
+                        dst.write(chunk)
+                path.unlink()
+                compressed += 1
+                saved += original - target.stat().st_size
+            except Exception:
+                continue
+        return {"compressed": compressed, "bytes_saved": saved}
 
     async def archive_events_before(self, *, keep_days: int) -> dict[str, int]:
         """把 DB 里的老事件删掉（JSONL 冷文件是权威全量，读取端自动回退）。
