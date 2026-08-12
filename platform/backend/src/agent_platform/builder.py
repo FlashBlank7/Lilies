@@ -306,8 +306,22 @@ BUILDER_DISCOVERY_TOOLS = {
     "manual_search",
     "template_list",
     "template_suggestions",
+    # 工作区动手也是真实进展：数据探索（Bash/Read/Glob）不算进展的话，
+    # 特征工程做得越认真越像"停滞"（电梯原题盲测：6 轮扎实的数据分析
+    # 被停滞守卫处决）。成功的执行调用计入 discovery。
+    "Bash",
+    "Read",
+    "Glob",
 }
-BUILDER_VERIFICATION_TOOLS = {"draft_validate", "test_run"}
+BUILDER_VERIFICATION_TOOLS = {
+    "draft_validate",
+    "test_run",
+    # 产出物落盘与模型训练/评估是可验证的耐久进展
+    "Write",
+    "train_tabular_model",
+    "evaluate_tabular_model",
+    "promote_tabular_model",
+}
 
 
 class BuildDeadlineExceeded(RuntimeError):
