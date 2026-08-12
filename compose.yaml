@@ -71,3 +71,26 @@ services:
         SANDBOX_GID: ${SANDBOX_GID:-10001}
     # 默认启动时自动构建；infra profile 下跳过
     profiles: []
+
+  # ── 备份兜底（可选）: docker compose --profile backup up -d backup ──
+  # 每日一次：cp SQLite 主库 + tar 打包 events/build_transcripts 到 ./backups/日期目录，保留 7 份。
+  # 生产推荐 scripts/backup.sh + 宿主 cron（VACUUM INTO 一致性快照）；本服务是容器内兜底。
+  backup:
+    image: alpine
+    profiles: ["backup"]
+    volumes:
+      - ./data:/data:ro
+      - ./backups:/backups
+    restart: unless-stopped
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        while true; do
+          STAMP=$$(date +%Y%m%d-%H%M%S); DEST="/backups/$$STAMP"; mkdir -p "$$DEST"; sync
+          [ -f /data/agent_platform.db ] && cp /data/agent_platform.db "$$DEST/"
+          for d in events build_transcripts; do
+            [ -d "/data/$$d" ] && tar -czf "$$DEST/$$d.tar.gz" -C /data "$$d"
+          done
+          ls -1d /backups/*/ 2>/dev/null | sort -r | tail -n +8 | xargs -r rm -rf
+          echo "备份完成 → $$DEST"; sleep 86400
+        done
