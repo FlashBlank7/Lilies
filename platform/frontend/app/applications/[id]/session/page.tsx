@@ -302,6 +302,16 @@ export default function Session({ params }: { params: Promise<{ id: string }> })
             <a
               className={styles.exportItem}
               download
+              href={withFrontendToken(`/api/platform/api/v1/applications/${id}/delivery-package?profile=customer`)}
+            >客户交付包 (zip)</a>
+            <a
+              className={styles.exportItem}
+              download
+              href={withFrontendToken(`/api/platform/api/v1/applications/${id}/delivery-package?profile=expert`)}
+            >专家材料包 (zip)</a>
+            <a
+              className={styles.exportItem}
+              download
               href={withFrontendToken(`/api/platform/api/v1/applications/${id}/export`)}
             >工作流定义 (JSON)</a>
             <div className={styles.exportSection}>

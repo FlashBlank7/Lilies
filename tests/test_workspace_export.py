@@ -117,3 +117,52 @@ def test_workspace_files_download_and_export(tmp_path: Path) -> None:
             client.get("/api/v1/applications/no-such-app/export", headers=HEADERS).status_code
             == 404
         )
+
+
+def test_delivery_package_profiles(tmp_path: Path) -> None:
+    """一键交付包：customer 含 README+定义，expert 只有素颜产出；data/ 都不进包。"""
+
+    import io
+    import zipfile
+
+    app = create_app(
+        Settings(
+            api_token="workflow-test",
+            data_dir=tmp_path / "data",
+            workspace_root=tmp_path / "workspaces",
+        ),
+        SilentProvider(),
+    )
+    with TestClient(app) as client:
+        application_id = client.post(
+            "/api/v1/applications", headers=HEADERS,
+            json={"name": "交付包测试", "requirement": "把成果打包给客户和评审。"},
+        ).json()["id"]
+        workspace = tmp_path / "workspaces" / application_id
+        (workspace / "data").mkdir(parents=True)
+        (workspace / "data" / "raw.xlsx").write_text("raw", encoding="utf-8")
+        (workspace / "答卷.md").write_text("# 答卷", encoding="utf-8")
+
+        expert = client.get(
+            f"/api/v1/applications/{application_id}/delivery-package?profile=expert",
+            headers=HEADERS,
+        )
+        assert expert.status_code == 200
+        names = set(zipfile.ZipFile(io.BytesIO(expert.content)).namelist())
+        assert names == {"workspace/答卷.md"}  # 素颜：无 README、无定义、无 data/
+
+        customer = client.get(
+            f"/api/v1/applications/{application_id}/delivery-package",
+            headers=HEADERS,
+        )
+        cnames = set(zipfile.ZipFile(io.BytesIO(customer.content)).namelist())
+        assert "README.md" in cnames and "workflow-definition.json" in cnames
+        assert "workspace/答卷.md" in cnames and "workspace/data/raw.xlsx" not in cnames
+        readme = zipfile.ZipFile(io.BytesIO(customer.content)).read("README.md").decode()
+        assert "/use/" in readme and "code=" in readme
+
+        bad = client.get(
+            f"/api/v1/applications/{application_id}/delivery-package?profile=x",
+            headers=HEADERS,
+        )
+        assert bad.status_code == 422

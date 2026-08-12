@@ -4593,6 +4593,113 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         return FileResponse(target, filename=target.name)
 
     @app.get(
+        "/api/v1/applications/{application_id}/delivery-package",
+        dependencies=[Depends(require_token)],
+    )
+    async def download_delivery_package(
+        application_id: str, profile: str = "customer"
+    ) -> Any:
+        """一键交付包（zip）。
+
+        customer（默认）：客户交互包——README（使用链接/界面清单/验收状态）
+        + 工作流定义 JSON + 工作区产出文件。
+        expert：专家材料包——只含工作区产出（答卷/脚本/图表），无任何平台
+        痕迹，适合把成果作为"一份工程师的答卷"递给外部评审。
+        两种切面都排除 data/ 顶层目录（甲方自己的原始数据不用还给甲方）。
+        """
+
+        import io
+        import zipfile
+
+        from fastapi.responses import Response
+
+        if profile not in ("customer", "expert"):
+            raise HTTPException(422, "profile 只能是 customer 或 expert")
+        try:
+            application = await services.workflow_store.get_application(application_id)
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as bundle:
+            # 工作区产出（两种切面都有）
+            try:
+                root = await asyncio.to_thread(
+                    services.sandboxes.resolve_workspace, application_id
+                )
+            except Exception:
+                root = None
+            if root is not None:
+                for path in sorted(root.rglob("*")):
+                    if not path.is_file():
+                        continue
+                    rel = path.relative_to(root)
+                    if rel.parts and rel.parts[0] == "data":
+                        continue
+                    if path.stat().st_size > 50_000_000:
+                        continue
+                    bundle.write(path, f"workspace/{rel}")
+
+            if profile == "customer":
+                code = await services.workflow_store.ensure_access_code(application_id)
+                snapshot = None
+                try:
+                    definition = await customer_runtime_definition(application_id)
+                    snapshot = definition.get("snapshot")
+                except KeyError:
+                    definition = None
+                views = auto_view_tabs(snapshot) if snapshot else []
+                stored = await services.workflow_store.list_views(application_id)
+                report = acceptance_pm.load_report(
+                    services.settings.data_dir, application_id
+                )
+                lines = [
+                    f"# {application.get('name', '交付包')}",
+                    "",
+                    f"**交付需求**：{str(application.get('requirement') or '')[:500]}",
+                    "",
+                    "## 怎么使用",
+                    "",
+                    f"打开使用链接（含访问码，请妥善保管）：`/use/{application_id}?code={code}`",
+                    "",
+                    "界面（页面顶部标签可切换）：",
+                ]
+                seen_views = {tab["view_id"] or "default": tab["name"] for tab in views}
+                for item in stored:
+                    seen_views.setdefault(item["view_id"], item["name"])
+                lines += [f"- {name}" for name in seen_views.values()]
+                if report:
+                    lines += [
+                        "",
+                        "## 验收状态",
+                        "",
+                        f"独立验收：{'✅ 已通过' if report.get('accepted') else '整改中'}"
+                        f"（{report.get('passed_cases')}/{len(report.get('cases') or [])} 用例 · {report.get('stamp')}）",
+                    ]
+                lines += [
+                    "",
+                    "## 包内目录",
+                    "",
+                    "- `workspace/`：本次交付的全部产出文件（报告、脚本、图表等）",
+                    "- `workflow-definition.json`：工作流完整定义（备份/迁移用）",
+                ]
+                bundle.writestr("README.md", "\n".join(lines))
+                export = await export_application_workflow(application_id)
+                bundle.writestr("workflow-definition.json", bytes(export.body))
+
+        buffer.seek(0)
+        suffix = "customer" if profile == "customer" else "expert"
+        return Response(
+            content=buffer.getvalue(),
+            media_type="application/zip",
+            headers={
+                "Content-Disposition": (
+                    f'attachment; filename="delivery-{suffix}-{application_id[:8]}.zip"'
+                )
+            },
+        )
+
+    @app.get(
         "/api/v1/applications/{application_id}/export",
         dependencies=[Depends(require_token)],
     )
