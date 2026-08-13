@@ -226,7 +226,9 @@ def _analyze_complexity(
     c.cyclomatic = E - N + 2 * P  # McCabe for DAGs
 
     # Max depth: longest path from any start to any terminal
+    # depths 必须始终初始化——无 start 节点的(结构非法)工作流不得 UnboundLocalError
     starts = [n.id for n in workflow.nodes if n.type in {"start", "schedule_trigger"}]
+    depths: dict[str, int] = {}
     if starts:
         depths = _topological_depths(graph, starts)
         c.max_depth = max(depths.values(), default=0)
