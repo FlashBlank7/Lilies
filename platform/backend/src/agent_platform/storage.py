@@ -14,6 +14,10 @@ from .models import AgentSpec, ChatMessage, EventRecord, utc_now
 class Storage:
     """SQLite metadata plus append-only JSONL event streams."""
 
+    # D2: schema 版本。DB 的 PRAGMA user_version 高于此值 => DB 来自更新版本的
+    # 代码,拒绝打开(防止无声 schema 漂移)。新表/列迁移应在此递增版本。
+    SCHEMA_VERSION = 1
+
     def __init__(self, data_dir: Path) -> None:
         self.data_dir = data_dir
         self.db_path = data_dir / "agent_platform.db"
@@ -163,6 +167,14 @@ class Storage:
                   ON evaluation_runs(application_id, created_at DESC);
                 """
             )
+            # D2: schema 版本守卫——DB 来自更新版本代码时拒绝运行
+            user_version = int(conn.execute("PRAGMA user_version").fetchone()[0])
+            if user_version > Storage.SCHEMA_VERSION:
+                raise RuntimeError(
+                    f"database schema version {user_version} is newer than supported "
+                    f"{Storage.SCHEMA_VERSION}; upgrade the platform before opening this DB"
+                )
+            conn.execute(f"PRAGMA user_version={Storage.SCHEMA_VERSION}")
 
     async def save_agent_version(self, spec: AgentSpec, status: str = "draft") -> int:
         async with self._lock:
