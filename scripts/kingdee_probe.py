@@ -6,8 +6,16 @@
 3. 分页完整性（StartRow/Limit 翻页到尽头）——假 ERP 对练的同款课目；
 4. 业务单据试读（如销售出库单 SAL_OUTSTOCK，形态由账套里实际有什么数据决定）。
 
-凭证来源（按序）：环境变量 KINGDEE_BASE_URL / KINGDEE_ACCT_ID /
-KINGDEE_USERNAME / KINGDEE_PASSWORD，或 .env 同名行。绝不写入代码或日志。
+两种鉴权模式：
+  A. 账密/应用授权（正式账套）——KINGDEE_BASE_URL / KINGDEE_ACCT_ID /
+     KINGDEE_USERNAME + (KINGDEE_PASSWORD | KINGDEE_APP_ID+KINGDEE_APP_SECRET)，
+     先 ValidateUser/LoginByAppSecret 建会话，再查询。
+  B. 会话直连（体验环境/SSO 落地后）——KINGDEE_BASE_URL + KINGDEE_SESSION_COOKIE。
+     体验环境走令牌 SSO，没有账密可填；拿到浏览器落地后的 kdservice-sessionid
+     等 cookie 直接透传即可查询，跳过 login。（已对金蝶官方星空体验环境
+     tglexp3.open.kingdee.com 实测通过，见 docs/kingdee-connector-report.md）
+
+凭证来源（按序）：环境变量，或 .env 同名行。绝不写入代码或日志。
 
 用法：
   python scripts/kingdee_probe.py --step login
@@ -56,15 +64,23 @@ class KingdeeSession:
         )
 
     def call(self, path: str, payload: dict) -> object:
+        headers = {"Content-Type": "application/json"}
+        # 会话直连模式：透传落地后的 cookie（体验环境/SSO）
+        cookie = _env("KINGDEE_SESSION_COOKIE")
+        if cookie:
+            headers["Cookie"] = cookie
         request = urllib.request.Request(
             f"{self.base}/{path}",
             data=json.dumps(payload).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
+            headers=headers,
         )
         with self.opener.open(request, timeout=30) as response:
             return json.loads(response.read().decode("utf-8"))
 
     def login(self) -> dict:
+        # 会话直连模式：cookie 已带会话，无需再登录。
+        if _env("KINGDEE_SESSION_COOKIE"):
+            return {"Context": {"UserName": "（会话直连，跳过登录）"}}
         # 两种模式自动择路：配置了 KINGDEE_APP_ID/APP_SECRET 走第三方应用
         # 授权（开放平台 MyAppList 里创建的应用），否则走用户名密码。
         app_id = _env("KINGDEE_APP_ID")
