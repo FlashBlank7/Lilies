@@ -93,6 +93,18 @@ class ToolConfig(BaseModel):
     input: dict[str, Any] = Field(default_factory=dict)
 
 
+class FileReadConfig(BaseModel):
+    """P1:工作流直接读取沙盒 workspace 内的文件(CSV/JSON/文本)。
+
+    关闭"数据管道输入必须结构化"的缺口——工作流可自行读取真实文件。
+    路径必须解析在运行 workspace 内(沙盒边界,禁止任意文件读取)。
+    """
+    path: str = Field(min_length=1, description="workspace 内相对路径")
+    format: Literal["auto", "csv", "json", "text"] = "auto"
+    encoding: str = "utf-8"
+    workspace_path: str | None = Field(default=None, description="可选 workspace 覆盖(默认运行 workspace)")
+
+
 class Condition(BaseModel):
     value: Any
     operator: Literal[
@@ -2849,6 +2861,29 @@ def build_block_registry() -> BlockRegistry:
                 manual=_typed_workbook_manual(),
             ),
             TypedWorkbookConfig,
+        ),
+        (
+            _definition(
+                "file_read",
+                "Read File",
+                "Read a CSV/JSON/text file from the run workspace (sandbox-bounded) and emit parsed records/content.",
+                "input",
+                FileReadConfig,
+                inputs=[("input", ValueType.any)],
+                outputs=[
+                    ("records", ValueType.array),
+                    ("output", ValueType.object),
+                ],
+                retry=True,
+                error_branch=True,
+                manual=_manual(
+                    "file_read",
+                    "Read File",
+                    "读取沙盒 workspace 内的 CSV/JSON/文本文件并解析为结构化数据。路径必须限定在运行 workspace 内。",
+                    "P1 数据管道:工作流直接读取真实文件。适用于从文件启动的数据管道。",
+                ),
+            ),
+            FileReadConfig,
         ),
         (_definition("connector_action", "Connector Action", "Execute a versioned tenant-scoped Connector operation through platform policy.", "integration", ConnectorActionConfig, inputs=[("input", ValueType.any)], outputs=[("output", ValueType.object), ("receipt", ValueType.object), ("response", ValueType.object)], retry=True, error_branch=True, manual=_business_orchestration_manual("connector_action")), ConnectorActionConfig),
         (_definition("iteration", "Iteration", "Run a nested workflow for each array item.", "logic", IterationConfig, inputs=[("input", ValueType.array)], outputs=[("items", ValueType.array)], retry=True, error_branch=True, manual=_business_orchestration_manual("iteration")), IterationConfig),

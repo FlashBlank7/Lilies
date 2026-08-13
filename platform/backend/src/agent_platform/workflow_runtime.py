@@ -56,6 +56,7 @@ from .blocks import (
     VariableAggregatorConfig,
     VariableAssignerConfig,
     WebCollectionConfig,
+    FileReadConfig,
 )
 from .connector_sdk import ConnectorExecutionRequest, ConnectorService
 from .event_automation import (
@@ -89,6 +90,7 @@ from .record_pipeline import (
 from .runtime import AgentRuntime
 from .sandbox import SandboxManager
 from .storage import Storage
+from .table_intake import parse_table, TableIntakeError
 from .tabular_models import (
     ModelObservation,
     TabularDriftRequest,
@@ -1948,6 +1950,57 @@ class WorkflowRuntime:
                 },
             )
             return {"output": artifact, "artifact": artifact}
+        if isinstance(config, FileReadConfig):
+            # file_read:P1 数据管道——工作流直接读取沙盒 workspace 内的真实文件
+            rel = str(self._resolve(config.path, context))
+            ws = self._workspace_for_run(
+                run_id, str(self._resolve(config.workspace_path or workspace_path, context))
+            )
+            ws_root = Path(ws).resolve()
+            full = (ws_root / rel).resolve()
+            if not str(full).startswith(str(ws_root)):
+                raise ValueError(f"file_read: path escapes workspace: {rel}")
+            if not full.is_file():
+                raise FileNotFoundError(f"file_read: file not found: {rel}")
+            data_bytes = full.read_bytes()
+            digest = hashlib.sha256(data_bytes).hexdigest()
+            fmt = config.format
+            suffix = full.suffix.lower()
+            if fmt == "auto":
+                fmt = "json" if suffix == ".json" else ("csv" if suffix in {".csv", ".tsv"} else "text")
+            if fmt == "json":
+                records = json.loads(data_bytes.decode(config.encoding))
+                if isinstance(records, dict) and isinstance(records.get("records"), list):
+                    records = records["records"]
+                result = {
+                    "records": records,
+                    "row_count": len(records) if isinstance(records, list) else 1,
+                    "format": "json", "path": rel, "sha256": digest,
+                }
+            elif fmt == "csv":
+                try:
+                    parsed = parse_table(str(full), data=data_bytes)
+                except TableIntakeError as error:
+                    raise ValueError(f"file_read: {error}") from error
+                columns = parsed.get("columns") or []
+                # parse_table 的 rows 已是按列名键控的 dict 列表(含类型转换)
+                rows = parsed.get("rows") or []
+                records = [dict(row) for row in rows if isinstance(row, dict)]
+                result = {
+                    "columns": columns, "rows": records, "records": records,
+                    "row_count": len(records), "format": "csv", "path": rel, "sha256": digest,
+                }
+            else:
+                content = data_bytes.decode(config.encoding, errors="replace")
+                result = {
+                    "content": content, "char_count": len(content),
+                    "format": "text", "path": rel, "sha256": digest,
+                }
+            await self._emit(run_id, "file.read", {
+                "node_id": scoped_id, "path": rel, "format": result["format"],
+                "row_count": result.get("row_count", result.get("char_count", 0)),
+            })
+            return {"output": result, **result}
         if isinstance(config, TypedWorkbookConfig):
             serialized = config.model_dump(mode="python", by_alias=True)
             artifact_workspace = self._artifact_workspace_for_run(
