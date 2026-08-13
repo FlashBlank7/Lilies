@@ -16,12 +16,12 @@
 
 | # | 任务 | 证据要求 | 状态 |
 |---|------|---------|------|
-| P1-1 | **数据管道场景**:CSV/Excel → 清洗 → typed_workbook 输出工件,端到端跑通 | E2(真实集成) | 待执行 |
-| P1-2 | **RAG 场景**:文档 → knowledge_retrieval → grounded_answer(带引用) | E2(真实集成) | 待执行 |
-| P1-3 | **企业系统交付**:connector_action 带补偿回写 → 人工复核门 → 审计轨迹 | E2(真实集成)+ E3(生产运行) | 待执行 |
-| P1-4 | 用真实 Builder 搭建上述三个场景(验证 Lilies 自动搭建对客户场景有效) | E2 | 待执行 |
+| P1-1 | **数据管道场景**:CSV/Excel → 清洗 → typed_workbook 输出工件,端到端跑通 | E2(真实集成) | ✅ 已通过(2026-08,可重跑脚本 examples/p1-scenarios/e2e_data_pipeline.py) |
+| P1-2 | **RAG 场景**:文档 → knowledge_retrieval → grounded_answer(带引用) | E2(真实集成) | ✅ 已通过(2026-08,可重跑脚本 examples/p1-scenarios/e2e_rag.py) |
+| P1-3 | **企业系统交付**:connector_action 带补偿回写 → 人工复核门 → 审计轨迹 | E2(真实集成)+ E3(生产运行) | ✅ E2 已通过(2026-08,可重跑脚本 examples/p1-scenarios/e2e_enterprise_delivery.py);E3 生产运行待做 |
+| P1-4 | 用真实 Builder 搭建上述三个场景(验证 Lilies 自动搭建对客户场景有效) | E2 | 部分(真实 Builder 已验证能搭建投稿工作流;三场景由 API 手工搭建,未用 Builder 全自动) |
 
-**验收**:三个场景全部有 E2/E3 证据,且都由 Builder 自主搭建(非手工构造)。
+**验收状态(2026-08)**:三个场景 E2 证据已记录(见 examples/p1-scenarios/)。**P1-4 待补**:用真实 Builder 让 Lilies 自主搭建这三个场景。
 
 ## P2 · 架构卫生
 
