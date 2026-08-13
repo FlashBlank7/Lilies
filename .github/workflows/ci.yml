@@ -40,3 +40,5 @@ jobs:
         run: npm ci
       - name: 类型检查
         run: npx tsc --noEmit
+      - name: 组件测试（vitest）
+        run: npx vitest run
