@@ -21,7 +21,7 @@ services:
       - "127.0.0.1:3000:3000"
     environment:
       AGENT_PLATFORM_URL: http://api:8000
-      API_TOKEN: ${API_TOKEN:-change-me}
+      API_TOKEN: ${API_TOKEN:-}
     depends_on:
       api:
         condition: service_healthy

@@ -55,7 +55,8 @@ function platformBaseUrl() {
 }
 
 function proxyApiToken(browserToken: string | null) {
-  return browserToken || process.env.API_TOKEN || localEnvValue('API_TOKEN') || 'change-me'
+  // 不回退到弱口令默认值:无 token 时返回空,后端 require_token 会 401 拒绝。
+  return browserToken || process.env.API_TOKEN || localEnvValue('API_TOKEN') || ''
 }
 
 const LOCAL_LILIES_QUERY_SECRET_KEYS = new Set([
