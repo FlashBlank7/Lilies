@@ -27,6 +27,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 LOGIN_PATH = "Kingdee.BOS.WebApi.ServicesStub.AuthService.ValidateUser.common.kdsvc"
+APPSECRET_LOGIN_PATH = "Kingdee.BOS.WebApi.ServicesStub.AuthService.LoginByAppSecret.common.kdsvc"
 QUERY_PATH = "Kingdee.BOS.WebApi.ServicesStub.DynamicFormService.ExecuteBillQuery.common.kdsvc"
 
 
@@ -64,12 +65,25 @@ class KingdeeSession:
             return json.loads(response.read().decode("utf-8"))
 
     def login(self) -> dict:
-        result = self.call(LOGIN_PATH, {
-            "acctid": _env("KINGDEE_ACCT_ID"),
-            "username": _env("KINGDEE_USERNAME"),
-            "password": _env("KINGDEE_PASSWORD"),
-            "lcid": 2052,
-        })
+        # 两种模式自动择路：配置了 KINGDEE_APP_ID/APP_SECRET 走第三方应用
+        # 授权（开放平台 MyAppList 里创建的应用），否则走用户名密码。
+        app_id = _env("KINGDEE_APP_ID")
+        app_secret = _env("KINGDEE_APP_SECRET")
+        if app_id and app_secret:
+            result = self.call(APPSECRET_LOGIN_PATH, {
+                "acctid": _env("KINGDEE_ACCT_ID"),
+                "username": _env("KINGDEE_USERNAME"),
+                "appid": app_id,
+                "appsecret": app_secret,
+                "lcid": 2052,
+            })
+        else:
+            result = self.call(LOGIN_PATH, {
+                "acctid": _env("KINGDEE_ACCT_ID"),
+                "username": _env("KINGDEE_USERNAME"),
+                "password": _env("KINGDEE_PASSWORD"),
+                "lcid": 2052,
+            })
         # LoginResultType: 1=成功；其余带 Message 说明
         if not isinstance(result, dict) or result.get("LoginResultType") != 1:
             message = (result or {}).get("Message") if isinstance(result, dict) else result
