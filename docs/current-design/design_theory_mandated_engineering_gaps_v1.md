@@ -1,5 +1,7 @@
 # design_theory_mandated_engineering_gaps_v1
 
+> ⚠️ **已被取代(2026-08)**:lean-core 已整体移除集群子系统。本文是集群时代的**历史设计参考**,不再作为工程依据;文中范畴论定理引用已撤回(见 asset_the_pair_core.md §四)。保留以保存推导与历史。
+
 2026-07-24
 
 **前置阅读**：

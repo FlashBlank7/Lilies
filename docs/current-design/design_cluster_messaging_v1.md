@@ -1,5 +1,7 @@
 # design_cluster_messaging_v1
 
+> ⚠️ **已被取代(2026-08)**:lean-core 已整体移除集群子系统。本文是集群时代的**历史设计参考**,不再作为工程依据;文中范畴论定理引用已撤回。保留以保存推导与历史。
+
 ## 1. 问题
 
 Lilies 的多 Agent 能力局限于点对点的 DAG 编排（`subagent_spawn` + `task_dispatcher` + `mailbox`）。当面临"大规模智能体集群涌现协作"需求时，缺乏以下关键能力：
