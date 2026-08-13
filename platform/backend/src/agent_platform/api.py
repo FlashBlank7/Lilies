@@ -3678,7 +3678,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         """Get detailed metrics for a completed workflow run."""
         from .observability import RunAnalyzer, render_metrics_summary
 
-        analyzer = RunAnalyzer(services.storage)
+        analyzer = RunAnalyzer(services.storage, workflow_store=services.workflow_store)
         metrics = await analyzer.analyze(run_id)
         if metrics is None:
             raise HTTPException(404, f"no events found for run: {run_id}")
@@ -3694,6 +3694,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
                 "tool_call_count": metrics.tool_call_count,
                 "error_count": metrics.error_count,
                 "failure_pattern": metrics.failure_pattern,
+                "compare_to_avg": metrics.compare_to_avg,
             },
             "node_breakdown": [
                 {
@@ -3722,7 +3723,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         """Get failure pattern clusters for an application."""
         from .observability import RunAnalyzer
 
-        analyzer = RunAnalyzer(services.storage)
+        analyzer = RunAnalyzer(services.storage, workflow_store=services.workflow_store)
         patterns = await analyzer.failure_patterns(application_id)
         return [
             {

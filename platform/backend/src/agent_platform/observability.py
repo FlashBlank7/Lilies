@@ -12,7 +12,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from typing import TYPE_CHECKING
+
 from .storage import Storage
+
+if TYPE_CHECKING:
+    from .workflow_storage import WorkflowStorage
 
 
 @dataclass
@@ -59,8 +64,13 @@ class FailurePattern:
 class RunAnalyzer:
     """Analyze workflow run events to produce structured metrics."""
 
-    def __init__(self, storage: Storage) -> None:
+    def __init__(
+        self,
+        storage: Storage,
+        workflow_store: WorkflowStorage | None = None,
+    ) -> None:
         self._storage = storage
+        self._workflow_store = workflow_store
 
     async def analyze(self, run_id: str) -> RunMetrics | None:
         """Build RunMetrics from a completed workflow run."""
@@ -205,11 +215,67 @@ class RunAnalyzer:
         return sorted(patterns.values(), key=lambda p: p.count, reverse=True)[:limit]
 
     async def _compare_to_average(self, metrics: RunMetrics) -> dict[str, Any]:
-        """Compare this run to the average of the same application."""
-        # Simplified: return empty for now. Needs historical data.
+        """Compare this run to the average of previous runs of the same application."""
+        if self._workflow_store is None or not metrics.application_id:
+            return {
+                "message": "comparative metrics require a workflow store and an application id",
+                "available": False,
+            }
+        try:
+            runs = await self._workflow_store.list_runs(
+                metrics.application_id, limit=50
+            )
+        except Exception:
+            return {"message": "could not list historical runs", "available": False}
+
+        baseline: list[RunMetrics] = []
+        for r in runs:
+            rid = str(r.get("id") or r.get("run_id") or "")
+            if not rid or rid == metrics.run_id:
+                continue
+            m = await self.analyze(rid)
+            if m and m.status == "succeeded":
+                baseline.append(m)
+
+        if len(baseline) < 1:
+            return {
+                "message": f"comparative metrics require >=1 prior succeeded run (found {len(baseline)})",
+                "available": False,
+            }
+
+        n = len(baseline)
+        avg_tokens = sum(m.total_input_tokens + m.total_output_tokens for m in baseline) / n
+        avg_elapsed = sum(m.total_elapsed_ms for m in baseline) / n
+        avg_cost = sum(m.total_cost_usd for m in baseline) / n
+        avg_nodes = sum(m.node_count for m in baseline) / n
+
+        def _pct(cur: float, avg: float) -> float:
+            return round(((cur - avg) / avg * 100) if avg else 0.0, 1)
+
         return {
-            "message": "Comparative metrics require >= 2 runs of the same version.",
-            "available": False,
+            "available": True,
+            "baseline_runs": n,
+            "current": {
+                "tokens": metrics.total_input_tokens + metrics.total_output_tokens,
+                "elapsed_ms": metrics.total_elapsed_ms,
+                "cost_usd": metrics.total_cost_usd,
+                "nodes": metrics.node_count,
+            },
+            "average": {
+                "tokens": round(avg_tokens, 1),
+                "elapsed_ms": round(avg_elapsed, 1),
+                "cost_usd": round(avg_cost, 4),
+                "nodes": round(avg_nodes, 2),
+            },
+            "deviation_pct": {
+                "tokens": _pct(
+                    float(metrics.total_input_tokens + metrics.total_output_tokens),
+                    avg_tokens,
+                ),
+                "elapsed_ms": _pct(metrics.total_elapsed_ms, avg_elapsed),
+                "cost_usd": _pct(metrics.total_cost_usd, avg_cost),
+                "nodes": _pct(float(metrics.node_count), avg_nodes),
+            },
         }
 
 

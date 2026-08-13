@@ -3105,10 +3105,23 @@ class WorkflowRuntime:
                         "task": task_text,
                         "budget": {"max_turns": max_turns, "max_budget_usd": max_budget_usd},
                     })
+                    # O2:注册 event relay,使每个并行 agent 的细粒度事件
+                    # (turn/model/tool)中继到工作流事件流,与 subagent_spawn 对齐。
+                    async def relay_agent_event(kind: str, data: dict[str, Any]) -> None:
+                        await self._emit(run_id, "agent.event", {
+                            "node_id": scoped_id,
+                            "agent": agent_name,
+                            "session_id": session.id,
+                            "event": kind,
+                            "data": self._redact(data),
+                        })
+
+                    self.agent_runtime.register_event_relay(session.id, relay_agent_event)
                     result = ""
                     try:
                         result = await self.agent_runtime.run_turn_and_wait(session, task_text)
                     finally:
+                        self.agent_runtime.unregister_event_relay(session.id)
                         await self._emit(run_id, "agent.completed", {
                             "node_id": scoped_id,
                             "agent": agent_name,
