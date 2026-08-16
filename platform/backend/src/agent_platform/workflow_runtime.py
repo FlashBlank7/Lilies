@@ -197,6 +197,24 @@ class NodeExecutionError(RuntimeError):
         return f"node {self.node_id} failed: {self.cause}"
 
 
+def _coerce_http_body(content_type: str, text: str) -> Any:
+    """把 HTTP 正文解析成 JSON 值，content-type 不可全信时看正文形状。
+
+    金蝶云星空等一批 ERP 的 WebAPI 用 ``text/plain`` 回 JSON。只认
+    content-type 会把 JSON 当字符串交给下游节点，$sum / 数组索引全炸。
+    规则：content-type 说 json 就解析；否则正文首个非空字符像 JSON
+    （``[`` 或 ``{``）就试解析，失败再退回原文——纯文本接口不受影响。
+    """
+    if "json" in content_type:
+        return json.loads(text)
+    if text.lstrip()[:1] in ("[", "{"):
+        try:
+            return json.loads(text)
+        except ValueError:
+            return text
+    return text
+
+
 class WorkflowRuntime:
     def __init__(
         self,
@@ -3747,7 +3765,7 @@ class WorkflowRuntime:
                 hostname=parsed.hostname,
             )
 
-    async def _http(
+    async def _http(  # noqa: PLR0913 — 已抽出正文解析到 _coerce_http_body
         self,
         config: HTTPConfig,
         context: dict[str, Any],
@@ -3814,7 +3832,7 @@ class WorkflowRuntime:
                 config.method, url, headers=headers, params=query, json=body if body is not None else None
             )
         content_type = response.headers.get("content-type", "")
-        value: Any = response.json() if "json" in content_type else response.text
+        value: Any = _coerce_http_body(content_type, response.text)
         if response.is_error:
             raise WorkflowHTTPError(response.status_code, str(value)[:1000])
         return {"output": value, "status": response.status_code, "headers": dict(response.headers)}
