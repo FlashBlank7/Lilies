@@ -990,13 +990,18 @@ class Storage:
         now = utc_now()
         encoded = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
         with self._connect() as conn:
+            # seq 在单条语句内原子分配（读 MAX 与写入同一语句，SQLite 写锁覆盖全程）。
+            # 此前"先 SELECT MAX 再 INSERT"在取消/超时留下的 to_thread 孤儿线程与
+            # 下一次写入并发时撞出 UNIQUE 冲突——bagpipe 首次异构构建的死因。
+            cursor = conn.execute(
+                "INSERT INTO events(stream_id, seq, event_type, data_json, created_at) "
+                "SELECT ?, COALESCE(MAX(seq),0)+1, ?, ?, ? FROM events WHERE stream_id=?",
+                (stream_id, event_type, encoded, now, stream_id),
+            )
             row = conn.execute(
-                "SELECT COALESCE(MAX(seq),0)+1 AS seq FROM events WHERE stream_id=?", (stream_id,)
+                "SELECT seq FROM events WHERE rowid=?", (cursor.lastrowid,)
             ).fetchone()
             seq = int(row["seq"])
-            conn.execute(
-                "INSERT INTO events VALUES(?,?,?,?,?)", (stream_id, seq, event_type, encoded, now)
-            )
         event = EventRecord(id=seq, stream_id=stream_id, type=event_type, data=data, created_at=now)
         path = self.events_dir / f"{stream_id}.jsonl"
         with path.open("a", encoding="utf-8") as handle:

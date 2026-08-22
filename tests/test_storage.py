@@ -42,3 +42,32 @@ async def test_generation_record_roundtrip(tmp_path: Path) -> None:
     assert row["status"] == "generating"
     assert row["workspace_path"] == "demo"
 
+
+
+def test_append_event_seq_allocation_is_atomic_under_thread_contention(tmp_path):
+    """事件 seq 分配必须原子：取消/超时留下的 to_thread 孤儿线程与下一次写入并发时，
+    "先读 MAX 再写"会撞出 UNIQUE 冲突（bagpipe 首次异构构建的死因）。多线程直接打
+    同步写入路径（绕过 asyncio 锁）复现该窗口。"""
+    import asyncio
+    import threading
+
+    storage = Storage(tmp_path)
+    asyncio.run(storage.initialize())
+    errors: list[Exception] = []
+
+    def worker(n: int) -> None:
+        for i in range(150):
+            try:
+                storage._append_event_sync("contended", "tick", {"w": n, "i": i})
+            except Exception as error:  # noqa: BLE001 - 收集后统一断言
+                errors.append(error)
+
+    threads = [threading.Thread(target=worker, args=(n,)) for n in range(4)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert not errors, f"seq collisions: {errors[:3]}"
+    seqs = [event.id for event in asyncio.run(storage.list_events("contended", 0))]
+    assert len(seqs) == 600 and len(set(seqs)) == 600 and seqs == sorted(seqs)
