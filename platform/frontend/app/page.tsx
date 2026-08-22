@@ -14,6 +14,7 @@ import {
 } from '@/lib/platform'
 import { defaultLocale, isLocale, messages, nextLocale, type Locale } from '@/lib/i18n'
 import { classifyRuntimeStatus, runtimeCommit, runtimeVersion, type RuntimeHealth } from '@/lib/runtime-status'
+import BuildAdvancedConfig, { defaultBuildOptions, buildOptionsPayload, type BuildOptions } from '@/app/components/BuildAdvancedConfig'
 
 type Application = {
   id: string
@@ -198,19 +199,13 @@ async function applyCodexWorkspaceScenario(application: Application) {
   )
 }
 
-async function launchBuilder(application: Application, requirement: string) {
+async function launchBuilder(application: Application, requirement: string, options: Record<string, unknown>) {
   if (isCodexWorkspaceRequirement(requirement)) {
     await applyCodexWorkspaceScenario(application)
   }
   return api<{ build_id: string }>(`/api/v1/applications/${application.id}/builds`, {
     method: 'POST',
-    body: JSON.stringify({
-      requirement,
-      auto_publish: true,
-      max_turns: 36,
-      max_repair_cycles: 4,
-      max_elapsed_seconds: 480,
-    }),
+    body: JSON.stringify({ requirement, ...options }),
   })
 }
 
@@ -446,6 +441,7 @@ export default function Home() {
   const [appSort, setAppSort] = useState<AppSort>('recent')
   const [busy, setBusy] = useState(false)
   const [draftBusy, setDraftBusy] = useState(false)
+  const [buildOptions, setBuildOptions] = useState<BuildOptions>(() => defaultBuildOptions(true))
   const [requirementIntakeBusy, setRequirementIntakeBusy] = useState(false)
   const [createdApplicationId, setCreatedApplicationId] = useState('')
   const [requirementSelections, setRequirementSelections] = useState<RequirementClarificationSelections>({})
@@ -721,6 +717,11 @@ export default function Home() {
 
   async function create(event: FormEvent) {
     event.preventDefault()
+    const options = buildOptionsPayload(buildOptions, locale)
+    if (options.error !== undefined) {
+      showError(options.error)
+      return
+    }
     setBusy(true)
     clearFeedback()
     let createdApp: Application | null = null
@@ -734,7 +735,7 @@ export default function Home() {
       setApps(current => [app, ...current.filter(item => item.id !== app.id)])
       setCreatedApplicationId(app.id)
       resetAppListView()
-      await launchBuilder(app, requirement)
+      await launchBuilder(app, requirement, options.payload)
       window.location.href = `/applications/${app.id}/session`
     } catch (cause) {
       const context = createdApp ? ` application_id=${createdApp.id}` : ''
@@ -860,6 +861,7 @@ export default function Home() {
             {requirementQuestions.length > 0 && <small className="requirement-completion-count">{t.requirementCompletionQuestionCount(requirementAnsweredCount, requirementQuestions.length)}</small>}
           </section>
           </details>
+          <BuildAdvancedConfig disabled={busy || draftBusy} locale={locale} onChange={setBuildOptions} value={buildOptions} />
           <div className="create-footer">
             <div className="create-copy"><span>{t.createHint}</span><small>{t.safeDraftHint}</small></div>
             <div className="create-actions">

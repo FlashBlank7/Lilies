@@ -29,6 +29,7 @@ from .blocks import BlockRegistry, build_block_registry
 from . import acceptance_pm
 from .build_transcript import BuildTranscriptStore, owner_record
 from .builder import WorkflowBuilder
+from .builder_registry import BuilderRegistry
 from .capability_evidence import (
     ArtifactCategory,
     CapabilityEvidenceCreateRequest,
@@ -350,6 +351,7 @@ class Services:
     applications: ApplicationService
     workflow_runtime: WorkflowRuntime
     builder: WorkflowBuilder
+    builders: BuilderRegistry
     scheduler: WorkflowScheduler
     templates: TemplateStore
     scenarios: ScenarioCatalog
@@ -1615,6 +1617,10 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
         sandboxes=sandboxes,
         tabular_models=tabular_models,
     )
+    # 多套 builder 并存的注册表：经典单模型实现注册为 classic；
+    # 小模型集群等新实现在此并排注册后，即可按构建选择做对照实验。
+    builders = BuilderRegistry()
+    builders.register("classic", builder)
     scheduler = WorkflowScheduler(
         storage=storage,
         workflow_store=workflow_store,
@@ -1643,6 +1649,7 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
         applications=applications,
         workflow_runtime=workflow_runtime,
         builder=builder,
+        builders=builders,
         scheduler=scheduler,
         templates=templates,
         scenarios=scenarios,
@@ -4105,10 +4112,10 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
                 build_tasks: list[asyncio.Task[Any]] = []
                 for build in await services.workflow_store.list_builds(application_id):
                     build_id = str(build["id"])
-                    task = services.builder.active.get(build_id)
+                    task = services.builders.active_task(build_id)
                     if task is None or task.done():
                         continue
-                    services.builder.cancel(build_id)
+                    services.builders.for_build(build).cancel(build_id)
                     cancelled_build_ids.append(build_id)
                     build_tasks.append(task)
                 if build_tasks:
@@ -4357,6 +4364,11 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         dependencies=[Depends(require_token)],
     )
     async def create_build(application_id: str, body: BuildRequest) -> dict[str, Any]:
+        if not services.builders.has(body.builder):
+            raise HTTPException(
+                400,
+                f"unknown builder: {body.builder} (available: {', '.join(services.builders.names())})",
+            )
         try:
             await services.workflow_store.get_application(application_id)
             await services.workflow_store.get_draft(application_id)
@@ -4372,17 +4384,21 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             body.max_repair_cycles,
             body.max_elapsed_seconds,
             body.planning_mode,
+            builder=body.builder,
+            coordinator_model=body.coordinator_model,
+            teammate_models=body.teammate_models,
         )
         await asyncio.to_thread(
             services.build_transcripts.append,
             build_id,
             owner_record(text=body.requirement, draft_revision=0),
         )
-        services.builder.start(build_id)
+        services.builders.get(body.builder).start(build_id)
         return {
             "build_id": build_id,
             "application_id": application_id,
             "status": "queued",
+            "builder": body.builder,
             "max_elapsed_seconds": body.max_elapsed_seconds,
             "deadline": deadline_summary(body.max_elapsed_seconds),
         }
@@ -4492,14 +4508,14 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             + "修好后必须自测（含空结果/异常输入的用例）确认问题消失，再重新发布。"
             + "不许只调提示词碰运气，不许拿格式示例充当结果。"
         )
-        services.builder.queue_resume_message(build["id"], message[:8_000])
+        services.builders.for_build(build).queue_resume_message(build["id"], message[:8_000])
         await asyncio.to_thread(
             services.build_transcripts.append,
             build["id"],
             owner_record(text=f"[对运行 {run_id[:8]} 不满意，发起自查] {body.note}".strip(), draft_revision=build["team_state"].revision),
         )
         await services.workflow_store.update_build(build["id"], status="queued", error="")
-        services.builder.start(build["id"])
+        services.builders.for_build(build).start(build["id"])
         return {
             "application_id": application_id,
             "build_id": build["id"],
@@ -4551,7 +4567,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             + "\n\n要求：先用 run_inspect 查失败用例对应运行的账本定位根因；"
             "修复后自测确认每一项都消失，再重新发布。不许削弱验收口径来凑绿。"
         )
-        services.builder.queue_resume_message(build["id"], message[:8_000])
+        services.builders.for_build(build).queue_resume_message(build["id"], message[:8_000])
         await asyncio.to_thread(
             services.build_transcripts.append,
             build["id"],
@@ -4561,7 +4577,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             ),
         )
         await services.workflow_store.update_build(build["id"], status="queued", error="")
-        services.builder.start(build["id"])
+        services.builders.for_build(build).start(build["id"])
         return {
             "application_id": application_id,
             "build_id": build["id"],
@@ -5190,7 +5206,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         if build["status"] not in {"queued", "building"}:
             raise HTTPException(409, f"build is {build['status']} — use /resume to continue it")
         try:
-            services.builder.post_live_message(build_id, body.message)
+            services.builders.for_build(build).post_live_message(build_id, body.message)
         except RuntimeError as error:
             raise HTTPException(409, str(error)) from error
         await asyncio.to_thread(
@@ -5207,14 +5223,14 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             if build["status"] not in {"needs_attention", "cancelled", "ready", "published"}:
                 raise HTTPException(409, f"build cannot resume from {build['status']}")
             if body and body.message:
-                services.builder.queue_resume_message(build_id, body.message)
+                services.builders.for_build(build).queue_resume_message(build_id, body.message)
                 await asyncio.to_thread(
                     services.build_transcripts.append,
                     build_id,
                     owner_record(text=body.message, draft_revision=build["team_state"].revision),
                 )
             await services.workflow_store.update_build(build_id, status="queued", error="")
-            services.builder.start(build_id)
+            services.builders.for_build(build).start(build_id)
             return {"build_id": build_id, "status": "queued"}
         except KeyError as error:
             raise HTTPException(404, str(error)) from error
@@ -5222,7 +5238,8 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
     @app.post("/api/v1/builds/{build_id}/cancel", dependencies=[Depends(require_token)])
     async def cancel_build(build_id: str) -> dict[str, Any]:
         try:
-            services.builder.cancel(build_id)
+            build = await services.workflow_store.get_build(build_id)
+            services.builders.for_build(build).cancel(build_id)
             return {"build_id": build_id, "status": "cancelling"}
         except KeyError as error:
             raise HTTPException(404, str(error)) from error

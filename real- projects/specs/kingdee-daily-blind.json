@@ -1,0 +1,55 @@
+{
+  "project_id": "kingdee-daily-blind",
+  "name": "金蝶销售日报（真实星空·盲测）",
+  "source": "盲测项目：客户原话+IT接口文档原样直发，构建过程零辅导。数据源是金蝶官方星空体验环境 costexp1 的真实账套（708 笔销售订单）。真值由独立脚本直连金蝶按日期重算（scratchpad/ground_truth.json，2018-12-24：8 客户 38 单合计 621565.64，4 达标 4 未达）。此前 Claude 手搭版本已通对账（docs/kingdee-daily-report-run.md），本项目验证莉莉丝能否独立复现——她未见过手搭版定义。",
+  "requirement": "我们公司用金蝶云星空。运营每天要一份销售日报：把ERP里当天的销售订单拉出来，按客户汇总销售额，对比日目标额（每家统一一个数），说清谁达标谁没达标。当天名单里没有单子的客户也要出现在日报里，金额记0、算未达标。\n\n运行的时候我们会给三个输入：date（哪天，比如 2018-12-24）、target（目标额，数字）、stores（客户名字的数组）。\n\n给运营看的输出字段我们IT定了：summary（文字汇总，要说清全天合计金额、达标几家/共几家）和 stores（数组，按我们输入名单的顺序，每家一条：store、total_amount、target_amount、reached）。\n\n下面是IT给的金蝶接口文档：\n- 查销售订单：POST https://costexp1.open.kingdee.com/K3Cloud/Kingdee.BOS.WebApi.ServicesStub.DynamicFormService.ExecuteBillQuery.common.kdsvc\n- 请求体：{\"data\":{\"FormId\":\"SAL_SaleOrder\",\"FieldKeys\":\"FBillNo,FCustId.FName,FBillAllAmount\",\"FilterString\":\"FDate>='2018-12-24' and FDate<'2018-12-25'\",\"OrderString\":\"\",\"TopRowCount\":0,\"StartRow\":0,\"Limit\":500}}（FilterString 里的两个日期换成要查的那天和第二天）\n- 返回是数组的数组：[[单号,客户名,金额],...]。注意响应的 Content-Type 是 text/plain，但内容就是 JSON\n- 一页最多500行，StartRow 翻页；取满500就说明还有下一页\n- 鉴权：每个请求带请求头 Cookie，值我们IT已经录进你们平台的密钥库了，名字叫 KINGDEE_COOKIE，别把值抄到别的地方\n\n算错数比报错更糟，拿不到数据就直说。",
+  "max_turns": 60,
+  "max_elapsed_seconds": 2400,
+  "owner_reply_when_asked": "文档都给全了，照IT文档来，别的我们不懂。达标就是销售额大于等于目标。没单的客户金额记0、算未达标。输出就 summary 和 stores 两个字段，stores 按我们给的名单顺序。IT补充说：我们金蝶接口从你们平台能直接连上，只读查询，测试随便查不碍事。",
+  "cases": [
+    {
+      "name": "正常营业日 2018-12-24（真值：8客户38单合计621565.64，4达标）",
+      "inputs": {
+        "date": "2018-12-24",
+        "target": 50000,
+        "stores": ["FYLGSP（ZG）YXGS", "FPYSGYLGLYXGS", "BJJDSJXXJSYXGS", "HZWYYSMYYXGS", "AZXBDSMYXGS", "FQ（SH）GJMYYXGS", "YCXXJKH", "SHKLMYYXGS"]
+      },
+      "expect": {
+        "required_fields": ["summary", "stores"],
+        "equals": {
+          "stores.0.total_amount": 393163.26,
+          "stores.0.reached": true,
+          "stores.1.total_amount": 69529.32,
+          "stores.1.reached": true,
+          "stores.2.total_amount": 56070.0,
+          "stores.3.total_amount": 53680.0,
+          "stores.4.total_amount": 28585.36,
+          "stores.4.reached": false,
+          "stores.5.total_amount": 20537.7,
+          "stores.5.reached": false,
+          "stores.6.total_amount": 0,
+          "stores.6.reached": false,
+          "stores.7.total_amount": 0,
+          "stores.7.reached": false
+        }
+      }
+    },
+    {
+      "name": "无销售日 2018-12-23（全部记0未达标，日报照写）",
+      "inputs": {
+        "date": "2018-12-23",
+        "target": 50000,
+        "stores": ["FYLGSP（ZG）YXGS", "YCXXJKH"]
+      },
+      "expect": {
+        "required_fields": ["summary", "stores"],
+        "equals": {
+          "stores.0.total_amount": 0,
+          "stores.0.reached": false,
+          "stores.1.total_amount": 0,
+          "stores.1.reached": false
+        }
+      }
+    }
+  ]
+}

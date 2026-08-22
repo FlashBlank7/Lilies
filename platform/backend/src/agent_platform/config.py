@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     deepseek_runtime_model: str = "deepseek-v4-flash"
     deepseek_timeout_seconds: float = 600.0
     model_egress_enabled: bool = False
+    # 本地小模型端点（vLLM/SGLang/Ollama 的 OpenAI 兼容 /v1）。设了就注册 local/ 前缀。
+    local_model_base_url: str | None = None
+    local_model_api_key: str | None = Field(default=None, repr=False)
     model_price_estimates_usd_per_million: dict[str, dict[str, float]] = Field(
         default_factory=lambda: {
             "deepseek-v4-pro": {"input_tokens": 0.435, "output_tokens": 0.87},

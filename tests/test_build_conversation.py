@@ -443,3 +443,67 @@ def test_read_labeled_rows_parses_and_rejects_escape(tmp_path: Path) -> None:
 
     with _pytest.raises(RuntimeError, match="工作区内"):
         WorkflowBuilder._read_labeled_rows(Stub(), "app-1", "../escape.json")
+
+
+class TruncatedThinkingProvider(ModelProvider):
+    """第 1 轮：纯思考撞满输出上限（stop_reason=max_tokens，零工具调用）。
+    第 2 轮：期望被自愈唤醒（关思考+提醒），用 ask_owner 正常行动。"""
+
+    name = "truncated-thinking-provider"
+
+    def __init__(self) -> None:
+        self.calls = 0
+        self.thinking_flags: list[bool] = []
+        self.rescue_prompt = ""
+
+    def capabilities(self, model: str) -> ProviderCapabilities:
+        return ProviderCapabilities(True, True, True, False, False, 100_000, 8_000)
+
+    async def stream(
+        self,
+        *,
+        model: str,
+        system: str,
+        messages: list[ChatMessage],
+        tools: list[ToolDefinition],
+        max_output_tokens: int,
+        thinking_enabled: bool,
+        effort: str,
+        tool_choice: dict[str, str] | None = None,
+        user_id: str | None = None,
+    ) -> AsyncIterator[StreamEvent]:
+        self.calls += 1
+        self.thinking_flags.append(thinking_enabled)
+        yield StreamEvent(type="message_start", data={"message": {"usage": {"input_tokens": 1}}})
+        if self.calls == 1:
+            yield StreamEvent(type="content_block_start", data={
+                "index": 0, "content_block": {"type": "thinking", "thinking": ""},
+            })
+            yield StreamEvent(type="content_block_delta", data={
+                "index": 0, "delta": {"type": "thinking_delta", "thinking": "要不要问业主……"},
+            })
+            # 思考吃光输出预算：没有 text、没有 tool_use，直接 max_tokens 收尾
+            yield StreamEvent(type="message_delta", data={
+                "delta": {"stop_reason": "max_tokens"}, "usage": {"output_tokens": 8192},
+            })
+            return
+        self.rescue_prompt = _last_user_text(messages)
+        for event in _tool_use(0, "ask-1", "ask_owner", {"question": QUESTION}):
+            yield event
+        yield StreamEvent(type="message_delta", data={
+            "delta": {"stop_reason": "tool_use"}, "usage": {"output_tokens": 1},
+        })
+
+
+def test_thinking_truncation_is_rescued_not_treated_as_finish(tmp_path: Path) -> None:
+    provider = TruncatedThinkingProvider()
+    app = create_app(_settings(tmp_path), provider)
+    with TestClient(app) as client:
+        build_id = _start_build(client, "做一个金蝶销售日报工作流。")
+        build = _wait_status(client, build_id, {"needs_attention", "failed"})
+        # 自愈生效：截断没有被当成"收工"，她在第 2 轮问出了问题（waiting owner）
+        assert build["team_state"]["pending_question"] == QUESTION, build.get("error")
+        assert not build.get("error")
+        # 第 2 轮关思考重试 + 提醒到达
+        assert provider.thinking_flags == [True, False]
+        assert "截断" in provider.rescue_prompt

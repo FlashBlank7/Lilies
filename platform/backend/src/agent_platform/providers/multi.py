@@ -4,6 +4,7 @@ Supports the Lilies design principle that LLMs are replaceable executors:
   deepseek/deepseek-v4-pro    → DeepSeekProvider (Anthropic-compatible API)
   openai/gpt-4o               → OpenAIProvider (OpenAI-compatible API)
   anthropic/claude-sonnet-4   → AnthropicProvider (Anthropic native API)
+  local/Qwen/Qwen3.5-4B       → OpenAIChatProvider (原生 chat-completions，本地小模型)
 
 Usage in config:
   model_turn block:  model="deepseek/deepseek-v4-pro"  or  model="openai/gpt-4o"
@@ -19,6 +20,7 @@ from typing import Any
 
 from .base import ModelProvider, ProviderCapabilities, ProviderError
 from .deepseek import DeepSeekProvider
+from .openai_chat import OpenAIChatProvider
 from ..models import ChatMessage, StreamEvent, ToolDefinition
 
 
@@ -116,6 +118,11 @@ PROVIDER_CONFIGS: dict[str, dict[str, str]] = {
         "default_base": "https://api.anthropic.com",
         "default_model": "claude-sonnet-4-6",
     },
+    "local": {
+        "base_url_key": "LOCAL_MODEL_BASE_URL",
+        "default_base": "http://127.0.0.1:8001/v1",
+        "default_model": "Qwen/Qwen3.5-4B",
+    },
 }
 
 
@@ -140,6 +147,8 @@ class MultiProvider(ModelProvider):
         deepseek_base_url: str = "https://api.deepseek.com/anthropic",
         openai_base_url: str = "https://api.openai.com/v1",
         anthropic_base_url: str = "https://api.anthropic.com",
+        local_base_url: str | None = None,
+        local_api_key: str | None = None,
         timeout_seconds: float = 600.0,
         egress_enabled: bool | None = None,
     ) -> None:
@@ -165,6 +174,15 @@ class MultiProvider(ModelProvider):
             self._providers["anthropic"] = AnthropicProvider(
                 anthropic_api_key,
                 anthropic_base_url,
+                timeout_seconds,
+                egress_enabled=self._egress_enabled,
+            )
+        if local_base_url:
+            # 本地小模型端点（vLLM/SGLang/Ollama）：原生 chat-completions 协议，
+            # 回环地址豁免 egress 开关（本地推理不是计费出口）。
+            self._providers["local"] = OpenAIChatProvider(
+                local_api_key,
+                local_base_url,
                 timeout_seconds,
                 egress_enabled=self._egress_enabled,
             )

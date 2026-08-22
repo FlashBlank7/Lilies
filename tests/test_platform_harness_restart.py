@@ -53,24 +53,29 @@ def test_worker_yields_when_build_already_running_elsewhere() -> None:
 
     import asyncio
 
+    from agent_platform.builder_registry import BuilderRegistry
     from agent_platform.worker_runner import builder_build_handler
 
-    class StubBuilder:
-        class workflow_store:  # noqa: N801 - 只为满足属性访问
-            @staticmethod
-            async def get_build(build_id: str):
-                raise AssertionError("不应该走到失败收集分支")
+    class StubEngine:
+        active: dict = {}
 
         @staticmethod
         async def run_claimed_build(build_id: str):
             raise RuntimeError("build is already running")
+
+    class StubStore:
+        @staticmethod
+        async def get_build(build_id: str):
+            return {"id": build_id, "builder": "classic"}
 
     class Task:
         id = "b-1"
         resource_id = "b-1"
         metadata: dict = {}
 
-    handler = builder_build_handler(StubBuilder())
+    registry = BuilderRegistry()
+    registry.register("classic", StubEngine())
+    handler = builder_build_handler(StubStore(), registry)
     result = asyncio.run(handler(Task()))
     assert result["status"] == "skipped_already_running"
 

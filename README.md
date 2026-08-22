@@ -18,6 +18,42 @@
 2. **文本即智能** — 模块输出是 LLM 天然理解的结构化文本信封（`result` + `structured`），下游语义靠模型理解，结构靠 `$ref` 精确引用。
 3. **能跑起来的工作流 > 机制展示** — 平台价值由生成的工作流是否解决真实问题决定。验收手段（测试、冒烟、校验）服务于这个目标，而不是反过来。
 
+## v0.5.0 开发线：小模型智能体原型（进行中，2026-08 下旬启动）
+
+> 研究命题：**可信构建来自边界执法的 harness，而非模型体量**——小模型集群在同一套
+> harness 下应能交付可验收的工作流。设计全文见
+> [`docs/small-model-builder-design.md`](docs/small-model-builder-design.md)，
+> 防线消融开关清单见 [`docs/harness-config-ablation.md`](docs/harness-config-ablation.md)。
+
+已落地的实验基座（2026-08-18 起）：
+
+- **Builder 可插拔注册表**：多套 builder 实现按名注册、按构建选择（`builds.builder`
+  列随记录落库进配置指纹）；经典单模型实现注册为 `classic`，新引擎并排注册即可
+  做同任务对照实验（`builder_registry.py`）
+- **per-actor 异构模型**：`BuildRequest.coordinator_model` / `teammate_models`
+  指定协调者模型与队友模型池（enum 白名单 + 越界硬门）；`spawn_teammate` 按角色
+  派模型、追问不漂移；每轮 turn 记录、计费、transcripts 均按 actor 实际模型记血缘
+- **本地小模型接入**：原生 chat-completions 适配器（`providers/openai_chat.py`），
+  `local/` 前缀由 `LOCAL_MODEL_BASE_URL` 注册，vLLM/SGLang/Ollama 即插即用；
+  回环地址豁免模型出网断路器
+- **现场信息回流**：`python -m agent_platform.field_report` 只读导出脱敏现场报告
+  （构建结局、**边界拒绝率**、守卫事件、per-actor 模型分布）——线上冻结版与本地
+  开发线之间的改进闭环；真实数据首测：1921 次工具调用、边界拒绝率 8.2%
+- **构建高级配置面板**：三个构建入口统一暴露回合/修复/时限/规划参数，折叠态常驻
+  配置摘要（`BuildAdvancedConfig`）
+
+v0.5.0 完成标准（达成后移除 `-dev` 后缀）：
+
+1. **形态 A（异构队友）跑通真实任务**：小模型配置手 + 大模型协调者，边界拒绝率与
+   一次通过率拿到实测数字；
+2. **形态 B（机械协调者状态机）**作为新引擎注册，通过同一套验收；
+3. **首个纯小模型构建**（协调者也是小模型）通过盲测级验收。
+
+研究环境：4×48G GPU 实验机（vLLM 多档并行，Qwen3 系起步）。调研归档：
+[`docs/research/`](docs/research/)（小模型选型 / Sakana 多模型协作 / DeepSeek dsh）。
+商业方向：[`docs/business-model-phase1.md`](docs/business-model-phase1.md)
+（按结果收费的交付服务）；企业侧开源播放器原型（deck）在独立仓库推进。
+
 ## 2026-08 lean-core 重构
 
 平台曾经积累了大量治理、正式实验、协作开发和证据审计机器，验收压过了构建，简单工作流也难以生成。`refactor/lean-core` 分支做了一次大刀阔斧的裁撤：

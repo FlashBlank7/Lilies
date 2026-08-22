@@ -7,6 +7,7 @@ from typing import Any
 from fastapi.testclient import TestClient
 
 from agent_platform.api import create_app
+from agent_platform.builder_registry import BuilderRegistry
 from agent_platform.config import Settings
 from agent_platform.platform_harness import PlatformHarness
 from agent_platform.storage import Storage
@@ -40,6 +41,9 @@ class FakeWorkflowStore:
     async def get_draft(self, *_: Any, **__: Any) -> dict[str, Any]:
         return {"snapshot": None, "revision": 1, "content_hash": "fake"}
 
+    async def get_build(self, build_id: str) -> dict[str, Any]:
+        return {"id": build_id, "builder": "classic"}
+
 
 class FakeDraftPatcher:
     def preview(self, *_: Any, **__: Any) -> Any:
@@ -70,6 +74,12 @@ class FakeBuilder:
         return {"build_id": build_id, "application_id": "owner-a", "status": "published", "published_version": 1}
 
 
+def _classic_registry(engine: Any) -> BuilderRegistry:
+    registry = BuilderRegistry()
+    registry.register("classic", engine)
+    return registry
+
+
 class FakeServices:
     scheduler = FakeScheduler()
     workflow_runtime = FakeWorkflowRuntime()
@@ -78,6 +88,7 @@ class FakeServices:
     benchmark = FakeBenchmark()
     harness = FakeHarness()
     builder = FakeBuilder()
+    builders = _classic_registry(builder)
 
 
 def headers() -> dict[str, str]:

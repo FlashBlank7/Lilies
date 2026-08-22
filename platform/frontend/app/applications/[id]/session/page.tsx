@@ -12,6 +12,7 @@ import {
   type Draft,
 } from '@/lib/platform'
 import OutputView from '@/app/components/OutputView'
+import BuildAdvancedConfig, { defaultBuildOptions, buildOptionsPayload, type BuildOptions } from '@/app/components/BuildAdvancedConfig'
 import styles from './session.module.css'
 
 type Build = {
@@ -148,6 +149,8 @@ export default function Session({ params }: { params: Promise<{ id: string }> })
   const [message, setMessage] = useState('')
   const [sending, setSending] = useState(false)
   const [notice, setNotice] = useState('')
+  // 会话页默认不自动发布：搭好后先看交付说明再决定。
+  const [buildOptions, setBuildOptions] = useState<BuildOptions>(() => defaultBuildOptions(false))
   const [exportOpen, setExportOpen] = useState(false)
   const [workspaceFiles, setWorkspaceFiles] = useState<WorkspaceFile[] | null>(null)
   const [workspaceError, setWorkspaceError] = useState('')
@@ -228,12 +231,17 @@ export default function Session({ params }: { params: Promise<{ id: string }> })
         })
         setNotice('莉莉丝继续搭建中…')
       } else {
+        const options = buildOptionsPayload(buildOptions)
+        if (options.error !== undefined) {
+          setNotice(options.error)
+          return
+        }
         const requirement = text
           ? `${app?.requirement || ''}\n\n补充要求：${text}`.trim()
           : app?.requirement || ''
         const started = await api<{ build_id: string }>(`/api/v1/applications/${id}/builds`, {
           method: 'POST',
-          body: JSON.stringify({ requirement, auto_publish: false }),
+          body: JSON.stringify({ requirement, ...options.payload }),
         })
         setNotice('莉莉丝开始搭建…')
         setBuild({ id: started.build_id, status: 'queued', team_state: { revision: 0, tasks: [] } })
@@ -444,6 +452,7 @@ export default function Session({ params }: { params: Promise<{ id: string }> })
         </div>
         <div className={styles.composer}>
           {notice && <div className={styles.notice}>{notice}</div>}
+          {!build && <BuildAdvancedConfig disabled={sending} onChange={setBuildOptions} value={buildOptions} />}
           <div className={styles.composerRow}>
             <textarea
               placeholder={building

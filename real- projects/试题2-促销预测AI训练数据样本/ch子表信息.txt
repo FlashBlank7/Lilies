@@ -1,0 +1,122 @@
+子表名称: 销售交易明细表
+表头: ['复合主键前缀销售单据编号', '复合主键前缀行项目号', '系统操作记录前缀DATE', '系统操作记录前缀TIME', '系统操作记录前缀事务代码', '系统操作记录前缀用户名', 'LAST_MOD_DT', '供应商编号', '门店/工厂代码', '销售单据编号', '行项目号', '商品编号', '批次编号', '销售数量', '销售单位', '销售金额', '金额百分比', '零售价', 'RTLPC_C', '成本价', '折扣金额', '折扣百分比', 'MWSBP', 'ERNAM', '创建日期', '过账日期', '发货日期', '促销编号', 'CONDNR', 'PRVBT', 'XBLNR', 'KVORG', '自定义字段前缀BKCH', '自定义字段前缀AFCH', '自定义字段前缀BFCH', 'VKFNR', '客户编号', '销售组织', '国家代码', '主石类型', '品类', '形状', '材质', '金属材质', '颜色', '主石子类', '时尚类型', '尺寸', '自定义字段前缀EWJMODEL', '自定义字段前缀EWJVER', '证书类型', '其他属性', '品牌', '克拉', '自定义字段前缀MSMES', '净度', '自定义字段前缀CUTSTY', '切工', '自定义字段前缀POLISH', '自定义字段前缀SYMME', '荧光', '自定义字段前缀TDWEIG', '自定义字段前缀TGWEIG', '自定义字段前缀TPWEIG', '库存来源', '自定义字段前缀GDCAT', '自定义字段前缀WEIGH', '自定义字段前缀LABOUR', '型号', '系列', '适用性别', '机芯', '表盘钻石', '表圈钻石', '表带钻石', '自定义字段前缀BRACE', '自定义字段前缀DCOLOR', '自定义字段前缀DPATTE', '自定义字段前缀DNUMER', '自定义字段前缀SCOLOR', '自定义字段前缀STGRP', '自定义字段前缀TBRACE', '自定义字段前缀COLOR', '自定义字段前缀SCATE', '自定义字段前缀DIAMOND', '自定义字段前缀COLLECTION', '自定义字段前缀DETAILCAT', '自定义字段前缀GR_DATE', '自定义字段前缀CASE_NO', '自定义字段前缀CERT_NO', '物料类型', '物料组', '物料类型描述', 'BRTWR_A', 'BRTWRPER_A', 'VIP客户姓名', 'VIP客户编号', '自定义字段前缀NS04', 'TRANS_TIME', '区域', '自定义字段前缀CCP', '自定义字段前缀ZSD', 'TRANS_IRS', 'POSINVNR_R', 'POSINVDA_R', '促销代码', 'POSGRPNO', 'RFPPL', 'RFSHOP', '标准成本', '前毛利润', '后毛利润', 'ECTENDER', '自定义字段前缀PROFLAG', '自定义字段前缀AFCH_XP', '自定义字段前缀BFCH_XP', 'BRTWR_XP', 'BRTWR_A_XP']
+子表名称: 门店主数据表
+表头: ['门店/工厂代码', 'NAME1', 'BWKEY', 'NAME2', 'ORT01', 'EKORG', '销售组织', 'LAND1', 'VLFKZ']
+子表名称: 商品标准主数据表
+表头: ['商品编号', 'ERSDA', '物料类型', 'MEINS']
+子表名称: 商品自定义属性表
+表头: ['商品编号', '主石类型', '品类', '形状', '材质', '金属材质', '颜色', '主石子类', '时尚类型', '尺寸', '自定义字段前缀SIZE_UOM', '自定义字段前缀EWJMODEL', '自定义字段前缀EWJVER', '证书类型', '其他属性', '品牌', '克拉', '自定义字段前缀CARAT_FR', '自定义字段前缀CARAT_TO', '自定义字段前缀MSMES', '净度', '自定义字段前缀CUTSTY', '切工', '自定义字段前缀POLISH', '自定义字段前缀SYMME', '荧光', '自定义字段前缀TDWEIG', '自定义字段前缀TDWEIG_UOM', '自定义字段前缀TGWEIG', '自定义字段前缀TGWEIG_UOM', '自定义字段前缀TPWEIG', '自定义字段前缀TPWEIG_UOM', '库存来源', '自定义字段前缀GDCAT', '自定义字段前缀WEIGH', '自定义字段前缀WEIGH_UOM', '自定义字段前缀LABOUR', '型号', '系列', '适用性别', '机芯', '表盘钻石', '表圈钻石', '表带钻石', '自定义字段前缀BRACE', '自定义字段前缀DCOLOR', '自定义字段前缀DPATTE', '自定义字段前缀DNUMER', '自定义字段前缀SCOLOR', '自定义字段前缀STGRP', '自定义字段前缀TBRACE', '自定义字段前缀COLOR', '自定义字段前缀SCATE', '自定义字段前缀DIAMOND', '自定义字段前缀COLLECTION', '自定义字段前缀PDTSTATUS', '自定义字段前缀DETAILCAT', '自定义字段前缀PRODUCTCODE', '自定义字段前缀EXPPERIOD', '自定义字段前缀EXPDATE', '自定义字段前缀MARKUP', '自定义字段前缀KEYWORD', '自定义字段前缀CRAFTS', '自定义字段前缀SUB_COLLECTION', '自定义字段前缀ORIGIN', '自定义字段前缀COMMENT', '自定义字段前缀EXTENSION', '自定义字段前缀CERTI_TYPE', '自定义字段前缀BRANDSUB', '自定义字段前缀SDISCG', '自定义字段前缀ECOM_MODELNO', '自定义字段前缀BUSTY', '自定义字段前缀OTHER_COST']
+子表名称: 商品描述表
+表头: ['商品编号', 'SPRAS', '销售组织', '商品描述']
+子表名称: 主石文本表
+表头: ['Language', 'Article Type', 'Main Stone Code', 'Main Stone Description']
+子表名称: 品类文本表
+表头: ['Language', 'Article Type', 'Category Code', 'Category Description']
+子表名称: 形状文本表
+表头: ['Language', 'Article Type', 'Shape Code', 'Shape Description']
+子表名称: 材质文本表
+表头: ['Language', 'Article Type', 'Material Code', 'Material Description']
+子表名称: 金属文本表
+表头: ['Language', 'Article Type', 'Metal Code', 'Metal Description']
+子表名称: 颜色等级文本表
+表头: ['Language', 'Article Type', 'Color Grade Code', 'Color Grade Description']
+子表名称: 主石子类文本表
+表头: ['Language', 'Article Type', 'Main Stone Sub-category Code', 'Main Stone Sub-category Description']
+子表名称: 款式类型文本表
+表头: ['Language', 'Article Type', 'Style Type Code', 'Style Type Description']
+子表名称: 品牌文本表
+表头: ['Language', 'Article Type', 'Brand Code', 'Brand Description']
+子表名称: 净度文本表
+表头: ['Language', 'Article Type', 'Clarity Code', 'Clarity Description']
+子表名称: 切工样式文本表
+表头: ['Language', 'Article Type', 'Cutting Style Code', 'Cutting Style Description']
+子表名称: 切工等级文本表
+表头: ['Language', 'Article Type', 'Cut Grade Code', 'Cut Grade Description']
+子表名称: 抛光文本表
+表头: ['Language', 'Article Type', 'Polish Code', 'Polish Description']
+子表名称: 对称性文本表
+表头: ['Language', 'Article Type', 'Symmetry Code', 'Symmetry Description']
+子表名称: 荧光文本表
+表头: ['Language', 'Article Type', 'Fluorescence Code', 'Fluorescence Description']
+子表名称: 库存来源文本表
+表头: ['Language', 'Article Type', 'Stock Source Code', 'Stock Source Description']
+子表名称: 类型文本表
+表头: ['Language', 'Article Type', 'Type Code', 'Type Description']
+子表名称: 性别文本表
+表头: ['Language', 'Article Type', 'Gender Code', 'Gender Description']
+子表名称: 机芯文本表
+表头: ['Language', 'Article Type', 'Movement Code', 'Movement Description']
+子表名称: 钻石表盘文本表
+表头: ['Language', 'Article Type', 'Diamond Dial Code', 'Diamond Dial Description']
+子表名称: 钻石表圈文本表
+表头: ['Language', 'Article Type', 'Diamond Bezel Code', 'Diamond Bezel Description']
+子表名称: 钻石表带文本表
+表头: ['Language', 'Article Type', 'Diamond Bracelet Code', 'Diamond Bracelet Description']
+子表名称: 表带文本表
+表头: ['Language', 'Article Type', 'Bracelet Code', 'Bracelet Description']
+子表名称: 表盘颜色文本表
+表头: ['Language', 'Article Type', 'Dial Color Code', 'Dial Color Description']
+子表名称: 表盘图案文本表
+表头: ['Language', 'Article Type', 'Dial Pattern Code', 'Dial Pattern Description']
+子表名称: 表盘数字文本表
+表头: ['Language', 'Article Type', 'Dial Numerals Code', 'Dial Numerals Description']
+子表名称: 表带颜色文本表
+表头: ['Language', 'Article Type', 'Strap Color Code', 'Strap Color Description']
+子表名称: 库存周转组文本表
+表头: ['Language', 'Article Type', 'Stock Turnover Group Code', 'Stock Turnover Group Description']
+子表名称: 表带类型文本表
+表头: ['Language', 'Article Type', 'Type of Bracelet Code', 'Type of Bracelet Description']
+子表名称: 颜色文本表
+表头: ['Language', 'Article Type', 'Color Code', 'Color Description']
+子表名称: 子品类文本表
+表头: ['Language', 'Article Type', 'Sub Category Code', 'Sub Category Description']
+子表名称: 钻石文本表
+表头: ['Language', 'Article Type', 'Diamond Code', 'Diamond Description']
+子表名称:  Certificate (Text)
+表头: ['Language', 'Article Type', 'Certificate Code', 'Certificate Description']
+子表名称: 系列文本表
+表头: ['Language', 'Article Type', 'Collection Code', 'Collection Description']
+子表名称: 产品状态文本表
+表头: ['Language', 'Article Type', 'Product Status Code', 'Product Status Description']
+子表名称: 细分市场文本表
+表头: ['Language', 'Article Type', 'Segment Code', 'Segment Description']
+子表名称: 加价率文本表
+表头: ['Language', 'Article Type', 'Mark Up Rate Code', 'Mark Up Rate Description']
+子表名称: 工艺文本表
+表头: ['Language', 'Article Type', 'Craftsmanship Code', 'Craftsmanship Description']
+子表名称: 复杂功能文本表
+表头: []
+子表名称: 功能文本表
+表头: []
+子表名称: 固定价格类型文本表
+表头: ['Language', 'Article Type', 'Fixed Price Type Code', 'Fixed Price Type Description']
+子表名称: 采购原因类别文本表
+表头: ['Language', 'Article Type', 'Reason Category Code', 'Reason Category Description']
+子表名称: 子系列文本表
+表头: ['Language', 'Article Type', 'Sub Collection Code', 'Sub Collection Description']
+子表名称: 产地文本表
+表头: ['Language', 'Article Type', 'Origin Code', 'Origin Description']
+子表名称: 备注文本表
+表头: ['Language', 'Article Type', 'Comment Code', 'Comment Description']
+子表名称: 证书类型文本表
+表头: ['Language', 'Article Type', 'Certificate Type Code', 'Certificate Type Description']
+子表名称: 子产品线文本表
+表头: ['Language', 'Article Type', 'Sub Product Line Code', 'Sub Product Line Description']
+子表名称: 销售折扣组文本表
+表头: ['Language', 'Article Type', 'Sales Discount Group Code', 'Sales Discount Group Description']
+子表名称: 优惠券类型文本表
+表头: []
+子表名称: 业务类型文本表
+表头: ['Language', 'Article Type', 'Business Type  Code', 'Business Type Description']
+子表名称: 月度员工清单表
+表头: ['员工编号', 'YEAR_MONTH', '门店/工厂代码', '业务类型', 'STAFFNAME', 'STAFFALIAS', 'CHINESENAME', 'TITLE', '员工类型', 'GRADING', 'DIVISION', 'DATEJOIN', 'SHOPPOINT', 'GROUPPOINT', 'TEMPGROUPPOINT', 'PL_DAYS', 'NPL_DAYS', '自定义字段前缀LAST_MOD_DT', '系统操作记录前缀事务代码', '系统操作记录前缀用户名', '系统操作记录前缀DATE', '自定义字段前缀DEL']
+子表名称: 职位费率表
+表头: ['门店/工厂代码', '业务类型', 'TITLE', '自定义字段前缀VALID_TO_YM', '自定义字段前缀VALID_FR_YM', '职位费率', '自定义字段前缀AWARD_FLG', '自定义字段前缀LAST_MOD_DT', '系统操作记录前缀事务代码', '系统操作记录前缀用户名', '系统操作记录前缀DATE']
+子表名称: 促销商品关联表
+表头: ['单据编号', 'ITEM', 'PRO_CODE', 'PRO_DESC']
+子表名称: 销售单据头表
+表头: ['单据编号', '单据类型', 'POSINVNR', '单据日期', '单据相关前缀TIM', '单据相关前缀STA', '门店/工厂代码', 'POSINTYP', 'POSDCURR', 'POSKREIS', 'KASSIERER', 'POSREDOC', 'POSMNINV', 'POSINVDA', 'POSVIPNR', 'POSVIPNA', 'POSBILNR', 'POSARTNR', 'POSGRPNO', 'RFPPL', 'RFSHOP']
+子表名称: 销售商品明细表
+表头: ['单据编号', 'ITEM', 'KSCHL', 'VORGANGART', '商品编号', '批次编号', 'MENGE', 'MENGE2', '销售员编号', '成本价']
+子表名称: 促销活动头表
+表头: ['促销编号', 'pmt_date', '促销开始日期', '促销结束日期', '促销状态', '促销描述', 'pmt_level', 'type_id', 'updated_on', 'ho_upd_on']

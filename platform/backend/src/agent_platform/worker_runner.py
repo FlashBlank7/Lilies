@@ -771,7 +771,7 @@ def draft_patch_preview_handler(workflow_store: Any, draft_patcher: Any) -> Plat
     return handler
 
 
-def builder_build_handler(builder: Any) -> PlatformTaskHandler:
+def builder_build_handler(workflow_store: Any, builders: Any) -> PlatformTaskHandler:
     async def handler(task: PlatformTaskRecord) -> dict[str, Any]:
         build_id = task.metadata.get("build_id") or task.resource_id or task.id
         if not isinstance(build_id, str) or not build_id.strip():
@@ -780,7 +780,8 @@ def builder_build_handler(builder: Any) -> PlatformTaskHandler:
         if build_id != task.id:
             raise ValueError("builder_build worker task id must match build_id")
         try:
-            result = await builder.run_claimed_build(build_id)
+            claimed = await workflow_store.get_build(build_id)
+            result = await builders.for_build(claimed).run_claimed_build(build_id)
         except Exception as error:
             if isinstance(error, RuntimeError) and "already running" in str(error):
                 # 另一执行者（API 直启的构建循环）正在跑这个 build。这不是失败——
@@ -794,7 +795,7 @@ def builder_build_handler(builder: Any) -> PlatformTaskHandler:
                 }
             failure_result: dict[str, Any] = {"build_id": build_id}
             try:
-                build = await builder.workflow_store.get_build(build_id)
+                build = await workflow_store.get_build(build_id)
                 failure_result.update({
                     "application_id": build["application_id"],
                     "status": build["status"],
@@ -886,7 +887,7 @@ def build_platform_worker_handlers(services: Any) -> dict[str, PlatformTaskHandl
         "scheduler_trigger": scheduler_trigger_handler(services.scheduler),
         "scheduler_manual_trigger": scheduler_manual_trigger_handler(services.scheduler),
         "draft_patch_preview": draft_patch_preview_handler(services.workflow_store, services.draft_patcher),
-        "builder_build": builder_build_handler(services.builder),
+        "builder_build": builder_build_handler(services.workflow_store, services.builders),
     }
     for kind in UNAVAILABLE_WORKER_HANDLERS:
         handlers[kind] = unavailable_worker_handler(kind)

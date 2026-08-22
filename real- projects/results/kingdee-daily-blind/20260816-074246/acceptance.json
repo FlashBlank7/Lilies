@@ -1,0 +1,39 @@
+{
+  "project_id": "kingdee-daily-blind",
+  "name": "金蝶销售日报（真实星空·盲测）",
+  "stamp": "20260816-074246",
+  "application_id": "5691e126-e08b-4da9-87e3-d88b9461297d",
+  "build_id": "deff77ee-9083-4509-b7be-00ad99c12e13",
+  "build_status": "needs_attention",
+  "build_error": "builder stopped with invalid draft: workflow must contain exactly one start or schedule_trigger node; workflow must contain at least one end or answer node; at least one mandatory acceptance test is required",
+  "node_types": [],
+  "architecture_missing": [],
+  "architecture_pass": true,
+  "cases": [
+    {
+      "name": "正常营业日 2018-12-24（真值：8客户38单合计621565.64，4达标）",
+      "run_status": "error: HTTP Error 422: Unprocessable Content",
+      "checks": [
+        {
+          "check": "运行成功",
+          "passed": false,
+          "actual": "HTTP Error 422: Unprocessable Content"
+        }
+      ],
+      "passed": false
+    },
+    {
+      "name": "无销售日 2018-12-23（全部记0未达标，日报照写）",
+      "run_status": "error: HTTP Error 422: Unprocessable Content",
+      "checks": [
+        {
+          "check": "运行成功",
+          "passed": false,
+          "actual": "HTTP Error 422: Unprocessable Content"
+        }
+      ],
+      "passed": false
+    }
+  ],
+  "accepted": false
+}

@@ -549,6 +549,7 @@ class WorkflowBuilder:
                 tracker=tracker,
                 build_started_at=build_started_at,
                 max_elapsed_seconds=max_elapsed_seconds,
+                model=state.coordinator_model,
             )
             if max_elapsed_seconds is not None:
                 try:
@@ -877,16 +878,26 @@ class WorkflowBuilder:
         tracker: DecisionTracker | None = None,
         build_started_at: float | None = None,
         max_elapsed_seconds: float | None = None,
+        model: str | None = None,
     ) -> str:
         final = ""
+        # per-actor 模型：协调者与每个队友可各用一套模型（异构构建实验的基础）。
+        # 不传即回落全局 generator_model，行为与单模型时代完全一致。
+        actor_model = model or self.generator_model
         tools = self._definitions(
             allow_team=teammate is None,
             planning_mode=state.planning_mode,
+            teammate_models=state.teammate_models if teammate is None else None,
         )
         progress_fingerprint = self._durable_progress_fingerprint(state)
         stalled_progress_turns = 0
         discovery_only_turns = 0
         seen_progress_evidence: set[str] = set()
+        # 截断自愈：思考吃光输出上限（stop_reason=max_tokens）不等于"她收工了"。
+        # 金蝶盲测实况：第 3 轮 5.5 万字思考被 8192 上限掐断，零工具调用，
+        # 循环把这判成主动结束——空草稿 needs_attention。连续截断最多救 2 次。
+        truncated_rescues = 0
+        rescue_without_thinking = False
         for turn in range(1, max_turns + 1):
             # 上下文成本闸门：老轮次的工具结果归档成占位行。没有它，40 轮构建的
             # 输入从 1 万 token 滚到 15 万（ERP 分页/测试报告全文被重发上百次）。
@@ -906,7 +917,7 @@ class WorkflowBuilder:
             await self.harness.record_usage(
                 build_id,
                 "model_call",
-                metadata={"actor": teammate or "coordinator", "turn": turn, "model": self.generator_model},
+                metadata={"actor": teammate or "coordinator", "turn": turn, "model": actor_model},
             )
             turn_budget_prompt = self._turn_budget_prompt(
                 turn,
@@ -924,8 +935,12 @@ class WorkflowBuilder:
             # 0 命中、1066 万输入 token 全价购买的真凶。遥测改为临时附在
             # 末尾 user 消息（不进持久历史），前缀字节级稳定。
             call_messages = self._with_budget_note(messages, turn_budget_prompt)
+            # 截断自愈轮关思考重试（_model_text 的同款家法）：上一轮纯思考
+            # 撞满上限，这一轮直接行动。
+            turn_thinking_enabled = not rescue_without_thinking
+            rescue_without_thinking = False
             stream = self.provider.stream(
-                model=self.generator_model,
+                model=actor_model,
                 system=BUILDER_SYSTEM_PROMPT + self._planning_mode_prompt(state.planning_mode) + (
                     f"\nYou are teammate {teammate}. Complete your assigned bounded task and report evidence."
                     if teammate else "\nYou are the coordinator. Delegate when useful and synthesize results."
@@ -933,7 +948,7 @@ class WorkflowBuilder:
                 messages=call_messages,
                 tools=tools,
                 max_output_tokens=8_192,
-                thinking_enabled=True,
+                thinking_enabled=turn_thinking_enabled,
                 effort="high",
                 tool_choice={"type": "auto"},
                 user_id=f"{build_id}-{teammate or 'coordinator'}",
@@ -942,13 +957,13 @@ class WorkflowBuilder:
                 build_id,
                 stream,
                 f"build.{teammate or 'coordinator'}.model",
-                self.generator_model,
+                actor_model,
             )
             await self.harness.record_model_usage(
                 build_id,
                 response.usage,
-                model=self.generator_model,
-                provider=self.provider.provider_name_for(self.generator_model),
+                model=actor_model,
+                provider=self.provider.provider_name_for(actor_model),
                 metadata={
                     "application_id": application_id,
                     "workflow_id": application_id,
@@ -960,13 +975,44 @@ class WorkflowBuilder:
             messages.append(ChatMessage(role="assistant", content=response.blocks))
             calls = [block for block in response.blocks if block.type == "tool_use"]
             if not calls:
-                self._record_turn(build_id, turn, teammate, response, [], state)
+                truncated = (response.stop_reason or "") in {"max_tokens", "length"}
+                if truncated and truncated_rescues < 2:
+                    truncated_rescues += 1
+                    rescue_without_thinking = True
+                    # 截断的纯思考轮不留原文（无行动、无签名的思考块回传有害），
+                    # 换成占位 + 用户侧提醒，下一轮直接行动。
+                    messages[-1] = ChatMessage(role="assistant", content=[ContentBlock(
+                        type="text",
+                        text="（这一轮思考超过输出上限被截断，没有产生任何行动。）",
+                    )])
+                    messages.append(ChatMessage(role="user", content=[ContentBlock(
+                        type="text",
+                        text=(
+                            "你上一轮的输出被长度上限截断，一个工具都没调用。"
+                            "别再展开长篇推演：把犹豫直接变成行动——要么调用下一个"
+                            "需要的工具，要么用 ask_owner 一句话把问题问给业主。"
+                        ),
+                    )]))
+                    self._record_turn(build_id, turn, teammate, response, [], state, model=actor_model)
+                    await self._emit(build_id, "build.turn.truncated", {
+                        "actor": teammate or "coordinator",
+                        "turn": turn,
+                        "stop_reason": response.stop_reason,
+                        "rescues_used": truncated_rescues,
+                    })
+                    self._record_event(
+                        build_id, "truncated",
+                        "这一轮思考超出输出上限被截断；已提醒莉莉丝压缩思考、直接行动",
+                    )
+                    continue
+                self._record_turn(build_id, turn, teammate, response, [], state, model=actor_model)
                 final = "".join(block.text or "" for block in response.blocks if block.type == "text")
                 if teammate is None:
                     state.coordinator_messages = [
                         message.model_dump(mode="json") for message in messages
                     ]
                 break
+            truncated_rescues = 0
             results: list[ContentBlock] = []
             turn_tool_records: list[dict[str, Any]] = []
             turn_discovery_progress = False
@@ -1053,7 +1099,7 @@ class WorkflowBuilder:
                 state.coordinator_messages = [
                     message.model_dump(mode="json") for message in messages
                 ]
-            self._record_turn(build_id, turn, teammate, response, turn_tool_records, state)
+            self._record_turn(build_id, turn, teammate, response, turn_tool_records, state, model=actor_model)
             await self.workflow_store.update_build(build_id, team_state=state)
             if teammate is None and state.pending_question:
                 final = state.pending_question
@@ -1760,7 +1806,8 @@ class WorkflowBuilder:
                     "draft_revision": state.revision,
                 })
                 raise RuntimeError(blocked_reason)
-            teammate = TeammateState(name=name, purpose=str(data["task"]))
+            teammate_model = self._resolve_teammate_model(state, data.get("model"))
+            teammate = TeammateState(name=name, purpose=str(data["task"]), model=teammate_model)
             state.teammates[name] = teammate
             await self._emit(build_id, "team.teammate.spawned", teammate.model_dump(mode="json"))
             messages = [ChatMessage(role="user", content=[ContentBlock(type="text", text=str(data["task"]))])]
@@ -1778,6 +1825,7 @@ class WorkflowBuilder:
                 teammate=name,
                 build_started_at=build_started_at,
                 max_elapsed_seconds=max_elapsed_seconds,
+                model=teammate_model,
             )
             teammate.messages = [message.model_dump(mode="json") for message in messages]
             teammate.status = "idle"
@@ -1817,6 +1865,7 @@ class WorkflowBuilder:
                 teammate=name,
                 build_started_at=build_started_at,
                 max_elapsed_seconds=max_elapsed_seconds,
+                model=teammate.model,
             )
             teammate.messages = [message.model_dump(mode="json") for message in messages]
             teammate.mailbox.clear()
@@ -1824,11 +1873,29 @@ class WorkflowBuilder:
             return {"name": name, "status": "idle", "result": result}
         raise KeyError(f"unknown builder tool: {tool}")
 
+    def _resolve_teammate_model(self, state: BuildTeamState, requested: Any) -> str | None:
+        """校验队友模型指派：只允许本次构建声明的模型池，越界大声报错。
+
+        返回 None 表示队友跟随协调者模型（未指派或无模型池时的默认）。
+        """
+
+        value = str(requested or "").strip()
+        if not value:
+            return None
+        allowed = state.teammate_models or []
+        if value not in allowed:
+            raise RuntimeError(
+                f"teammate model not allowed: {value} "
+                f"(this build permits: {', '.join(allowed) or 'coordinator model only'})"
+            )
+        return value
+
     def _definitions(
         self,
         *,
         allow_team: bool,
         planning_mode: str = "auto",
+        teammate_models: list[str] | None = None,
     ) -> list[ToolDefinition]:
         object_schema = {"type": "object", "additionalProperties": True}
         definitions = [
@@ -1865,8 +1932,20 @@ class WorkflowBuilder:
                 ToolDefinition(name="build_plan", description="Create, inspect, or update a module-level BuildPlan before building complex BlockFlows.", input_schema={"type": "object", "properties": {"action": {"enum": ["set", "get", "update_module"]}, "plan": BuildPlan.model_json_schema(), "module_id": {"type": "string"}, "changes": object_schema}, "required": ["action"]})
             )
         if allow_team:
+            spawn_properties: dict[str, Any] = {"name": {"type": "string"}, "task": {"type": "string"}, "max_turns": {"type": "integer"}}
+            spawn_description = "Create an isolated persistent teammate for a bounded task."
+            if teammate_models:
+                spawn_properties["model"] = {
+                    "type": "string",
+                    "enum": list(teammate_models),
+                    "description": "Optional model for this teammate. Cheaper/smaller models suit mechanical, schema-heavy subtasks; omit to use the coordinator's model.",
+                }
+                spawn_description += (
+                    " You may assign this teammate one of the permitted models via the optional"
+                    " 'model' field; delegate mechanical schema-heavy work to cheaper models."
+                )
             definitions.extend([
-                ToolDefinition(name="spawn_teammate", description="Create an isolated persistent teammate for a bounded task.", input_schema={"type": "object", "properties": {"name": {"type": "string"}, "task": {"type": "string"}, "max_turns": {"type": "integer"}}, "required": ["name", "task"]}),
+                ToolDefinition(name="spawn_teammate", description=spawn_description, input_schema={"type": "object", "properties": spawn_properties, "required": ["name", "task"]}),
                 ToolDefinition(name="send_message", description="Wake an existing teammate with a follow-up message while retaining its context.", input_schema={"type": "object", "properties": {"name": {"type": "string"}, "message": {"type": "string"}, "max_turns": {"type": "integer"}}, "required": ["name", "message"]}),
                 ToolDefinition(name="ask_owner", description="Pause the build and ask the owner one batched set of blocking questions. Use only when required information cannot be responsibly inferred; the build stops until the owner replies.", input_schema={"type": "object", "properties": {"question": {"type": "string"}}, "required": ["question"]}),
             ])
@@ -2310,6 +2389,7 @@ class WorkflowBuilder:
         response: Any,
         tool_records: list[dict[str, Any]],
         state: BuildTeamState,
+        model: str | None = None,
     ) -> None:
         """Persist one model turn so a stalled build can be diagnosed later."""
 
@@ -2320,7 +2400,7 @@ class WorkflowBuilder:
             turn_record(
                 turn=turn,
                 actor=teammate or "coordinator",
-                model=self.generator_model,
+                model=model or self.generator_model,
                 blocks=response.blocks,
                 tool_calls=tool_records,
                 stop_reason=response.stop_reason,

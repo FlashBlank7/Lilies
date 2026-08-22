@@ -58,6 +58,7 @@ import {
 import surfaceStyles from '@/app/surface-boundaries.module.css'
 import { ScheduleOperationsPanel } from '@/app/schedule-operations-panel'
 import { ConnectorOperationsPanel } from '@/app/connector-operations-panel'
+import BuildAdvancedConfig, { defaultBuildOptions, buildOptionsPayload, type BuildOptions } from '@/app/components/BuildAdvancedConfig'
 import {
   BlockCatalogPanel,
   BlockInstanceDetails,
@@ -898,7 +899,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   const [tab, setTab] = useState<StudioTab>('build')
   const [requestedAssignmentId, setRequestedAssignmentId] = useState('')
   const [requirement, setRequirement] = useState('')
-  const [buildDeadlineSeconds, setBuildDeadlineSeconds] = useState('')
+  const [buildOptions, setBuildOptions] = useState<BuildOptions>(() => defaultBuildOptions(true))
   const [publicationDecision, setPublicationDecision] = useState<PublicationDecision | null>(null)
   const [publicationBusy, setPublicationBusy] = useState(false)
   const [testReport, setTestReport] = useState<Record<string, unknown> | null>(null)
@@ -1949,22 +1950,14 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   }
 
   async function startBuild() {
-    const trimmedDeadline = buildDeadlineSeconds.trim()
-    let maxElapsedSeconds: number | undefined
-    if (trimmedDeadline) {
-      maxElapsedSeconds = Number(trimmedDeadline)
-      if (Number.isNaN(maxElapsedSeconds) || maxElapsedSeconds <= 0) {
-        setNotice(t.buildDeadlineInvalid)
-        return
-      }
+    const options = buildOptionsPayload(buildOptions, locale)
+    if (options.error !== undefined) {
+      setNotice(options.error)
+      return
     }
     const result = await api<{ build_id: string }>(`/api/v1/applications/${id}/builds`, {
       method: 'POST',
-      body: JSON.stringify({
-        requirement,
-        auto_publish: true,
-        ...(maxElapsedSeconds ? { max_elapsed_seconds: maxElapsedSeconds } : {}),
-      }),
+      body: JSON.stringify({ requirement, ...options.payload }),
     })
     history.replaceState(null, '', `?build=${result.build_id}`)
     watchBuild(result.build_id)
@@ -2233,10 +2226,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
         {tab === 'build' && <div className="panel-body">
           <div className="panel-kicker">{locale === 'zh' ? '莉莉丝 Builder' : 'Lilies Builder'}</div><h2>{t.continueBuild}</h2>
           <textarea ref={detailBuildRequirementRef} className="requirement-input" value={requirement} onChange={event => { setRequirement(event.target.value); }} />
-          <label className="run-field">
-            <span>{t.buildDeadlineLabel}<em>{t.buildDeadlineHelp}</em></span>
-            <input type="number" min="0.001" step="0.1" value={buildDeadlineSeconds} onChange={event => { setBuildDeadlineSeconds(event.target.value); }} />
-          </label>
+          <BuildAdvancedConfig locale={locale} onChange={setBuildOptions} tone="dark" value={buildOptions} />
           <button className="wide build-action" data-build-action="detail-start-builder" onClick={startBuild}>{locale === 'zh' ? '让莉莉丝搭建' : 'Let Lilies build it'}</button>
           {build && <div className="build-status"><b>{build.status}</b><span>{Object.keys(build.team_state.teammates).length} teammates · {build.team_state.tasks.length} tasks · {build.team_state.repair_cycles} repairs</span><span>{build.deadline?.enabled && build.deadline.max_elapsed_seconds ? t.buildDeadlineActive(build.deadline.max_elapsed_seconds) : t.buildDeadlineInactive}</span>{build.error && <p>{build.error}</p>}</div>}
           <section className="module-registry" data-module-registry="versioned-evidence">

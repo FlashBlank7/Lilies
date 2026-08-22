@@ -46,6 +46,8 @@ def build_agent_runtime_core(
     selected_provider = provider or MultiProvider(
         deepseek_api_key=settings.deepseek_api_key,
         deepseek_base_url=settings.deepseek_base_url,
+        local_base_url=settings.local_model_base_url,
+        local_api_key=settings.local_model_api_key,
         timeout_seconds=settings.deepseek_timeout_seconds,
         egress_enabled=settings.model_egress_enabled,
     )

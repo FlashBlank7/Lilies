@@ -279,6 +279,10 @@ class WorkflowStorage:
             }
             if "max_elapsed_seconds" not in columns:
                 conn.execute("ALTER TABLE builds ADD COLUMN max_elapsed_seconds REAL")
+            if "builder" not in columns:
+                conn.execute(
+                    "ALTER TABLE builds ADD COLUMN builder TEXT NOT NULL DEFAULT 'classic'"
+                )
             application_columns = {
                 row["name"]
                 for row in conn.execute("PRAGMA table_info(applications)").fetchall()
@@ -1276,12 +1280,17 @@ class WorkflowStorage:
         planning_mode: str = "auto",
         complexity_router: dict[str, Any] | None = None,
         runtime_builder_policy: dict[str, Any] | None = None,
+        builder: str = "classic",
+        coordinator_model: str | None = None,
+        teammate_models: list[str] | None = None,
     ) -> None:
         now = utc_now()
         team_state = BuildTeamState(
             planning_mode=planning_mode,
             complexity_router=complexity_router,
             runtime_builder_policy=runtime_builder_policy,
+            coordinator_model=coordinator_model,
+            teammate_models=teammate_models,
         )
         async with self._lock:
             await asyncio.to_thread(
@@ -1299,8 +1308,9 @@ class WorkflowStorage:
                   error,
                   created_at,
                   updated_at,
-                  max_elapsed_seconds
-                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
+                  max_elapsed_seconds,
+                  builder
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     build_id,
@@ -1315,6 +1325,7 @@ class WorkflowStorage:
                     now,
                     now,
                     max_elapsed_seconds,
+                    (builder or "classic").strip() or "classic",
                 ),
             )
 

@@ -1,0 +1,31 @@
+/* 构建高级配置面板：浅色默认（lil 设计令牌），.dark 适配工作室深色面。 */
+
+.panel{margin:10px 0 0;border:1px dashed var(--lil-line);border-radius:12px;background:var(--lil-panel-soft)}
+.panel>summary{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;cursor:pointer;padding:10px 14px;font-size:12.5px;color:var(--lil-muted);list-style-position:inside}
+.panel>summary b{color:var(--lil-ink);font-weight:650}
+.panel>summary span{color:var(--lil-muted)}
+.panel>summary small{margin-left:auto;color:var(--lil-muted);opacity:.75}
+.panel[open]>summary{border-bottom:1px solid var(--lil-line-soft);color:var(--lil-ink)}
+
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;padding:13px 14px 15px}
+.grid label{display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--lil-ink)}
+.grid label>span{display:flex;flex-direction:column;gap:2px;font-weight:600}
+.grid label>span em{font-style:normal;font-weight:400;font-size:11px;color:var(--lil-muted)}
+.grid input[type=number],.grid select{border:1px solid var(--lil-line);border-radius:8px;background:var(--lil-panel);color:var(--lil-ink);padding:8px 10px;font:inherit;font-size:13px}
+.grid input[type=number]:focus,.grid select:focus{outline:2px solid var(--lil-accent-line);border-color:var(--lil-accent)}
+
+.toggle{flex-direction:row!important;align-items:center;gap:8px!important;align-self:end;padding-bottom:6px}
+.toggle input{width:15px;height:15px;accent-color:var(--lil-accent)}
+.toggle span{font-weight:600}
+
+/* 深色工作室面：沿用 studio 面板配色 */
+.dark{border-color:#2b3547;background:#0c111a}
+.dark>summary{color:#8f9caf}
+.dark>summary b{color:#f5f7fb}
+.dark>summary span,.dark>summary small{color:#8f9caf}
+.dark[open]>summary{border-bottom-color:#20293a;color:#f5f7fb}
+.dark .grid label{color:#dfe6f2}
+.dark .grid label>span em{color:#8492a7}
+.dark .grid input[type=number],.dark .grid select{border-color:#2b3548;background:#0b1018;color:#dfe6f2}
+.dark .grid input[type=number]:focus,.dark .grid select:focus{outline:2px solid #33415e;border-color:#5b8cff}
+.dark .toggle input{accent-color:#5b8cff}

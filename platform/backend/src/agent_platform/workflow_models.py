@@ -309,6 +309,12 @@ class BuildRequest(BaseModel):
     max_repair_cycles: int = Field(default=4, ge=1, le=30)
     max_elapsed_seconds: float | None = Field(default=480.0, ge=0.001, le=86_400)
     planning_mode: Literal["auto", "required", "disabled"] = "auto"
+    # 选用哪套 builder 引擎（builder_registry 注册名）；实验对照用，默认经典单模型实现。
+    builder: str = Field(default="classic", min_length=1, max_length=64)
+    # per-actor 模型（异构构建实验）：协调者模型覆盖（None = 平台默认），
+    # 以及协调者可指派给队友的模型池（None = 队友跟随协调者，现行为不变）。
+    coordinator_model: str | None = Field(default=None, max_length=200)
+    teammate_models: list[str] | None = Field(default=None, max_length=16)
 
 
 class WorkflowRunRequest(BaseModel):
@@ -468,6 +474,9 @@ class TeammateState(BaseModel):
     status: Literal["working", "idle", "completed", "failed"] = "working"
     messages: list[dict[str, Any]] = Field(default_factory=list)
     mailbox: list[str] = Field(default_factory=list)
+    # 该队友使用的模型（provider/model-id）。None = 跟随协调者。落库保证
+    # send_message 追问不会静默漂回协调者模型（实验血缘要求）。
+    model: str | None = None
 
 
 class BuildTeamState(BaseModel):
@@ -486,3 +495,7 @@ class BuildTeamState(BaseModel):
     planning_mode: Literal["auto", "required", "disabled"] = "auto"
     # Set by the ask_owner tool: the build pauses until the owner replies via resume.
     pending_question: str | None = None
+    # per-actor 模型配置（异构构建实验）：协调者模型覆盖 + 队友可选模型池。
+    # 都为 None 时行为与单模型时代完全一致；随 team_state 落库进配置指纹。
+    coordinator_model: str | None = None
+    teammate_models: list[str] | None = None
