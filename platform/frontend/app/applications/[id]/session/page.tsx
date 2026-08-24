@@ -367,6 +367,23 @@ export default function Session({ params }: { params: Promise<{ id: string }> })
           }}
           type="button"
         >分享给使用者</button>
+        <button
+          className={styles.shareGhost}
+          onClick={() => {
+            void api<{ code: string }>(`/api/v1/applications/${id}/owner-code`)
+              .then(async result => {
+                const url = `${window.location.origin}/owner/${id}?code=${result.code}`
+                let copied = false
+                try {
+                  await navigator.clipboard?.writeText(url)
+                  copied = true
+                } catch { /* 剪贴板被浏览器拦截时降级为手动复制 */ }
+                setNotice(copied ? `业主链接已复制：${url}` : `请手动复制业主链接：${url}`)
+              })
+              .catch(error => setNotice(String(error)))
+          }}
+          type="button"
+        >业主链接</button>
         <Link href={`/applications/${id}/pm`}>请监理</Link>
         <Link href={`/applications/${id}/views`}>界面方案</Link>
         <Link href={`/applications/${id}`}>画布编辑</Link>

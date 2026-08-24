@@ -371,6 +371,15 @@ class ResumeBuildRequest(BaseModel):
     message: str = Field(default="", max_length=8_000)
 
 
+class OwnerMessageRequest(BaseModel):
+    code: str
+    message: str = Field(min_length=1, max_length=8_000)
+
+
+class OwnerRepairRequest(BaseModel):
+    code: str
+
+
 class BuildMessageRequest(BaseModel):
     message: str = Field(min_length=1, max_length=8_000)
 
@@ -4641,6 +4650,123 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             "code": code,
             "use_path": f"/use/{application_id}?code={code}",
         }
+
+    # ── 业主通道：一应用一业主码，免登录会话面（答问/插话/返修），永不出示总钥匙 ──
+
+    async def _require_owner_access(application_id: str, code: str) -> None:
+        if not await services.workflow_store.verify_owner_code(application_id, code):
+            raise HTTPException(403, "业主码不对或已更换——联系服务方获取新链接")
+
+    @app.get(
+        "/api/v1/applications/{application_id}/owner-code",
+        dependencies=[Depends(require_token)],
+    )
+    async def get_application_owner_code(application_id: str) -> dict[str, Any]:
+        try:
+            code = await services.workflow_store.ensure_owner_code(application_id)
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+        return {
+            "application_id": application_id,
+            "code": code,
+            "owner_path": f"/owner/{application_id}?code={code}",
+        }
+
+    @app.post(
+        "/api/v1/applications/{application_id}/owner-code",
+        dependencies=[Depends(require_token)],
+    )
+    async def rotate_application_owner_code(application_id: str) -> dict[str, Any]:
+        try:
+            code = await services.workflow_store.rotate_owner_code(application_id)
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+        return {
+            "application_id": application_id,
+            "code": code,
+            "owner_path": f"/owner/{application_id}?code={code}",
+        }
+
+    @app.get("/api/v1/owner/{application_id}/state")
+    async def owner_state(application_id: str, code: str) -> dict[str, Any]:
+        """业主会话面的一站式状态：应用名、最新构建、待答问题、验收摘要。"""
+
+        await _require_owner_access(application_id, code)
+        try:
+            application = await services.workflow_store.get_application(application_id)
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+        builds = await services.workflow_store.list_builds(application_id)
+        latest = builds[0] if builds else None
+        acceptance = acceptance_pm.load_report(services.settings.data_dir, application_id)
+        return {
+            "application": {"id": application_id, "name": application["name"]},
+            "build": None if latest is None else {
+                "id": latest["id"],
+                "status": latest["status"],
+                "pending_question": latest["team_state"].pending_question
+                if latest["status"] == "needs_attention" else None,
+                "updated_at": latest["updated_at"],
+            },
+            "acceptance": None if not acceptance else {
+                "accepted": bool(acceptance.get("accepted")),
+                "passed_cases": acceptance.get("passed_cases"),
+                "total_cases": acceptance.get("total_cases"),
+            },
+            "published_version": application.get("active_version"),
+        }
+
+    @app.get("/api/v1/owner/{application_id}/transcript")
+    async def owner_transcript(
+        application_id: str,
+        code: str,
+        after_turn: int = Query(default=0, ge=0),
+    ) -> dict[str, Any]:
+        await _require_owner_access(application_id, code)
+        builds = await services.workflow_store.list_builds(application_id)
+        if not builds:
+            return {"build_id": None, "records": [], "summary": {"available": False}}
+        build_id = builds[0]["id"]
+        records = await asyncio.to_thread(
+            services.build_transcripts.read, build_id, after_turn=after_turn, limit=500,
+        )
+        summary = await asyncio.to_thread(services.build_transcripts.summary, build_id)
+        return {"build_id": build_id, "records": records, "summary": summary}
+
+    @app.post("/api/v1/owner/{application_id}/message")
+    async def owner_message(application_id: str, body: OwnerMessageRequest) -> dict[str, Any]:
+        """业主发话：构建进行中→实时插话；已停→作为新指示续跑。与会话页同语义。"""
+
+        await _require_owner_access(application_id, body.code)
+        builds = await services.workflow_store.list_builds(application_id)
+        if not builds:
+            raise HTTPException(409, "还没有开始搭建——请联系服务方发起构建")
+        build = builds[0]
+        engine = services.builders.for_build(build)
+        if build["status"] in {"queued", "building"}:
+            try:
+                engine.post_live_message(build["id"], body.message)
+            except RuntimeError as error:
+                raise HTTPException(409, str(error)) from error
+            delivered = "live"
+        else:
+            engine.queue_resume_message(build["id"], body.message)
+            await services.workflow_store.update_build(build["id"], status="queued", error="")
+            engine.start(build["id"])
+            delivered = "resume"
+        await asyncio.to_thread(
+            services.build_transcripts.append,
+            build["id"],
+            owner_record(text=body.message, draft_revision=build["team_state"].revision),
+        )
+        return {"build_id": build["id"], "delivered": delivered}
+
+    @app.post("/api/v1/owner/{application_id}/repair")
+    async def owner_repair(application_id: str, body: OwnerRepairRequest) -> dict[str, Any]:
+        """业主一键"按验收单返修"——复用监理返修闭环，业主码即授权。"""
+
+        await _require_owner_access(application_id, body.code)
+        return await repair_from_acceptance(application_id)
 
     # ── 业主侧：工作区文件与工作流定义导出 ──
 

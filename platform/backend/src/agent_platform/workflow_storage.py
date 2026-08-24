@@ -218,6 +218,12 @@ class WorkflowStorage:
                   created_at TEXT NOT NULL,
                   FOREIGN KEY(application_id) REFERENCES applications(id) ON DELETE CASCADE
                 );
+                CREATE TABLE IF NOT EXISTS application_owner_codes (
+                  application_id TEXT PRIMARY KEY,
+                  code TEXT NOT NULL,
+                  created_at TEXT NOT NULL,
+                  FOREIGN KEY(application_id) REFERENCES applications(id) ON DELETE CASCADE
+                );
                 CREATE TABLE IF NOT EXISTS application_views (
                   application_id TEXT NOT NULL,
                   view_id TEXT NOT NULL,
@@ -1465,6 +1471,52 @@ class WorkflowStorage:
         if existing:
             return existing
         return await self.rotate_access_code(application_id)
+
+    # ── 业主码：业主会话面的免登录定向访问（与使用码同构，互相独立） ──
+
+    async def rotate_owner_code(self, application_id: str) -> str:
+        import secrets
+
+        code = secrets.token_urlsafe(9).replace("_", "a").replace("-", "b")[:12]
+
+        def _set() -> None:
+            with self.storage._connect() as conn:
+                row = conn.execute(
+                    "SELECT id FROM applications WHERE id=?", (application_id,)
+                ).fetchone()
+                if not row:
+                    raise KeyError(f"application not found: {application_id}")
+                conn.execute(
+                    """INSERT INTO application_owner_codes(application_id, code, created_at)
+                       VALUES(?,?,?)
+                       ON CONFLICT(application_id) DO UPDATE SET code=excluded.code,
+                         created_at=excluded.created_at""",
+                    (application_id, code, utc_now()),
+                )
+
+        await asyncio.to_thread(_set)
+        return code
+
+    async def get_owner_code(self, application_id: str) -> str | None:
+        def _fetch() -> Any:
+            with self.storage._connect() as conn:
+                return conn.execute(
+                    "SELECT code FROM application_owner_codes WHERE application_id=?",
+                    (application_id,),
+                ).fetchone()
+
+        row = await asyncio.to_thread(_fetch)
+        return row["code"] if row else None
+
+    async def verify_owner_code(self, application_id: str, code: str) -> bool:
+        stored = await self.get_owner_code(application_id)
+        return bool(stored) and bool(code) and stored == code
+
+    async def ensure_owner_code(self, application_id: str) -> str:
+        existing = await self.get_owner_code(application_id)
+        if existing:
+            return existing
+        return await self.rotate_owner_code(application_id)
 
     # ── 界面方案：标注哪些环节对使用者可见，同一工作流生成不同界面 ──
 
