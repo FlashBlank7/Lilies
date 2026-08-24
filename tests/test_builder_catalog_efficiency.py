@@ -62,3 +62,47 @@ def test_repeated_catalog_search_returns_pointer_not_full_results(tmp_path: Path
         third = run({"query": "http"})
         assert isinstance(third, list) and third
         assert state.catalog_queries == ["llm", "http"]
+
+
+def test_catalog_overview_carries_block_responsibilities_not_just_titles() -> None:
+    """选型是架构那一步唯一重要的事，目录必须说清每个积木**干什么**。
+
+    此前这张表只给 `type — English title`：模型看到的是
+    "variable_aggregator — Variable Aggregator"，看不到那句要命的
+    "只做分支值合并/透传，不做任何算术"——尽管平台早就写好了这句话，
+    只是当时只发给编辑器界面。八轮真机构建里有四轮的架构师第一步都在盲查目录。
+    """
+    from agent_platform.blocks import build_block_registry
+    from agent_platform.builder import WorkflowBuilder
+
+    class _Probe(WorkflowBuilder):
+        def __init__(self) -> None:
+            self.blocks = build_block_registry()
+
+            class _NoTools:
+                def names(self) -> list[str]:
+                    return []
+
+            self.core_tools = _NoTools()
+
+    overview = _Probe()._catalog_overview()
+
+    # 那句最要命的反模式警告必须在选型面前就看得到
+    assert "只做分支值合并/透传，不做任何算术" in overview
+    assert "sum_by" in overview          # 正确做法也要指出来
+    # 不能退回只有标题的老样子
+    assert "variable_aggregator — Variable Aggregator" not in overview
+    # 体量要留得住：这张表每轮都进上下文
+    assert len(overview) < 8000, len(overview)
+
+
+def test_every_block_has_a_chinese_one_liner() -> None:
+    """目录概览按中文一句话职责选型，缺一条就有一个积木是"盲选"的。
+
+    补齐前 replenishment_planner / deployed_forecast 两个都没有——恰好是工业
+    任务包 T6（补货规划）和 T4（预测）的关键积木。
+    """
+    from agent_platform.blocks import _ZH_BLOCKS, build_block_registry
+
+    missing = [item.type for item in build_block_registry().list() if item.type not in _ZH_BLOCKS]
+    assert missing == [], missing

@@ -26,6 +26,9 @@ def candidate_node_bins(home: Path | None = None) -> list[Path]:
         for path in sorted(glob.glob(str(resolved_home / ".nvm" / "versions" / "node" / "*" / "bin")), reverse=True)
     )
     candidates.append(resolved_home / ".cache" / "codex-runtimes" / "codex-primary-runtime" / "dependencies" / "node" / "bin")
+    # 无 root 的服务器上（如 bagpipe）Node 直接解到 ~/.local/node——
+    # 不收录这条，前端验证会在没有 PATH 加持时误报"环境不可用"。
+    candidates.append(resolved_home / ".local" / "node" / "bin")
     seen = set()
     unique = []
     for candidate in candidates:

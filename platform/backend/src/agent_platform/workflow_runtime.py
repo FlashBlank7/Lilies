@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import ipaddress
+import difflib
 import json
 import os
 import re
@@ -4706,7 +4707,26 @@ class WorkflowRuntime:
                     if node_id not in context["nodes"] and reference.get("optional"):
                         return None
                     current = context["nodes"][node_id]
-                for key in path:
+                # 点号写进单个段里（["output.by_store"] 而不是 ["output","by_store"]）
+                # 意图无歧义，先按拆分重试一次再谈失败。这个错法是**平台自己教的**：
+                # 下面的"可用路径"提示用点号显示（output.by_store），模型照抄成了
+                # 一个段（真机构建 881d90a6 因此耗尽 4 轮修复）。
+                walk = path
+                if any(isinstance(seg, str) and "." in seg for seg in path):
+                    expanded: list[Any] = []
+                    for seg in path:
+                        if isinstance(seg, str) and "." in seg:
+                            expanded.extend(part for part in seg.split(".") if part)
+                        else:
+                            expanded.append(seg)
+                    try:
+                        probe: Any = current
+                        for key in expanded:
+                            probe = probe[int(key)] if isinstance(probe, list) else probe[key]
+                        walk = expanded
+                    except (KeyError, IndexError, TypeError, ValueError):
+                        walk = path
+                for key in walk:
                     current = current[int(key)] if isinstance(current, list) else current[key]
                     traversed.append(key)
                 return current
@@ -4724,6 +4744,73 @@ class WorkflowRuntime:
                 )
                 if isinstance(current, list):
                     detail += f"; container_length={len(current)}"
+                # 拒绝即教学：把该节点真实可用的路径摆出来。实测同一个坑
+                # （variable_assigner 的产出包在 output 下）把 32B 和人类
+                # 作者双双绊倒——只报"解析不了"等于让人猜。
+                available = context.get("nodes", {}).get(node_id)
+                if isinstance(available, dict):
+                    hints = []
+                    # 提示必须用**真实输入语法**（分段数组），不能用点号显示形式：
+                    # 模型会照抄提示。此前提示写 output.by_store，模型就写成
+                    # path: ["output.by_store"]，永远解析不了（真机 881d90a6）。
+                    for key, item in list(available.items())[:6]:
+                        if isinstance(item, dict):
+                            hints.extend(
+                                f'["{key}", "{sub}"]' for sub in list(item.keys())[:6]
+                            )
+                        else:
+                            hints.append(f'["{key}"]')
+                    if hints:
+                        detail += f"; 该节点可用路径：{hints[:12]}"
+                        # 该修哪一端，按"想要的路径是不是已有路径的近亲"来判：
+                        #  · 近亲（写法/拼写差一点）→ 十有八九是引用写错了，先改引用方；
+                        #  · 八竿子打不着 → 被引用节点确实没产出这个字段，改产出方。
+                        # 一刀切两次都翻过车：先是协调者 61 次只改引用方（真正缺的是
+                        # 产出），后是修理手 4 轮只改产出方（真正错的是引用路径写法，
+                        # 真机 881d90a6）。把判断做出来，别把两条路并列丢给模型。
+                        wanted = [str(segment) for segment in path]
+                        flat_wanted = ".".join(wanted)
+                        flat_hints = [
+                            hint.replace('["', "").replace('"]', "")
+                                .replace('", "', ".")
+                            for hint in hints
+                        ]
+                        near = difflib.get_close_matches(
+                            flat_wanted, flat_hints, n=2, cutoff=0.6
+                        )
+                        if near:
+                            detail += (
+                                f"；你写的 {path!r} 和已有的 "
+                                f"{['[\"' + n.replace('.', '\", \"') + '\"]' for n in near]!r} "
+                                "很接近——**多半是这里的引用写错了**（注意路径要按层分段，"
+                                '["output", "字段名"]，不是 ["output.字段名"]），'
+                                "先改引用方；确认无误再去看被引用节点的产出。"
+                            )
+                        else:
+                            detail += (
+                                f"；已有路径里没有和 {flat_wanted} 沾边的——"
+                                f"多半是节点 {node_id!r} 根本没产出这个字段，"
+                                "去它的 assignments/config 里补上；"
+                                "只改引用方是修不好的。"
+                            )
+                        # 指明该修哪一端：实测协调者拿到"解析不了"后 61 次去改
+                        # 引用方（模板节点），而真正缺的是被引用节点没产出该字段。
+                        wanted = ".".join(str(segment) for segment in path)
+                        detail += (
+                            f"；要么让节点 {node_id!r} 真正产出 {wanted}"
+                            f"（例如在它的 assignments/config 里补上），"
+                            "要么把这里的引用改成上面已有的路径之一——"
+                            "改引用方而不改产出方是修不好的。"
+                        )
+                        # 指明该修哪一端：实测协调者拿到"解析不了"后 61 次去改
+                        # 引用方（模板节点），而真正缺的是被引用节点没产出该字段。
+                        wanted = ".".join(str(segment) for segment in path)
+                        detail += (
+                            f"；要么让节点 {node_id!r} 真正产出 {wanted}"
+                            f"（例如在它的 assignments/config 里补上），"
+                            "要么把这里的引用改成上面已有的路径之一——"
+                            "改引用方而不改产出方是修不好的。"
+                        )
                 raise WorkflowReferenceResolutionError(detail) from error
         if isinstance(value, dict):
             return {key: cls._resolve(item, context) for key, item in value.items()}
@@ -4731,25 +4818,89 @@ class WorkflowRuntime:
             return [cls._resolve(item, context) for item in value]
         return value
 
+    ASSIGNMENT_OPERATORS = frozenset({
+        "$add", "$subtract", "$equals", "$length", "$sum", "$count",
+        "$concat", "$coalesce", "$json_encode", "$formula",
+    })
+
     @classmethod
     def _resolve_assignment(cls, value: Any, context: dict[str, Any]) -> Any:
         """Resolve bounded, deterministic expressions inside Variable Assigner only."""
 
+        if isinstance(value, dict):
+            operator_keys = [key for key in value if isinstance(key, str) and key.startswith("$")]
+            unknown = [
+                key for key in operator_keys
+                if key not in cls.ASSIGNMENT_OPERATORS and key != "$ref"
+            ]
+            # 拒绝即教学（2026-08-23）：此前未知 $ 操作符静默落到通用解析，
+            # 报出"collection expression requires an array"这类风马牛的错误。
+            # 32B 实测发明了 $sum_by 并与正确的 $formula 写在同一个对象里，
+            # 运行时取到第一个键就跑偏，模型完全无从修起。
+            if unknown:
+                raise ValueError(
+                    f"未知的赋值操作符 {unknown!r}。可用：{sorted(cls.ASSIGNMENT_OPERATORS)}；"
+                    '记录聚合请用 {"$formula": {"expression": \'sum_by(记录, "键", "值")\', '
+                    '"vars": {"记录": {"$ref": ...}}}}'
+                )
+            if len(operator_keys) > 1:
+                raise ValueError(
+                    f"一个赋值对象里只能有一个操作符，收到 {sorted(operator_keys)!r}——"
+                    "请删掉多余的，只保留真正要用的那个。"
+                )
+            # 操作符与普通键混写会被静默忽略（长度不为 1 就当普通字典解析），
+            # 结果是字段里塞着一份未求值的公式——形状合法的垃圾。实测 32B 写出
+            # {"$formula": {...}, "output_type": "object"}，公式从未被执行。
+            if operator_keys and len(value) != 1:
+                extra_keys = [key for key in value if key not in operator_keys]
+                raise ValueError(
+                    f"操作符 {operator_keys[0]} 不能和其它键混在同一个对象里"
+                    f"（多余的：{extra_keys}）——它会被静默忽略、公式根本不会执行。"
+                    f'正确写法：{{"字段名": {{"{operator_keys[0]}": ...}}}}'
+                )
+            # 操作符与普通键混写会被静默忽略（长度不为 1 就当普通字典解析），
+            # 结果是字段里塞着一份未求值的公式——形状合法的垃圾。实测 32B 写出
+            # {"$formula": {...}, "output_type": "object"}，公式从未被执行。
+            if operator_keys and len(value) != 1:
+                extra_keys = [key for key in value if key not in operator_keys]
+                raise ValueError(
+                    f"操作符 {operator_keys[0]} 不能和其它键混在同一个对象里"
+                    f"（多余的：{extra_keys}）——它会被静默忽略、公式根本不会执行。"
+                    f'正确写法：{{"字段名": {{"{operator_keys[0]}": ...}}}}'
+                )
+            # 操作符与普通键混写会被静默忽略（长度不为 1 就当普通字典解析），
+            # 结果是字段里塞着一份未求值的公式——形状合法的垃圾。实测 32B 写出
+            # {"$formula": {...}, "output_type": "object"}，公式从未被执行。
+            if operator_keys and len(value) != 1:
+                extra_keys = [key for key in value if key not in operator_keys]
+                raise ValueError(
+                    f"操作符 {operator_keys[0]} 不能和其它键混在同一个对象里"
+                    f"（多余的：{extra_keys}）——它会被静默忽略、公式根本不会执行。"
+                    f'正确写法：{{"字段名": {{"{operator_keys[0]}": ...}}}}'
+                )
         if not isinstance(value, dict) or len(value) != 1:
             return cls._resolve(value, context)
         operator, operand = next(iter(value.items()))
-        if operator not in {
-            "$add",
-            "$subtract",
-            "$equals",
-            "$length",
-            "$sum",
-            "$count",
-            "$concat",
-            "$coalesce",
-            "$json_encode",
-            "$formula",
-        }:
+        if operator not in cls.ASSIGNMENT_OPERATORS:
+            # 漏了 $、或把公式函数名当操作符用：此前直接当普通字典解析，字段里
+            # 就塞进一份没求值的表达式，运行不报错、结果静默错——本项目最恨的
+            # "形状合法的垃圾"。实测 4B 写出 {"sum_by": ["sales","store","amount"]}，
+            # 一路走到数字断言才炸，报错还与真因无关。
+            from .formula import function_names as _formula_functions
+
+            bare = str(operator).lstrip("$")
+            if f"${bare}" in cls.ASSIGNMENT_OPERATORS:
+                raise ValueError(
+                    f"赋值操作符要带 $ 前缀：{operator!r} 应写作 {'$' + bare!r}——"
+                    "不带 $ 会被当成普通字典原样存下，表达式根本不会求值。"
+                )
+            if bare in _formula_functions():
+                raise ValueError(
+                    f"{bare!r} 是公式函数，不是赋值操作符，不能直接当键用——"
+                    "不然它会被当成普通字典原样存下，函数根本不会执行。"
+                    f'正确写法：{{"$formula": {{"expression": "{bare}(记录, ...)", '
+                    '"vars": {"记录": {"$ref": {"node_id": "...", "path": [...]}}}}}}'
+                )
             return cls._resolve(value, context)
         if operator == "$formula":
             from .formula import evaluate_formula

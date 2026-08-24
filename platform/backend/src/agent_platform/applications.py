@@ -19,6 +19,32 @@ from .workflow_storage import RevisionConflict, WorkflowStorage
 from .tools import ToolRegistry
 
 
+def _wiring_hint(snapshot: Any) -> str:
+    """把"现在接了什么、还差什么"算出来附在连线类拒绝后面。
+
+    只说"这条边已存在"等于让构建者去猜下一条该连哪。真机构建 310141fd 里
+    4B 对同一条已存在的边连提 9 次被判停——它每轮拿到的信息里根本没有边的清单。
+    这些都是从图上机械算得出来的，不给才是平台的问题。
+    """
+    edges = snapshot.workflow.edges
+    nodes = snapshot.workflow.nodes
+    wired = "；".join(f"{e.source}→{e.target}" for e in edges) or "（一条都没有）"
+    has_out = {e.source for e in edges}
+    has_in = {e.target for e in edges}
+    terminal = {"end", "answer"}
+    starting = {"start", "schedule_trigger"}
+    missing_out = [n.id for n in nodes if n.type not in terminal and n.id not in has_out]
+    missing_in = [n.id for n in nodes if n.type not in starting and n.id not in has_in]
+    parts = [f"；当前已有的边：{wired}"]
+    if missing_out:
+        parts.append(f"；还没有出边的节点：{'、'.join(missing_out)}")
+    if missing_in:
+        parts.append(f"；还没有入边的节点：{'、'.join(missing_in)}")
+    if not missing_out and not missing_in:
+        parts.append("；每个节点都已接上——连线做完了，做下一件事。")
+    return "".join(parts)
+
+
 class ApplicationService:
     def __init__(self, store: WorkflowStorage, blocks: BlockRegistry, tools: ToolRegistry) -> None:
         self.store = store
@@ -179,6 +205,41 @@ class ApplicationService:
         ).encode()
         return "sha256:" + hashlib.sha256(encoded).hexdigest()
 
+    def hoist_stray_config_keys(
+        self, snapshot: ApplicationSnapshot, node_id: str, changes: dict[str, Any]
+    ) -> dict[str, Any]:
+        """把平铺在 changes 下的配置字段上提进 config（只给构建者路径用）。
+
+        真机构建 7d5ffa06：4B 写 {"node_id":"end","changes":{"outputs":{...}}}，
+        被 Pydantic 顶回 "Extra inputs are not permitted"，原样重试 3 次，end 的
+        输出始终没绑上；图结构却是合法的，于是带着空输出走完全程。这一步是
+        确定性的，机器代劳比反复教它更可靠（机械阶梯第 8 级）。
+
+        **刻意只给构建者用**：自然语言编辑是业主在改自己的工作流，替人猜错了
+        就是擅自改动，那条路径必须原样拒绝（回归测试守着这条边界）。
+        """
+        try:
+            node = self._node(snapshot, str(node_id))
+            model = self.blocks.config_model(node.type)
+        except (KeyError, ValueError):
+            return changes
+        if model is None:
+            return changes
+        config_fields = set(model.model_fields)
+        node_fields = set(NodeSpec.model_fields)
+        updated = dict(changes)
+        stray = {
+            key: updated.pop(key)
+            for key in list(updated)
+            if key not in node_fields and key in config_fields
+        }
+        if not stray:
+            return changes
+        merged = dict(updated.get("config") or {})
+        merged.update(stray)
+        updated["config"] = merged
+        return updated
+
     def validate_preview_operations(
         self,
         snapshot: ApplicationSnapshot,
@@ -239,7 +300,9 @@ class ApplicationService:
         elif operation == "add_edge":
             edge = EdgeSpec.model_validate(data["edge"])
             if any(item.id == edge.id for item in snapshot.workflow.edges):
-                raise ValueError(f"edge already exists: {edge.id}")
+                raise ValueError(
+                    f"edge already exists: {edge.id}" + _wiring_hint(snapshot)
+                )
             source = self._node(snapshot, edge.source)
             target = self._node(snapshot, edge.target)
             if source.id == target.id:
@@ -261,7 +324,10 @@ class ApplicationService:
                 )
                 for item in snapshot.workflow.edges
             ):
-                raise ValueError("workflow edge already connects the same ports")
+                raise ValueError(
+                    "workflow edge already connects the same ports"
+                    + _wiring_hint(snapshot)
+                )
             edge_errors = self.blocks.validate_edge(source, target, edge)
             if edge_errors:
                 raise ValueError("workflow edge is invalid: " + "; ".join(edge_errors))
@@ -377,6 +443,58 @@ class ApplicationService:
                         f"{node.id}: tool binding not found: {tool_name}; "
                         f"available tools: {sorted(known_tools)}"
                     )
+        # 自引用是结构性错误，必须在校验期拒绝而不是运行期崩。实测 32B 在
+        # variable_assigner 里加了个引用自身产出的 output 赋值，draft_validate
+        # 全绿、发布前才在 test_run 里炸——这类"能过结构校验的死图"正是
+        # 静默失败的温床。
+        def _self_references(payload: Any, owner: str) -> list[list[str]]:
+            found: list[list[str]] = []
+            if isinstance(payload, dict):
+                reference = payload.get("$ref")
+                if isinstance(reference, dict) and reference.get("node_id") == owner:
+                    found.append([str(item) for item in (reference.get("path") or [])])
+                for item in payload.values():
+                    found.extend(_self_references(item, owner))
+            elif isinstance(payload, list):
+                for item in payload:
+                    found.extend(_self_references(item, owner))
+            return found
+
+        for node in snapshot.workflow.nodes:
+            self_refs = _self_references(node.config, node.id)
+            if self_refs:
+                errors.append(
+                    f"{node.id}: 节点引用了它自己（path={self_refs[:3]}）——"
+                    "节点不能读取自身的产出。要么改引用上游节点，要么把该值"
+                    "直接算在本节点的表达式里。"
+                )
+
+        # 自引用是结构性错误，必须在校验期拒绝而不是运行期崩。实测 32B 在
+        # variable_assigner 里加了个引用自身产出的 output 赋值，draft_validate
+        # 全绿、发布前才在 test_run 里炸——这类"能过结构校验的死图"正是
+        # 静默失败的温床。
+        def _self_references(payload: Any, owner: str) -> list[list[str]]:
+            found: list[list[str]] = []
+            if isinstance(payload, dict):
+                reference = payload.get("$ref")
+                if isinstance(reference, dict) and reference.get("node_id") == owner:
+                    found.append([str(item) for item in (reference.get("path") or [])])
+                for item in payload.values():
+                    found.extend(_self_references(item, owner))
+            elif isinstance(payload, list):
+                for item in payload:
+                    found.extend(_self_references(item, owner))
+            return found
+
+        for node in snapshot.workflow.nodes:
+            self_refs = _self_references(node.config, node.id)
+            if self_refs:
+                errors.append(
+                    f"{node.id}: 节点引用了它自己（path={self_refs[:3]}）——"
+                    "节点不能读取自身的产出。要么改引用上游节点，要么把该值"
+                    "直接算在本节点的表达式里。"
+                )
+
         mandatory_tests = [test for test in snapshot.tests if test.mandatory]
         if not mandatory_tests:
             errors.append("at least one mandatory acceptance test is required")
@@ -484,11 +602,33 @@ class ApplicationService:
 
 
     @staticmethod
+    def _node_id_hint(node_ids: list[str], wanted: str) -> str:
+        """拒绝即教学：node not found 必须说出现有 id。
+
+        实测（2026-08-23 日报基准）：协调者反复对不存在的 'start' 做
+        remove/connect，每次只被告知"node not found"，于是删了又加空转到
+        200 次工具预算耗尽。列出现有 id 后它至少知道该用哪个名字。
+        """
+
+        import difflib
+
+        hint = f"；现有节点 id：{node_ids[:12]}" if node_ids else "；当前草稿还没有任何节点"
+        close = difflib.get_close_matches(wanted, node_ids, n=2, cutoff=0.5)
+        if close:
+            hint += f"；最接近的是 {close}"
+        return hint
+
+    @staticmethod
     def _node(snapshot: ApplicationSnapshot, node_id: str) -> NodeSpec:
         try:
             return next(node for node in snapshot.workflow.nodes if node.id == node_id)
         except StopIteration as error:
-            raise KeyError(f"node not found: {node_id}") from error
+            raise KeyError(
+                f"node not found: {node_id}"
+                + ApplicationService._node_id_hint(
+                    [node.id for node in snapshot.workflow.nodes], node_id
+                )
+            ) from error
 
     @classmethod
     def _node_paths(
@@ -518,7 +658,10 @@ class ApplicationService:
     ) -> tuple[int, ...]:
         paths = cls._node_paths(workflow, node_id)
         if not paths:
-            raise KeyError(f"node not found: {node_id}")
+            raise KeyError(
+                f"node not found: {node_id}"
+                + cls._node_id_hint([node.id for node in workflow.nodes], node_id)
+            )
         if len(paths) != 1:
             raise ValueError(
                 f"node id is ambiguous across nested workflows: {node_id}"

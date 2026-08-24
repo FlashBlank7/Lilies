@@ -86,3 +86,38 @@ def test_runtime_assignment_operator_formula() -> None:
         }
     }
     assert WorkflowRuntime._resolve_assignment(value, context) == 113
+
+
+def test_record_aggregation_pluck_and_sum_by() -> None:
+    """记录聚合（2026-08-23 能力补齐）：此前对象数组无法确定性分组求和——
+    日报类需求在积木层无解，模型只能硬编码键名（假成功事故）或选错积木（0/8）。
+    动态键名必须开箱即用。"""
+
+    from agent_platform.formula import evaluate_formula
+
+    sales = [
+        {"store": "A店", "amount": 1200},
+        {"store": "A店", "amount": 800},
+        {"store": "B店", "amount": 3000},
+    ]
+    assert evaluate_formula('sum_by(sales, "store", "amount")', {"sales": sales}) == {
+        "A店": 2000, "B店": 3000,
+    }
+    assert evaluate_formula('sum(pluck(sales, "amount"))', {"sales": sales}) == 5000
+    # 未见过的键名同样工作（假成功事故的照妖镜输入）
+    unseen = [{"store": "C店", "amount": 500}, {"store": "D店", "amount": 700}]
+    assert evaluate_formula('sum_by(s, "store", "amount")', {"s": unseen}) == {
+        "C店": 500, "D店": 700,
+    }
+
+
+def test_record_aggregation_errors_are_teachable() -> None:
+    import pytest
+    from agent_platform.formula import evaluate_formula, FormulaError
+
+    with pytest.raises(FormulaError, match="缺少字段"):
+        evaluate_formula('sum_by(s, "store", "amount")', {"s": [{"store": "A"}]})
+    with pytest.raises(FormulaError, match="字符串字段名"):
+        evaluate_formula('pluck(s, 1)', {"s": []})
+    with pytest.raises(FormulaError, match="未闭合"):
+        evaluate_formula('pluck(s, "amount)', {"s": []})

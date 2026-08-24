@@ -38,6 +38,13 @@ UsageType = Literal[
     "model_call",
     "model_usage",
     "tool_call",
+    # 平台自己发起的工具调用（状态机读草稿/跑校验/替模型查手册等）。
+    # 单独计一类而不是并进 tool_call：工具预算约束的是**模型的行为**，
+    # 平台的自查自纠越勤快，模型可用的额度就越少——这条耦合让机械引擎
+    # 越完善越容易撞预算（真机 7d5ffa06：tool_call 201/200 判死，其中
+    # 每步都有 draft_inspect + draft_validate，还有硬门代劳的 catalog_get）。
+    # 仍然全量落账，只是不计入模型的工具预算。
+    "platform_tool_call",
     "nested_workflow_call",
     "scheduler_fire",
 ]

@@ -726,3 +726,532 @@ def test_acceptance_suite_runs_independent_workflows_concurrently(tmp_path: Path
         assert report["passed"] is True, report
         assert report["summary"]["passed"] == 2
         assert provider.max_active_calls >= 2
+
+
+def test_builder_cannot_publish_without_acceptance_evidence(tmp_path: Path) -> None:
+    """验收证据硬门：构建者在测试未绿时调用 draft_publish 必须被拒。
+
+    真实事故（2026-08-23）：某单在最后一次 test_run 明确 passed=false 之后，
+    协调者以 draft_publish{explicit:true} 发布成功——平台层"只提示不阻断"的
+    人类例外通道被自动化一方借用，产出的日报工作流把样例门店名硬编码进公式，
+    换门店直接崩，却成了正式版 v1。业务验收可由业主知情越过，构建者不可以。
+    """
+
+    class PublishWithoutTestsProvider(ModelProvider):
+        name = "scripted"
+
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def capabilities(self, model: str) -> ProviderCapabilities:
+            return ProviderCapabilities(True, True, True, False, False, 100_000, 10_000)
+
+        async def stream(self, **kwargs: Any) -> AsyncIterator[StreamEvent]:
+            self.calls += 1
+            operations: list[tuple[str, dict[str, Any]]] = [
+                ("draft_add_node", {"node": {
+                    "id": "start", "type": "start", "title": "Input",
+                    "config": {"inputs": [{"name": "name", "type": "string"}]},
+                }}),
+                ("draft_add_node", {"node": {
+                    "id": "end", "type": "end", "title": "End",
+                    "config": {"outputs": {"greeting": {"$ref": {
+                        "node_id": "start", "path": ["name"]}}}},
+                }}),
+                ("draft_connect", {"edge": {
+                    "id": "e1", "source": "start", "target": "end",
+                    "source_port": "output", "target_port": "input",
+                }}),
+                # 强制测试注定失败：工作流只透传姓名，断言却要 "Hello Ada"
+                ("test_add", {"test": {
+                    "id": "greeting-test", "name": "问候语",
+                    "requirement": "返回 Hello Ada", "inputs": {"name": "Ada"},
+                    "assertions": [{"path": ["greeting"], "operator": "equals",
+                                    "expected": "Hello Ada"}],
+                    "mandatory": True,
+                }}),
+                ("test_run", {}),
+                # 明知失败仍显式发布——事故当晚正是这条路径放行的
+                ("draft_publish", {"explicit": True}),
+                ("draft_publish", {"explicit": True}),
+            ]
+            name, value = operations[min(self.calls - 1, len(operations) - 1)]
+            yield StreamEvent(type="message_start", data={"message": {"usage": {"input_tokens": 1}}})
+            yield StreamEvent(type="content_block_start", data={
+                "index": 0,
+                "content_block": {"type": "tool_use", "id": f"c{self.calls}", "name": name, "input": {}},
+            })
+            yield StreamEvent(type="content_block_delta", data={
+                "index": 0, "delta": {"type": "input_json_delta", "partial_json": json.dumps(value)},
+            })
+            yield StreamEvent(type="content_block_stop", data={"index": 0})
+            yield StreamEvent(type="message_delta", data={
+                "delta": {"stop_reason": "tool_use"}, "usage": {"output_tokens": 1},
+            })
+
+    settings = Settings(
+        api_token="workflow-test",
+        data_dir=tmp_path / "data",
+        workspace_root=tmp_path / "workspaces",
+    )
+    app = create_app(settings, PublishWithoutTestsProvider())
+    with TestClient(app) as client:
+        headers = {"Authorization": "Bearer workflow-test"}
+        app_id = client.post("/api/v1/applications", headers=headers,
+                             json={"name": "NoEvidence", "requirement": "验收证据硬门验证。"}).json()["id"]
+        build_id = client.post(
+            f"/api/v1/applications/{app_id}/builds", headers=headers,
+            json={"requirement": "输入姓名 name，输出 greeting 字段。",
+                  "auto_publish": True, "max_turns": 8, "max_repair_cycles": 1},
+        ).json()["build_id"]
+        for _ in range(600):
+            build = client.get(f"/api/v1/builds/{build_id}", headers=headers).json()
+            if build["status"] in {"needs_attention", "ready", "published", "failed"}:
+                break
+            time.sleep(0.01)
+
+        # 绝不允许在零验收证据下发布
+        assert build["status"] != "published", "零验收证据竟然发布成功"
+        versions = client.get(f"/api/v1/applications/{app_id}/versions", headers=headers)
+        if versions.status_code == 200:
+            assert not (versions.json() or []), "不应存在任何已发布版本"
+        events = client.get(f"/v1/streams/{build_id}", headers=headers).json()
+        blocked = [
+            e for e in events
+            if e["type"] == "build.operation"
+            and (e["data"] or {}).get("tool") == "draft_publish"
+            and "publish blocked" in str((e["data"] or {}).get("result") or "")
+        ]
+        assert blocked, "draft_publish 应被证据硬门拒绝并留下记录"
+
+
+def test_builder_cannot_publish_on_structural_only_acceptance(tmp_path: Path) -> None:
+    """结构断言不算验收证据：只证明"跑得起来"，不证明"算得对"。
+
+    平台在构建者没写验收时会自动补一条纯结构冒烟测试
+    （operator=exists, structural=True）。它跑绿之后证据状态就是 current——
+    于是零真实验收的工作流又能从这个入口发布出去，和 2026-08-23 那次假成功
+    是同一个洞换了个门。业主可以知情越过业务验收，构建者不可以。
+    """
+
+    class StructuralOnlyProvider(ModelProvider):
+        name = "scripted"
+
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def capabilities(self, model: str) -> ProviderCapabilities:
+            return ProviderCapabilities(True, True, True, False, False, 100_000, 10_000)
+
+        async def stream(self, **kwargs: Any) -> AsyncIterator[StreamEvent]:
+            self.calls += 1
+            operations: list[tuple[str, dict[str, Any]]] = [
+                ("draft_add_node", {"node": {
+                    "id": "start", "type": "start", "title": "Input",
+                    "config": {"inputs": [{"name": "name", "type": "string"}]},
+                }}),
+                ("draft_add_node", {"node": {
+                    "id": "end", "type": "end", "title": "End",
+                    "config": {"outputs": {"greeting": {"$ref": {
+                        "node_id": "start", "path": ["name"]}}}},
+                }}),
+                ("draft_connect", {"edge": {
+                    "id": "e1", "source": "start", "target": "end",
+                    "source_port": "output", "target_port": "input",
+                }}),
+                # 只验形状：跑得起来就绿，工作流算错了也发现不了
+                ("test_add", {"test": {
+                    "id": "shape-only", "name": "只验形状",
+                    "requirement": "有 greeting 字段", "inputs": {"name": "Ada"},
+                    "assertions": [{"path": ["greeting"], "operator": "exists",
+                                    "structural": True}],
+                    "mandatory": True,
+                }}),
+                ("test_run", {}),
+                ("draft_publish", {"explicit": True}),
+                ("draft_publish", {"explicit": True}),
+            ]
+            name, value = operations[min(self.calls - 1, len(operations) - 1)]
+            yield StreamEvent(type="message_start", data={"message": {"usage": {"input_tokens": 1}}})
+            yield StreamEvent(type="content_block_start", data={
+                "index": 0,
+                "content_block": {"type": "tool_use", "id": f"c{self.calls}", "name": name, "input": {}},
+            })
+            yield StreamEvent(type="content_block_delta", data={
+                "index": 0, "delta": {"type": "input_json_delta", "partial_json": json.dumps(value)},
+            })
+            yield StreamEvent(type="content_block_stop", data={"index": 0})
+            yield StreamEvent(type="message_delta", data={
+                "delta": {"stop_reason": "tool_use"}, "usage": {"output_tokens": 1},
+            })
+
+    settings = Settings(
+        api_token="workflow-test",
+        data_dir=tmp_path / "data",
+        workspace_root=tmp_path / "workspaces",
+    )
+    app = create_app(settings, StructuralOnlyProvider())
+    with TestClient(app) as client:
+        headers = {"Authorization": "Bearer workflow-test"}
+        app_id = client.post("/api/v1/applications", headers=headers,
+                             json={"name": "ShapeOnly", "requirement": "结构断言不算验收。"}).json()["id"]
+        build_id = client.post(
+            f"/api/v1/applications/{app_id}/builds", headers=headers,
+            json={"requirement": "输入姓名 name，输出 greeting 字段。",
+                  "auto_publish": True, "max_turns": 8, "max_repair_cycles": 1},
+        ).json()["build_id"]
+        for _ in range(600):
+            build = client.get(f"/api/v1/builds/{build_id}", headers=headers).json()
+            if build["status"] in {"needs_attention", "ready", "published", "failed"}:
+                break
+            time.sleep(0.01)
+
+        assert build["status"] != "published", "纯结构验收竟然发布成功"
+        events = client.get(f"/v1/streams/{build_id}", headers=headers).json()
+        blocked = [
+            e for e in events
+            if e["type"] == "build.operation"
+            and (e["data"] or {}).get("tool") == "draft_publish"
+            and "没有一条断言了具体值" in str((e["data"] or {}).get("result") or "")
+        ]
+        assert blocked, "draft_publish 应被『证据要有效』硬门拒绝并说明原因"
+
+
+def test_builder_config_keys_flattened_into_changes_are_hoisted(tmp_path: Path) -> None:
+    """构建者把配置字段平铺在 changes 下时，机器替它上提。
+
+    真机构建 7d5ffa06：4B 写 {"node_id":"end","changes":{"outputs":{...}}}，被
+    Pydantic 顶回 "Extra inputs are not permitted"，原样重试 3 次，end 的输出
+    始终没绑上；图结构却合法，于是带着空输出走完全程。意图毫无歧义，这一步是
+    确定性的——平台早就在对 merge_config 做同样的上提。
+
+    边界：自然语言编辑路径**不**做这件事（业主在改自己的工作流，替人猜错就是
+    擅自改动），那条路径的拒绝行为另有回归测试守着。
+    """
+
+    class FlattenedUpdateProvider(ModelProvider):
+        name = "scripted"
+
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def capabilities(self, model: str) -> ProviderCapabilities:
+            return ProviderCapabilities(True, True, True, False, False, 100_000, 10_000)
+
+        async def stream(self, **kwargs: Any) -> AsyncIterator[StreamEvent]:
+            self.calls += 1
+            operations: list[tuple[str, dict[str, Any]]] = [
+                ("draft_add_node", {"node": {
+                    "id": "start", "type": "start", "title": "In",
+                    "config": {"inputs": [{"name": "name", "type": "string"}]},
+                }}),
+                ("draft_add_node", {"node": {
+                    "id": "end", "type": "end", "title": "Out", "config": {"outputs": {}},
+                }}),
+                ("draft_connect", {"edge": {
+                    "id": "e1", "source": "start", "target": "end",
+                    "source_port": "output", "target_port": "input",
+                }}),
+                # outputs 平铺在 changes 下——上提后应当成功
+                ("draft_update_node", {"node_id": "end", "changes": {"outputs": {
+                    "greeting": {"$ref": {"node_id": "start", "path": ["name"]}},
+                }}}),
+                ("test_add", {"test": {
+                    "id": "t", "name": "问候", "requirement": "Ada → Ada",
+                    "inputs": {"name": "Ada"},
+                    "assertions": [{"path": ["greeting"], "operator": "equals",
+                                    "expected": "Ada"}],
+                    "mandatory": True,
+                }}),
+                ("test_run", {}),
+                ("draft_publish", {"explicit": True}),
+            ]
+            name, value = operations[min(self.calls - 1, len(operations) - 1)]
+            yield StreamEvent(type="message_start", data={"message": {"usage": {"input_tokens": 1}}})
+            yield StreamEvent(type="content_block_start", data={
+                "index": 0,
+                "content_block": {"type": "tool_use", "id": f"c{self.calls}", "name": name, "input": {}},
+            })
+            yield StreamEvent(type="content_block_delta", data={
+                "index": 0, "delta": {"type": "input_json_delta", "partial_json": json.dumps(value)},
+            })
+            yield StreamEvent(type="content_block_stop", data={"index": 0})
+            yield StreamEvent(type="message_delta", data={
+                "delta": {"stop_reason": "tool_use"}, "usage": {"output_tokens": 1},
+            })
+
+    settings = Settings(
+        api_token="workflow-test",
+        data_dir=tmp_path / "data",
+        workspace_root=tmp_path / "workspaces",
+    )
+    app = create_app(settings, FlattenedUpdateProvider())
+    with TestClient(app) as client:
+        headers = {"Authorization": "Bearer workflow-test"}
+        app_id = client.post("/api/v1/applications", headers=headers,
+                             json={"name": "Hoist", "requirement": "配置上提"}).json()["id"]
+        build_id = client.post(
+            f"/api/v1/applications/{app_id}/builds", headers=headers,
+            json={"requirement": "输入 name，输出 greeting。样例：Ada → Ada。",
+                  "auto_publish": True, "max_turns": 10, "max_repair_cycles": 1},
+        ).json()["build_id"]
+        for _ in range(900):
+            build = client.get(f"/api/v1/builds/{build_id}", headers=headers).json()
+            if build["status"] in {"needs_attention", "ready", "published", "failed"}:
+                break
+            time.sleep(0.01)
+
+        assert build["status"] == "published", build.get("error")
+        draft = client.get(f"/api/v1/applications/{app_id}/draft", headers=headers).json()
+        end_node = next(
+            node for node in draft["snapshot"]["workflow"]["nodes"] if node["id"] == "end"
+        )
+        # 上提到了 config 里，而不是被拒或塞在节点顶层
+        assert end_node["config"]["outputs"]["greeting"]["$ref"]["node_id"] == "start"
+
+
+def test_flattened_test_add_payload_is_hoisted(tmp_path: Path) -> None:
+    """test_add 的字段被平铺在顶层时替它包回去。
+
+    真机构建 1334c391：4B 连发 15 次平铺的 test_add，平台每次只回一句
+    KeyError: 'test'——既没说要包在哪，也没说它写对了什么，整单卡死在验收编写阶段。
+    与 draft_update_node 的配置上提同源：意图无歧义、无人在看这一步，机器代劳。
+    """
+
+    class FlattenedTestProvider(ModelProvider):
+        name = "scripted"
+
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def capabilities(self, model: str) -> ProviderCapabilities:
+            return ProviderCapabilities(True, True, True, False, False, 100_000, 10_000)
+
+        async def stream(self, **kwargs: Any) -> AsyncIterator[StreamEvent]:
+            self.calls += 1
+            operations: list[tuple[str, dict[str, Any]]] = [
+                ("draft_add_node", {"node": {
+                    "id": "start", "type": "start", "title": "In",
+                    "config": {"inputs": [{"name": "name", "type": "string"}]},
+                }}),
+                ("draft_add_node", {"node": {
+                    "id": "end", "type": "end", "title": "Out",
+                    "config": {"outputs": {"greeting": {"$ref": {
+                        "node_id": "start", "path": ["name"]}}}},
+                }}),
+                ("draft_connect", {"edge": {
+                    "id": "e1", "source": "start", "target": "end",
+                    "source_port": "output", "target_port": "input",
+                }}),
+                # 平铺，没有 test 包装 —— 应当被上提而不是 KeyError
+                ("test_add", {
+                    "id": "t", "name": "问候", "requirement": "Ada → Ada",
+                    "inputs": {"name": "Ada"},
+                    "assertions": [{"path": ["greeting"], "operator": "equals",
+                                    "expected": "Ada"}],
+                    "mandatory": True,
+                }),
+                ("test_run", {}),
+                ("draft_publish", {"explicit": True}),
+            ]
+            name, value = operations[min(self.calls - 1, len(operations) - 1)]
+            yield StreamEvent(type="message_start", data={"message": {"usage": {"input_tokens": 1}}})
+            yield StreamEvent(type="content_block_start", data={
+                "index": 0,
+                "content_block": {"type": "tool_use", "id": f"c{self.calls}", "name": name, "input": {}},
+            })
+            yield StreamEvent(type="content_block_delta", data={
+                "index": 0, "delta": {"type": "input_json_delta", "partial_json": json.dumps(value)},
+            })
+            yield StreamEvent(type="content_block_stop", data={"index": 0})
+            yield StreamEvent(type="message_delta", data={
+                "delta": {"stop_reason": "tool_use"}, "usage": {"output_tokens": 1},
+            })
+
+    settings = Settings(
+        api_token="workflow-test",
+        data_dir=tmp_path / "data",
+        workspace_root=tmp_path / "workspaces",
+    )
+    app = create_app(settings, FlattenedTestProvider())
+    with TestClient(app) as client:
+        headers = {"Authorization": "Bearer workflow-test"}
+        app_id = client.post("/api/v1/applications", headers=headers,
+                             json={"name": "Flat", "requirement": "平铺测试上提"}).json()["id"]
+        build_id = client.post(
+            f"/api/v1/applications/{app_id}/builds", headers=headers,
+            json={"requirement": "输入 name，输出 greeting。样例：Ada → Ada。",
+                  "auto_publish": True, "max_turns": 10, "max_repair_cycles": 1},
+        ).json()["build_id"]
+        for _ in range(900):
+            build = client.get(f"/api/v1/builds/{build_id}", headers=headers).json()
+            if build["status"] in {"needs_attention", "ready", "published", "failed"}:
+                break
+            time.sleep(0.01)
+
+        assert build["status"] == "published", build.get("error")
+        draft = client.get(f"/api/v1/applications/{app_id}/draft", headers=headers).json()
+        assert [t["id"] for t in draft["snapshot"]["tests"]] == ["t"]
+
+
+def test_acceptance_itself_is_validated_before_it_becomes_the_criterion(
+    tmp_path: Path,
+) -> None:
+    """验收是判据——判据本身要先被校验：输入类型对得上、断言指向真实交付字段。
+
+    两次真机事故：
+    - 13284038：测试的 inputs 把数组写成带引号的 JSON 字面量，工作流完全正确
+      却红了 4 轮，修理手全在修一个没坏的工作流；
+    - bdefc84a：断言写成 ["output","by_store","A店"]——多了一层 "output"，
+      那是 $ref 引用节点内部产出时才需要的层级。投影里给的引用路径被搬到了
+      断言里：**模型会把看到的格式用到别处**，所以这层必须机械校验。
+    """
+    from agent_platform.builder import WorkflowBuilder
+    from agent_platform.workflow_models import (
+        ApplicationSnapshot, NodeSpec, WorkflowSpec, WorkflowTestCase,
+    )
+
+    snapshot = ApplicationSnapshot(
+        workflow=WorkflowSpec(
+            nodes=[
+                NodeSpec(id="start", type="start", title="In", config={
+                    "inputs": [{"name": "sales", "type": "array"}],
+                }),
+                NodeSpec(id="end", type="end", title="Out", config={
+                    "outputs": {"by_store": {}, "total": {}},
+                }),
+            ],
+            edges=[],
+        ),
+    )
+
+    # 输入类型：数组写成了带引号的 JSON 字面量
+    bad_inputs = WorkflowTestCase(
+        id="t", name="t", requirement="r",
+        inputs={"sales": '[{"store":"A店","amount":1200}]'},
+        assertions=[{"path": ["by_store", "A店"], "operator": "equals", "expected": 2000}],
+        mandatory=True,
+    )
+    problems = WorkflowBuilder._test_input_type_mismatches(snapshot, bad_inputs)
+    assert problems and "带引号的 JSON 字面量" in problems[0]
+
+    # 断言路径：多了一层 output
+    bad_path = WorkflowTestCase(
+        id="t", name="t", requirement="r",
+        inputs={"sales": [{"store": "A店", "amount": 1200}]},
+        assertions=[{"path": ["output", "by_store", "A店"], "operator": "equals",
+                     "expected": 2000}],
+        mandatory=True,
+    )
+    problems = WorkflowBuilder._test_assertion_path_mismatches(snapshot, bad_path)
+    assert problems, problems
+    assert "可断言的字段只有" in problems[0]
+    assert "by_store" in problems[0]
+
+    # 写对的验收一律放行
+    good = WorkflowTestCase(
+        id="t", name="t", requirement="r",
+        inputs={"sales": [{"store": "A店", "amount": 1200}]},
+        assertions=[{"path": ["by_store", "A店"], "operator": "equals", "expected": 2000},
+                    {"path": ["total"], "operator": "equals", "expected": 1200}],
+        mandatory=True,
+    )
+    assert WorkflowBuilder._test_input_type_mismatches(snapshot, good) == []
+    assert WorkflowBuilder._test_assertion_path_mismatches(snapshot, good) == []
+
+
+def test_builder_cannot_publish_without_acceptance_evidence(tmp_path: Path) -> None:
+    """验收证据硬门：构建者在测试未绿时调用 draft_publish 必须被拒。
+
+    真实事故（2026-08-23）：某单在最后一次 test_run 明确 passed=false 之后，
+    协调者以 draft_publish{explicit:true} 发布成功——平台层"只提示不阻断"的
+    人类例外通道被自动化一方借用，产出的日报工作流把样例门店名硬编码进公式，
+    换门店直接崩，却成了正式版 v1。业务验收可由业主知情越过，构建者不可以。
+    """
+
+    class PublishWithoutTestsProvider(ModelProvider):
+        name = "scripted"
+
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def capabilities(self, model: str) -> ProviderCapabilities:
+            return ProviderCapabilities(True, True, True, False, False, 100_000, 10_000)
+
+        async def stream(self, **kwargs: Any) -> AsyncIterator[StreamEvent]:
+            self.calls += 1
+            operations: list[tuple[str, dict[str, Any]]] = [
+                ("draft_add_node", {"node": {
+                    "id": "start", "type": "start", "title": "Input",
+                    "config": {"inputs": [{"name": "name", "type": "string"}]},
+                }}),
+                ("draft_add_node", {"node": {
+                    "id": "end", "type": "end", "title": "End",
+                    "config": {"outputs": {"greeting": {"$ref": {
+                        "node_id": "start", "path": ["name"]}}}},
+                }}),
+                ("draft_connect", {"edge": {
+                    "id": "e1", "source": "start", "target": "end",
+                    "source_port": "output", "target_port": "input",
+                }}),
+                # 强制测试注定失败：工作流只透传姓名，断言却要 "Hello Ada"
+                ("test_add", {"test": {
+                    "id": "greeting-test", "name": "问候语",
+                    "requirement": "返回 Hello Ada", "inputs": {"name": "Ada"},
+                    "assertions": [{"path": ["greeting"], "operator": "equals",
+                                    "expected": "Hello Ada"}],
+                    "mandatory": True,
+                }}),
+                ("test_run", {}),
+                # 明知失败仍显式发布——事故当晚正是这条路径放行的
+                ("draft_publish", {"explicit": True}),
+                ("draft_publish", {"explicit": True}),
+            ]
+            name, value = operations[min(self.calls - 1, len(operations) - 1)]
+            yield StreamEvent(type="message_start", data={"message": {"usage": {"input_tokens": 1}}})
+            yield StreamEvent(type="content_block_start", data={
+                "index": 0,
+                "content_block": {"type": "tool_use", "id": f"c{self.calls}", "name": name, "input": {}},
+            })
+            yield StreamEvent(type="content_block_delta", data={
+                "index": 0, "delta": {"type": "input_json_delta", "partial_json": json.dumps(value)},
+            })
+            yield StreamEvent(type="content_block_stop", data={"index": 0})
+            yield StreamEvent(type="message_delta", data={
+                "delta": {"stop_reason": "tool_use"}, "usage": {"output_tokens": 1},
+            })
+
+    settings = Settings(
+        api_token="workflow-test",
+        data_dir=tmp_path / "data",
+        workspace_root=tmp_path / "workspaces",
+    )
+    app = create_app(settings, PublishWithoutTestsProvider())
+    with TestClient(app) as client:
+        headers = {"Authorization": "Bearer workflow-test"}
+        app_id = client.post("/api/v1/applications", headers=headers,
+                             json={"name": "NoEvidence", "requirement": "验收证据硬门验证。"}).json()["id"]
+        build_id = client.post(
+            f"/api/v1/applications/{app_id}/builds", headers=headers,
+            json={"requirement": "输入姓名 name，输出 greeting 字段。",
+                  "auto_publish": True, "max_turns": 8, "max_repair_cycles": 1},
+        ).json()["build_id"]
+        for _ in range(600):
+            build = client.get(f"/api/v1/builds/{build_id}", headers=headers).json()
+            if build["status"] in {"needs_attention", "ready", "published", "failed"}:
+                break
+            time.sleep(0.01)
+
+        # 绝不允许在零验收证据下发布
+        assert build["status"] != "published", "零验收证据竟然发布成功"
+        versions = client.get(f"/api/v1/applications/{app_id}/versions", headers=headers)
+        if versions.status_code == 200:
+            assert not (versions.json() or []), "不应存在任何已发布版本"
+        events = client.get(f"/v1/streams/{build_id}", headers=headers).json()
+        blocked = [
+            e for e in events
+            if e["type"] == "build.operation"
+            and (e["data"] or {}).get("tool") == "draft_publish"
+            and "publish blocked" in str((e["data"] or {}).get("result") or "")
+        ]
+        assert blocked, "draft_publish 应被证据硬门拒绝并留下记录"

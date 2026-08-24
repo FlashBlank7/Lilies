@@ -30,6 +30,7 @@ from . import acceptance_pm
 from .build_transcript import BuildTranscriptStore, owner_record
 from .builder import WorkflowBuilder
 from .builder_registry import BuilderRegistry
+from .mechanical_builder import MechanicalBuilder
 from .capability_evidence import (
     ArtifactCategory,
     CapabilityEvidenceCreateRequest,
@@ -1630,6 +1631,24 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
     # 小模型集群等新实现在此并排注册后，即可按构建选择做对照实验。
     builders = BuilderRegistry()
     builders.register("classic", builder)
+    # mechanical：状态机协调 + 小模型提案（形态 B）。与 classic 共享全部服务与
+    # 执法逻辑，只有大脑（_agent_loop）不同；默认模型走本地小模型端点。
+    builders.register("mechanical", MechanicalBuilder(
+        storage=storage,
+        workflow_store=workflow_store,
+        applications=applications,
+        blocks=blocks,
+        runtime=workflow_runtime,
+        provider=provider,
+        agent_runtime=runtime,
+        generator_model=settings.small_builder_model,
+        core_tools=tools,
+        harness=harness,
+        template_store=templates,
+        transcripts=build_transcripts,
+        sandboxes=sandboxes,
+        tabular_models=tabular_models,
+    ))
     scheduler = WorkflowScheduler(
         storage=storage,
         workflow_store=workflow_store,

@@ -167,3 +167,241 @@ def test_remote_endpoint_blocked_without_egress_but_loopback_exempt() -> None:
                               {"choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}]))
     events = asyncio.run(drain(loopback))
     assert any(event.type == "content_block_delta" for event in events)
+
+
+def test_non_streaming_mode_translates_full_completion() -> None:
+    """streaming=False：整包响应合成同一事件契约；工具入参整段下发无分片拼装。
+
+    背景：vLLM 0.8.5 hermes 流式解析器丢参数片段（上游 #19056），把小模型的
+    完好嵌套 JSON 拼成残品——非流式路径彻底绕开该族 bug。
+    """
+
+    completion = {
+        "choices": [{
+            "finish_reason": "tool_calls",
+            "message": {
+                "reasoning_content": "先想一下",
+                "content": "正在添加节点",
+                "tool_calls": [{
+                    "id": "call_0",
+                    "type": "function",
+                    "function": {
+                        "name": "draft_add_node",
+                        "arguments": json.dumps({"node": {
+                            "id": "start", "type": "start", "title": "输入",
+                            "config": {"inputs": [{"name": "name", "example": "Ada"}]},
+                        }}, ensure_ascii=False),
+                    },
+                }],
+            },
+        }],
+        "usage": {"prompt_tokens": 11, "completion_tokens": 7},
+    }
+    captured: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["payload"] = json.loads(request.content.decode("utf-8"))
+        return httpx.Response(200, json=completion)
+
+    provider = OpenAIChatProvider(
+        api_key="test-key",
+        base_url="http://127.0.0.1:8001/v1",
+        transport=httpx.MockTransport(handler),
+        egress_enabled=False,
+        streaming=False,
+    )
+
+    async def run() -> Any:
+        stream = provider.stream(
+            model="Qwen/tiny", system="s",
+            messages=[ChatMessage(role="user", content=[ContentBlock(type="text", text="hi")])],
+            tools=[ToolDefinition(name="draft_add_node", description="d",
+                                  input_schema={"type": "object"})],
+            max_output_tokens=256, thinking_enabled=False, effort="low",
+        )
+        return await collect_model_stream(stream, model="Qwen/tiny", expose_thinking=True)
+
+    result = asyncio.run(run())
+    # 请求体明确非流式
+    assert captured["payload"]["stream"] is False
+    assert "stream_options" not in captured["payload"]
+    # 事件契约与流式路径一致：thinking + text + 完整嵌套的 tool_use
+    kinds = [block.type for block in result.blocks]
+    assert kinds == ["thinking", "text", "tool_use"]
+    tool = result.blocks[2]
+    assert tool.name == "draft_add_node"
+    assert tool.input["node"]["id"] == "start"
+    assert tool.input["node"]["config"]["inputs"][0]["example"] == "Ada"
+    assert result.stop_reason == "tool_use"
+    assert result.usage.input_tokens == 11 and result.usage.output_tokens == 7
+
+
+def test_non_streaming_recovers_textified_tool_calls_and_strips_think() -> None:
+    """真实事故复现：vLLM 0.8.5 下 <think> 带崩 hermes 解析器，模型的
+    <tool_call> 以纯文本留在正文、tool_calls 为空、finish_reason=stop——
+    循环判"收工"，构建 stopped before mandatory tests passed。
+    兜底解析必须：剥思考、抽出全部调用、正文清干净、stop_reason 归 tool_use。"""
+
+    content = (
+        "<think>先分析一下，用 template_transform 替换。</think>\n"
+        '<tool_call>\n{"name": "catalog_get", "arguments": {"type": "template_transform"}}\n</tool_call>\n'
+        '<tool_call>\n{"name": "draft_add_node", "arguments": {"node": {"id": "t1", '
+        '"type": "template_transform", "config": {"template": "Hello {{ name }}"}}}}\n</tool_call>'
+    )
+    completion = {
+        "choices": [{"finish_reason": "stop",
+                     "message": {"content": content, "tool_calls": []}}],
+        "usage": {"prompt_tokens": 5, "completion_tokens": 9},
+    }
+    provider = OpenAIChatProvider(
+        api_key="k", base_url="http://127.0.0.1:8001/v1",
+        transport=httpx.MockTransport(lambda r: httpx.Response(200, json=completion)),
+        egress_enabled=False, streaming=False,
+    )
+
+    async def run() -> Any:
+        stream = provider.stream(
+            model="m", system="s",
+            messages=[ChatMessage(role="user", content=[ContentBlock(type="text", text="q")])],
+            tools=[], max_output_tokens=64, thinking_enabled=True, effort="high",
+        )
+        return await collect_model_stream(stream, model="m", expose_thinking=True)
+
+    result = asyncio.run(run())
+    kinds = [b.type for b in result.blocks]
+    assert kinds == ["thinking", "tool_use", "tool_use"], kinds
+    assert "template_transform" in result.blocks[0].thinking  # 思考进思考块
+    assert result.blocks[1].name == "catalog_get"
+    assert result.blocks[2].name == "draft_add_node"
+    assert result.blocks[2].input["node"]["config"]["template"] == "Hello {{ name }}"
+    # 正文里不残留 <tool_call>/<think>
+    assert not any(b.type == "text" for b in result.blocks)
+    assert result.stop_reason == "tool_use"
+
+
+def test_non_streaming_repairs_malformed_inline_tool_call() -> None:
+    """4B 实测：文本化 <tool_call> 里的 JSON 少一个闭合括号（复杂上下文下高频）。
+    裸 json.loads 会丢弃调用并清空正文，平台只看到"没有调用任何工具"、无从反馈。
+    兜底解析必须走平台自带的 json_repair。"""
+
+    broken = (
+        '<tool_call>\n{"name": "draft_update_node", "arguments": {"node_id": "end", '
+        '"changes": {"config": {"outputs": {"total": "number"}}}}\n</tool_call>'
+    )  # 少一个 }
+    completion = {
+        "choices": [{"finish_reason": "stop",
+                     "message": {"content": broken, "tool_calls": []}}],
+        "usage": {"prompt_tokens": 1, "completion_tokens": 51},
+    }
+    provider = OpenAIChatProvider(
+        api_key="k", base_url="http://127.0.0.1:8001/v1",
+        transport=httpx.MockTransport(lambda r: httpx.Response(200, json=completion)),
+        egress_enabled=False, streaming=False,
+    )
+
+    async def run() -> Any:
+        stream = provider.stream(
+            model="m", system="s",
+            messages=[ChatMessage(role="user", content=[ContentBlock(type="text", text="q")])],
+            tools=[], max_output_tokens=64, thinking_enabled=False, effort="low",
+        )
+        return await collect_model_stream(stream, model="m")
+
+    result = asyncio.run(run())
+    calls = [b for b in result.blocks if b.type == "tool_use"]
+    assert calls, "缺闭合括号的调用必须被修复回来"
+    assert calls[0].name == "draft_update_node"
+    assert calls[0].input["node_id"] == "end"
+    assert result.stop_reason == "tool_use"
+
+
+def test_non_streaming_keeps_text_when_salvage_fails() -> None:
+    """一个都救不回来时保留原文——宁可让模型看到"格式坏了"，也不要静默空轮。"""
+
+    completion = {
+        "choices": [{"finish_reason": "stop",
+                     "message": {"content": "<tool_call>完全不是JSON</tool_call>",
+                                 "tool_calls": []}}],
+        "usage": {"prompt_tokens": 1, "completion_tokens": 5},
+    }
+    provider = OpenAIChatProvider(
+        api_key="k", base_url="http://127.0.0.1:8001/v1",
+        transport=httpx.MockTransport(lambda r: httpx.Response(200, json=completion)),
+        egress_enabled=False, streaming=False,
+    )
+
+    async def run() -> Any:
+        stream = provider.stream(
+            model="m", system="s",
+            messages=[ChatMessage(role="user", content=[ContentBlock(type="text", text="q")])],
+            tools=[], max_output_tokens=64, thinking_enabled=False, effort="low",
+        )
+        return await collect_model_stream(stream, model="m")
+
+    result = asyncio.run(run())
+    texts = [b for b in result.blocks if b.type == "text"]
+    assert texts and "完全不是JSON" in (texts[0].text or "")
+
+
+def test_non_streaming_repairs_malformed_inline_tool_call() -> None:
+    """4B 实测：文本化 <tool_call> 里的 JSON 少一个闭合括号（复杂上下文下高频）。
+    裸 json.loads 会丢弃调用并清空正文，平台只看到"没有调用任何工具"、无从反馈。
+    兜底解析必须走平台自带的 json_repair。"""
+
+    broken = (
+        '<tool_call>\n{"name": "draft_update_node", "arguments": {"node_id": "end", '
+        '"changes": {"config": {"outputs": {"total": "number"}}}}\n</tool_call>'
+    )  # 少一个 }
+    completion = {
+        "choices": [{"finish_reason": "stop",
+                     "message": {"content": broken, "tool_calls": []}}],
+        "usage": {"prompt_tokens": 1, "completion_tokens": 51},
+    }
+    provider = OpenAIChatProvider(
+        api_key="k", base_url="http://127.0.0.1:8001/v1",
+        transport=httpx.MockTransport(lambda r: httpx.Response(200, json=completion)),
+        egress_enabled=False, streaming=False,
+    )
+
+    async def run() -> Any:
+        stream = provider.stream(
+            model="m", system="s",
+            messages=[ChatMessage(role="user", content=[ContentBlock(type="text", text="q")])],
+            tools=[], max_output_tokens=64, thinking_enabled=False, effort="low",
+        )
+        return await collect_model_stream(stream, model="m")
+
+    result = asyncio.run(run())
+    calls = [b for b in result.blocks if b.type == "tool_use"]
+    assert calls, "缺闭合括号的调用必须被修复回来"
+    assert calls[0].name == "draft_update_node"
+    assert calls[0].input["node_id"] == "end"
+    assert result.stop_reason == "tool_use"
+
+
+def test_non_streaming_keeps_text_when_salvage_fails() -> None:
+    """一个都救不回来时保留原文——宁可让模型看到"格式坏了"，也不要静默空轮。"""
+
+    completion = {
+        "choices": [{"finish_reason": "stop",
+                     "message": {"content": "<tool_call>完全不是JSON</tool_call>",
+                                 "tool_calls": []}}],
+        "usage": {"prompt_tokens": 1, "completion_tokens": 5},
+    }
+    provider = OpenAIChatProvider(
+        api_key="k", base_url="http://127.0.0.1:8001/v1",
+        transport=httpx.MockTransport(lambda r: httpx.Response(200, json=completion)),
+        egress_enabled=False, streaming=False,
+    )
+
+    async def run() -> Any:
+        stream = provider.stream(
+            model="m", system="s",
+            messages=[ChatMessage(role="user", content=[ContentBlock(type="text", text="q")])],
+            tools=[], max_output_tokens=64, thinking_enabled=False, effort="low",
+        )
+        return await collect_model_stream(stream, model="m")
+
+    result = asyncio.run(run())
+    texts = [b for b in result.blocks if b.type == "text"]
+    assert texts and "完全不是JSON" in (texts[0].text or "")

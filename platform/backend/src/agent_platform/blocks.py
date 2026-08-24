@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import difflib
+import json
+import re
+
 from collections import defaultdict, deque
 from typing import Any, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -347,8 +351,8 @@ _ZH_BLOCKS = {
     "question_classifier": ("问题分类器", "把自由文本路由到指定类别。"),
     "parameter_extractor": ("参数提取器", "从文本中提取类型化 JSON 字段。"),
     "template_transform": ("模板转换", "用变量渲染模板。"),
-    "variable_assigner": ("变量赋值", "创建命名工作流变量。"),
-    "variable_aggregator": ("变量聚合", "合并分支或多个上游值。"),
+    "variable_assigner": ("变量赋值", "创建命名变量；$formula 做业务算术与记录聚合——分组求和用 sum_by(记录,\"键\",\"值\")、抽字段用 pluck。"),
+    "variable_aggregator": ("变量聚合", "只做分支值合并/透传，不做任何算术——分组求和、合计请用 variable_assigner 的 $formula（sum_by/pluck）。"),
     "http_request": ("HTTP 请求", "调用外部 HTTP 接口。"),
     "durable_event_timer": (
         "持久事件定时器",
@@ -360,6 +364,16 @@ _ZH_BLOCKS = {
     ),
     "web_collection": ("受控网页采集", "按允许来源和 robots 策略采集内容并保存来源证据。"),
     "collection_digest": ("采集摘要", "把采集结果整理为带来源和状态的可读摘要。"),
+    # 这两条此前缺失，目录概览里就只剩英文标题——而选型正是靠这句话做的。
+    "replenishment_planner": (
+        "约束补货规划",
+        "在库存、在途、安全库存、MOQ、整批量、共享产能与预算约束下确定性算出补货量，"
+        "并给出可审计的取舍依据。",
+    ),
+    "deployed_forecast": (
+        "已部署预测",
+        "用当前获批的不可变预测部署做时序预测，返回区间、模型血缘与是否需要重训的建议。",
+    ),
     "deployed_model_inference": (
         "已部署模型推理",
         "按部署名调用已批准的表格型预测模型，并返回版本、摘要、概率和置信度。",
@@ -1837,7 +1851,17 @@ class BlockRegistry:
         try:
             return self._definitions[block_type]
         except KeyError as error:
-            raise KeyError(f"unknown block type: {block_type}") from error
+            # 拒绝要指路：只说"类型不存在"时，4B 对同一个不存在的类型连查 3 次
+            # 被判停（真机构建 92af320c——架构方案里的**节点 id** 被它当成了积木
+            # 类型去查）。近似匹配 + 点破 id≠类型，两句话就能救回来。
+            near = difflib.get_close_matches(
+                str(block_type), sorted(self._definitions), n=5
+            )
+            hint = f"；最接近的积木类型：{'、'.join(near)}" if near else ""
+            raise KeyError(
+                f"unknown block type: {block_type}{hint}"
+                "。注意：架构方案里的节点 id 不是积木类型，要查的是节点的 type 字段"
+            ) from error
 
     def manual(self, block_type: str) -> dict[str, Any]:
         definition = self.get(block_type)
@@ -1950,8 +1974,24 @@ class BlockRegistry:
             pretty = label if label == top else f"{label}（{top}）"
             if item.get("type") == "missing":
                 missing.append(pretty)
-            else:
-                invalid.append(f"{pretty}：{item.get('msg', 'invalid')}")
+                continue
+            # 只报第一段路径会把**元素级**的错误说成字段级的：真机构建 3e8158a3 里
+            # record_paths 收到 ["store","amount"]（它要的是 [["store"],["amount"]]），
+            # 报出来却是"候选记录路径：Input should be a valid list"——模型明明传了
+            # 一个 list，被告知"不是 list"，连撞 7 次判停。位置和收到的值都要报。
+            where = "".join(
+                f"[{part}]" if isinstance(part, int) else f".{part}"
+                for part in loc[1:]
+            )
+            got = item.get("input")
+            got_text = ""
+            if got is not None and not isinstance(got, (dict, list)):
+                got_text = f"（收到 {got!r}）"
+            elif isinstance(got, (dict, list)):
+                got_text = f"（收到 {json.dumps(got, ensure_ascii=False, default=str)[:60]}）"
+            invalid.append(
+                f"{pretty}{where}：{item.get('msg', 'invalid')}{got_text}"
+            )
         parts: list[str] = []
         if missing:
             parts.append("还差这些没填：" + "、".join(dict.fromkeys(missing)))
@@ -1975,8 +2015,119 @@ class BlockRegistry:
                 )
         return deepest
 
+    # 模型发明语法的花样不止一种：$ref{...}、$ref:{...}、$ref = {...}、
+    # $formula.sum_by(...)。真机三轮各写出一种，逐个补正则永远慢一步——
+    # 判据改成"这段字符串以 $操作符 开头 / 里面出现 $ref"，一律当作
+    # "本想写对象却写成了字符串"。
+    _REF_STRING = re.compile(r"\$ref\b")
+    _OPERATOR_STRING = re.compile(r"^\s*\$[A-Za-z_][A-Za-z_0-9]*")
+
+    # 这些键的值**本来就该是表达式/自由文本**，不能当"写错成字符串"来抓：
+    # $formula.expression 就是公式原文，模板/提示词/正则里出现函数样式的文本也正常。
+    # （初版漏了这条，把参照解自己的正确写法判成了错——回归测试当场抓到。）
+    _EXPRESSION_BEARING_KEYS = frozenset({
+        "expression", "template", "prompt", "pattern", "regex", "code",
+        "script", "query", "sql", "condition", "description",
+        "instructions", "system",
+    })
+    # 刻意**不**豁免 answer / outputs / value / variables / assignments 这些
+    # "值槽"：它们本来就该填 {"$ref": ...} 或 {"$formula": ...}，填成字符串就是
+    # 静默垃圾（真机 93430e0b 的 answer 节点正是这么写的）。
+
+    # 值槽：这些容器里的每个值都该是引用/公式/字面量，不该是"类型名"。
+    _VALUE_SLOT_KEYS = frozenset({"outputs", "variables", "assignments"})
+    _TYPE_WORDS = frozenset({
+        "object", "number", "string", "array", "boolean", "integer", "float", "any",
+    })
+
+    @classmethod
+    def _string_shaped_expressions(
+        cls, value: Any, path: str = "config", *, key: str = "", in_value_slot: bool = False,
+    ) -> list[str]:
+        """找出"写成字符串的引用/公式"——它们结构合法，但永远不会被求值。
+
+        真机构建 93430e0b 里 4B 写出：
+          {"value": "$ref{start, sales}"}
+          {"assignments": {"by_store": "group_by_sum($ref{...}, \"store\", \"amount\")"}}
+        两条都被静默存成普通字符串，工作流照跑，输出就是那串字面量——
+        本项目最恨的"形状合法的垃圾"。模型的意图毫无歧义，平台没有理由装看不见。
+        """
+        problems: list[str] = []
+        if isinstance(value, str):
+            if in_value_slot and value.strip().lower() in cls._TYPE_WORDS:
+                # 把**类型名**填进值槽：工作流会原样输出字符串 "object"。
+                # 真机构建 e28708d3 的 end 节点就是 {"outputs": {"by_store": "object"}}，
+                # 结构合法、静默通过，输出全是类型名。
+                return [
+                    f"{path} 填的是类型名 {value.strip()!r}，不是值——"
+                    "工作流会原样输出这个字符串。这里要填的是数据来源："
+                    '{"$ref": {"node_id": "上游节点id", "path": ["字段名"]}}'
+                ]
+            if key in cls._EXPRESSION_BEARING_KEYS:
+                return problems
+            if cls._REF_STRING.search(value):
+                problems.append(
+                    f"{path} 写成了字符串 {value[:60]!r}——引用不是字符串语法。"
+                    '正确写法是对象：{"$ref": {"node_id": "上游节点id", "path": ["字段名"]}}'
+                )
+            elif cls._OPERATOR_STRING.match(value):
+                operator = cls._OPERATOR_STRING.match(value).group().strip()
+                problems.append(
+                    f"{path} 写成了字符串 {value[:60]!r}——{operator} 是对象里的**键**，"
+                    "不是字符串前缀；这样存下来只是一段字面量，永远不会被求值。"
+                    '正确写法：{"$formula": {"expression": "sum_by(记录, \"键\", \"值\")", '
+                    '"vars": {"记录": {"$ref": {"node_id": "...", "path": [...]}}}}}'
+                )
+            elif re.fullmatch(r"[A-Za-z_][A-Za-z_0-9]*\s*\(.*\)\s*", value, re.S):
+                problems.append(
+                    f"{path} 写成了字符串 {value[:60]!r}——公式不是字符串语法，"
+                    "这样存下来只是一段字面量，永远不会被计算。正确写法是对象："
+                    '{"$formula": {"expression": "sum_by(记录, \"键\", \"值\")", '
+                    '"vars": {"记录": {"$ref": {"node_id": "...", "path": [...]}}}}}'
+                )
+        elif isinstance(value, dict):
+            # $ref 对象的内部是固定 schema（node_id/path/optional），其中
+            # node_id 合法地可以是 $inputs / $run 这类哨兵——不能拿"以 $ 开头的
+            # 字符串"那条规则去查它。整个对象直接跳过。
+            if set(value).issubset({"$ref", "optional"}) and "$ref" in value:
+                return problems
+            # 值槽标记给的是**这个容器的直接子值**：config.outputs 里的每一项才是
+            # 值槽，config.outputs 本身不是。
+            children_in_slot = key in cls._VALUE_SLOT_KEYS
+            for name, item in value.items():
+                problems += cls._string_shaped_expressions(
+                    item, f"{path}.{name}", key=str(name),
+                    in_value_slot=children_in_slot,
+                )
+        elif isinstance(value, list):
+            for index, item in enumerate(value):
+                problems += cls._string_shaped_expressions(
+                    item, f"{path}[{index}]", key=key, in_value_slot=in_value_slot,
+                )
+        return problems
+
+    def config_model(self, block_type: str) -> type[BaseModel] | None:
+        """该积木的 config 模型（校验器与"配置字段上提"共用同一份真相）。"""
+        return self._config_models.get(block_type)
+
     def validate_node(self, node: NodeSpec) -> BaseModel:
         definition = self.get(node.type)
+        if isinstance(node.config, dict):
+            shaped = self._string_shaped_expressions(node.config)
+            if shaped:
+                raise ValueError("；".join(shaped[:3]))
+        if node.type == "template_transform" and isinstance(node.config, dict):
+            # 单花括号占位符渲染时原样输出——数字全对、报表却是模板原文
+            # （真机 a6284ec0："{by_store}" 直接印进日报）。声明过的变量
+            # 出现单花括号即拒绝；正文里未声明的花括号（如 JSON 示例）不牵连。
+            import re as _re
+            template_text = str(node.config.get("template") or "")
+            for variable in (node.config.get("variables") or {}):
+                if _re.search(r"(?<!\{)\{\s*" + _re.escape(str(variable)) + r"\s*\}(?!\})", template_text):
+                    raise ValueError(
+                        f"模板对变量 {variable} 用了单花括号占位符——渲染只认双花括号，"
+                        f"会把 {{{variable}}} 原样印进产出。请改写成 {{{{ {variable} }}}}"
+                    )
         if not definition.available:
             raise ValueError(f"block is not available: {node.type}")
         if node.block_version != definition.version:
@@ -2080,10 +2231,25 @@ class BlockRegistry:
         target_port = self._port(target_def.input_ports, edge.target_port)
         if target_port is None and edge.target_port == "input" and target_def.input_ports:
             target_port = target_def.input_ports[0]
+        # 拒绝要带上可用清单：只报"端口不存在"等于让构建者去猜。真机构建
+        # b44d3594 里 4B 把 template_transform 的**配置字段名**（variables）当成
+        # 输入端口，连撞 4 次同一条错误被反刍守卫判死——它没有任何途径知道
+        # 该填什么。端口清单是现成的，不给才是平台的问题。
+        def _names(ports: Any) -> str:
+            listed = "、".join(port.name for port in ports)
+            return listed or "（该积木没有这一侧的端口）"
+
         if source_port is None:
-            errors.append(f"{edge.id}: unknown source port {source.type}.{edge.source_port}")
+            errors.append(
+                f"{edge.id}: unknown source port {source.type}.{edge.source_port}"
+                f"；{source.type} 的可用输出端口：{_names(source_def.output_ports)}"
+            )
         if target_port is None:
-            errors.append(f"{edge.id}: unknown target port {target.type}.{edge.target_port}")
+            errors.append(
+                f"{edge.id}: unknown target port {target.type}.{edge.target_port}"
+                f"；{target.type} 的可用输入端口：{_names(target_def.input_ports)}"
+                "。注意端口不是配置字段名——给节点传值用 config 里的 $ref，不是连线。"
+            )
         if (
             source_port
             and target_port

@@ -15,6 +15,8 @@ T6 三次失守的根因不是纪律，是表达式树（$subtract 嵌套）比�
 
 from __future__ import annotations
 
+import json
+
 import math
 from typing import Any
 
@@ -24,8 +26,16 @@ MAX_DEPTH = 24
 
 _FUNCTIONS = {
     "avg", "sum", "min", "max", "len", "abs", "round", "floor", "ceil", "when",
+    # 记录聚合（2026-08-23）：此前对象数组无法确定性地提取字段/分组求和——
+    # 日报类需求在积木层无解，模型只能硬编码键名作弊或选错积木。
+    "pluck", "sum_by",
 }
 _KEYWORDS = {"and", "or", "not", "true", "false"}
+
+
+def function_names() -> frozenset[str]:
+    """公式引擎支持的函数名（校验器与提示词共用同一份真相）。"""
+    return frozenset(_FUNCTIONS)
 
 
 class FormulaError(ValueError):
@@ -66,6 +76,26 @@ def _tokenize(text: str) -> list[tuple[str, Any]]:
             else:
                 tokens.append(("name", word))
             i = j
+            continue
+        if ch in ("\"", "'"):
+            quote = ch
+            j = i + 1
+            while j < len(text) and text[j] != quote:
+                j += 1
+            if j >= len(text):
+                raise FormulaError(f"字符串未闭合（位置 {i}）")
+            tokens.append(("str", text[i + 1:j]))
+            i = j + 1
+            continue
+        if ch in ("\"", "'"):
+            quote = ch
+            j = i + 1
+            while j < len(text) and text[j] != quote:
+                j += 1
+            if j >= len(text):
+                raise FormulaError(f"字符串未闭合（位置 {i}）")
+            tokens.append(("str", text[i + 1:j]))
+            i = j + 1
             continue
         two = text[i:i + 2]
         if two in ("<=", ">=", "==", "!="):
@@ -208,6 +238,12 @@ class _Parser:
         token = self.peek()
         if token is None:
             raise FormulaError("公式意外结束")
+        if token[0] == "str":
+            self.take()
+            return ("str", token[1])
+        if token[0] == "str":
+            self.take()
+            return ("str", token[1])
         if token[0] == "num":
             self.take()
             return ("num", token[1])
@@ -256,7 +292,7 @@ def _as_number_list(value: Any, label: str) -> list[float | int]:
 
 def _evaluate(node: Any, vars_: dict[str, Any]) -> Any:
     kind = node[0]
-    if kind == "num" or kind == "bool":
+    if kind == "num" or kind == "bool" or kind == "str":
         return node[1]
     if kind == "var":
         name = node[1]
@@ -340,7 +376,58 @@ def _numbers_from(args: list[Any], name: str) -> list[float | int]:
     return values
 
 
+def _record_array(value: Any, usage: str) -> list:
+    """记录数组参数的类型闸：带引号的 JSON 字面量要点破真因，别让人修没坏的工作流。"""
+
+    if isinstance(value, list):
+        return value
+    if isinstance(value, str):
+        stripped = value.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            try:
+                json.loads(stripped)
+            except ValueError:
+                pass
+            else:
+                raise FormulaError(
+                    f"{usage} 收到的是 JSON 字符串而不是数组本体——"
+                    "值被整体加了引号。请去掉外层引号，直接传数组。"
+                )
+    raise FormulaError(f"{usage} 需要一个对象数组")
+
+
 def _call(name: str, args: list[Any]) -> Any:
+    if name == "pluck":
+        if len(args) != 2 or not isinstance(args[1], str):
+            raise FormulaError('pluck(记录数组, "字段名") 需要一个对象数组和一个字符串字段名')
+        args = [_record_array(args[0], "pluck"), args[1]]
+        field = args[1]
+        out = []
+        for index, item in enumerate(args[0]):
+            if not isinstance(item, dict):
+                raise FormulaError(f"pluck 的第 {index + 1} 个元素不是对象")
+            if field not in item:
+                raise FormulaError(f"pluck 的第 {index + 1} 个元素缺少字段 {field!r}")
+            out.append(item[field])
+        return out
+    if name == "sum_by":
+        if (len(args) != 3
+                or not isinstance(args[1], str) or not isinstance(args[2], str)):
+            raise FormulaError('sum_by(记录数组, "分组字段", "数值字段") 需要一个对象数组和两个字符串字段名')
+        args = [_record_array(args[0], "sum_by"), args[1], args[2]]
+        key_field, value_field = args[1], args[2]
+        totals: dict[str, float | int] = {}
+        for index, item in enumerate(args[0]):
+            if not isinstance(item, dict):
+                raise FormulaError(f"sum_by 的第 {index + 1} 个元素不是对象")
+            if key_field not in item or value_field not in item:
+                raise FormulaError(
+                    f"sum_by 的第 {index + 1} 个元素缺少字段（需要 {key_field!r} 与 {value_field!r}）"
+                )
+            key = str(item[key_field])
+            value = _as_number(item[value_field], f"sum_by 的 {value_field}")
+            totals[key] = totals.get(key, 0) + value
+        return totals
     if name == "when":
         if len(args) != 3:
             raise FormulaError("when(条件, 成立值, 不成立值) 需要三个参数")
@@ -354,8 +441,19 @@ def _call(name: str, args: list[Any]) -> Any:
             raise FormulaError("abs 需要一个数字参数")
         return abs(_as_number(args[0], "abs 的参数"))
     if name in ("round", "floor", "ceil"):
+        # round 收第二个可选参数（保留几位小数）。业务报表里"均价 12.35"
+        # 这类需求极常见，只有整数取整时模型只能去别处凑，或者干脆放弃四舍五入。
+        if name == "round" and len(args) == 2:
+            value = _as_number(args[0], "round 的参数")
+            digits = _as_number(args[1], "round 的小数位数")
+            if digits != int(digits) or not 0 <= int(digits) <= 10:
+                raise FormulaError("round 的小数位数必须是 0..10 之间的整数")
+            return round(value, int(digits))
         if len(args) != 1:
-            raise FormulaError(f"{name} 需要一个数字参数")
+            raise FormulaError(
+                f"{name} 需要一个数字参数"
+                + ("（round 也可以写 round(数字, 小数位数)）" if name == "round" else "")
+            )
         value = _as_number(args[0], f"{name} 的参数")
         if name == "round":
             return round(value)

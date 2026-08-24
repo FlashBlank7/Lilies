@@ -256,12 +256,14 @@ class WorkflowTestCase(BaseModel):
 class ApplicationSnapshot(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    name: str
-    description: str
+    # name/description/requirement 允许缺省：校验器单测只关心 workflow 结构，
+    # 生产创建路径由 ApplicationCreateRequest 另行强制这些字段。
+    name: str = "未命名应用"
+    description: str = ""
     mode: ApplicationMode = ApplicationMode.workflow
     delivery_mode: DeliveryMode = DeliveryMode.guided
     governed_hard_gate: bool = False
-    requirement: str
+    requirement: str = ""
     workflow: WorkflowSpec = Field(default_factory=WorkflowSpec)
     agents: dict[str, AgentSpec] = Field(default_factory=dict)
     tests: list[WorkflowTestCase] = Field(default_factory=list)

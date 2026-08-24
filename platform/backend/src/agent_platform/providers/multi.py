@@ -15,6 +15,8 @@ No external dependencies beyond what's already installed (httpx).
 
 from __future__ import annotations
 
+import inspect
+
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -149,6 +151,8 @@ class MultiProvider(ModelProvider):
         anthropic_base_url: str = "https://api.anthropic.com",
         local_base_url: str | None = None,
         local_api_key: str | None = None,
+        local2_base_url: str | None = None,
+        local2_api_key: str | None = None,
         timeout_seconds: float = 600.0,
         egress_enabled: bool | None = None,
     ) -> None:
@@ -180,11 +184,25 @@ class MultiProvider(ModelProvider):
         if local_base_url:
             # 本地小模型端点（vLLM/SGLang/Ollama）：原生 chat-completions 协议，
             # 回环地址豁免 egress 开关（本地推理不是计费出口）。
+            # streaming=False：绕开 vLLM 流式工具解析器丢片段 bug（#19056，
+            # 修复于 v0.11.0），本地后台构建无流式体验需求。
             self._providers["local"] = OpenAIChatProvider(
                 local_api_key,
                 local_base_url,
                 timeout_seconds,
                 egress_enabled=self._egress_enabled,
+                streaming=False,
+            )
+        if local2_base_url:
+            # 第二个本地端点（一个 vLLM 实例只载一个模型；异构构建的统筹者
+            # 模型走 local2/ 前缀，执行者小模型走 local/）。
+            self._providers["local2"] = OpenAIChatProvider(
+                local2_api_key or local_api_key,
+                local2_base_url,
+                timeout_seconds,
+                egress_enabled=self._egress_enabled,
+                provider_name="local2",
+                streaming=False,
             )
         if not self._providers:
             # Graceful degradation — health endpoint still works, API calls fail
@@ -239,8 +257,21 @@ class MultiProvider(ModelProvider):
         effort: str,
         tool_choice: dict[str, str] | None = None,
         user_id: str | None = None,
+        temperature: float | None = None,
     ) -> AsyncIterator[StreamEvent]:
         provider, bare = self._resolve(model)
+        # 温度只转发给声明支持的后端：老 provider（Anthropic 兼容那几个）与
+        # 测试替身的签名里没有这个参数，硬传会 TypeError。
+        extra: dict[str, Any] = {}
+        if temperature is not None:
+            try:
+                params = inspect.signature(provider.stream).parameters
+            except (TypeError, ValueError):
+                params = {}
+            if "temperature" in params or any(
+                p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values()
+            ):
+                extra["temperature"] = temperature
         async for event in provider.stream(
             model=bare,
             system=system,
@@ -249,6 +280,9 @@ class MultiProvider(ModelProvider):
             max_output_tokens=max_output_tokens,
             thinking_enabled=thinking_enabled,
             effort=effort,
+            **extra,
+            **extra,
+            **extra,
             tool_choice=tool_choice,
             user_id=user_id,
         ):

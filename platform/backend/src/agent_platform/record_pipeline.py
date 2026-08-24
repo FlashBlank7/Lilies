@@ -891,15 +891,31 @@ def match_record(
                 )
                 reason = "matched" if matches else "mismatch"
             if not matches:
-                conflicts.append(
-                    {
-                        "name": check.name,
-                        "comparator": check.comparator,
-                        "reason": reason,
-                        "source_missing": source_missing,
-                        "candidate_missing": candidate_missing,
-                    }
-                )
+                # 冲突要带上**两边的值和差额**，不能只报"哪一项不一致"。
+                # 对账类需求普遍要求"列出是哪个字段不一致、差多少"（工业任务包
+                # T1/T5 的验收原文），只给一个 name 时这句话在积木层无法实现——
+                # 这是"任务在积木层是否可解"的效度问题，不是模型能力问题。
+                detail: dict[str, Any] = {
+                    "name": check.name,
+                    "comparator": check.comparator,
+                    "reason": reason,
+                    "source_missing": source_missing,
+                    "candidate_missing": candidate_missing,
+                    "source_value": None if source_missing else source_value,
+                    "candidate_value": None if candidate_missing else candidate_value,
+                }
+                if (
+                    not source_missing
+                    and not candidate_missing
+                    and isinstance(source_value, (int, float))
+                    and isinstance(candidate_value, (int, float))
+                    and not isinstance(source_value, bool)
+                    and not isinstance(candidate_value, bool)
+                ):
+                    detail["delta"] = _score_float(
+                        Decimal(str(source_value)) - Decimal(str(candidate_value))
+                    )
+                conflicts.append(detail)
 
         normalized = score / total_weight
         evaluated.append(
@@ -1054,6 +1070,23 @@ def match_records(
         elif outcome["status"] == "ambiguous":
             ambiguous_sources.append(entry)
         elif outcome["status"] == "conflict":
+            # 把冲突的那个候选带上：批量模式此前只回 {source, status, match:null}，
+            # 下游拿不到被比对的那条记录，"差多少"无从谈起。
+            conflicting = next(
+                (
+                    item for item in outcome["candidates"]
+                    if item.get("conflicts") and not item.get("disqualified")
+                ),
+                None,
+            )
+            if conflicting is not None:
+                pool_position = conflicting["index"]
+                entry["conflict_with"] = {
+                    "candidate_index": pool_indexes[pool_position],
+                    "candidate": conflicting["candidate"],
+                    "score": conflicting["score"],
+                    "conflicts": conflicting["conflicts"],
+                }
             conflict_sources.append(entry)
         else:
             unmatched_sources.append(entry)

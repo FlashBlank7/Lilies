@@ -96,7 +96,8 @@ Core rules:
   require it.
 - Deterministic work must run on deterministic blocks, never inside an LLM prompt: record set matching and
   reconciliation → record_match (batch mode: sources list); business arithmetic (forecast averages, coverage,
-  thresholds, MOQ floors) → variable_assigner in $formula mode — one readable infix line like
+  thresholds, MOQ floors) and record aggregation (group sums via sum_by(records, "key", "value"),
+  field extraction via pluck) → variable_assigner in $formula mode — one readable infix line like
   "when(stock < avg(sales[-4:]) * lead, max(ceil(avg(sales[-4:]) * (lead + 2) - stock), moq), 0)" with vars
   bound to references; constrained replenishment/ordering → replenishment_planner. An LLM node is for
   judgment, language, and unstructured extraction only — a model doing arithmetic or matching is an audit
@@ -185,6 +186,21 @@ Core rules:
 - A valid graph has exactly one start, at least one end/answer, no implicit cycles, and no unreachable nodes.
 - Add mandatory tests that demonstrate the user's actual acceptance criteria. Run them with test_run.
   Acceptance is the final executable proof, not a checkpoint followed by later mutations.
+- INTEGRITY (non-negotiable): if a test seems to conflict with the requirement, STOP and
+  report the conflict instead of finding a way to pass; never hardcode sample values
+  (store names, amounts, dates) into formulas/templates/configs to make a test green —
+  the workflow must work for unseen inputs; never weaken or delete an assertion to pass.
+  A green suite obtained by any of these is a failed delivery, not a success.
+- INTEGRITY (non-negotiable): if a test seems to conflict with the requirement, STOP and
+  report the conflict instead of finding a way to pass; never hardcode sample values
+  (store names, amounts, dates) into formulas/templates/configs to make a test green —
+  the workflow must work for unseen inputs; never weaken or delete an assertion to pass.
+  A green suite obtained by any of these is a failed delivery, not a success.
+- INTEGRITY (non-negotiable): if a test seems to conflict with the requirement, STOP and
+  report the conflict instead of finding a way to pass; never hardcode sample values
+  (store names, amounts, dates) into formulas/templates/configs to make a test green —
+  the workflow must work for unseen inputs; never weaken or delete an assertion to pass.
+  A green suite obtained by any of these is a failed delivery, not a success.
 - Anchor NUMBERS, not just shapes. When the owner's materials contain computable values (amounts,
   totals, thresholds, counts), at least one mandatory test MUST assert the exact expected number via
   equals — a test that only checks fields/names stays green while every amount is silently 0
@@ -213,6 +229,10 @@ Core rules:
 - Once test_run passes all mandatory tests, the delivery is frozen. Do not inspect more catalogs, change nodes,
   edges, agents, templates, or tests, or delegate more work. Finish task and plan bookkeeping; after a passing
   test the platform auto-publishes when auto_publish is enabled, then write your delivery note.
+  ONE exception: if test_run comes back green but reports publication "withheld", acceptance was
+  shape-only and does not count as proof — add ONE mandatory test that asserts a concrete value
+  (operator equals, expected computed by you from the owner's sample data) and run it. Nothing else
+  changes; existing assertions stay untouched.
 - Treat draft_validate warnings about disconnected inputs as issues to repair before publishing.
 - Publish only after draft_validate and all mandatory tests pass for the exact current content hash.
 - Do not claim completion before draft_publish returns a version (unless auto-publish is disabled).
@@ -599,6 +619,23 @@ class WorkflowBuilder:
                 report = await self.runtime.run_test_suite(build["application_id"])
                 if not report["passed"]:
                     raise RuntimeError("builder stopped before mandatory tests passed")
+                # 收工自动发布此前绕开了构建者的验收硬门（那道门只拦 draft_publish
+                # 工具这一条路）。前一步刚可能自动补过一条纯结构冒烟测试，它跑绿
+                # 就直接发版——零真实验收的东西又成了正式版。
+                # 门只挂在**发布**上，不挂在 ready 上：ready 的含义是"结构有效、
+                # 端到端跑得起来，等业主验收"，人还在环里，那是平台有意留给业主的
+                # 判断权（业务验收属于业主）。published 才是自动化一方单方面宣布
+                # "这东西验过了"——那句话必须有锚定具体值的证据撑着。
+                if build["auto_publish"] and not await self._anchored_acceptance(
+                    build["application_id"]
+                ):
+                    raise RuntimeError(
+                        "builder stopped before publishing: 强制验收测试里没有一条"
+                        "断言了具体值（只有 exists/type/长度这类结构断言，或平台自动补的"
+                        "冒烟测试）——这种验收工作流算错了也会全绿。用 test_add 写一条 "
+                        "operator=equals 的强制测试，expected 填你从需求样例一步步"
+                        "算出来的那个值。"
+                    )
                 if build["auto_publish"]:
                     published = await self.workflow_store.publish(
                         build["application_id"], acknowledge_warnings=True
@@ -667,6 +704,23 @@ class WorkflowBuilder:
 
 
 
+
+    async def _anchored_acceptance(self, application_id: str) -> bool:
+        """强制验收里是否有一条断言了**具体值**。
+
+        只验形状（exists/type/长度，或 structural=True）的验收是假验收：工作流
+        每个数都算错也会全绿。平台在构建者没写验收时会自动补一条纯结构冒烟测试，
+        它只该证明"跑得起来"，绝不能当作"算得对"的证据——否则 2026-08-23 那次
+        假成功换个入口就能重演。
+        """
+        draft = await self.workflow_store.get_draft(application_id)
+        return any(
+            assertion.operator in {"equals", "contains"}
+            and not assertion.structural
+            and assertion.expected is not None
+            for test in draft["snapshot"].tests if test.mandatory
+            for assertion in test.assertions
+        )
 
     async def _ensure_mandatory_smoke_test(
         self, build_id: str, application_id: str, state: BuildTeamState
@@ -751,6 +805,68 @@ class WorkflowBuilder:
                 else:
                     inputs[name] = "test"
         return inputs
+
+    @staticmethod
+    def _test_input_type_mismatches(snapshot: Any, test: WorkflowTestCase) -> list[str]:
+        """验收输入的类型闸：数组/对象被写成带引号的 JSON 字面量要点破真因。
+
+        真机 13284038：inputs 把 sales 写成字符串，工作流完全正确却红了 4 轮，
+        修理全花在一个没坏的工作流上——判据本身要先被校验。
+        """
+
+        declared: dict[str, str] = {}
+        for node in snapshot.workflow.nodes:
+            if node.type == "start" and isinstance(node.config, dict):
+                for item in node.config.get("inputs") or []:
+                    if isinstance(item, dict) and item.get("name"):
+                        declared[str(item["name"])] = str(item.get("type") or "string")
+        problems: list[str] = []
+        for name, value in (test.inputs or {}).items():
+            expected = declared.get(name)
+            if expected not in ("array", "object") or not isinstance(value, str):
+                continue
+            stripped = value.strip()
+            looks_like = (expected == "array" and stripped.startswith("[")) or (
+                expected == "object" and stripped.startswith("{")
+            )
+            if not looks_like:
+                continue
+            try:
+                json.loads(stripped)
+            except ValueError:
+                continue
+            problems.append(
+                f"测试输入 {name} 是带引号的 JSON 字面量（字符串），而声明类型是 {expected}"
+                "——请去掉外层引号，直接给数组/对象本体"
+            )
+        return problems
+
+    @staticmethod
+    def _test_assertion_path_mismatches(snapshot: Any, test: WorkflowTestCase) -> list[str]:
+        """断言路径必须落在终端节点真实暴露的字段上。
+
+        真机 bdefc84a：断言写成 ["output", "by_store", …]——把 $ref 引用里才需要的
+        层级搬进了断言路径。模型会把看到的格式用到别处，这层必须机械校验。
+        """
+
+        exposed: set[str] = set()
+        for node in snapshot.workflow.nodes:
+            if node.type in ("end", "answer") and isinstance(node.config, dict):
+                exposed.update((node.config.get("outputs") or {}).keys())
+        if not exposed:
+            return []
+        problems: list[str] = []
+        for assertion in test.assertions or []:
+            path = assertion.path if hasattr(assertion, "path") else (assertion or {}).get("path")
+            if not path:
+                continue
+            head = str(path[0])
+            if head not in exposed:
+                problems.append(
+                    f"断言路径 {list(path)} 的第一段 {head!r} 不是终端节点暴露的字段；"
+                    f"可断言的字段只有：{'、'.join(sorted(exposed))}"
+                )
+        return problems
 
     @staticmethod
     def _validate_test_requirements_available(test: WorkflowTestCase, snapshot: Any) -> None:
@@ -898,6 +1014,9 @@ class WorkflowBuilder:
         # 循环把这判成主动结束——空草稿 needs_attention。连续截断最多救 2 次。
         truncated_rescues = 0
         rescue_without_thinking = False
+        repeated_rejections: dict[str, int] = {}
+        repeated_rejections: dict[str, int] = {}
+        repeated_rejections: dict[str, int] = {}
         for turn in range(1, max_turns + 1):
             # 上下文成本闸门：老轮次的工具结果归档成占位行。没有它，40 轮构建的
             # 输入从 1 万 token 滚到 15 万（ERP 分页/测试报告全文被重发上百次）。
@@ -1067,6 +1186,51 @@ class WorkflowBuilder:
                     )
                 except Exception as error:
                     full_content = f"{type(error).__name__}: {error}"
+                    # 反刍守卫（自 mechanical 移植，2026-08-23）：实测协调者
+                    # 对同一节点提交 61 次完全相同的被拒配置（"would not change
+                    # the workflow"），60 轮预算就这么烧光。同一 (工具,参数)
+                    # 被拒第 3 次起，反馈里追加强指令要求换动作。
+                    signature = f"{call.name}:" + json.dumps(
+                        call.input or {}, ensure_ascii=False, sort_keys=True, default=str
+                    )[:400]
+                    repeat_count = repeated_rejections.get(signature, 0) + 1
+                    repeated_rejections[signature] = repeat_count
+                    if repeat_count >= 3:
+                        full_content += (
+                            f"\n【第 {repeat_count} 次提交完全相同的被拒提案】"
+                            "它永远不会通过。禁止再发这个调用——换一个节点、"
+                            "换一种做法，或先用 draft_inspect 看清当前草稿。"
+                        )
+                    # 反刍守卫（自 mechanical 移植，2026-08-23）：实测协调者
+                    # 对同一节点提交 61 次完全相同的被拒配置（"would not change
+                    # the workflow"），60 轮预算就这么烧光。同一 (工具,参数)
+                    # 被拒第 3 次起，反馈里追加强指令要求换动作。
+                    signature = f"{call.name}:" + json.dumps(
+                        call.input or {}, ensure_ascii=False, sort_keys=True, default=str
+                    )[:400]
+                    repeat_count = repeated_rejections.get(signature, 0) + 1
+                    repeated_rejections[signature] = repeat_count
+                    if repeat_count >= 3:
+                        full_content += (
+                            f"\n【第 {repeat_count} 次提交完全相同的被拒提案】"
+                            "它永远不会通过。禁止再发这个调用——换一个节点、"
+                            "换一种做法，或先用 draft_inspect 看清当前草稿。"
+                        )
+                    # 反刍守卫（自 mechanical 移植，2026-08-23）：实测协调者
+                    # 对同一节点提交 61 次完全相同的被拒配置（"would not change
+                    # the workflow"），60 轮预算就这么烧光。同一 (工具,参数)
+                    # 被拒第 3 次起，反馈里追加强指令要求换动作。
+                    signature = f"{call.name}:" + json.dumps(
+                        call.input or {}, ensure_ascii=False, sort_keys=True, default=str
+                    )[:400]
+                    repeat_count = repeated_rejections.get(signature, 0) + 1
+                    repeated_rejections[signature] = repeat_count
+                    if repeat_count >= 3:
+                        full_content += (
+                            f"\n【第 {repeat_count} 次提交完全相同的被拒提案】"
+                            "它永远不会通过。禁止再发这个调用——换一个节点、"
+                            "换一种做法，或先用 draft_inspect 看清当前草稿。"
+                        )
                     content = self._trim_for_history(full_content)
                     is_error = True
                     if (
@@ -1603,9 +1767,17 @@ class WorkflowBuilder:
                     "node": node.model_dump(mode="json")
                 }
             elif tool == "draft_update_node":
+                # 配置字段平铺在 changes 下（而不是包在 config 里）意图无歧义，
+                # 机器替它上提——与平台早已在做的 merge_config 上提同源。
+                # 真机构建 7d5ffa06：4B 写 changes:{"outputs":{...}} 被 Pydantic
+                # 顶回 3 次，end 的输出始终没绑上，图却是合法的，于是带着空输出
+                # 走完全程。（自然语言编辑路径不做这件事——那是业主在改自己的
+                # 工作流，替人猜错就是擅自改动。）
                 op, payload = "update_node", {
                     "node_id": data["node_id"],
-                    "changes": data["changes"],
+                    "changes": self.applications.hoist_stray_config_keys(
+                        draft["snapshot"], str(data["node_id"]), dict(data["changes"])
+                    ),
                     "merge_config": data.get("merge_config", True),
                 }
             elif tool == "draft_remove_node":
@@ -1622,7 +1794,23 @@ class WorkflowBuilder:
                     "agent": AgentSpec.model_validate(data["agent"]).model_dump(mode="json")
                 }
             elif tool == "test_add":
-                test = WorkflowTestCase.model_validate(data["test"])
+                # 测试字段被平铺在顶层（而不是包在 test 里）：意图无歧义，替它包回去。
+                # 真机构建 1334c391 里 4B 连发 15 次平铺的 test_add，平台每次只回
+                # 一句 KeyError: 'test'——既没说要包在哪，也没说它写对了什么。
+                payload_test = data.get("test")
+                if not isinstance(payload_test, dict):
+                    flattened = {
+                        key: value for key, value in data.items()
+                        if key in WorkflowTestCase.model_fields
+                    }
+                    if not flattened:
+                        raise RuntimeError(
+                            "test_add 的参数要包在 test 里："
+                            '{"test": {"id": ..., "name": ..., "requirement": ..., '
+                            '"inputs": {...}, "assertions": [...], "mandatory": true}}'
+                        )
+                    payload_test = flattened
+                test = WorkflowTestCase.model_validate(payload_test)
                 self._validate_test_requirements_available(test, draft["snapshot"])
                 op, payload = "add_test", {
                     "test": test.model_dump(mode="json")
@@ -1673,6 +1861,21 @@ class WorkflowBuilder:
                     state.last_failed_test_revision = state.revision
             else:
                 state.last_failed_test_revision = None
+                # 发版的三条路（test_run 全绿自动发、draft_publish 工具、收工自动发）
+                # 必须过同一道门。此前只有 draft_publish 那条被 b7167bd 堵上，
+                # 另外两条照旧——纯结构验收一跑绿就直接出正式版。
+                # 这里不抛异常：模型并没有请求发布，抛了等于凭空判死一单；
+                # 把"为什么没发"写进报告，让它去补一条锚定具体值的验收。
+                if auto_publish and not await self._anchored_acceptance(application_id):
+                    report["publication"] = {"status": "withheld"}
+                    report["next"] = (
+                        "测试全绿但**没有发布**：强制验收里没有一条断言了具体值"
+                        "（只有 exists/type/长度这类结构断言，或平台自动补的冒烟测试）——"
+                        "这种验收工作流算错了也会全绿，不能作为发版证据。"
+                        "用 test_add 写一条 operator=equals 的强制测试，"
+                        "expected 填你从需求样例一步步算出来的那个值，再 test_run。"
+                    )
+                    return report
                 if auto_publish:
                     published = await self.workflow_store.publish(
                         application_id, acknowledge_warnings=True
@@ -1699,8 +1902,33 @@ class WorkflowBuilder:
                 }
             if not auto_publish and not data.get("explicit", False):
                 return {"status": "ready", "message": "auto publish is disabled"}
-            # An explicit Builder publish after green tests acknowledges
-            # remaining warnings; they stay recorded in the publish decision.
+            # 验收证据硬门（2026-08-23 事故修复）：平台层有意"只提示不阻断"——
+            # 业务验收属于业主，人类可知情越过。但构建者是自动化的一方，绝不能
+            # 走这条人类例外通道：实测一单在最后一次 test_run 明确 passed=false
+            # 之后仍以 explicit 发布成功，产出的日报工作流把样例门店名硬编码进
+            # 公式，换门店直接崩——零验收证据的东西成了正式版 v1。
+            decision = await self.workflow_store.publication_decision(application_id)
+            evidence = decision.get("evidence") or {}
+            if evidence.get("latest_validation_failed") or evidence.get("state") != "current":
+                raise RuntimeError(
+                    "publish blocked: 当前草稿没有通过验收的证据"
+                    f"（evidence={evidence.get('state')}，"
+                    f"latest_failed={bool(evidence.get('latest_validation_failed'))}）。"
+                    "先用 test_run 让全部强制测试对当前草稿变绿，再发布。"
+                )
+            # 证据还得**有效**：平台在构建者没写验收时会自动补一条纯结构冒烟测试
+            # （operator=exists, structural=True），它只证明"跑得起来"，不证明
+            # "算得对"。让它当发布证据，等于把同一个假成功换个入口放行——
+            # 工作流每个数都算错也照样全绿。构建者必须自己写出锚定具体值的验收。
+            if not await self._anchored_acceptance(application_id):
+                raise RuntimeError(
+                    "publish blocked: 强制验收测试里没有一条断言了具体值"
+                    "（只有 exists/type/长度这类结构断言，或平台自动补的冒烟测试）——"
+                    "这种验收工作流算错了也会全绿。用 test_add 写一条 operator=equals "
+                    "的强制测试，expected 填你从需求样例一步步算出来的那个值，"
+                    "test_run 变绿后再发布。"
+                )
+            # 证据齐备后的显式发布可以确认剩余的质量类警告；它们仍记进发布决策。
             published = await self.workflow_store.publish(
                 application_id, acknowledge_warnings=True
             )
@@ -2248,12 +2476,27 @@ class WorkflowBuilder:
         return {"failure": failure}
 
     def _catalog_overview(self) -> str:
-        """One compact line per block so the Builder never has to search blind."""
+        """One compact line per block so the Builder never has to search blind.
+
+        目录里带上**一句话职责**，不只是标题。选型是架构那一步唯一重要的事，
+        而此前这张表只给 `type — English title`：模型看到的是
+        "variable_aggregator — Variable Aggregator"，看不到那句要命的
+        "只做分支值合并/透传，不做任何算术"——尽管平台早就写好了这句话，只是
+        当时只发给编辑器界面。八轮真机构建里有四轮的架构师第一步都在盲查目录。
+        中文一句话很省：整张表从 ~2.3KB 涨到 ~2.7KB，换来的是选型有据可依。
+        """
 
         by_category: dict[str, list[str]] = {}
         for item in self.blocks.list():
-            by_category.setdefault(item.category, []).append(f"{item.type} — {item.title}")
-        lines = ["Complete block catalog (type — title). Call catalog_get or manual_get for schemas:"]
+            summary = (
+                item.editor.get("i18n", {}).get("zh", {}).get("description")
+                or item.description
+                or item.title
+            )
+            by_category.setdefault(item.category, []).append(
+                f"{item.type} — {str(summary)[:110]}"
+            )
+        lines = ["Complete block catalog (type — 职责). Call catalog_get or manual_get for schemas:"]
         for category in sorted(by_category):
             lines.append(f"[{category}] " + "; ".join(sorted(by_category[category])))
         core = sorted(self.core_tools.names())
@@ -2390,6 +2633,7 @@ class WorkflowBuilder:
         tool_records: list[dict[str, Any]],
         state: BuildTeamState,
         model: str | None = None,
+        prompt: dict[str, str] | None = None,
     ) -> None:
         """Persist one model turn so a stalled build can be diagnosed later."""
 
@@ -2406,6 +2650,7 @@ class WorkflowBuilder:
                 stop_reason=response.stop_reason,
                 usage=response.usage,
                 draft_revision=state.revision,
+                prompt=prompt,
             ),
         )
 

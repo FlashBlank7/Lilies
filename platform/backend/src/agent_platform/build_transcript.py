@@ -143,8 +143,15 @@ def turn_record(
     stop_reason: str | None,
     usage: Any,
     draft_revision: int,
+    prompt: dict[str, str] | None = None,
 ) -> dict[str, Any]:
-    """Build one transcript record from a completed model turn."""
+    """Build one transcript record from a completed model turn.
+
+    prompt：这一轮实际下发给模型的 system / user 原文。默认不存（体量大且含
+    目录全文），置 LILIES_TRACE_PROMPTS=1 时由调用方传入——追踪"平台到底给
+    模型看了什么"是复盘执行链的另一半，没有它只能看到模型做了什么、看不到
+    它是被怎么问的。
+    """
 
     thinking: list[str] = []
     text: list[str] = []
@@ -161,6 +168,7 @@ def turn_record(
         "model": model,
         "thinking": redact("\n".join(thinking)) if thinking else "",
         "text": redact("\n".join(text)) if text else "",
+        "prompt": {k: redact(v)[:20_000] for k, v in (prompt or {}).items()} or None,
         "tool_calls": tool_calls,
         "stop_reason": stop_reason,
         "usage": usage.model_dump(mode="json") if hasattr(usage, "model_dump") else {},

@@ -33,9 +33,12 @@ async def case_tool():
     calls = [b for b in r.blocks if b.type == "tool_use"]
     print("TOOL:", r.stop_reason, "|", [(c.name, c.input) for c in calls][:1])
     assert calls and calls[0].name == "draft_add_node", "no tool call"
-    # 线路层到此已验证（调用发起 + 分片 JSON 拼装）。schema 质量单独观察，
-    # 不作为冒烟断言——小模型拍平嵌套结构是预期失败模式，生产里由边界校验
-    # 拒绝并带错误反馈重试（这正是"他律"实验要测量的对象）。
+    # 线路层到此已验证（调用发起 + 参数 JSON 装配）。
+    # 归因更正（2026-08-23）：此处曾注记"小模型拍平嵌套结构是预期失败模式"，
+    # 判别实验证明是错误归因——非流式直连时 4B 输出完整合法的嵌套 JSON，
+    # 拍平实为 vLLM 0.8.5 hermes 流式工具解析器丢参数片段（上游 #19056，
+    # 修复于 v0.11.0）。平台已改走非流式并加兜底解析。schema 质量仍单独观察
+    # 不作冒烟断言，但观察到的畸形要先排除管道故障再记到模型头上。
     node = (calls[0].input or {}).get("node")
     if isinstance(node, dict) and node.get("id") == "start" and node.get("type") == "start":
         print("TOOL-SCHEMA: valid nested structure (one-shot)")

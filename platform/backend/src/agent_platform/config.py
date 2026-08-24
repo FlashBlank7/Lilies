@@ -3,17 +3,32 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field
+import socket
+
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=".env", env_file_encoding="utf-8", extra="ignore", populate_by_name=True
+    )
 
     app_name: str = "Agent Platform"
     api_token: str = "change-me"
-    host: str = "127.0.0.1"
-    port: int = 8000
+    # 绑定地址读 API_HOST 优先；泛用 HOST 常被外壳污染（conda 会设
+    # HOST=x86_64-conda-linux-gnu），解析不了的值一律回落回环，服务不裸奔也不崩。
+    host: str = Field(default="127.0.0.1", validation_alias=AliasChoices("API_HOST", "HOST"))
+    port: int = Field(default=8000, validation_alias=AliasChoices("API_PORT", "PORT"))
+
+    @field_validator("host")
+    @classmethod
+    def _fall_back_unresolvable_host(cls, value: str) -> str:
+        try:
+            socket.getaddrinfo(value, None)
+        except OSError:
+            return "127.0.0.1"
+        return value
     data_dir: Path = Path("data")
     workspace_root: Path = Path("workspaces")
     workspace_host_root: Path | None = None
@@ -27,6 +42,11 @@ class Settings(BaseSettings):
     # 本地小模型端点（vLLM/SGLang/Ollama 的 OpenAI 兼容 /v1）。设了就注册 local/ 前缀。
     local_model_base_url: str | None = None
     local_model_api_key: str | None = Field(default=None, repr=False)
+    # 第二个本地端点（local2/ 前缀）：异构构建里统筹者大模型的实例（如 :8002 的 32B）。
+    local2_model_base_url: str | None = None
+    local2_model_api_key: str | None = Field(default=None, repr=False)
+    # mechanical 引擎（小模型协作 builder）的默认模型；构建时可用 coordinator_model 覆盖。
+    small_builder_model: str = "local/Qwen/Qwen3-4B-Instruct-2507"
     model_price_estimates_usd_per_million: dict[str, dict[str, float]] = Field(
         default_factory=lambda: {
             "deepseek-v4-pro": {"input_tokens": 0.435, "output_tokens": 0.87},
