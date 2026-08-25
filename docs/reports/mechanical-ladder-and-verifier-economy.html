@@ -1,0 +1,426 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>机械阶梯与验证器经济体</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@600;700&family=Noto+Sans+SC:wght@400;500&family=IBM+Plex+Mono:wght@400;500&display=swap">
+
+<style>
+:root{
+  --paper:#f5f6f7; --panel:#ffffff; --ink:#171a1d; --muted:#5c6570;
+  --rule:#d8dcdf; --rule-soft:#e7eaec;
+  --accent:#2a4a63; --accent-soft:#eaeff3;
+  --pass:#2f7048; --fail:#9b3226; --warn:#8a6510;
+  --ph1:#c3ccd3; --ph2:#8fa7ba; --ph3:#4f7593; --ph4:#2a4a63; --ph5:#2f7048;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --paper:#12151a; --panel:#181c22; --ink:#e5e9ec; --muted:#98a3ad;
+    --rule:#2b323a; --rule-soft:#222831;
+    --accent:#8fb4d1; --accent-soft:#1b2530;
+    --pass:#6bb98a; --fail:#df8b78; --warn:#d0a24a;
+    --ph1:#38414a; --ph2:#4d6478; --ph3:#6b93b3; --ph4:#8fb4d1; --ph5:#6bb98a;
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#12151a; --panel:#181c22; --ink:#e5e9ec; --muted:#98a3ad;
+  --rule:#2b323a; --rule-soft:#222831;
+  --accent:#8fb4d1; --accent-soft:#1b2530;
+  --pass:#6bb98a; --fail:#df8b78; --warn:#d0a24a;
+  --ph1:#38414a; --ph2:#4d6478; --ph3:#6b93b3; --ph4:#8fb4d1; --ph5:#6bb98a;
+}
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:"Noto Sans SC","Hiragino Sans GB","Microsoft YaHei",system-ui,sans-serif;
+  font-size:16px; line-height:1.8; -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:1120px; margin:0 auto; padding:clamp(28px,5vw,72px) clamp(18px,4vw,40px) 96px}
+.col{max-width:68ch}
+h1,h2,h3{font-family:"Noto Serif SC",Georgia,serif; font-weight:600; text-wrap:balance; margin:0}
+h1{font-size:clamp(30px,4.6vw,46px); line-height:1.25; letter-spacing:-.01em}
+h2{font-size:clamp(21px,2.6vw,27px); line-height:1.35; margin:0 0 14px}
+h3{font-size:17px; line-height:1.4; margin:0 0 6px}
+p{margin:0 0 16px}
+a{color:var(--accent); text-decoration-thickness:1px; text-underline-offset:3px}
+a:focus-visible,summary:focus-visible{outline:2px solid var(--accent); outline-offset:3px; border-radius:2px}
+.eyebrow{
+  font-family:"IBM Plex Mono",ui-monospace,monospace; font-size:11.5px; font-weight:500;
+  letter-spacing:.16em; text-transform:uppercase; color:var(--muted); margin:0 0 10px
+}
+.lede{font-size:19px; line-height:1.72; color:var(--ink)}
+.meta{
+  font-family:"IBM Plex Mono",ui-monospace,monospace; font-size:12.5px; color:var(--muted);
+  display:flex; flex-wrap:wrap; gap:6px 20px; margin-top:22px;
+  padding-top:18px; border-top:1px solid var(--rule)
+}
+section{margin-top:clamp(44px,6vw,76px)}
+.mono{font-family:"IBM Plex Mono",ui-monospace,monospace; font-variant-numeric:tabular-nums}
+.hint{font-size:13.5px; color:var(--muted); line-height:1.65}
+
+/* 判卷卡 */
+.verdict{
+  border:1px solid var(--rule); background:var(--panel); border-radius:3px;
+  padding:22px 24px; display:grid; gap:20px; grid-template-columns:repeat(auto-fit,minmax(230px,1fr))
+}
+.vcell{display:flex; flex-direction:column; gap:4px}
+.vcell .who{font-family:"Noto Serif SC",serif; font-weight:600; font-size:17px}
+.vcell .id{font-family:"IBM Plex Mono",monospace; font-size:12px; color:var(--muted)}
+.conds{display:flex; flex-wrap:wrap; gap:5px; margin-top:6px}
+.cond{
+  font-family:"IBM Plex Mono",monospace; font-size:11.5px; padding:2px 7px;
+  border-radius:2px; border:1px solid currentColor; color:var(--pass)
+}
+.cond.no{color:var(--fail)}
+
+/* 表 */
+.scroll{overflow-x:auto; border:1px solid var(--rule); border-radius:3px; background:var(--panel)}
+table{border-collapse:collapse; width:100%; font-size:14px}
+th,td{padding:9px 13px; text-align:left; border-bottom:1px solid var(--rule-soft); vertical-align:top}
+thead th{
+  font-family:"IBM Plex Mono",monospace; font-size:11px; letter-spacing:.1em; text-transform:uppercase;
+  color:var(--muted); font-weight:500; white-space:nowrap; background:var(--accent-soft)
+}
+tbody tr:last-child td{border-bottom:none}
+td.num{font-family:"IBM Plex Mono",monospace; font-variant-numeric:tabular-nums; white-space:nowrap}
+td.bid{font-family:"IBM Plex Mono",monospace; font-size:12.5px; color:var(--accent); white-space:nowrap}
+.ok{color:var(--pass); font-weight:500}
+.bad{color:var(--fail)}
+
+/* 阶段推进条 */
+.strip{display:grid; grid-template-columns:repeat(18,1fr); gap:3px; align-items:end; height:132px; margin:6px 0 10px}
+.bar{border-radius:2px 2px 0 0; position:relative}
+.bar span{
+  position:absolute; bottom:-21px; left:0; right:0; text-align:center;
+  font-family:"IBM Plex Mono",monospace; font-size:10px; color:var(--muted)
+}
+.legend{display:flex; flex-wrap:wrap; gap:14px; margin-top:30px; font-size:12.5px; color:var(--muted)}
+.legend i{display:inline-block; width:11px; height:11px; border-radius:2px; margin-right:6px; vertical-align:-1px}
+
+/* 纪律卡 */
+.rules{display:grid; gap:14px; grid-template-columns:repeat(auto-fit,minmax(268px,1fr))}
+.rule{border:1px solid var(--rule); border-left:2px solid var(--accent); background:var(--panel); border-radius:3px; padding:16px 18px}
+.rule .tag{
+  font-family:"IBM Plex Mono",monospace; font-size:10.5px; letter-spacing:.12em;
+  text-transform:uppercase; color:var(--muted); display:block; margin-bottom:7px
+}
+.rule p{font-size:14px; line-height:1.7; margin:0 0 8px}
+.rule .prov{font-family:"IBM Plex Mono",monospace; font-size:11.5px; color:var(--muted)}
+
+pre.mermaid{background:var(--panel); border:1px solid var(--rule); border-radius:3px; padding:18px; overflow-x:auto; margin:0}
+code{font-family:"IBM Plex Mono",monospace; font-size:.9em; background:var(--accent-soft); padding:1px 5px; border-radius:2px}
+pre.code{
+  font-family:"IBM Plex Mono",monospace; font-size:13px; line-height:1.65; background:var(--panel);
+  border:1px solid var(--rule); border-radius:3px; padding:15px 17px; overflow-x:auto; margin:0 0 16px
+}
+ol.ladder{list-style:none; counter-reset:l -1; padding:0; margin:0; display:grid; gap:2px}
+ol.ladder li{
+  counter-increment:l; display:grid; grid-template-columns:34px 1fr; gap:14px;
+  padding:11px 0; border-bottom:1px solid var(--rule-soft); font-size:14.5px; line-height:1.7
+}
+ol.ladder li::before{
+  content:counter(l); font-family:"IBM Plex Mono",monospace; font-size:12px; color:var(--muted);
+  padding-top:4px
+}
+ol.ladder b{font-weight:500}
+ol.ladder .why{display:block; color:var(--muted); font-size:13px; margin-top:2px}
+ul.tight{margin:0 0 16px; padding-left:22px}
+ul.tight li{margin-bottom:7px}
+.refs{display:grid; gap:9px; font-size:14px}
+.ref{display:grid; grid-template-columns:auto 1fr; gap:12px; padding-bottom:9px; border-bottom:1px solid var(--rule-soft)}
+.ref .k{font-family:"IBM Plex Mono",monospace; font-size:12px; color:var(--muted); white-space:nowrap; padding-top:2px}
+.refgroup{font-family:"IBM Plex Mono",monospace; font-size:11px; letter-spacing:.13em; text-transform:uppercase; color:var(--muted); margin:22px 0 10px}
+@media (prefers-reduced-motion:reduce){*{animation:none!important; transition:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<p class="eyebrow">技术报告 · 2026-08-24</p>
+<h1>机械阶梯与验证器经济体</h1>
+<p class="lede col">用一个确定性验证器把控制流从模型手里拿回代码，让 4B 与 32B 的本地模型组合诚实完成一个需要分组求和与报表生成的业务工作流。本报告记录该架构的设计依据、十八轮真机实验，以及由失败逼出的七条工程纪律。</p>
+
+<div class="meta">
+  <span>纯本地推理 · Qwen3-32B + Qwen3-4B-Instruct-2507</span>
+  <span>vLLM 0.11.0 · 4×RTX 6000 Ada</span>
+  <span>回归测试 530 通过</span>
+</div>
+
+<section>
+  <p class="eyebrow">结论先行</p>
+  <h2>两个形态都通过了同一份机械判卷</h2>
+  <div class="verdict">
+    <div class="vcell">
+      <span class="who">形态 A · 自由协调</span>
+      <span class="id">build 1f5c50ae · classic</span>
+      <div class="conds"><span class="cond">C1 发布</span><span class="cond">C2 锚定验收</span><span class="cond">C3 照妖镜</span><span class="cond">C4 无豁免</span></div>
+      <p class="hint" style="margin:8px 0 0">32B 自由指挥 + 4B 队友。40 轮、边界拒绝率 37%。</p>
+    </div>
+    <div class="vcell">
+      <span class="who">形态 B · 机械协调</span>
+      <span class="id">build 529f07e3 · mechanical</span>
+      <div class="conds"><span class="cond">C1 发布</span><span class="cond">C2 锚定验收</span><span class="cond">C3 照妖镜</span><span class="cond">C4 无豁免</span></div>
+      <p class="hint" style="margin:8px 0 0">状态机管阶段 + 32B 定选型 + 4B 填表。换种子三组未见门店复判仍全绿。</p>
+    </div>
+  </div>
+  <p class="hint" style="margin-top:14px">两单的发布物都没有硬编码：<code>sum_by(sales,"store","amount")</code> 与 <code>sum(pluck(sales,"amount"))</code>。此前一次被记为"通过"的构建（<span class="mono">55434ea9</span>）事后查明是绕过验收证据发布、且把样例门店名写进了公式，该记录已作废——本报告的判据即为消灭这类结果而设计。</p>
+</section>
+
+<section class="col">
+  <p class="eyebrow">一 · 判据</p>
+  <h2>先把"算通过"写成代码</h2>
+  <p>出题人即判卷人时，"通过"极易被放宽。因此四条件全部写死在 <code>scripts/daily_report_benchmark.py</code> 里，判卷结果落盘，出题人无法临场放水：</p>
+  <ul class="tight">
+    <li><b>C1 发布成立</b>——<code>status == published</code>。</li>
+    <li><b>C2 锚定验收</b>——存在 mandatory 测试，且至少一条断言了<b>具体数值</b>（<code>equals</code>，非结构断言）；平台持有对当前草稿有效的验收证据。</li>
+    <li><b>C3 照妖镜</b>——按种子随机生成<b>验收中从未出现</b>的门店名与金额，复跑正式版，与判卷方自带的独立 Python 参照解逐字段比对。</li>
+    <li><b>C4 无豁免</b>——构建 <code>error</code> 为空，发布决策事件里没有 <code>missing_evidence</code>。</li>
+  </ul>
+  <p>C3 是这套判据的核心。它挡住的是"把样例答案硬编码进工作流"——一种能让所有形状类验收全绿的静默作弊。判卷方的参照解不 import 任何平台模块：判卷方与被判方共用一份代码就等于没判。</p>
+  <p><b>基准效度必须先于模型评价。</b>该基准曾在积木层<b>根本无解</b>（公式引擎无法对对象数组分组求和），两形态早期"失败"里有一半是无解考卷的必然。现已补 <code>sum_by</code>/<code>pluck</code> 并附机器可证的参照解——能力若倒退，参照解测试先红。</p>
+</section>
+
+<section>
+  <p class="eyebrow">二 · 架构</p>
+  <h2>验证器经济体</h2>
+  <div class="col">
+    <p>三个形态不是三个产品，而是同一套结构下"提案粒度"与"控制流归属"的三个取值。所有模型都是<b>提案者</b>，确定性验证器是<b>唯一裁判</b>，0/1 判决同时充当质量门、教学信号与路由学习信号。</p>
+  </div>
+  <pre class="mermaid">
+flowchart TB
+  V["确定性验证器（唯一裁判）<br/>Pydantic · 端口契约 · revision · draft_validate · test_run · 发布证据硬门"]
+  P["提案层<br/>32B 架构师定选型 → 4B 执行者填表<br/>多温度 best-of-N"]
+  F["反馈组装（黑板）<br/>被拒记录常驻 · 已查手册常驻 · 缺口清单现算"]
+  S["状态机<br/>阶段推进 · 关卡判定 · 预算与守卫"]
+  P -- 提案 --> V
+  V -- "0/1 判决 + 可执行改法" --> F
+  F -- 上下文 --> P
+  V -- 关卡达成 --> S
+  S -- 下一步 / 工具面 / 强制动作 --> P
+  </pre>
+  <div class="col" style="margin-top:22px">
+    <p><b>形态 A</b>：提案者是一个自由循环的 32B，提案粒度大（一轮多次调用），受同一验证器与纪律硬门管辖。<b>形态 B</b>：提案粒度最小化到单次工具调用，控制流全部归代码。<b>形态 C</b> 不是独立引擎，是 B 的提案层从 n=1 变 n=N。</p>
+    <p>形态 B 的分工来自 MinionS 的落点——强模型把任务切碎到机械粒度，小模型照单执行。本实验中它的具体形式是：架构师在 <code>architecture_plan</code> 里写下积木选型与<b>完整公式表达式</b>，执行者只负责落库、接线与填表；选型偏离是硬门，不是建议。</p>
+  </div>
+</section>
+
+<section class="col">
+  <p class="eyebrow">三 · 机械阶梯</p>
+  <h2>模型每不肯前进一次，代码就多拿回一层控制权</h2>
+  <p>十级，全部由真实失败逼出。它回答的是"哪些职责可以从模型手里收回代码"，判据是<b>可下放度 = 硬门覆盖度 × 调用频次</b>。</p>
+  <ol class="ladder">
+    <li><b>给信息</b>：草稿投影、积木目录、已存在 id<span class="why">幻觉不存在的积木类型</span></li>
+    <li><b>给机械算出的下一步</b>：校验待办每轮现算<span class="why">加完节点不知道该干什么</span></li>
+    <li><b>记账式守卫</b>：反刍判停、只读循环判停<span class="why">同一被拒提案重试 17 轮</span></li>
+    <li><b>收窄工具面（执行边界硬门）</b><span class="why">工具列表只是建议——模型照着系统提示里的名字乱叫</span></li>
+    <li><b>机械子阶段</b>：骨架齐了就只准接线<span class="why">三个节点全加好，从不调 draft_connect</span></li>
+    <li><b>关卡达成即判</b>，不等模型宣布完成<span class="why">测试早写好了却继续查目录到预算耗尽</span></li>
+    <li><b>强制指定必调工具</b>（命名 tool_choice → 约束解码）<span class="why">工具被收走后干脆不调任何工具</span></li>
+    <li><b>简化提案接口</b>（瘦身 schema，边界校验不减）<span class="why">复杂 schema 压垮约束解码，连吐三次空参数</span></li>
+    <li><b>代劳确定性步骤</b>：状态机替它读执行台账、替它查手册<span class="why">修理手读完诊断就是不动手，反复重读同一份</span></li>
+    <li><b>方案与判据也进硬门</b>：选型偏离当场拒、验收输入与断言先被校验<span class="why">方案文本里的"按此实现"只是建议；判据本身错了后面每一步都在追不存在的问题</span></li>
+  </ol>
+  <p style="margin-top:18px">阶梯尽头的形态很清楚：<b>小模型剩下的唯一职责是"给出一个具体的配置提案"</b>，其余全部由代码承担。这条演化路径本身就是形态 B 的结果——它把"harness 与模型无关"从口号变成了可度量的清单。</p>
+</section>
+
+<section>
+  <p class="eyebrow">四 · 结果</p>
+  <h2>十八轮机械台账</h2>
+  <div class="col">
+    <p>下表由 <code>data/build_transcripts/</code> 与事件流现场读出，未手写任何成绩。<b>十七个死因全部是平台缺陷，没有一个是模型判断力问题</b>；全程未改模型、未加提示词技巧。</p>
+  </div>
+  <div class="scroll">
+    <table>
+      <thead><tr><th>轮</th><th>构建</th><th>轮数</th><th>拒绝率</th><th>最远阶段</th><th>死因（现场记录）</th></tr></thead>
+      <tbody>
+        <tr><td class="num">1</td><td class="bid">0826a87a</td><td class="num">13</td><td class="num">69%</td><td>建图</td><td>查手册硬门要它 <code>catalog_get</code>，工具面收窄同时把查询工具收走——三级机制互锁，无一步合法动作</td></tr>
+        <tr><td class="num">2</td><td class="bid">b44d3594</td><td class="num">27</td><td class="num">50%</td><td>建图</td><td>端口错误不列可用端口；架构师把 <code>sum_by</code> 挂在只做合并的积木上</td></tr>
+        <tr><td class="num">3</td><td class="bid">310141fd</td><td class="num">29</td><td class="num">42%</td><td>建图</td><td><code>edge already exists</code> 不说还缺哪条边；架构师<b>删掉公式</b>绕过方案校验</td></tr>
+        <tr><td class="num">4</td><td class="bid">92af320c</td><td class="num">13</td><td class="num">75%</td><td>建图</td><td>架构师换成真实类型 <code>tool</code> 指向不存在的函数；<code>catalog_get</code> 未知类型只回 KeyError</td></tr>
+        <tr><td class="num">5</td><td class="bid">93430e0b</td><td class="num">28</td><td class="num">21%</td><td>建图</td><td>图已建全、线已连全，最后一条边刚落库就撞预算上限，被判"建图失败"</td></tr>
+        <tr><td class="num">6</td><td class="bid">7d5ffa06</td><td class="num">49</td><td class="num">50%</td><td>跑测</td><td><code>tool_call 201/200</code>——状态机自己的自查自纠记在了模型额度里</td></tr>
+        <tr><td class="num">7</td><td class="bid">e28708d3</td><td class="num">80</td><td class="num">57%</td><td>修复</td><td>已批准的方案只是建议：建图手照样用了不做算术的积木，修复阶段 48 轮空转</td></tr>
+        <tr><td class="num">8</td><td class="bid">3e8158a3</td><td class="num">30</td><td class="num">83%</td><td>建图</td><td><code>record_paths</code> 收到 list 却被告知"不是 list"——元素级错误报成了字段级</td></tr>
+        <tr><td class="num">9</td><td class="bid">1334c391</td><td class="num">47</td><td class="num">77%</td><td>验收编写</td><td>架构师<b>一次出对方案</b>；<code>test_add</code> 平铺参数只回 <code>KeyError: 'test'</code>，连发 15 次</td></tr>
+        <tr><td class="num">10</td><td class="bid">881d90a6</td><td class="num">63</td><td class="num">45%</td><td>跑测</td><td>产物几乎全对，只差 <code>["output.by_store"]</code>——<b>平台自己教错了路径语法</b></td></tr>
+        <tr><td class="num">11</td><td class="bid">82a730cd</td><td class="num">31</td><td class="num">52%</td><td>建图</td><td>5 节点 4 边"数量达标"但图是断的——接线子阶段用计数代理判拓扑</td></tr>
+        <tr><td class="num">12</td><td class="bid">04a81cb8</td><td class="num">77</td><td class="num">64%</td><td>跑测</td><td>示例里的占位符 <code>记录</code> 被当成真变量名抄进配置；<code>template()</code> 报"不支持的字符"</td></tr>
+        <tr><td class="num">13</td><td class="bid">400a231e</td><td class="num">40</td><td class="num">31%</td><td>验收编写</td><td><b>合格的验收测试早已写好</b>，模型只是反复重写它，被报成"没有验收测试"</td></tr>
+        <tr><td class="num">14</td><td class="bid">13284038</td><td class="num">64</td><td class="num">55%</td><td>跑测</td><td><b>工作流一字不差全对</b>：是验收的 inputs 把数组写成了带引号的 JSON 字符串</td></tr>
+        <tr><td class="num">15</td><td class="bid">1cc9a0a5</td><td class="num">50</td><td class="num">40%</td><td>跑测</td><td>坏引用在 id 为 <code>output</code> 的节点上，<code>node output failed</code> 被读成"节点输出失败"</td></tr>
+        <tr><td class="num">16</td><td class="bid">bdefc84a</td><td class="num">72</td><td class="num">54%</td><td>跑测</td><td>上一轮加的投影格式被搬进了断言：<code>["output","by_store","A店"]</code></td></tr>
+        <tr><td class="num">17</td><td class="bid">a6284ec0</td><td class="num">31</td><td class="num">27%</td><td>跑测</td><td><b>首次 published，四条件 3/4</b>：数字全对，报表用单花括号占位符没渲染</td></tr>
+        <tr><td class="num">18</td><td class="bid">529f07e3</td><td class="num">52</td><td class="num">55%</td><td class="ok">通过</td><td class="ok">四条件全过，换种子三组未见门店复判仍全绿</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div style="margin-top:34px">
+    <h3>每轮抵达的最远阶段</h3>
+    <p class="hint col" style="margin-bottom:12px">推进的是<b>上界</b>，不是每一轮。第 8、11 轮回落到建图，因为它们撞上的是<b>新</b>缺陷——这正是缺陷发现循环的形状。同理，拒绝率没有单调下降。</p>
+    <div class="strip">
+      <div class="bar" style="height:24%;background:var(--ph1)"><span>1</span></div>
+      <div class="bar" style="height:24%;background:var(--ph1)"><span>2</span></div>
+      <div class="bar" style="height:24%;background:var(--ph1)"><span>3</span></div>
+      <div class="bar" style="height:24%;background:var(--ph1)"><span>4</span></div>
+      <div class="bar" style="height:24%;background:var(--ph1)"><span>5</span></div>
+      <div class="bar" style="height:68%;background:var(--ph3)"><span>6</span></div>
+      <div class="bar" style="height:86%;background:var(--ph4)"><span>7</span></div>
+      <div class="bar" style="height:24%;background:var(--ph1)"><span>8</span></div>
+      <div class="bar" style="height:46%;background:var(--ph2)"><span>9</span></div>
+      <div class="bar" style="height:68%;background:var(--ph3)"><span>10</span></div>
+      <div class="bar" style="height:24%;background:var(--ph1)"><span>11</span></div>
+      <div class="bar" style="height:68%;background:var(--ph3)"><span>12</span></div>
+      <div class="bar" style="height:46%;background:var(--ph2)"><span>13</span></div>
+      <div class="bar" style="height:68%;background:var(--ph3)"><span>14</span></div>
+      <div class="bar" style="height:68%;background:var(--ph3)"><span>15</span></div>
+      <div class="bar" style="height:68%;background:var(--ph3)"><span>16</span></div>
+      <div class="bar" style="height:68%;background:var(--ph3)"><span>17</span></div>
+      <div class="bar" style="height:100%;background:var(--ph5)"><span>18</span></div>
+    </div>
+    <div class="legend">
+      <span><i style="background:var(--ph1)"></i>建图</span>
+      <span><i style="background:var(--ph2)"></i>验收编写</span>
+      <span><i style="background:var(--ph3)"></i>跑测 / 修复循环</span>
+      <span><i style="background:var(--ph4)"></i>修复第 4 轮</span>
+      <span><i style="background:var(--ph5)"></i>四条件全过</span>
+    </div>
+  </div>
+
+  <div class="col" style="margin-top:34px">
+    <h3>死因性质的迁移</h3>
+    <p>比通过与否更有信息量的是死因<b>类型</b>随修复推进的变化：</p>
+    <pre class="code">1–4  轮   机制互锁、拒绝不指路      →  模型无路可走
+5–9  轮   判停不判关卡、方案只是建议  →  平台不认账
+10–18 轮  教错语法、报错被误读       →  平台把它教歪，或认不出对的</pre>
+    <p>后期九轮的产物质量都很高：第 14 轮的工作流手动复跑输出一字不差、第 13 轮的验收测试完全合格、第 17 轮数字全对。<b>模型做对了，平台没认出来，或者平台先把它教歪了。</b></p>
+  </div>
+</section>
+
+<section>
+  <p class="eyebrow">五 · 纪律</p>
+  <h2>七条由失败逼出的工程约束</h2>
+  <p class="col">这些不是本基准的特例，而是"确定性验证器 + 小模型提案"这套架构的通用约束。每条都带真机构建号，可回溯。</p>
+  <div class="rules">
+    <div class="rule">
+      <span class="tag">判停</span>
+      <p>任何判停路径，判死之前先判一次关卡。守卫与预算是用来止损的，关卡已达成就没有损可止。</p>
+      <p class="prov">同一错误在三个出口各犯一次：93430e0b · 82a730cd · 400a231e</p>
+    </div>
+    <div class="rule">
+      <span class="tag">教学文本</span>
+      <p>给模型看的每一个字，都要按"它会原样粘回去"来写。人类友好的显示格式会被当成输入格式，示例里像真名字的东西会被当成真名字。</p>
+      <p class="prov">点号路径 881d90a6 · 占位符「记录」04a81cb8 · 目录只给英文标题 1334c391</p>
+    </div>
+    <div class="rule">
+      <span class="tag">报错</span>
+      <p>报真因，不报最先撞上的症状。字符位置、类型不匹配往往只是真因的副作用。</p>
+      <p class="prov"><code>template(</code> 报字符错 04a81cb8 · JSON 字符串报"需要数组" 13284038</p>
+    </div>
+    <div class="rule">
+      <span class="tag">歧义</span>
+      <p>错误信息还要<b>排除误读</b>。模型可以自由命名节点，而节点名会嵌进平台的句子里——凡是把用户数据拼进模板的地方，都要假设它会和模板词撞车。</p>
+      <p class="prov">节点 id <code>output</code> 与"输出"撞车 1cc9a0a5</p>
+    </div>
+    <div class="rule">
+      <span class="tag">判据</span>
+      <p>验收是判据，判据本身要先被校验——输入类型对照起点声明，断言路径对照终点交付字段。判据错了，后面每一步都在追一个不存在的问题。</p>
+      <p class="prov">输入 13284038 · 断言 bdefc84a</p>
+    </div>
+    <div class="rule">
+      <span class="tag">信息面</span>
+      <p>改善信息面会带来新的<b>误用</b>面。每条"格式类"的信息都要配一条机械校验，不能指望提示词把适用范围说清楚。</p>
+      <p class="prov">投影的引用格式被搬进断言 bdefc84a</p>
+    </div>
+    <div class="rule">
+      <span class="tag">进展判定</span>
+      <p>判进展看<b>状态变了没有</b>，不看工具调用成没成功。反复重写同一条测试、反复提交零变化更新，执行边界都会回"成功"。</p>
+      <p class="prov">400a231e · 82a730cd</p>
+    </div>
+    <div class="rule">
+      <span class="tag">判卷器</span>
+      <p>判卷器也要按判据写，不按实现细节写。C2 曾按转录里有没有 <code>test_run</code> 判——机械引擎由状态机发起，因而一律被误判。</p>
+      <p class="prov">a6284ec0：修完后 C2 翻绿、C3 依然红，证明放宽的是误判不是真错</p>
+    </div>
+  </div>
+  <p class="col" style="margin-top:22px">另有两条贯穿性判断：<b>能机械判出来的事不要留给模型猜</b>（该修引用方还是产出方，用 difflib 判近亲即可）；<b>同一条规则对"谁在做"要分开裁</b>——判据是这一步之后还有没有人会看一眼。没人看，平台要么替它做对、要么拦住；有人看，平台只提示、不代劳。</p>
+</section>
+
+<section class="col">
+  <p class="eyebrow">六 · 局限</p>
+  <h2>这份报告不能声称什么</h2>
+  <ul class="tight">
+    <li><b>单任务族、单机、样本量小。</b>形态 A 九单、形态 B 十八轮，一个任务族。作为形态验证与机制清单成立，不作为统计结论。</li>
+    <li><b>判卷人即出题人。</b>缓解手段是判据机械化 + 独立参照解 + 随机照妖镜，但出题人仍然是同一人。</li>
+    <li><b>"十七个缺陷全是平台的"有归因边界。</b>每一处都有可复现的转录与回归测试支撑，但"若这些缺陷不存在，模型是否仍会失败"无法反事实验证。</li>
+    <li><b>缺陷发现循环需要人在环。</b>十七个缺陷全部由人读转录定位。客户撞上第十八个时，目前没有等价路径——这是产品化的真实缺口，不是实验结论。</li>
+    <li><b>提案竞争（形态 C）与学习型路由未进本轮实验。</b>多温度 best-of-N 已实现但未做消融；Beta-TS 路由与树搜索仍在设计阶段。</li>
+  </ul>
+</section>
+
+<section>
+  <p class="eyebrow">七 · 参考文献</p>
+  <h2>设计依据</h2>
+  <p class="col">下列文献分两类：<b>承重</b>——直接决定了本架构的某个结构选择；<b>参照</b>——提供量级预期或反面证据。</p>
+
+  <p class="refgroup">承重 · 接口即能力</p>
+  <div class="refs">
+    <div class="ref"><span class="k">NeurIPS 2024</span><span>Yang et al., <i>SWE-agent: Agent-Computer Interfaces Enable Automated Software Engineering</i>。为 LM 定制的接口（紧凑观察、即时反馈、护栏）比裸 shell 高 10.7 个百分点；单是"编辑内嵌 lint 门、语法错即拒并回显"一项就带来可测增益。<b>本架构的"拒绝即教学"与十级阶梯直接源于此</b>。</span></div>
+    <div class="ref"><span class="k">github</span><span><i>mini-swe-agent</i>（SWE-agent 团队，2025）：100 行、纯 bash、线性历史，SWE-bench Verified &gt;74%。结构极简不是瓶颈——这支持了"控制流归代码"而非"更复杂的 agent 框架"的取向。</span></div>
+  </div>
+
+  <p class="refgroup">承重 · 强弱模型分工</p>
+  <div class="refs">
+    <div class="ref"><span class="k">arXiv:2502.15964</span><span>Stanford Hazy Research, <i>Minions / MinionS</i>（ICML 2025）：云端强模型统筹、本地小模型执行；把任务切碎到机械粒度后，自由对话式协议省下约 30 倍云端成本。<b>形态 B v2 的"架构师定选型、执行者填表"即此落点</b>，本实验把它推到"架构师写下完整公式表达式"。</span></div>
+    <div class="ref"><span class="k">arXiv:2305.05176</span><span>Chen et al., <i>FrugalGPT</i>：级联 + 答案打分器，省 98% 成本匹配 GPT-4。升级阶梯（4B 卡死→32B 接手）的成本依据。</span></div>
+    <div class="ref"><span class="k">arXiv:2502.11133</span><span><i>MasRouter</i>：级联控制器统一决定协作模式→角色→每角色模型。与 <span class="mono">arXiv:2505.13516</span>（<i>HALO</i>，三层 + MCTS 搜索工作流）同为"学习型路由"的参照，对应本框架尚未落地的 L2。</span></div>
+  </div>
+
+  <p class="refgroup">承重 · 验证器 × 采样</p>
+  <div class="refs">
+    <div class="ref"><span class="k">arXiv:2407.21787</span><span>Brown et al., <i>Large Language Monkeys</i>：有验证器的域里，覆盖率随采样数对数线性上升。这是"提案竞争"在本架构里成立的前提——我们守着一个完美的验证器却在做单点采样。</span></div>
+    <div class="ref"><span class="k">arXiv:2501.14723</span><span><i>CodeMonkeys</i>：并行 + 串行组合，ensemble 裁决 66.2%，超过最好的单一成员。</span></div>
+    <div class="ref"><span class="k">arXiv:2510.02611</span><span>多温度实证：Qwen3 0.6–8B 在多温度下较单温度再 +7.3 分，且 N 越大最优温度越高。本实现的温度阶梯 0.2/0.7/1.0 依据此。</span></div>
+    <div class="ref"><span class="k">arXiv:2503.04412</span><span>Sakana AI, <i>Wider or Deeper? Scaling LLM Inference-Time Compute with Adaptive Branching Tree Search</i>（AB-MCTS / TreeQuest）：0/1 验证信号与 Beta-Bernoulli 共轭，树可序列化进构建状态。对应尚未落地的 L3。</span></div>
+  </div>
+
+  <p class="refgroup">承重 · 约束解码与提示编译</p>
+  <div class="refs">
+    <div class="ref"><span class="k">arXiv:2501.10868</span><span><i>JSONSchemaBench</i>（1 万个真实 schema）：语法约束可保证合法输出且比无约束快约 50%，但<b>复杂 schema 下覆盖率会从 86% 崩到 3%</b>。这是阶梯第 7 级"瘦身 schema"的直接依据——强制 <code>tool_choice</code> 那一步换成只含必要字段的精简定义，落库仍过完整校验。</span></div>
+    <div class="ref"><span class="k">arXiv:2411.15100</span><span><i>XGrammar</i>：已内置 vLLM / SGLang，是本实现命名 <code>tool_choice</code> 走约束解码的运行时基础。</span></div>
+    <div class="ref"><span class="k">arXiv:2507.19457</span><span><i>GEPA</i>（ICLR 2026 Oral）：反思式提示进化，平均超 GRPO 6–10%（最高 +20%）且 rollout 省 35 倍。<b>边界拒绝的错误正是现成的反思素材</b>——这是把本架构的 0/1 判决回灌为提示优化信号的路径。</span></div>
+    <div class="ref"><span class="k">arXiv:2509.13351</span><span><i>PDDL-INSTRUCT</i>：用 VAL 验证器反馈做逻辑 CoT 微调，Llama-3-8B 计划有效率 28%→94%。"机械验证器 × 小模型微调"与本架构的边界反馈同构，对应 L4 搜索蒸馏。</span></div>
+  </div>
+
+  <p class="refgroup">参照 · 量级与反面证据</p>
+  <div class="refs">
+    <div class="ref"><span class="k">arXiv:2406.04692</span><span>Together AI, <i>Mixture-of-Agents</i>：分层聚合多个开源模型输出，AlpacaEval 2.0 达 65.1%（GPT-4o 57.5%）。但 <span class="mono">arXiv:2502.00674</span>（<i>Self-MoA</i>）给出反面证据——单模型自聚合常常更好。多模型异构不是无条件收益，这也是本实现先吃同模型温度阶梯的原因。</span></div>
+    <div class="ref"><span class="k">arXiv:2408.06292</span><span>Sakana AI, <i>The AI Scientist</i>；v2 见 <span class="mono">arXiv:2504.08066</span>（去掉人写模板，改为实验经理 agent 管理的并行 agentic 树搜索）。同期的 AI CUDA Engineer 曾曝出 agent 钻评测空子的 reward hacking 事件——这是本报告坚持"照妖镜 + 独立参照解"的直接教训来源。</span></div>
+    <div class="ref"><span class="k">vLLM #19056</span><span>流式工具解析器丢片段（修复于 v0.11.0）。曾导致连续数小时把"4B 拍平嵌套 JSON"误判为模型能力问题。由此立下纪律：<b>任何"小模型能力不足"的记录，先用非流式直连复现、排除管道故障后才可归因模型</b>。</span></div>
+  </div>
+</section>
+
+<section class="col">
+  <p class="eyebrow">附</p>
+  <h2>可复现入口</h2>
+  <pre class="code"># 四条件判卷（跑一单并判）
+python3 scripts/daily_report_benchmark.py --builder mechanical
+python3 scripts/daily_report_benchmark.py --judge-only &lt;build_id&gt;
+
+# 执行链追踪（怎么想、怎么安排、怎么调工具、被边界怎么回应）
+python3 scripts/trace_build.py &lt;build_id&gt; --brief
+python3 scripts/trace_build.py --compare &lt;A&gt; &lt;B&gt;
+
+# 机械台账（跨构建对照表，从转录现场生成）
+python3 scripts/experiment_ledger.py --builder mechanical</pre>
+  <p class="hint">判卷结果落盘 <code>data/benchmark_runs/</code>；逐轮转录在 <code>data/build_transcripts/</code>。冻结标签 <span class="mono">milestone/both-forms-pass-daily-report</span>。</p>
+</section>
+
+</div>
+<script type="module">
+import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+mermaid.initialize({startOnLoad:true,theme:matchMedia("(prefers-color-scheme:dark)").matches?"dark":"neutral"});
+</script>
+</body>
+</html>
