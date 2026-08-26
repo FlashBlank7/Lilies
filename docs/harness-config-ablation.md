@@ -37,6 +37,9 @@
 | `planning_mode` | auto | auto/required/disabled | 强制规划对复杂需求一次通过率的影响 |
 | `auto_publish` | true | bool | （交付流程开关，非实验变量） |
 | `builder` | classic | 注册表内引擎名 | **实验主维度**：单大模型 vs 小模型集群等多套 builder 对照（2026-08-18 落地，`builder_registry.py`；随 build 记录落库，属配置指纹一部分） |
+| `thinking_enabled` | true | bool | 思考开关（2026-08-26 落地）：v4-pro-0813 思考撞满输出帽致约六成时长损耗的归因产物 |
+| `effort` | high | low/medium/high | 思考深度 × 构建质量/速度的对照轴 |
+| `turn_max_output_tokens` | 8192 | 1024–65536 | 单轮输出帽；帽太小+思考长=整轮作废与缓存塌方的耦合根源 |
 
 ## 第二层：写死常量 → BuildRequest 可选字段
 

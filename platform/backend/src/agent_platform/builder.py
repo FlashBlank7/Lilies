@@ -1056,7 +1056,7 @@ class WorkflowBuilder:
             call_messages = self._with_budget_note(messages, turn_budget_prompt)
             # 截断自愈轮关思考重试（_model_text 的同款家法）：上一轮纯思考
             # 撞满上限，这一轮直接行动。
-            turn_thinking_enabled = not rescue_without_thinking
+            turn_thinking_enabled = state.thinking_enabled and not rescue_without_thinking
             rescue_without_thinking = False
             stream = self.provider.stream(
                 model=actor_model,
@@ -1066,9 +1066,9 @@ class WorkflowBuilder:
                 ),
                 messages=call_messages,
                 tools=tools,
-                max_output_tokens=8_192,
+                max_output_tokens=state.turn_max_output_tokens,
                 thinking_enabled=turn_thinking_enabled,
-                effort="high",
+                effort=state.effort,
                 tool_choice={"type": "auto"},
                 user_id=f"{build_id}-{teammate or 'coordinator'}",
             )

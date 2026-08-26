@@ -1289,6 +1289,9 @@ class WorkflowStorage:
         builder: str = "classic",
         coordinator_model: str | None = None,
         teammate_models: list[str] | None = None,
+        thinking_enabled: bool = True,
+        effort: str = "high",
+        turn_max_output_tokens: int = 8192,
     ) -> None:
         now = utc_now()
         team_state = BuildTeamState(
@@ -1297,6 +1300,9 @@ class WorkflowStorage:
             runtime_builder_policy=runtime_builder_policy,
             coordinator_model=coordinator_model,
             teammate_models=teammate_models,
+            thinking_enabled=thinking_enabled,
+            effort=effort,
+            turn_max_output_tokens=turn_max_output_tokens,
         )
         async with self._lock:
             await asyncio.to_thread(

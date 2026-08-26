@@ -317,6 +317,10 @@ class BuildRequest(BaseModel):
     # 以及协调者可指派给队友的模型池（None = 队友跟随协调者，现行为不变）。
     coordinator_model: str | None = Field(default=None, max_length=200)
     teammate_models: list[str] | None = Field(default=None, max_length=16)
+    # 思考三参数：默认与历史行为一致（开思考/high/8192 帽）
+    thinking_enabled: bool = True
+    effort: Literal["low", "medium", "high"] = "high"
+    turn_max_output_tokens: int = Field(default=8192, ge=1024, le=65536)
 
 
 class WorkflowRunRequest(BaseModel):
@@ -501,3 +505,8 @@ class BuildTeamState(BaseModel):
     # 都为 None 时行为与单模型时代完全一致；随 team_state 落库进配置指纹。
     coordinator_model: str | None = None
     teammate_models: list[str] | None = None
+    # 思考三参数（2026-08-26 归因后放开）：v4-pro-0813 思考常撞满输出帽整轮作废，
+    # 帽、开关、深度必须可配才能研究"思考深度 × 构建质量/速度"。
+    thinking_enabled: bool = True
+    effort: str = "high"
+    turn_max_output_tokens: int = 8192

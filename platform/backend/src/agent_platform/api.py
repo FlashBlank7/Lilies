@@ -4415,6 +4415,9 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             builder=body.builder,
             coordinator_model=body.coordinator_model,
             teammate_models=body.teammate_models,
+            thinking_enabled=body.thinking_enabled,
+            effort=body.effort,
+            turn_max_output_tokens=body.turn_max_output_tokens,
         )
         await asyncio.to_thread(
             services.build_transcripts.append,
