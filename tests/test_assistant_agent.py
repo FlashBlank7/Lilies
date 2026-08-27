@@ -68,3 +68,49 @@ def test_overview_endpoint_shape(tmp_path: Path) -> None:
         assert data["runs_today"] == {"total": 0, "succeeded": 0, "failed": 0, "running": 0}
         assert data["schedules"] == [] and data["recent_failures"] == []
         assert data["builds_active"] == 0
+
+
+class GenerateScript(ModelProvider):
+    """第一轮让管家提交生成；其后任何调用都直接文本收尾（含构建循环的轮次）。"""
+
+    name = "scripted"
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def capabilities(self, model: str) -> ProviderCapabilities:
+        return ProviderCapabilities(True, True, True, False, False, 100_000, 10_000)
+
+    async def stream(self, *, model, system, messages, tools, max_output_tokens,
+                     thinking_enabled, effort, tool_choice=None, user_id=None) -> AsyncIterator[StreamEvent]:
+        self.calls += 1
+        yield StreamEvent(type="message_start", data={"message": {"usage": {"input_tokens": 1}}})
+        if self.calls == 1:
+            yield StreamEvent(type="content_block_start", data={"index": 0, "content_block": {
+                "type": "tool_use", "id": "g1", "name": "generate_workflow",
+                "input": {}}})
+            yield StreamEvent(type="content_block_delta", data={"index": 0, "delta": {
+                "type": "input_json_delta",
+                "partial_json": json.dumps({"requirement": "输入文本，输出字数统计的工作流"})}})
+            yield StreamEvent(type="content_block_stop", data={"index": 0})
+            yield StreamEvent(type="message_delta", data={"delta": {"stop_reason": "tool_use"}, "usage": {"output_tokens": 1}})
+            return
+        yield StreamEvent(type="content_block_start", data={"index": 0, "content_block": {"type": "text", "text": ""}})
+        yield StreamEvent(type="content_block_delta", data={"index": 0, "delta": {"type": "text_delta", "text": "已提交"}})
+        yield StreamEvent(type="message_delta", data={"delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 1}})
+
+
+def test_generate_action_carries_build_id_for_cli_follow(tmp_path: Path) -> None:
+    settings = Settings(api_token="workflow-test", data_dir=tmp_path / "d", workspace_root=tmp_path / "w")
+    app = create_app(settings, GenerateScript())
+    with TestClient(app) as client:
+        r = client.post("/api/v1/assistant/agent",
+                        headers={"Authorization": "Bearer workflow-test"},
+                        json={"messages": [{"role": "user", "text": "做一个字数统计工作流"}]})
+        assert r.status_code == 200, r.text
+        action = r.json()["actions"][0]
+        assert action["tool"] == "generate_workflow"
+        assert action.get("build_id") and action.get("app_id")  # CLI 跟踪的锚点
+        build = client.get(f"/api/v1/builds/{action['build_id']}",
+                           headers={"Authorization": "Bearer workflow-test"})
+        assert build.status_code == 200

@@ -145,7 +145,11 @@ class WorkflowConcierge:
                     "assistant-agent", "agent.tool", {
                         "user": user.get("name"), "tool": call.name,
                         "ok": "error" not in result})
-                actions.append({"tool": call.name, "summary": _summarize(result)})
+                entry = {"tool": call.name, "summary": _summarize(result)}
+                for key in ("build_id", "app_id", "run_id"):
+                    if isinstance(result, dict) and result.get(key):
+                        entry[key] = result[key]
+                actions.append(entry)
                 result_blocks.append(ContentBlock(
                     type="tool_result", tool_use_id=call.id,
                     content=json.dumps(result, ensure_ascii=False)[:4000]))
