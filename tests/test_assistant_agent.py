@@ -155,3 +155,13 @@ def test_recent_builds_and_resume_tools(tmp_path: Path) -> None:
         resumed = client.portal.call(concierge._exec, "resume_build",
                                      {"build_id": build_id, "message": "继续"}, {"name": "t"})
         assert resumed.get("status") == "queued", resumed
+
+
+def test_derive_app_name_readable() -> None:
+    from agent_platform.assistant_agent import _derive_app_name
+
+    assert _derive_app_name(
+        "给我做一个工作流：输入一段文本 text，输出行数。不要定时。") == "输入一段文本 text，输出行数"
+    assert _derive_app_name("做一个每日销售对账，输出差异表。") == "每日销售对账，输出差异表"
+    assert _derive_app_name("x" * 40) == "x" * 24
+    assert _derive_app_name("") == "新工作流"

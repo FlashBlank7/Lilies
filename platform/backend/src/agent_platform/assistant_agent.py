@@ -35,6 +35,8 @@ TOOLS = [
     ToolDefinition(name="generate_workflow", description="用业务需求生成新工作流（远端莉莉丝构建，异步）",
                    input_schema={"type": "object", "properties": {
                        "requirement": {"type": "string"},
+                       "name": {"type": "string",
+                                "description": "工作流短名（≤20字，名词短语，例：文本行数统计）——不给则从需求首句截取"},
                        "thinking_enabled": {"type": "boolean"},
                    }, "required": ["requirement"]}),
     ToolDefinition(name="platform_overview", description="平台统筹总览：今日运行统计、定时任务、近期失败、进行中的构建",
@@ -107,8 +109,9 @@ class WorkflowConcierge:
                 return {"error": "需求太短（至少10字）"}
             from uuid import uuid4
             from .workflow_models import ApplicationCreateRequest
+            app_name = str(args.get("name") or "").strip()[:24] or _derive_app_name(requirement)
             app = await services.workflow_store.create_application(
-                ApplicationCreateRequest(name=requirement[:24], requirement=requirement))
+                ApplicationCreateRequest(name=app_name, requirement=requirement))
             build_id = str(uuid4())
             await services.workflow_store.create_build(
                 build_id, app["id"], requirement, True, 36, 3, 1800.0, "auto",
@@ -215,3 +218,22 @@ def _summarize(result: dict) -> str:
     if "status" in result:
         return f"状态 {result['status']}"
     return "完成"
+
+
+def _derive_app_name(requirement: str) -> str:
+    """需求首句 → 可读短名：剥常见请求前缀、砍到第一个句读、去两端标点。
+    真机 E2E 曾产出「输入一段文本 text，输出 line_coun」硬截名，且两次生成同名难分辨。"""
+    text = requirement.strip()
+    for prefix in ("再做一个工作流：", "给我做一个工作流：", "做一个工作流：",
+                   "帮我做一个工作流：", "给我做一个", "帮我做一个", "再做一个",
+                   "做一个", "我要一个", "我需要一个"):
+        if text.startswith(prefix):
+            text = text[len(prefix):]
+            break
+    for stop in ("。", "；", ";", "\n"):
+        index = text.find(stop)
+        if index > 0:
+            text = text[:index]
+            break
+    text = text.strip(" ：:，,、.！!？?")
+    return text[:24] or requirement.strip()[:24] or "新工作流"
