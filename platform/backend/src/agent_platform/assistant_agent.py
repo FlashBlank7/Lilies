@@ -1,0 +1,165 @@
+"""服务端工作流管家：CLI/客户端对话背后的智能体循环（工具在服务端执行）。
+
+bench 北极星的招牌特性——终端里与智能体对话来生成/运行/统筹工作流。
+本地永远只是薄 REPL：语言理解、工具选择、工具执行、结果核对全部发生在
+服务端，动作与结果可审计（events），不依赖客户端诚实。
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+from typing import Any
+
+from .agent_core import collect_model_stream
+from .models import ChatMessage, ContentBlock, ToolDefinition
+
+AGENT_SYSTEM = (
+    "你是工作流平台的管家智能体，通过工具帮用户生成、运行、统筹工作流。"
+    "规则：查数据必须用工具，绝不虚构结果或历史；回答给出工具返回的真实数字；"
+    "运行前先用 list_workflows 确认输入声明；生成工作流用 generate_workflow"
+    "（提交后告知用户构建已开始，可用 build_status 跟进）；语气简洁友好。"
+)
+
+TOOLS = [
+    ToolDefinition(name="list_workflows", description="列出工作流（名称、是否发布、版本、输入声明）",
+                   input_schema={"type": "object", "properties": {"only_published": {"type": "boolean"}}}),
+    ToolDefinition(name="run_workflow", description="运行已发布的工作流并等待结果。inputs 必须符合其输入声明。",
+                   input_schema={"type": "object", "properties": {
+                       "name_or_id": {"type": "string"}, "inputs": {"type": "object"}},
+                       "required": ["name_or_id"]}),
+    ToolDefinition(name="recent_runs", description="查询某工作流最近运行历史",
+                   input_schema={"type": "object", "properties": {
+                       "name_or_id": {"type": "string"}, "limit": {"type": "integer"}},
+                       "required": ["name_or_id"]}),
+    ToolDefinition(name="generate_workflow", description="用业务需求生成新工作流（远端莉莉丝构建，异步）",
+                   input_schema={"type": "object", "properties": {
+                       "requirement": {"type": "string"},
+                       "thinking_enabled": {"type": "boolean"},
+                   }, "required": ["requirement"]}),
+    ToolDefinition(name="build_status", description="查询生成任务（构建）的状态",
+                   input_schema={"type": "object", "properties": {"build_id": {"type": "string"}},
+                                 "required": ["build_id"]}),
+]
+
+
+class WorkflowConcierge:
+    def __init__(self, services: Any, settings: Any):
+        self.services = services
+        self.settings = settings
+
+    async def _resolve_app(self, name_or_id: str) -> dict | None:
+        apps = await self.services.workflow_store.list_applications()
+        for app in apps:
+            if app["id"] == name_or_id or app.get("name") == name_or_id:
+                return app
+        matches = [a for a in apps if name_or_id in (a.get("name") or "")]
+        return matches[0] if len(matches) == 1 else None
+
+    async def _exec(self, name: str, args: dict, user: dict) -> dict:
+        services = self.services
+        if name == "list_workflows":
+            apps = await services.workflow_store.list_applications()
+            items = []
+            for app in apps:
+                if args.get("only_published", True) and not app.get("active_version"):
+                    continue
+                items.append({"name": app.get("name"), "id": app["id"],
+                              "published_version": app.get("active_version")})
+            return {"workflows": items[:50], "total": len(items)}
+        if name == "run_workflow":
+            app = await self._resolve_app(str(args.get("name_or_id") or ""))
+            if not app:
+                return {"error": f"找不到唯一匹配的工作流: {args.get('name_or_id')}"}
+            from .workflow_models import WorkflowRunRequest
+            created = await services.workflow_runtime.create_run(
+                app["id"], WorkflowRunRequest(inputs=dict(args.get("inputs") or {})),
+                origin="assistant-agent")
+            run_id = created["run_id"]
+            for _ in range(40):
+                current = await services.workflow_store.get_run(run_id)
+                if current["status"] in ("succeeded", "failed"):
+                    outputs: dict = {}
+                    for value in (current["state"].get("outputs") or {}).values():
+                        if isinstance(value, dict):
+                            outputs.update(value)
+                    return {"run_id": run_id, "status": current["status"],
+                            "outputs": outputs, "error": current["state"].get("error")}
+                await asyncio.sleep(1.5)
+            return {"run_id": run_id, "status": "running", "note": "仍在运行，可稍后用 recent_runs 查看"}
+        if name == "recent_runs":
+            app = await self._resolve_app(str(args.get("name_or_id") or ""))
+            if not app:
+                return {"error": "找不到该工作流"}
+            runs = await services.workflow_store.list_runs(app["id"], limit=int(args.get("limit") or 5))
+            return {"runs": [{"id": r["id"], "status": r["status"], "created_at": r.get("created_at")} for r in runs]}
+        if name == "generate_workflow":
+            requirement = str(args.get("requirement") or "").strip()
+            if len(requirement) < 10:
+                return {"error": "需求太短（至少10字）"}
+            from uuid import uuid4
+            from .workflow_models import ApplicationCreateRequest
+            app = await services.workflow_store.create_application(
+                ApplicationCreateRequest(name=requirement[:24], requirement=requirement))
+            build_id = str(uuid4())
+            await services.workflow_store.create_build(
+                build_id, app["id"], requirement, True, 36, 3, 1800.0, "auto",
+                thinking_enabled=bool(args.get("thinking_enabled", False)), effort="low")
+            services.builders.get("classic").start(build_id)
+            return {"build_id": build_id, "app_id": app["id"],
+                    "note": "莉莉丝已开工（后台构建），用 build_status 跟进"}
+        if name == "build_status":
+            build = await services.workflow_store.get_build(str(args.get("build_id") or ""))
+            state = build["team_state"]
+            return {"status": build["status"], "revision": state.revision,
+                    "published_version": state.published_version,
+                    "error": (build.get("error") or "")[:200]}
+        return {"error": f"unknown tool: {name}"}
+
+    async def reply(self, history: list[dict], user: dict) -> tuple[list[dict], str]:
+        messages = [ChatMessage(role="assistant" if m.get("role") == "assistant" else "user",
+                                content=[ContentBlock(type="text", text=str(m.get("text", ""))[:8000])])
+                    for m in history[-12:]]
+        actions: list[dict] = []
+        for _ in range(6):
+            stream = self.services.provider.stream(
+                model=self.settings.deepseek_runtime_model,
+                system=AGENT_SYSTEM, messages=messages, tools=TOOLS,
+                max_output_tokens=2048, thinking_enabled=False, effort="low",
+                tool_choice={"type": "auto"})
+            response = await collect_model_stream(stream, model=self.settings.deepseek_runtime_model)
+            calls = [b for b in response.blocks if b.type == "tool_use"]
+            if not calls:
+                text = " ".join(b.text or "" for b in response.blocks if b.type == "text").strip()
+                return actions, text or "（无回复）"
+            messages.append(ChatMessage(role="assistant", content=response.blocks))
+            result_blocks = []
+            for call in calls:
+                result = await self._exec(call.name or "", call.input or {}, user)
+                await self.services.storage.append_event(
+                    "assistant-agent", "agent.tool", {
+                        "user": user.get("name"), "tool": call.name,
+                        "ok": "error" not in result})
+                actions.append({"tool": call.name, "summary": _summarize(result)})
+                result_blocks.append(ContentBlock(
+                    type="tool_result", tool_use_id=call.id,
+                    content=json.dumps(result, ensure_ascii=False)[:4000]))
+            messages.append(ChatMessage(role="user", content=result_blocks))
+        return actions, "（动作轮次到达上限，请把要求说得更具体些）"
+
+
+def _summarize(result: dict) -> str:
+    if result.get("error"):
+        return "✕ " + str(result["error"])[:60]
+    if "workflows" in result:
+        return f"{result['total']} 个工作流"
+    if "outputs" in result:
+        pairs = [f"{k}={str(v)[:30]}" for k, v in list(result["outputs"].items())[:3]]
+        return ("✓ " if result.get("status") == "succeeded" else "⚠ ") + " · ".join(pairs)
+    if "build_id" in result:
+        return "⚙ 构建已提交"
+    if "runs" in result:
+        return f"{len(result['runs'])} 条历史"
+    if "status" in result:
+        return f"状态 {result['status']}"
+    return "完成"

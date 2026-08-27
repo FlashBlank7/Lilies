@@ -5367,6 +5367,66 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             raise HTTPException(404, str(error)) from error
         return {"application_id": application_id, "notes": notes}
 
+    def _hash_password(password: str, salt: bytes | None = None) -> str:
+        import hashlib as _h
+        import os as _os
+        salt = salt or _os.urandom(16)
+        digest = _h.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, 200_000)
+        return f"pbkdf2${salt.hex()}${digest.hex()}"
+
+    def _verify_password(password: str, stored: str | None) -> bool:
+        import hashlib as _h
+        import hmac as _hmac
+        try:
+            _, salt_hex, digest_hex = (stored or "").split("$")
+        except ValueError:
+            return False
+        digest = _h.pbkdf2_hmac("sha256", password.encode("utf-8"), bytes.fromhex(salt_hex), 200_000)
+        return _hmac.compare_digest(digest.hex(), digest_hex)
+
+    def _issue_token() -> tuple[str, str]:
+        import hashlib as _h
+        import secrets as _s
+        token = f"lil_{_s.token_urlsafe(24)}"
+        return token, _h.sha256(token.encode("utf-8")).hexdigest()
+
+    @app.post("/api/v1/auth/register")
+    async def auth_register(body: dict[str, Any]) -> dict[str, Any]:
+        """注册 = 共享注册令牌 + 自己起用户名密码。首个注册者自动成为管理员。"""
+
+        if str(body.get("register_token") or "") != settings.api_token:
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "注册令牌不正确")
+        name = str(body.get("name") or "").strip()
+        password = str(body.get("password") or "")
+        if not (1 <= len(name) <= 40):
+            raise HTTPException(400, "用户名需 1-40 字")
+        if len(password) < 6:
+            raise HTTPException(400, "密码至少 6 位")
+        if await services.storage.user_by_name(name):
+            raise HTTPException(409, "用户名已存在")
+        role = "admin" if await services.storage.count_users() == 0 else "member"
+        token, token_hash = _issue_token()
+        user = await services.storage.create_user(
+            name, token_hash, role, password_hash=_hash_password(password)
+        )
+        await services.storage.append_event("system", "user.registered", {"name": name, "role": role})
+        return {"user": {k: user[k] for k in ("id", "name", "role", "status")}, "token": token}
+
+    @app.post("/api/v1/auth/login")
+    async def auth_login(body: dict[str, Any]) -> dict[str, Any]:
+        """登录换会话令牌；每次登录轮换（旧令牌即刻失效）。"""
+
+        name = str(body.get("name") or "").strip()
+        user = await services.storage.user_by_name(name)
+        if not user or user.get("status") != "active" or not _verify_password(
+            str(body.get("password") or ""), user.get("password_hash")
+        ):
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "用户名或密码不正确")
+        token, token_hash = _issue_token()
+        await services.storage.rotate_user_token(user["id"], token_hash)
+        await services.storage.append_event("system", "user.logged_in", {"name": name})
+        return {"user": {k: user[k] for k in ("id", "name", "role", "status")}, "token": token}
+
     @app.get("/api/v1/me", dependencies=[Depends(require_token)])
     async def whoami(request: Request) -> dict[str, Any]:
         return {"user": _current_user(request)}
@@ -5403,6 +5463,16 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         await services.storage.set_user_status(user_id, status_value)
         await services.storage.append_event("system", "user.status_changed", {"user_id": user_id, "status": status_value})
         return {"ok": True, "status": status_value}
+
+    @app.post("/api/v1/assistant/agent", dependencies=[Depends(require_token)])
+    async def assistant_agent_chat(request: Request, body: AssistantChatRequest) -> dict[str, Any]:
+        """管家智能体：工具在服务端执行（列表/运行/生成/统筹），CLI 只做薄 REPL。"""
+
+        from .assistant_agent import WorkflowConcierge
+
+        concierge = WorkflowConcierge(services, settings)
+        actions, text = await concierge.reply(body.messages, _current_user(request))
+        return {"actions": actions, "text": text}
 
     @app.post("/api/v1/assistant/chat", dependencies=[Depends(require_token)])
     async def assistant_chat(body: AssistantChatRequest) -> dict[str, Any]:

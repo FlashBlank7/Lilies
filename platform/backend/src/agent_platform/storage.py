@@ -986,18 +986,48 @@ class Storage:
 
     # ── 用户体系（每人独立令牌；旧 API_TOKEN 为管理员引导令牌） ──
 
-    async def create_user(self, name: str, token_hash: str, role: str = "member") -> dict[str, Any]:
+    def _ensure_user_columns(self) -> None:
+        with self._connect() as conn:
+            cols = {r["name"] for r in conn.execute("PRAGMA table_info(users)").fetchall()}
+            if "password_hash" not in cols:
+                conn.execute("ALTER TABLE users ADD COLUMN password_hash TEXT")
+
+    async def create_user(self, name: str, token_hash: str, role: str = "member", password_hash: str | None = None) -> dict[str, Any]:
         from uuid import uuid4
         user = {
             "id": str(uuid4()), "name": name.strip(), "token_hash": token_hash,
             "role": role, "status": "active", "created_at": utc_now(),
         }
+        await asyncio.to_thread(self._ensure_user_columns)
         await asyncio.to_thread(
             self._execute,
-            "INSERT INTO users VALUES(?,?,?,?,?,?)",
-            (user["id"], user["name"], user["token_hash"], user["role"], user["status"], user["created_at"]),
+            "INSERT INTO users(id,name,token_hash,role,status,created_at,password_hash) VALUES(?,?,?,?,?,?,?)",
+            (user["id"], user["name"], user["token_hash"], user["role"], user["status"], user["created_at"], password_hash),
         )
         return user
+
+
+    async def user_by_name(self, name: str) -> dict[str, Any] | None:
+        await asyncio.to_thread(self._ensure_user_columns)
+        def query():
+            with self._connect() as conn:
+                row = conn.execute(
+                    "SELECT id,name,role,status,created_at,password_hash FROM users WHERE name=?",
+                    (name,),
+                ).fetchone()
+                return dict(row) if row else None
+        return await asyncio.to_thread(query)
+
+    async def rotate_user_token(self, user_id: str, token_hash: str) -> None:
+        await asyncio.to_thread(
+            self._execute, "UPDATE users SET token_hash=? WHERE id=?", (token_hash, user_id)
+        )
+
+    async def count_users(self) -> int:
+        def query():
+            with self._connect() as conn:
+                return int(conn.execute("SELECT COUNT(*) AS n FROM users").fetchone()["n"])
+        return await asyncio.to_thread(query)
 
     async def user_by_token_hash(self, token_hash: str) -> dict[str, Any] | None:
         def query():
