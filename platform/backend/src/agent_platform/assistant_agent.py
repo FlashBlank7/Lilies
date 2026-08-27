@@ -17,6 +17,7 @@ from .models import ChatMessage, ContentBlock, ToolDefinition
 AGENT_SYSTEM = (
     "你是工作流平台的管家智能体，通过工具帮用户生成、运行、统筹工作流。"
     "规则：查数据必须用工具，绝不虚构结果或历史；回答给出工具返回的真实数字；"
+    "问'有什么坏了/不正常'用 health_report（它已带失败原因，别再逐个查）；"
     "运行前先用 list_workflows 确认输入声明；生成工作流用 generate_workflow"
     "（提交后告知用户构建已开始，可用 build_status 跟进）；语气简洁友好。"
 )
@@ -41,6 +42,12 @@ TOOLS = [
                    }, "required": ["requirement"]}),
     ToolDefinition(name="platform_overview", description="平台统筹总览：今日运行统计、定时任务、近期失败、进行中的构建",
                    input_schema={"type": "object", "properties": {}}),
+    ToolDefinition(name="health_report",
+                   description="工作流体检：哪些已发布工作流坏了（窗口内全败/最近连败）或停摆了"
+                               "（有定时却没运行），带最近一次失败原因——回答"
+                               "'有什么坏了吗''最近哪些不正常'用这个",
+                   input_schema={"type": "object", "properties": {
+                       "days": {"type": "integer", "description": "回看天数，默认 7"}}}),
     ToolDefinition(name="recent_builds", description="最近的生成任务（构建）列表：状态、需求摘要——找'刚才那个构建'用",
                    input_schema={"type": "object", "properties": {"limit": {"type": "integer"}}}),
     ToolDefinition(name="resume_build", description="续跑一个暂停/失败的构建，可附带给莉莉丝的指示或对她提问的回答",
@@ -119,6 +126,20 @@ class WorkflowConcierge:
             services.builders.get("classic").start(build_id)
             return {"build_id": build_id, "app_id": app["id"],
                     "note": "莉莉丝已开工（后台构建），用 build_status 跟进"}
+        if name == "health_report":
+            from .overview import build_health
+
+            days = int(args.get("days") or 7)
+            report = await build_health(services, days=max(1, min(days, 90)))
+            bad = [i for i in report["items"] if i["state"] != "ok"]
+            return {
+                "counts": report["counts"],
+                "problems": [{"workflow": i["workflow"], "state": i["state"],
+                              "reason": i["reason"], "application_id": i["application_id"],
+                              "runs": i["runs"], "succeeded": i["succeeded"]}
+                             for i in bad[:10]],
+                "note": "problems 为空表示所有已发布工作流都正常",
+            }
         if name == "platform_overview":
             from .overview import build_overview
             return await build_overview(self.services)
@@ -212,6 +233,12 @@ def _summarize(result: dict) -> str:
         return f"{len(result['runs'])} 条历史"
     if "builds" in result:
         return f"{len(result['builds'])} 个构建"
+    if "problems" in result:
+        problems = result["problems"]
+        if not problems:
+            return f"✓ {result.get('counts', {}).get('ok', 0)} 个工作流都正常"
+        return f"⚠ {len(problems)} 个要处理：" + "、".join(
+            p["workflow"] for p in problems[:3])
     if "runs_today" in result:
         rt = result["runs_today"]
         return f"今日 {rt['total']} 次运行（✓{rt['succeeded']} ✕{rt['failed']}）· {len(result.get('schedules', []))} 个定时"

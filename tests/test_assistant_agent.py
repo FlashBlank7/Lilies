@@ -165,3 +165,39 @@ def test_derive_app_name_readable() -> None:
     assert _derive_app_name("做一个每日销售对账，输出差异表。") == "每日销售对账，输出差异表"
     assert _derive_app_name("x" * 40) == "x" * 24
     assert _derive_app_name("") == "新工作流"
+
+
+def test_health_report_tool_and_summary(monkeypatch) -> None:
+    """管家能回答'有什么坏了'：工具走 build_health，动作摘要点名坏掉的工作流。"""
+    from agent_platform import assistant_agent, overview
+    from agent_platform.assistant_agent import WorkflowConcierge
+
+    async def fake_health(services, days=7):
+        assert days == 7
+        return {
+            "days": days,
+            "counts": {"broken": 1, "stale": 0, "ok": 3},
+            "items": [
+                {"application_id": "a1", "workflow": "坏的日报", "state": "broken",
+                 "reason": "近7天 6 次运行全部失败：连接超时", "runs": 6, "succeeded": 0},
+                {"application_id": "a2", "workflow": "健康的", "state": "ok",
+                 "reason": "", "runs": 3, "succeeded": 3},
+            ],
+        }
+
+    monkeypatch.setattr(overview, "build_health", fake_health)
+    settings = Settings(api_token="workflow-test")
+    with TestClient(create_app(settings)) as client:
+        services = client.app.state.services
+        concierge = WorkflowConcierge(services, settings)
+        result = client.portal.call(concierge._exec, "health_report", {}, {"name": "t"})
+    assert result["counts"]["broken"] == 1
+    assert [p["workflow"] for p in result["problems"]] == ["坏的日报"]  # ok 的不进 problems
+    assert "连接超时" in result["problems"][0]["reason"]
+    assert assistant_agent._summarize(result).startswith("⚠ 1 个要处理：坏的日报")
+
+
+def test_health_summary_when_all_ok() -> None:
+    from agent_platform.assistant_agent import _summarize
+
+    assert _summarize({"counts": {"ok": 9}, "problems": []}) == "✓ 9 个工作流都正常"
