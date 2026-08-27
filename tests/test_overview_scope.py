@@ -8,79 +8,10 @@
 
 from __future__ import annotations
 
-import asyncio
-import json
-from types import SimpleNamespace
-
 import pytest
 
-from agent_platform.config import Settings
 from agent_platform.overview import build_health, build_overview
-from agent_platform.storage import Storage
-from agent_platform.workflow_storage import WorkflowStorage
-
-
-SCHEDULED_SNAPSHOT = json.dumps({
-    "name": "定时的", "workflow": {"nodes": [
-        {"id": "s", "type": "schedule_trigger",
-         "config": {"hour": 8, "minute": 0, "timezone": "Asia/Shanghai"}}]}})
-PLAIN_SNAPSHOT = json.dumps({"name": "普通的", "workflow": {"nodes": [{"id": "s", "type": "start"}]}})
-
-
-@pytest.fixture
-def services(tmp_path):
-    """真 SQLite：建表走平台自己的初始化路径，schema 与线上一致。"""
-    settings = Settings(api_token="scope-test",
-                        data_dir=tmp_path / "d", workspace_root=tmp_path / "w")
-    settings.prepare()
-    storage = Storage(settings.data_dir)
-    store = WorkflowStorage(storage)
-    asyncio.run(_init(storage, store))
-    return SimpleNamespace(workflow_store=SimpleNamespace(storage=storage), _store=store)
-
-
-async def _init(storage, store):
-    await storage.initialize()
-    await store.initialize()
-
-
-def _seed(services, *, app_id="app-1", published_version=1,
-          real_runs=(), draft_runs=(), version_snapshot=PLAIN_SNAPSHOT,
-          draft_snapshot=SCHEDULED_SNAPSHOT):
-    """插真行：real_runs/draft_runs 是 status 列表。"""
-    storage = services.workflow_store.storage
-    with storage._connect() as conn:
-        conn.execute(
-            "INSERT INTO applications(id,name,description,requirement,mode,active_version,"
-            "created_at,updated_at) VALUES(?,?,?,?,?,?,datetime('now'),datetime('now'))",
-            (app_id, "被测工作流", "", "", "workflow", published_version))
-        conn.execute(
-            "INSERT INTO application_drafts(application_id,revision,snapshot_json,content_hash,"
-            "validation_report_json,updated_at) VALUES(?,?,?,?,'{}',datetime('now'))",
-            (app_id, 1, draft_snapshot, "h" * 64))
-        if published_version is not None:
-            conn.execute(
-                "INSERT INTO application_versions(application_id,version,snapshot_json,"
-                "content_hash,validation_report_json,created_at) "
-                "VALUES(?,?,?,?,'{}',datetime('now'))",
-                (app_id, published_version, version_snapshot, "h" * 64))
-        index = 0
-        for status in real_runs:
-            index += 1
-            conn.execute(
-                "INSERT INTO workflow_runs(id,application_id,version,draft_revision,status,"
-                "state_json,outputs_json,error,created_at,updated_at) "
-                "VALUES(?,?,?,NULL,?,'{}','{}',?,datetime('now'),datetime('now'))",
-                (f"real-{index}", app_id, published_version, status,
-                 "真实运行的错误" if status == "failed" else None))
-        for status in draft_runs:
-            index += 1
-            conn.execute(
-                "INSERT INTO workflow_runs(id,application_id,version,draft_revision,status,"
-                "state_json,outputs_json,error,created_at,updated_at) "
-                "VALUES(?,?,NULL,?,?,'{}','{}',?,datetime('now'),datetime('now'))",
-                (f"draft-{index}", app_id, 3, status,
-                 "自测的错误" if status == "failed" else None))
+from helpers_overview import PLAIN_SNAPSHOT, SCHEDULED_SNAPSHOT, _seed, services  # noqa: F401
 
 
 @pytest.mark.asyncio
@@ -142,3 +73,79 @@ async def test_published_schedule_is_reported(services):
           version_snapshot=SCHEDULED_SNAPSHOT, draft_snapshot=PLAIN_SNAPSHOT)
     data = await build_overview(services)
     assert [s["at"] for s in data["schedules"]] == ["08:00"]
+
+
+# ── 定时静默失效：跑过、然后悄悄不跑了 ──────────────────────────────
+
+def test_last_expected_fire_respects_timezone():
+    from datetime import datetime, timezone as tz
+
+    from agent_platform.overview import _last_expected_fire
+
+    config = {"hour": 8, "minute": 0, "timezone": "Asia/Shanghai"}
+    # 14:37 CST：今天 8 点已过，上一次本该开火是今天 08:00 CST = 00:00 UTC
+    got = _last_expected_fire(config, datetime(2026, 8, 28, 6, 37, tzinfo=tz.utc))
+    assert got == datetime(2026, 8, 28, 0, 0, tzinfo=tz.utc)
+    # 06:37 CST：今天还没到点，上一次是昨天
+    got = _last_expected_fire(config, datetime(2026, 8, 27, 22, 37, tzinfo=tz.utc))
+    assert got == datetime(2026, 8, 27, 0, 0, tzinfo=tz.utc)
+
+
+def test_overdue_judgements():
+    from datetime import datetime, timezone as tz
+
+    from agent_platform.overview import _overdue
+
+    config = {"hour": 8, "minute": 0, "timezone": "Asia/Shanghai"}
+    now = datetime(2026, 8, 28, 6, 37, tzinfo=tz.utc)
+    assert _overdue(config, "2026-08-28T00:00:10+00:00", now)[0] is False  # 今天开过
+    assert _overdue(config, "2026-08-27T00:00:15+00:00", now)[0] is True   # 昨天开过，今天没开
+    assert _overdue(config, None, now)[0] is True                          # 从没开过
+    assert _overdue({"hour": "x"}, None, now) == (False, "")               # 坏配置不误报
+
+
+def test_overdue_grace_period():
+    """调度器有抖动、任务本身要跑一会儿——卡太紧会天天误报。"""
+    from datetime import datetime, timezone as tz
+
+    from agent_platform.overview import _overdue
+
+    config = {"hour": 8, "minute": 0, "timezone": "UTC"}
+    now = datetime(2026, 8, 28, 9, 0, tzinfo=tz.utc)
+    # 比应开时刻早 30 分钟开的火（提前触发/时钟漂移）仍算按时
+    assert _overdue(config, "2026-08-28T07:30:00+00:00", now)[0] is False
+    # 早两小时的就算逾期了
+    assert _overdue(config, "2026-08-28T06:00:00+00:00", now)[0] is True
+
+
+@pytest.mark.asyncio
+async def test_health_flags_schedule_that_stopped_firing(services):
+    """跑过、发布版有定时、但很久没开火——要报出来。"""
+    _seed(services, real_runs=["succeeded"] * 2,
+          version_snapshot=SCHEDULED_SNAPSHOT, draft_snapshot=PLAIN_SNAPSHOT)
+    with services.workflow_store.storage._connect() as conn:
+        conn.execute(
+            "INSERT INTO schedule_fires(application_id,version,node_id,local_date,run_id,"
+            "created_at) VALUES('app-1',1,'s','2020-01-01','r-old','2020-01-01T08:00:00+00:00')")
+    report = await build_health(services)
+    item = report["items"][0]
+    assert item["state"] == "stale", item
+    assert item["overdue"] is True
+    assert "定时没按时开火" in item["reason"]
+    assert "2020-01-01" in item["reason"]      # 上次开火时间要说出来
+
+
+@pytest.mark.asyncio
+async def test_health_ok_when_schedule_fired_recently(services):
+    """刚开过火的不能误报。"""
+    from datetime import datetime, timezone as tz
+
+    _seed(services, real_runs=["succeeded"],
+          version_snapshot=SCHEDULED_SNAPSHOT, draft_snapshot=PLAIN_SNAPSHOT)
+    now = datetime.now(tz.utc).isoformat()
+    with services.workflow_store.storage._connect() as conn:
+        conn.execute(
+            "INSERT INTO schedule_fires(application_id,version,node_id,local_date,run_id,"
+            "created_at) VALUES('app-1',1,'s','2026-08-28','r-now',?)", (now,))
+    report = await build_health(services)
+    assert report["items"][0]["state"] == "ok", report["items"][0]

@@ -1,5 +1,11 @@
 from __future__ import annotations
 
+import sys
+from pathlib import Path as _Path
+
+# 让测试之间能共用 helper 模块（tests/helpers_*.py）
+sys.path.insert(0, str(_Path(__file__).resolve().parent))
+
 import pytest
 from pathlib import Path
 

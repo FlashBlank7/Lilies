@@ -1,174 +1,94 @@
-"""工作流健康度：全败/连败/定时未触发的判定与排序。"""
+"""工作流体检：分类判定与错误摘要。
 
-import json
-from pathlib import Path
-from types import SimpleNamespace
+历史教训（2026-08-28）：这个文件原本用 SQL 桩，桩把"整表 run 都是真实运行"
+这个错误假设固化了下来——功能算错口径，测试却全绿；而且每次改 SQL 桩就碎。
+现在分类判定全部走真 SQLite（helpers_overview 的夹具），
+只有纯函数与源码契约留在这里做轻量断言。
+"""
+
+from __future__ import annotations
 
 import pytest
 
 from agent_platform.overview import build_health
-
-
-class _FakeCursor:
-    """execute() 的返回物：只需支持 fetchall() 与直接迭代（真 sqlite3 游标两者都行）。"""
-
-    def __init__(self, rows):
-        self._rows = rows
-
-    def fetchall(self):
-        return self._rows
-
-    def __iter__(self):
-        return iter(self._rows)
-
-
-class _FakeConn:
-    def __init__(self, apps, runs, recent, drafts, errors=()):
-        self._apps, self._runs, self._recent = apps, runs, recent
-        self._drafts, self._errors = drafts, errors
-
-    def execute(self, sql, params=()):
-        if "snapshot_json" in sql:          # 快照查询里也含 "applications"，先判它
-            return _FakeCursor(self._drafts)
-        if "FROM applications" in sql:
-            return _FakeCursor(self._apps)
-        if "GROUP BY application_id" in sql:
-            return _FakeCursor(self._runs)
-        if "status='failed'" in sql:
-            return _FakeCursor(self._errors)
-        if "ORDER BY created_at DESC LIMIT" in sql:
-            return _FakeCursor(self._recent)
-        # 定时口径改为发布版快照后 SQL 从 application_drafts 换成 application_versions；
-        # 桩按"取快照"这个语义匹配，别再绑死表名（绑死表名正是上次改口径时炸的原因）
-        if "snapshot_json" in sql:
-            return _FakeCursor(self._drafts)
-        raise AssertionError(sql)
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *args):
-        return False
-
-
-def _services(apps, runs, recent, drafts, errors=()):
-    storage = SimpleNamespace(
-        _connect=lambda: _FakeConn(apps, runs, recent, drafts, errors))
-    return SimpleNamespace(workflow_store=SimpleNamespace(storage=storage))
-
-
-SCHEDULED = json.dumps({"workflow": {"nodes": [{"type": "schedule_trigger"}]}})
-PLAIN = json.dumps({"workflow": {"nodes": [{"type": "start"}]}})
+from helpers_overview import PLAIN_SNAPSHOT, SCHEDULED_SNAPSHOT, _seed, services  # noqa: F401
 
 
 @pytest.mark.asyncio
-async def test_all_failed_is_broken():
-    report = await build_health(_services(
-        apps=[{"id": "a1", "name": "全败的"}],
-        runs=[{"application_id": "a1", "runs": 6, "succeeded": 0,
-               "last_success": None, "last_run": "2026-08-27"}],
-        recent=[{"application_id": "a1", "status": "failed"}],
-        drafts=[{"application_id": "a1", "snapshot_json": PLAIN}],
-    ))
-    item = report["items"][0]
+async def test_all_failed_is_broken(services):
+    _seed(services, real_runs=["failed"] * 6)
+    item = (await build_health(services))["items"][0]
     assert item["state"] == "broken"
     assert "全部失败" in item["reason"]
-    assert report["counts"]["broken"] == 1
 
 
 @pytest.mark.asyncio
-async def test_fail_streak_is_broken_even_with_past_success():
-    report = await build_health(_services(
-        apps=[{"id": "a1", "name": "最近连败"}],
-        runs=[{"application_id": "a1", "runs": 10, "succeeded": 7,
-               "last_success": "2026-08-20", "last_run": "2026-08-27"}],
-        recent=[{"application_id": "a1", "status": "failed"}] * 3
-               + [{"application_id": "a1", "status": "succeeded"}],
-        drafts=[{"application_id": "a1", "snapshot_json": PLAIN}],
-    ))
-    item = report["items"][0]
+async def test_fail_streak_is_broken_even_with_past_success(services):
+    """曾经跑得好好的，最近连败——照样要报。"""
+    _seed(services, real_runs=["succeeded"] * 7 + ["failed"] * 3)
+    item = (await build_health(services))["items"][0]
     assert item["state"] == "broken"
     assert item["fail_streak"] == 3
-    assert "连续失败 3" in item["reason"]
 
 
 @pytest.mark.asyncio
-async def test_scheduled_but_never_ran_is_stale():
-    report = await build_health(_services(
-        apps=[{"id": "a1", "name": "定时没动"}],
-        runs=[],
-        recent=[],
-        drafts=[{"application_id": "a1", "snapshot_json": SCHEDULED}],
-    ))
-    item = report["items"][0]
+async def test_scheduled_but_never_ran_is_stale(services):
+    _seed(services, version_snapshot=SCHEDULED_SNAPSHOT, draft_snapshot=PLAIN_SNAPSHOT)
+    item = (await build_health(services))["items"][0]
     assert item["state"] == "stale"
     assert item["scheduled"] is True
-    assert "一次都没运行" in item["reason"]
 
 
 @pytest.mark.asyncio
-async def test_healthy_and_ordering():
-    report = await build_health(_services(
-        apps=[{"id": "ok1", "name": "健康"}, {"id": "bad", "name": "坏的"},
-              {"id": "sch", "name": "定时没动"}],
-        runs=[{"application_id": "ok1", "runs": 5, "succeeded": 5,
-               "last_success": "2026-08-27", "last_run": "2026-08-27"},
-              {"application_id": "bad", "runs": 4, "succeeded": 0,
-               "last_success": None, "last_run": "2026-08-27"}],
-        recent=[{"application_id": "bad", "status": "failed"}],
-        drafts=[{"application_id": "sch", "snapshot_json": SCHEDULED}],
-    ))
-    assert [i["state"] for i in report["items"]] == ["broken", "stale", "ok"]
-    assert report["counts"] == {"broken": 1, "stale": 1, "ok": 1}
-
-
-@pytest.mark.asyncio
-async def test_broken_snapshot_does_not_crash():
-    report = await build_health(_services(
-        apps=[{"id": "a1", "name": "坏快照"}],
-        runs=[{"application_id": "a1", "runs": 2, "succeeded": 2,
-               "last_success": "2026-08-27", "last_run": "2026-08-27"}],
-        recent=[],
-        drafts=[{"application_id": "a1", "snapshot_json": "{不是JSON"}],
-    ))
+async def test_healthy_workflow_is_ok(services):
+    _seed(services, real_runs=["succeeded"] * 3)
+    report = await build_health(services)
     assert report["items"][0]["state"] == "ok"
-    assert report["items"][0]["scheduled"] is False
+    assert report["counts"] == {"broken": 0, "stale": 0, "ok": 1}
 
 
 @pytest.mark.asyncio
-async def test_broken_carries_last_error_summary():
-    """体检要说清"为什么坏"：带上最近一次失败的错误摘要，剥掉 node X failed 前缀。"""
-    report = await build_health(_services(
-        apps=[{"id": "a1", "name": "坏的"}],
-        runs=[{"application_id": "a1", "runs": 3, "succeeded": 0,
-               "last_success": None, "last_run": "2026-08-27"}],
-        recent=[{"application_id": "a1", "status": "failed"}],
-        drafts=[],
-        errors=[{"application_id": "a1",
-                 "error": "node fetch failed: HTTPConnectionPool timeout after 30s"},
-                {"application_id": "a1", "error": "更早的错误，不该被采用"}],
-    ))
-    item = report["items"][0]
+async def test_broken_carries_last_error_summary(services):
+    """体检要说清"为什么坏"，且剥掉 node X failed 前缀。"""
+    _seed(services, real_runs=["failed"] * 3,
+          fail_error="node fetch failed: HTTPConnectionPool timeout after 30s")
+    item = (await build_health(services))["items"][0]
     assert item["last_error"] == "HTTPConnectionPool timeout after 30s"
-    assert "全部失败：HTTPConnectionPool timeout" in item["reason"]
+    assert "HTTPConnectionPool" in item["reason"]
 
 
 @pytest.mark.asyncio
-async def test_stale_has_no_error_noise():
-    """停摆的工作流没跑过，不该硬塞别人的错误。"""
-    report = await build_health(_services(
-        apps=[{"id": "a1", "name": "定时没动"}],
-        runs=[], recent=[],
-        drafts=[{"application_id": "a1", "snapshot_json": SCHEDULED}],
-        errors=[],
-    ))
-    item = report["items"][0]
-    assert item["state"] == "stale"
+async def test_caller_errors_do_not_mark_broken(services):
+    """"你调用方式不对"不等于"工作流坏了"。
+
+    真机上就是被冒烟脚本刷出来的：故意不带参数试跑三次，
+    工作流被判 broken，还可能触发自动修复构建（花钱）。
+    """
+    _seed(services, real_runs=["failed"] * 3,
+          fail_error="node start failed: missing required input: sales")
+    item = (await build_health(services))["items"][0]
+    assert item["state"] == "ok", item
     assert item["last_error"] == ""
-    assert "：" not in item["reason"]
 
 
-def test_brief_error_shapes():
+@pytest.mark.asyncio
+async def test_real_failure_still_breaks(services):
+    """调用方错误被跳过，但不能把它当免死金牌——真实失败照报。"""
+    _seed(services, real_runs=["failed"] * 3, fail_error="node calc failed: 除以零")
+    item = (await build_health(services))["items"][0]
+    assert item["state"] == "broken"
+    assert "除以零" in item["reason"]
+
+
+@pytest.mark.asyncio
+async def test_broken_snapshot_does_not_crash(services):
+    _seed(services, real_runs=["succeeded"] * 2, version_snapshot="{不是JSON")
+    item = (await build_health(services))["items"][0]
+    assert item["state"] == "ok"
+    assert item["scheduled"] is False
+
+
+def test_brief_error_shapes() -> None:
     from agent_platform.overview import _brief_error
 
     assert _brief_error("") == ""
@@ -178,16 +98,21 @@ def test_brief_error_shapes():
     assert _brief_error("a" * 80 + " failed: tail").startswith("aaa")
 
 
-def test_brief_error_used_by_overview_failures() -> None:
-    """回归：失败原因的权威来源是顶层 error 列。
+def test_caller_error_detection() -> None:
+    from agent_platform.overview import _is_caller_error
 
-    WorkflowRunState 模型没有 error 字段（'error' in model_fields == False），
-    所以此前 recent_failures 读 state_json.$.error 恒为空——today/网页/桌面通知
-    四个消费点全都显示"失败但没有原因"。
-    """
+    assert _is_caller_error("node start failed: missing required input: sales")
+    assert _is_caller_error("Input validation failed for 'month'")
+    assert not _is_caller_error("node calc failed: 除以零")
+    assert not _is_caller_error("")
+
+
+def test_failure_reason_comes_from_top_level_error_column() -> None:
+    """前提：WorkflowRunState 模型没有 error 字段，读 state.error 恒为空。"""
+    from pathlib import Path
+
     from agent_platform.workflow_models import WorkflowRunState
 
-    assert "error" not in WorkflowRunState.model_fields  # 前提：state 里根本没有它
-
+    assert "error" not in WorkflowRunState.model_fields
     sql = Path("platform/backend/src/agent_platform/overview.py").read_text(encoding="utf-8")
     assert "COALESCE(r.error, json_extract(r.state_json,'$.error'), '') AS error" in sql

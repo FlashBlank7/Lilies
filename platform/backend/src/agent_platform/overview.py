@@ -16,7 +16,8 @@ _REAL_RUN = "version IS NOT NULL"
 
 import asyncio
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from typing import Any
 
 
@@ -126,6 +127,68 @@ async def build_overview(services: Any) -> dict[str, Any]:
     }
 
 
+def _last_expected_fire(config: dict[str, Any], now: datetime | None = None) -> datetime | None:
+    """定时节点配置 → 上一次本该开火的时刻（UTC）。配置读不动就返回 None。
+
+    定时任务最常见的静默失效不是"从没跑过"，而是"跑过、然后悄悄不跑了"——
+    调度器挂了、时区改了、发布版被换掉。只看有没有跑过是抓不到的。
+    """
+    try:
+        hour = int(config.get("hour", 0))
+        minute = int(config.get("minute", 0))
+        if not (0 <= hour <= 23 and 0 <= minute <= 59):
+            return None
+        zone_name = str(config.get("timezone") or "UTC")
+        try:
+            zone = ZoneInfo(zone_name)
+        except Exception:  # noqa: BLE001 - 时区名不认识就按 UTC 算，别整个不判
+            zone = timezone.utc
+    except (TypeError, ValueError):
+        return None
+    moment = (now or datetime.now(timezone.utc)).astimezone(zone)
+    today_fire = moment.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if moment < today_fire:                       # 今天还没到点，上一次是昨天
+        today_fire -= timedelta(days=1)
+    return today_fire.astimezone(timezone.utc)
+
+
+def _overdue(config: dict[str, Any], last_fired: str | None,
+             now: datetime | None = None, grace_minutes: int = 90) -> tuple[bool, str]:
+    """该开火却没开火？返回 (是否逾期, 本该开火的时刻文本)。
+
+    宽限 90 分钟：调度器有抖动、任务本身也要跑一会儿，卡太紧会天天误报。
+    """
+    expected = _last_expected_fire(config, now)
+    if expected is None:
+        return False, ""
+    label = expected.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    if not last_fired:
+        return True, label                        # 有定时、从没开过火
+    try:
+        fired = datetime.fromisoformat(str(last_fired))
+    except ValueError:
+        return False, label
+    if fired.tzinfo is None:
+        fired = fired.replace(tzinfo=timezone.utc)
+    return fired < expected - timedelta(minutes=grace_minutes), label
+
+
+# 调用方错误：工作流本身没毛病，是这次调用没按输入声明来。
+# 不能算进"坏了"——否则任何人从 CLI 试跑忘了带参数，都会把工作流刷成 broken，
+# 进而可能触发自动修复构建（花钱）。真机上就是被冒烟脚本刷出来的。
+_CALLER_ERROR_MARKERS = (
+    "missing required input",
+    "input validation failed",
+    "unknown input",
+    "输入校验",
+)
+
+
+def _is_caller_error(error: str) -> bool:
+    text = str(error or "").lower()
+    return any(marker in text for marker in _CALLER_ERROR_MARKERS)
+
+
 def _brief_error(error: str) -> str:
     """错误文本 → 一行摘要：剥掉 "node X failed: " 前缀、砍到首个换行、限长。
     体检要让人不点进去就知道大概是什么毛病。"""
@@ -157,6 +220,9 @@ async def build_health(services: Any, days: int = 7) -> dict[str, Any]:
             stats = {r["application_id"]: dict(r) for r in conn.execute(
                 "SELECT application_id, COUNT(*) AS runs, "
                 "SUM(CASE WHEN status='succeeded' THEN 1 ELSE 0 END) AS succeeded, "
+                "SUM(CASE WHEN status='failed' AND "
+                "  COALESCE(error, json_extract(state_json,'$.error'), '') "
+                "  LIKE '%missing required input%' THEN 1 ELSE 0 END) AS caller_errors, "
                 "MAX(CASE WHEN status='succeeded' THEN created_at END) AS last_success, "
                 "MAX(created_at) AS last_run "
                 f"FROM workflow_runs WHERE created_at >= date('now','-{int(days) - 1} days') "
@@ -165,13 +231,16 @@ async def build_health(services: Any, days: int = 7) -> dict[str, Any]:
             # 每个应用最近 5 次运行的状态，用来数"连续失败"
             recent: dict[str, list[str]] = {}
             for row in conn.execute(
-                # 先过滤再截窗口：不然 400 条里塞满自测噪音，连败判定看不到真实运行
-                f"SELECT application_id, status FROM workflow_runs WHERE {_REAL_RUN} "
+                # 先过滤再截窗口：不然 400 条里塞满自测噪音，连败判定看不到真实运行。
+                # 带上 error 是为了把"调用方没给参数"这类失败排除在连败判定之外。
+                "SELECT application_id, status, "
+                "COALESCE(error, json_extract(state_json,'$.error'), '') AS error "
+                f"FROM workflow_runs WHERE {_REAL_RUN} "
                 "ORDER BY created_at DESC LIMIT 400"
             ).fetchall():
                 bucket = recent.setdefault(row["application_id"], [])
-                if len(bucket) < 5:
-                    bucket.append(row["status"])
+                if len(bucket) < 8:      # 放宽一点：调用方错误会被跳过，窗口太小容易看不到真实运行
+                    bucket.append((row["status"], row["error"]))
             errors: dict[str, str] = {}
             for row in conn.execute(
                 "SELECT application_id, "
@@ -185,8 +254,12 @@ async def build_health(services: Any, days: int = 7) -> dict[str, Any]:
                 "SELECT v.application_id, v.snapshot_json FROM application_versions v "
                 "JOIN applications a ON a.id=v.application_id AND a.active_version=v.version"
             ).fetchall()}
+            fires = {r["application_id"]: r["last_fired"] for r in conn.execute(
+                "SELECT application_id, MAX(created_at) AS last_fired "
+                "FROM schedule_fires GROUP BY application_id"
+            ).fetchall()}
         return {"apps": apps, "stats": stats, "recent": recent,
-                "drafts": drafts, "errors": errors}
+                "drafts": drafts, "errors": errors, "fires": fires}
 
     data = await asyncio.to_thread(query)
 
@@ -196,27 +269,44 @@ async def build_health(services: Any, days: int = 7) -> dict[str, Any]:
         runs = int(stat.get("runs") or 0)
         succeeded = int(stat.get("succeeded") or 0)
         streak = 0
-        for status in data["recent"].get(app["id"], []):
+        for entry in data["recent"].get(app["id"], []):
+            status, error = (entry if isinstance(entry, tuple) else (entry, ""))
+            if status == "failed" and _is_caller_error(error):
+                continue          # 调用方没按声明给输入：跳过，既不计数也不中断
             if status == "failed":
                 streak += 1
             else:
                 break
         scheduled = False
+        schedule_config: dict[str, Any] = {}
         snapshot = data["drafts"].get(app["id"])
         if snapshot:
             try:
-                scheduled = any(
-                    node.get("type") == "schedule_trigger"
-                    for node in json.loads(snapshot)["workflow"]["nodes"])
+                for node in json.loads(snapshot)["workflow"]["nodes"]:
+                    if node.get("type") == "schedule_trigger":
+                        scheduled = True
+                        schedule_config = node.get("config") or {}
+                        break
             except Exception:  # noqa: BLE001 - 快照坏了不影响体检其余部分
                 scheduled = False
+        last_fired = (data.get("fires") or {}).get(app["id"])
+        overdue, expected_at = (
+            _overdue(schedule_config, last_fired) if scheduled else (False, ""))
 
-        last_error = _brief_error(data["errors"].get(app["id"], ""))
-        if runs and not succeeded:
-            state, reason = "broken", f"近{days}天 {runs} 次运行全部失败"
+        raw_error = data["errors"].get(app["id"], "")
+        last_error = "" if _is_caller_error(raw_error) else _brief_error(raw_error)
+        caller_errors = int(stat.get("caller_errors") or 0)
+        real_runs = runs - caller_errors          # 调用方错误不算工作流跑过
+        if real_runs > 0 and not succeeded:
+            state, reason = "broken", f"近{days}天 {real_runs} 次运行全部失败"
         elif streak >= 3:
             state, reason = "broken", f"最近连续失败 {streak} 次"
-        elif scheduled and not runs:
+        elif overdue and last_fired:
+            # 跑过、然后悄悄不跑了——定时任务最常见的静默失效
+            state, reason = "stale", (
+                f"定时没按时开火：上次 {str(last_fired)[:16].replace('T', ' ')}，"
+                f"本该 {expected_at}")
+        elif scheduled and (overdue or not runs):
             state, reason = "stale", f"有定时任务，但近{days}天一次都没运行"
         else:
             state, reason = "ok", ""
@@ -227,6 +317,7 @@ async def build_health(services: Any, days: int = 7) -> dict[str, Any]:
             "reason": reason, "last_error": last_error,
             "runs": runs, "succeeded": succeeded,
             "fail_streak": streak, "scheduled": scheduled,
+            "last_fired": last_fired, "overdue": overdue,
             "last_success": stat.get("last_success"), "last_run": stat.get("last_run"),
         })
 
