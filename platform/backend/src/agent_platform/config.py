@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     # HOST=x86_64-conda-linux-gnu），解析不了的值一律回落回环，服务不裸奔也不崩。
     host: str = Field(default="127.0.0.1", validation_alias=AliasChoices("API_HOST", "HOST"))
     port: int = Field(default=8000, validation_alias=AliasChoices("API_PORT", "PORT"))
+    # 全局失败告警 webhook：为空即关闭。运行 failed 收尾时 POST 一份 JSON。
+    alert_webhook_url: str = Field(default="", validation_alias=AliasChoices("ALERT_WEBHOOK_URL"))
 
     @field_validator("host")
     @classmethod

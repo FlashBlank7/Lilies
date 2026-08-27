@@ -1358,6 +1358,37 @@ class WorkflowRuntime:
                 "error": str(error), "error_type": type(error).__name__
             })
             await self.harness.finish_task(state.run_id, status="failed", error=str(error))
+            await self._alert_run_failed(state, str(error))
+
+    async def _alert_run_failed(self, state: Any, error: str) -> None:
+        """全局失败告警（ALERT_WEBHOOK_URL，空=关闭）：3s 超时 fire-and-forget，
+        任何异常只记日志——告警永不影响运行本身的结果与状态。"""
+        try:
+            from .config import get_settings
+
+            url = (get_settings().alert_webhook_url or "").strip()
+            if not url:
+                return
+            payload = {
+                "kind": "run_failed",
+                "workflow": str(getattr(getattr(state, "snapshot", None), "name", "") or ""),
+                "run_id": str(getattr(state, "run_id", "") or ""),
+                "error": error[:500],
+                "at": datetime.now(timezone.utc).isoformat(),
+                "application_id": "",
+            }
+            try:
+                run = await self.workflow_store.get_run(state.run_id)
+                payload["application_id"] = str(run.get("application_id") or "")
+            except Exception:  # noqa: BLE001 - 查不到就发不带 app id 的
+                pass
+            async with httpx.AsyncClient(timeout=3.0) as client:
+                await client.post(url, json=payload)
+        except Exception as alert_error:  # noqa: BLE001
+            import logging
+
+            logging.getLogger("agent_platform.alerts").warning(
+                "告警 webhook 投递失败（不影响运行）：%s", alert_error)
 
     async def _run_graph(
         self,
