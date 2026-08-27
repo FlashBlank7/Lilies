@@ -5464,6 +5464,12 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         await services.storage.append_event("system", "user.status_changed", {"user_id": user_id, "status": status_value})
         return {"ok": True, "status": status_value}
 
+    @app.get("/api/v1/overview", dependencies=[Depends(require_token)])
+    async def platform_overview() -> dict[str, Any]:
+        from .overview import build_overview
+
+        return await build_overview(services)
+
     @app.post("/api/v1/assistant/agent", dependencies=[Depends(require_token)])
     async def assistant_agent_chat(request: Request, body: AssistantChatRequest) -> dict[str, Any]:
         """管家智能体：工具在服务端执行（列表/运行/生成/统筹），CLI 只做薄 REPL。"""

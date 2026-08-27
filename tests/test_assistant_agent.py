@@ -56,3 +56,15 @@ def test_concierge_executes_tools_server_side(tmp_path: Path) -> None:
         data = r.json()
         assert data["actions"] == [{"tool": "list_workflows", "summary": "0 个工作流"}]
         assert data["text"] == "平台上有 0 个已发布工作流"
+
+
+def test_overview_endpoint_shape(tmp_path: Path) -> None:
+    settings = Settings(api_token="workflow-test", data_dir=tmp_path / "d", workspace_root=tmp_path / "w")
+    app = create_app(settings, ConciergeScript())
+    with TestClient(app) as client:
+        r = client.get("/api/v1/overview", headers={"Authorization": "Bearer workflow-test"})
+        assert r.status_code == 200, r.text
+        data = r.json()
+        assert data["runs_today"] == {"total": 0, "succeeded": 0, "failed": 0, "running": 0}
+        assert data["schedules"] == [] and data["recent_failures"] == []
+        assert data["builds_active"] == 0

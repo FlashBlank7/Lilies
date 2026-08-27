@@ -37,6 +37,8 @@ TOOLS = [
                        "requirement": {"type": "string"},
                        "thinking_enabled": {"type": "boolean"},
                    }, "required": ["requirement"]}),
+    ToolDefinition(name="platform_overview", description="平台统筹总览：今日运行统计、定时任务、近期失败、进行中的构建",
+                   input_schema={"type": "object", "properties": {}}),
     ToolDefinition(name="build_status", description="查询生成任务（构建）的状态",
                    input_schema={"type": "object", "properties": {"build_id": {"type": "string"}},
                                  "required": ["build_id"]}),
@@ -108,6 +110,9 @@ class WorkflowConcierge:
             services.builders.get("classic").start(build_id)
             return {"build_id": build_id, "app_id": app["id"],
                     "note": "莉莉丝已开工（后台构建），用 build_status 跟进"}
+        if name == "platform_overview":
+            from .overview import build_overview
+            return await build_overview(self.services)
         if name == "build_status":
             build = await services.workflow_store.get_build(str(args.get("build_id") or ""))
             state = build["team_state"]
@@ -160,6 +165,9 @@ def _summarize(result: dict) -> str:
         return "⚙ 构建已提交"
     if "runs" in result:
         return f"{len(result['runs'])} 条历史"
+    if "runs_today" in result:
+        rt = result["runs_today"]
+        return f"今日 {rt['total']} 次运行（✓{rt['succeeded']} ✕{rt['failed']}）· {len(result.get('schedules', []))} 个定时"
     if "status" in result:
         return f"状态 {result['status']}"
     return "完成"
