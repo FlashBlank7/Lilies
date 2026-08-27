@@ -121,3 +121,31 @@ def test_record_aggregation_errors_are_teachable() -> None:
         evaluate_formula('pluck(s, 1)', {"s": []})
     with pytest.raises(FormulaError, match="未闭合"):
         evaluate_formula('pluck(s, "amount)', {"s": []})
+
+
+def test_string_ops_trim_split_count_len() -> None:
+    """字符串确定性统计：真机 E2E 缺口（行数/净字数）在公式层一行可解。"""
+    text = "  你好世界  \n第二行\n第三行  "
+    assert evaluate_formula("len(split(text))", {"text": text}) == 3
+    assert evaluate_formula("len(trim(text))", {"text": text}) == len(text.strip())
+    assert evaluate_formula('split(csv, ",")', {"csv": "a,b,c"}) == ["a", "b", "c"]
+    assert evaluate_formula('count(csv, ",")', {"csv": "a,b,c"}) == 2
+    assert evaluate_formula('trim(word)', {"word": "  x  "}) == "x"
+    # 组合：净行（先 trim 再按行切）
+    assert evaluate_formula("len(split(trim(text)))", {"text": "\n a \n b \n"}) == 2
+
+
+def test_string_ops_errors_are_teachable() -> None:
+    for expression, fragment in [
+        ("split(5)", "split(文本)"),
+        ('split(text, "")', "非空字符串"),
+        ('count(text, "")', "非空子串"),
+        ("trim(7)", "trim(文本)"),
+        ("len(3)", "列表或字符串"),
+    ]:
+        try:
+            evaluate_formula(expression, {"text": "abc"})
+        except FormulaError as error:
+            assert fragment in str(error), (expression, str(error))
+        else:
+            raise AssertionError(f"{expression} 应当报错")

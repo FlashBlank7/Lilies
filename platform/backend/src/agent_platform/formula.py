@@ -29,6 +29,10 @@ _FUNCTIONS = {
     # 记录聚合（2026-08-23）：此前对象数组无法确定性地提取字段/分组求和——
     # 日报类需求在积木层无解，模型只能硬编码键名作弊或选错积木。
     "pluck", "sum_by",
+    # 字符串确定性处理（2026-08-27）：真机首次"对话生成"E2E 就栽在这——
+    # 行数/去空白字数在积木层无解，莉莉丝探索 24 分钟后被迫用 llm 数数。
+    # split(文本) 单参数按行切（词法器不做转义，写不出 "\n" 字面量）。
+    "trim", "split", "count",
 }
 _KEYWORDS = {"and", "or", "not", "true", "false"}
 
@@ -433,9 +437,26 @@ def _call(name: str, args: list[Any]) -> Any:
             raise FormulaError("when(条件, 成立值, 不成立值) 需要三个参数")
         return args[1] if _truthy(args[0]) else args[2]
     if name == "len":
-        if len(args) != 1 or not isinstance(args[0], list):
-            raise FormulaError("len 需要一个列表参数")
+        if len(args) != 1 or not isinstance(args[0], (list, str)):
+            raise FormulaError("len 需要一个列表或字符串参数")
         return len(args[0])
+    if name == "trim":
+        if len(args) != 1 or not isinstance(args[0], str):
+            raise FormulaError("trim(文本) 需要一个字符串参数")
+        return args[0].strip()
+    if name == "split":
+        if not args or not isinstance(args[0], str):
+            raise FormulaError('split(文本) 按行切分；split(文本, "分隔符") 按分隔符切分')
+        if len(args) == 1:
+            return args[0].splitlines()
+        if len(args) != 2 or not isinstance(args[1], str) or not args[1]:
+            raise FormulaError('split 的分隔符需要一个非空字符串（按行切分请用单参数 split(文本)）')
+        return args[0].split(args[1])
+    if name == "count":
+        if (len(args) != 2 or not isinstance(args[0], str)
+                or not isinstance(args[1], str) or not args[1]):
+            raise FormulaError('count(文本, "子串") 需要一个字符串和一个非空子串')
+        return args[0].count(args[1])
     if name == "abs":
         if len(args) != 1:
             raise FormulaError("abs 需要一个数字参数")
