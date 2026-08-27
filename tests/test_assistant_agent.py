@@ -167,7 +167,7 @@ def test_derive_app_name_readable() -> None:
     assert _derive_app_name("") == "新工作流"
 
 
-def test_health_report_tool_and_summary(monkeypatch) -> None:
+def test_health_report_tool_and_summary(monkeypatch, tmp_path) -> None:
     """管家能回答'有什么坏了'：工具走 build_health，动作摘要点名坏掉的工作流。"""
     from agent_platform import assistant_agent, overview
     from agent_platform.assistant_agent import WorkflowConcierge
@@ -186,7 +186,8 @@ def test_health_report_tool_and_summary(monkeypatch) -> None:
         }
 
     monkeypatch.setattr(overview, "build_health", fake_health)
-    settings = Settings(api_token="workflow-test")
+    settings = Settings(api_token="workflow-test",
+                        data_dir=tmp_path / "d", workspace_root=tmp_path / "w")
     with TestClient(create_app(settings)) as client:
         services = client.app.state.services
         concierge = WorkflowConcierge(services, settings)
@@ -201,3 +202,73 @@ def test_health_summary_when_all_ok() -> None:
     from agent_platform.assistant_agent import _summarize
 
     assert _summarize({"counts": {"ok": 9}, "problems": []}) == "✓ 9 个工作流都正常"
+
+
+def test_repair_workflow_builds_on_existing_app(tmp_path) -> None:
+    """修复要开在原应用上（从现有草稿改起），需求里带上失败原因。"""
+    from agent_platform.assistant_agent import WorkflowConcierge
+
+    settings = Settings(api_token="workflow-test",
+                        data_dir=tmp_path / "d", workspace_root=tmp_path / "w")
+    with TestClient(create_app(settings)) as client:
+        services = client.app.state.services
+        created = client.post("/api/v1/applications",
+                              headers={"Authorization": "Bearer workflow-test"},
+                              json={"name": "坏掉的日报", "requirement": "每天出一份日报"}).json()
+        started: dict = {}
+        services.builders.get("classic").start = lambda build_id: started.setdefault(
+            "build_id", build_id)
+
+        concierge = WorkflowConcierge(services, settings)
+        result = client.portal.call(
+            concierge._exec, "repair_workflow",
+            {"name_or_id": "坏掉的日报", "instruction": "公式包含不支持的字符 '.'"},
+            {"name": "t"})
+
+        assert result["app_id"] == created["id"]        # 原应用，不是新建的
+        assert result["repairing"] is True
+        assert started["build_id"] == result["build_id"]  # 构建真的启动了
+        build = client.get(f"/api/v1/builds/{result['build_id']}",
+                           headers={"Authorization": "Bearer workflow-test"}).json()
+        requirement = build["requirement"]
+        assert "修复现有工作流" in requirement
+        assert "公式包含不支持的字符" in requirement    # 失败原因进了需求
+        assert "不要推倒重来" in requirement
+
+
+def test_repair_workflow_pulls_reason_from_health(monkeypatch, tmp_path) -> None:
+    """没给指示时自己去体检取失败原因，别让莉莉丝盲修。"""
+    from agent_platform import overview
+    from agent_platform.assistant_agent import WorkflowConcierge
+
+    settings = Settings(api_token="workflow-test",
+                        data_dir=tmp_path / "d", workspace_root=tmp_path / "w")
+    with TestClient(create_app(settings)) as client:
+        services = client.app.state.services
+        created = client.post("/api/v1/applications",
+                              headers={"Authorization": "Bearer workflow-test"},
+                              json={"name": "坏掉的日报", "requirement": "每天出一份日报"}).json()
+        services.builders.get("classic").start = lambda build_id: None
+
+        async def fake_health(_services, days=7):
+            return {"days": days, "counts": {}, "items": [
+                {"application_id": created["id"], "workflow": "坏掉的日报",
+                 "state": "broken", "reason": "近7天 6 次运行全部失败：连接超时"}]}
+
+        monkeypatch.setattr(overview, "build_health", fake_health)
+        concierge = WorkflowConcierge(services, settings)
+        result = client.portal.call(concierge._exec, "repair_workflow",
+                                    {"name_or_id": "坏掉的日报"}, {"name": "t"})
+        assert "连接超时" in result["instruction"]
+
+
+def test_repair_workflow_unknown_name(tmp_path) -> None:
+    from agent_platform.assistant_agent import WorkflowConcierge
+
+    settings = Settings(api_token="workflow-test",
+                        data_dir=tmp_path / "d", workspace_root=tmp_path / "w")
+    with TestClient(create_app(settings)) as client:
+        concierge = WorkflowConcierge(client.app.state.services, settings)
+        result = client.portal.call(concierge._exec, "repair_workflow",
+                                    {"name_or_id": "不存在的"}, {"name": "t"})
+        assert result["error"] == "找不到该工作流"
