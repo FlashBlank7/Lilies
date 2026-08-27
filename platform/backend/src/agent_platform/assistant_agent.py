@@ -39,6 +39,12 @@ TOOLS = [
                    }, "required": ["requirement"]}),
     ToolDefinition(name="platform_overview", description="平台统筹总览：今日运行统计、定时任务、近期失败、进行中的构建",
                    input_schema={"type": "object", "properties": {}}),
+    ToolDefinition(name="recent_builds", description="最近的生成任务（构建）列表：状态、需求摘要——找'刚才那个构建'用",
+                   input_schema={"type": "object", "properties": {"limit": {"type": "integer"}}}),
+    ToolDefinition(name="resume_build", description="续跑一个暂停/失败的构建，可附带给莉莉丝的指示或对她提问的回答",
+                   input_schema={"type": "object", "properties": {
+                       "build_id": {"type": "string"}, "message": {"type": "string"}},
+                       "required": ["build_id"]}),
     ToolDefinition(name="build_status", description="查询生成任务（构建）的状态",
                    input_schema={"type": "object", "properties": {"build_id": {"type": "string"}},
                                  "required": ["build_id"]}),
@@ -113,6 +119,25 @@ class WorkflowConcierge:
         if name == "platform_overview":
             from .overview import build_overview
             return await build_overview(self.services)
+        if name == "recent_builds":
+            builds = await services.workflow_store.list_recent_builds(limit=int(args.get("limit") or 5))
+            return {"builds": [{
+                "build_id": b["id"], "status": b["status"],
+                "requirement": (b.get("requirement") or "")[:60],
+                "pending_question": (b["team_state"].pending_question or "")[:120] or None,
+            } for b in builds]}
+        if name == "resume_build":
+            build_id = str(args.get("build_id") or "")
+            build = await services.workflow_store.get_build(build_id)
+            if build["status"] in ("queued", "building"):
+                return {"error": "该构建正在进行中，无需续跑"}
+            message = str(args.get("message") or "").strip()
+            engine = services.builders.for_build(build)
+            if message:
+                engine.queue_resume_message(build_id, message)
+            await services.workflow_store.update_build(build_id, status="queued", error="")
+            engine.start(build_id)
+            return {"build_id": build_id, "status": "queued", "note": "已续跑，可用 build_status 跟进"}
         if name == "build_status":
             build = await services.workflow_store.get_build(str(args.get("build_id") or ""))
             state = build["team_state"]
@@ -182,6 +207,8 @@ def _summarize(result: dict) -> str:
         return "⚙ 构建已提交"
     if "runs" in result:
         return f"{len(result['runs'])} 条历史"
+    if "builds" in result:
+        return f"{len(result['builds'])} 个构建"
     if "runs_today" in result:
         rt = result["runs_today"]
         return f"今日 {rt['total']} 次运行（✓{rt['succeeded']} ✕{rt['failed']}）· {len(result.get('schedules', []))} 个定时"

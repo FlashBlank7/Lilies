@@ -129,3 +129,29 @@ def test_agent_stream_emits_action_and_final(tmp_path: Path) -> None:
         assert "action" in kinds and kinds[-1] == "final"
         final = events[-1]
         assert final["text"] == "平台上有 0 个已发布工作流"
+
+
+def test_recent_builds_and_resume_tools(tmp_path: Path) -> None:
+    settings = Settings(api_token="workflow-test", data_dir=tmp_path / "d", workspace_root=tmp_path / "w")
+    app = create_app(settings, GenerateScript())
+    with TestClient(app) as client:
+        # 先经管家生成一个构建（GenerateScript 会提交后收尾，构建随即结束）
+        first = client.post("/api/v1/assistant/agent",
+                            headers={"Authorization": "Bearer workflow-test"},
+                            json={"messages": [{"role": "user", "text": "做一个字数统计工作流"}]})
+        build_id = first.json()["actions"][0]["build_id"]
+        import time as _t
+        for _ in range(200):
+            b = client.get(f"/api/v1/builds/{build_id}", headers={"Authorization": "Bearer workflow-test"}).json()
+            if b["status"] not in ("queued", "building"):
+                break
+            _t.sleep(0.01)
+
+        from agent_platform.assistant_agent import WorkflowConcierge
+        services = client.app.state.services
+        concierge = WorkflowConcierge(services, settings)
+        listed = client.portal.call(concierge._exec, "recent_builds", {}, {"name": "t"})
+        assert any(item["build_id"] == build_id for item in listed["builds"])
+        resumed = client.portal.call(concierge._exec, "resume_build",
+                                     {"build_id": build_id, "message": "继续"}, {"name": "t"})
+        assert resumed.get("status") == "queued", resumed
