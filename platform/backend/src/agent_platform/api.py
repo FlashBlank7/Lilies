@@ -5855,6 +5855,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             runs = await services.workflow_store.list_runs(application_id, limit=limit)
             for run in runs:
                 run["state"] = run["state"].model_dump(mode="json")
+                run.setdefault("triggered_by", "")
             return runs
         except KeyError as error:
             raise HTTPException(404, str(error)) from error
@@ -5864,9 +5865,14 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         status_code=202,
         dependencies=[Depends(require_token)],
     )
-    async def create_workflow_run(application_id: str, body: WorkflowRunRequest) -> dict[str, Any]:
+    async def create_workflow_run(
+        application_id: str, body: WorkflowRunRequest, request: Request
+    ) -> dict[str, Any]:
         try:
-            return await services.workflow_runtime.create_run(application_id, body)
+            # 归因：多用户下所有运行长得一样，出了问题不知道是谁触发的
+            who = str((getattr(request.state, "user", None) or {}).get("name") or "")
+            return await services.workflow_runtime.create_run(
+                application_id, body, triggered_by=who)
         except KeyError as error:
             raise HTTPException(404, str(error)) from error
         except (ValueError, RuntimeError) as error:
@@ -5896,6 +5902,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         try:
             run = await services.workflow_store.get_run(run_id)
             run["state"] = run["state"].model_dump(mode="json")
+            run.setdefault("triggered_by", "")
             return run
         except KeyError as error:
             raise HTTPException(404, str(error)) from error

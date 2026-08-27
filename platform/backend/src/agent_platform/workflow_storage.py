@@ -289,6 +289,20 @@ class WorkflowStorage:
                 conn.execute(
                     "ALTER TABLE builds ADD COLUMN builder TEXT NOT NULL DEFAULT 'classic'"
                 )
+            # 归因（2026-08-28）：多用户下所有运行/构建长得一模一样，
+            # 出了问题不知道是谁触发的。空串 = 老数据或系统触发（定时）。
+            if "triggered_by" not in columns:
+                conn.execute(
+                    "ALTER TABLE builds ADD COLUMN triggered_by TEXT NOT NULL DEFAULT ''"
+                )
+            run_columns = {
+                row["name"]
+                for row in conn.execute("PRAGMA table_info(workflow_runs)").fetchall()
+            }
+            if "triggered_by" not in run_columns:
+                conn.execute(
+                    "ALTER TABLE workflow_runs ADD COLUMN triggered_by TEXT NOT NULL DEFAULT ''"
+                )
             application_columns = {
                 row["name"]
                 for row in conn.execute("PRAGMA table_info(applications)").fetchall()
@@ -1412,12 +1426,16 @@ class WorkflowStorage:
         *,
         version: int | None,
         draft_revision: int | None,
+        triggered_by: str = "",
     ) -> None:
         now = utc_now()
         async with self._lock:
             await asyncio.to_thread(
                 self.storage._execute,
-                "INSERT INTO workflow_runs VALUES(?,?,?,?,?,?,?,?,?,?)",
+                # 具名列：加了 triggered_by 之后位置写法就不能用了
+                "INSERT INTO workflow_runs(id,application_id,version,draft_revision,status,"
+                "state_json,outputs_json,error,created_at,updated_at,triggered_by) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     state.run_id,
                     state.application_id,
@@ -1429,6 +1447,7 @@ class WorkflowStorage:
                     None,
                     now,
                     now,
+                    triggered_by,
                 ),
             )
 

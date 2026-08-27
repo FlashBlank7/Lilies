@@ -296,6 +296,7 @@ class WorkflowRuntime:
         application_call_chain: Collection[str] | None = None,
         simulated_human_inputs: dict[str, dict[str, Any]] | None = None,
         allow_published_authority_rebind: bool = False,
+        triggered_by: str = "",
     ) -> dict[str, Any]:
         ancestor_chain = [str(value) for value in (application_call_chain or ())]
         if application_id in ancestor_chain:
@@ -560,7 +561,8 @@ class WorkflowRuntime:
             application_call_chain=current_call_chain,
         )
         await self.workflow_store.create_run(
-            state, version=version, draft_revision=draft_revision
+            state, version=version, draft_revision=draft_revision,
+            triggered_by=triggered_by,
         )
         await self.harness.start_task(
             run_id,
