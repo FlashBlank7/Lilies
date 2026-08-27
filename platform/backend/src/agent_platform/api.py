@@ -385,6 +385,13 @@ class BuildMessageRequest(BaseModel):
     message: str = Field(min_length=1, max_length=8_000)
 
 
+class AssistantChatRequest(BaseModel):
+    """本地客户端"一般任务"插件的远端对话入口（模型与计费留在服务端）。"""
+
+    messages: list[dict[str, str]] = Field(min_length=1, max_length=40)
+    system: str = Field(default="", max_length=4_000)
+
+
 class AcceptanceInterviewRequest(BaseModel):
     examples: str = Field(min_length=5, max_length=20_000)
 
@@ -5342,6 +5349,39 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         except KeyError as error:
             raise HTTPException(404, str(error)) from error
         return {"application_id": application_id, "notes": notes}
+
+    @app.post("/api/v1/assistant/chat", dependencies=[Depends(require_token)])
+    async def assistant_chat(body: AssistantChatRequest) -> dict[str, Any]:
+        from .agent_core import collect_model_stream
+
+        chat_messages = [
+            ChatMessage(
+                role="assistant" if item.get("role") == "assistant" else "user",
+                content=[ContentBlock(type="text", text=str(item.get("text", ""))[:8_000])],
+            )
+            for item in body.messages
+        ]
+        stream = services.provider.stream(
+            model=settings.deepseek_runtime_model,
+            system=body.system or "你是简洁可靠的中文助手，不知道就说不知道。",
+            messages=chat_messages,
+            tools=[],
+            max_output_tokens=2_048,
+            thinking_enabled=False,
+            effort="low",
+            tool_choice=None,
+        )
+        response = await collect_model_stream(stream, model=settings.deepseek_runtime_model)
+        text = " ".join(block.text or "" for block in response.blocks if block.type == "text").strip()
+        return {
+            "text": text,
+            "model": settings.deepseek_runtime_model,
+            "usage": {
+                "input_tokens": response.usage.input_tokens,
+                "output_tokens": response.usage.output_tokens,
+                "cache_read_input_tokens": response.usage.cache_read_input_tokens,
+            },
+        }
 
     @app.post("/api/v1/builds/{build_id}/messages", dependencies=[Depends(require_token)])
     async def post_build_message(build_id: str, body: BuildMessageRequest) -> dict[str, Any]:
