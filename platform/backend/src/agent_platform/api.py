@@ -5241,6 +5241,15 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
                 return candidate
         raise FileNotFoundError(run_id)
 
+    @app.get("/api/v1/health-report", dependencies=[Depends(require_token)])
+    async def workflow_health_report(
+        days: int = Query(default=7, ge=1, le=90),
+    ) -> dict[str, Any]:
+        """工作流健康度：哪些已发布工作流悄悄坏了（全败/连败/定时没触发）。"""
+        from .overview import build_health
+
+        return await build_health(services, days=days)
+
     @app.get("/api/v1/runs/{run_id}/artifacts", dependencies=[Depends(require_token)])
     async def list_run_artifacts(run_id: str) -> list[dict[str, Any]]:
         """令牌通道的产物列表（guanjia 客户端用）；无产物目录返回空表。"""

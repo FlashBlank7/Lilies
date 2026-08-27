@@ -110,3 +110,88 @@ async def build_overview(services: Any) -> dict[str, Any]:
         "published_workflows": len(data["apps"]),
         "week": week_list,
     }
+
+
+async def build_health(services: Any, days: int = 7) -> dict[str, Any]:
+    """工作流健康度：谁悄悄坏了。
+
+    只看已发布的工作流（草稿没跑过是正常的）。三档：
+    - broken：窗口内跑过但一次没成过，或最近一次运行失败且连续失败 >= 3
+    - stale：有定时节点，但窗口内一次都没运行（调度没触发/被停了）
+    - ok：其余
+    """
+    storage = services.workflow_store.storage
+
+    def query() -> dict[str, Any]:
+        with storage._connect() as conn:
+            apps = [dict(r) for r in conn.execute(
+                "SELECT id, name FROM applications WHERE active_version IS NOT NULL"
+            ).fetchall()]
+            stats = {r["application_id"]: dict(r) for r in conn.execute(
+                "SELECT application_id, COUNT(*) AS runs, "
+                "SUM(CASE WHEN status='succeeded' THEN 1 ELSE 0 END) AS succeeded, "
+                "MAX(CASE WHEN status='succeeded' THEN created_at END) AS last_success, "
+                "MAX(created_at) AS last_run "
+                f"FROM workflow_runs WHERE created_at >= date('now','-{int(days) - 1} days') "
+                "GROUP BY application_id"
+            ).fetchall()}
+            # 每个应用最近 5 次运行的状态，用来数"连续失败"
+            recent: dict[str, list[str]] = {}
+            for row in conn.execute(
+                "SELECT application_id, status FROM workflow_runs "
+                "ORDER BY created_at DESC LIMIT 400"
+            ).fetchall():
+                bucket = recent.setdefault(row["application_id"], [])
+                if len(bucket) < 5:
+                    bucket.append(row["status"])
+            drafts = {r["application_id"]: r["snapshot_json"] for r in conn.execute(
+                "SELECT application_id, snapshot_json FROM application_drafts"
+            ).fetchall()}
+        return {"apps": apps, "stats": stats, "recent": recent, "drafts": drafts}
+
+    data = await asyncio.to_thread(query)
+
+    items: list[dict[str, Any]] = []
+    for app in data["apps"]:
+        stat = data["stats"].get(app["id"]) or {}
+        runs = int(stat.get("runs") or 0)
+        succeeded = int(stat.get("succeeded") or 0)
+        streak = 0
+        for status in data["recent"].get(app["id"], []):
+            if status == "failed":
+                streak += 1
+            else:
+                break
+        scheduled = False
+        snapshot = data["drafts"].get(app["id"])
+        if snapshot:
+            try:
+                scheduled = any(
+                    node.get("type") == "schedule_trigger"
+                    for node in json.loads(snapshot)["workflow"]["nodes"])
+            except Exception:  # noqa: BLE001 - 快照坏了不影响体检其余部分
+                scheduled = False
+
+        if runs and not succeeded:
+            state, reason = "broken", f"近{days}天 {runs} 次运行全部失败"
+        elif streak >= 3:
+            state, reason = "broken", f"最近连续失败 {streak} 次"
+        elif scheduled and not runs:
+            state, reason = "stale", f"有定时任务，但近{days}天一次都没运行"
+        else:
+            state, reason = "ok", ""
+        items.append({
+            "application_id": app["id"], "workflow": app["name"], "state": state,
+            "reason": reason, "runs": runs, "succeeded": succeeded,
+            "fail_streak": streak, "scheduled": scheduled,
+            "last_success": stat.get("last_success"), "last_run": stat.get("last_run"),
+        })
+
+    rank = {"broken": 0, "stale": 1, "ok": 2}
+    items.sort(key=lambda item: (rank[item["state"]], -item["runs"]))
+    return {
+        "days": days,
+        "counts": {state: sum(1 for i in items if i["state"] == state)
+                   for state in ("broken", "stale", "ok")},
+        "items": items,
+    }
