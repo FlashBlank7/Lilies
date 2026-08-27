@@ -5991,6 +5991,23 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
 
+    @app.get("/api/v1/runs/{run_id}/events/list", dependencies=[Depends(require_token)])
+    async def run_events_list(
+        run_id: str,
+        after: int = 0,
+        limit: int = Query(default=200, ge=1, le=1000),
+    ) -> dict[str, Any]:
+        """有界事件列表：给客户端画已结束运行的时间线（SSE 版对完结流不收尾）。"""
+        try:
+            await services.workflow_store.get_run(run_id)
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+        events = await services.storage.list_events(run_id, after)
+        return {"run_id": run_id, "events": [
+            {"id": e.id, "type": e.type, "at": e.created_at, "data": e.data}
+            for e in events[:limit]
+        ]}
+
     @app.get("/api/v1/runs/{run_id}/events", dependencies=[Depends(require_token)])
     async def run_events(run_id: str, request: Request, after: int = 0) -> StreamingResponse:
         header = request.headers.get("last-event-id")
