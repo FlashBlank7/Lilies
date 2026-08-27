@@ -75,6 +75,14 @@ class Storage:
                   created_at TEXT NOT NULL,
                   updated_at TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS users (
+                  id TEXT PRIMARY KEY,
+                  name TEXT NOT NULL UNIQUE,
+                  token_hash TEXT NOT NULL UNIQUE,
+                  role TEXT NOT NULL DEFAULT 'member',
+                  status TEXT NOT NULL DEFAULT 'active',
+                  created_at TEXT NOT NULL
+                );
                 CREATE TABLE IF NOT EXISTS events (
                   stream_id TEXT NOT NULL,
                   seq INTEGER NOT NULL,
@@ -975,6 +983,45 @@ class Storage:
             tuple(params),
         )
         return [json.loads(row["record_json"]) for row in rows]
+
+    # ── 用户体系（每人独立令牌；旧 API_TOKEN 为管理员引导令牌） ──
+
+    async def create_user(self, name: str, token_hash: str, role: str = "member") -> dict[str, Any]:
+        from uuid import uuid4
+        user = {
+            "id": str(uuid4()), "name": name.strip(), "token_hash": token_hash,
+            "role": role, "status": "active", "created_at": utc_now(),
+        }
+        await asyncio.to_thread(
+            self._execute,
+            "INSERT INTO users VALUES(?,?,?,?,?,?)",
+            (user["id"], user["name"], user["token_hash"], user["role"], user["status"], user["created_at"]),
+        )
+        return user
+
+    async def user_by_token_hash(self, token_hash: str) -> dict[str, Any] | None:
+        def query():
+            with self._connect() as conn:
+                row = conn.execute(
+                    "SELECT id,name,role,status,created_at FROM users WHERE token_hash=?",
+                    (token_hash,),
+                ).fetchone()
+                return dict(row) if row else None
+        return await asyncio.to_thread(query)
+
+    async def list_users(self) -> list[dict[str, Any]]:
+        def query():
+            with self._connect() as conn:
+                rows = conn.execute(
+                    "SELECT id,name,role,status,created_at FROM users ORDER BY created_at"
+                ).fetchall()
+                return [dict(r) for r in rows]
+        return await asyncio.to_thread(query)
+
+    async def set_user_status(self, user_id: str, status_value: str) -> None:
+        await asyncio.to_thread(
+            self._execute, "UPDATE users SET status=? WHERE id=?", (status_value, user_id)
+        )
 
     async def append_event(self, stream_id: str, event_type: str, data: dict[str, Any]) -> EventRecord:
         async with self._lock:

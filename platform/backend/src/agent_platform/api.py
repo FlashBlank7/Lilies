@@ -1814,10 +1814,27 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
     ) -> None:
         supplied = credentials.credentials if credentials else request.query_params.get("token")
-        if supplied != settings.api_token:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid API token"
-            )
+        if not supplied:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid API token")
+        if supplied == settings.api_token:
+            request.state.user = {"id": "root", "name": "管理员", "role": "admin"}
+            return
+        import hashlib
+        user = await services.storage.user_by_token_hash(
+            hashlib.sha256(supplied.encode("utf-8")).hexdigest()
+        )
+        if not user or user.get("status") != "active":
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid API token")
+        request.state.user = user
+
+    def _current_user(request: Request) -> dict[str, Any]:
+        return getattr(request.state, "user", {"id": "root", "name": "管理员", "role": "admin"})
+
+    def _require_admin(request: Request) -> dict[str, Any]:
+        user = _current_user(request)
+        if user.get("role") != "admin":
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="admin only")
+        return user
 
     async def require_local_lilies_token(
         request: Request,
@@ -5349,6 +5366,43 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         except KeyError as error:
             raise HTTPException(404, str(error)) from error
         return {"application_id": application_id, "notes": notes}
+
+    @app.get("/api/v1/me", dependencies=[Depends(require_token)])
+    async def whoami(request: Request) -> dict[str, Any]:
+        return {"user": _current_user(request)}
+
+    @app.post("/api/v1/users", dependencies=[Depends(require_token)])
+    async def create_user(request: Request, body: dict[str, Any]) -> dict[str, Any]:
+        _require_admin(request)
+        import hashlib
+        import secrets
+        name = str(body.get("name") or "").strip()
+        if not (1 <= len(name) <= 40):
+            raise HTTPException(400, "name required (1-40 chars)")
+        role = "admin" if body.get("role") == "admin" else "member"
+        token = f"lil_{secrets.token_urlsafe(24)}"
+        try:
+            user = await services.storage.create_user(
+                name, hashlib.sha256(token.encode("utf-8")).hexdigest(), role
+            )
+        except Exception as error:
+            raise HTTPException(409, f"user exists or invalid: {error}") from error
+        await services.storage.append_event("system", "user.created", {"name": name, "role": role})
+        # 令牌只在创建响应里出现一次，服务端只存哈希
+        return {"user": {k: user[k] for k in ("id", "name", "role", "status")}, "token": token}
+
+    @app.get("/api/v1/users", dependencies=[Depends(require_token)])
+    async def list_users(request: Request) -> list[dict[str, Any]]:
+        _require_admin(request)
+        return await services.storage.list_users()
+
+    @app.post("/api/v1/users/{user_id}/status", dependencies=[Depends(require_token)])
+    async def set_user_status(request: Request, user_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        _require_admin(request)
+        status_value = "disabled" if body.get("status") == "disabled" else "active"
+        await services.storage.set_user_status(user_id, status_value)
+        await services.storage.append_event("system", "user.status_changed", {"user_id": user_id, "status": status_value})
+        return {"ok": True, "status": status_value}
 
     @app.post("/api/v1/assistant/chat", dependencies=[Depends(require_token)])
     async def assistant_chat(body: AssistantChatRequest) -> dict[str, Any]:
