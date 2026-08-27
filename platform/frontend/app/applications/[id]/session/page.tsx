@@ -27,7 +27,8 @@ type Application = { id: string; name: string; requirement: string }
 type RunRecord = {
   id: string
   status: string
-  state: { outputs?: Record<string, Record<string, unknown>>; waiting_node_id?: string | null; error?: string | null }
+  error?: string | null   // 失败原因在顶层；state 没有 error 字段
+  state: { outputs?: Record<string, Record<string, unknown>>; waiting_node_id?: string | null }
 }
 
 type WorkspaceFile = { path: string; size: number }
@@ -529,7 +530,7 @@ export default function Session({ params }: { params: Promise<{ id: string }> })
             {latestRun
               ? Object.keys(terminalOutputs).length
                 ? <OutputView outputs={terminalOutputs} />
-                : <p className={styles.muted}>这次运行没有终端输出{latestRun.state.error ? `：${latestRun.state.error}` : '。'}</p>
+                : <p className={styles.muted}>这次运行没有终端输出{latestRun.error ? `：${latestRun.error}` : '。'}</p>
               : <p className={styles.muted}>发布或有草稿后，去<Link href={`/runtime/${id}`}>试运行</Link>跑一次，结果会显示在这里。</p>}
           </div>
         </div>

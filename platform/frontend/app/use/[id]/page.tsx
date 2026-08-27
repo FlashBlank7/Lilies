@@ -47,7 +47,10 @@ type UseRun = {
   status: string
   outputs: Record<string, unknown>
   stages?: RunStage[]
-  state: { waiting_node_id?: string | null; error?: string | null }
+  // 失败原因在顶层 error（脱敏后由 customer_runtime_projection 写入）；
+  // state 里没有 error 字段，读它恒为 undefined。
+  error?: string | null
+  state: { waiting_node_id?: string | null }
 }
 
 type ChatMessage = {
@@ -333,7 +336,7 @@ export default function UsePage({ params }: { params: Promise<{ id: string }> })
     } else {
       setChat(current => [...current, {
         role: 'assistant',
-        text: `没有跑成：${run.state.error || '处理失败'}`,
+        text: `没有跑成：${run.error || '处理失败'}`,
         failed: true,
       }])
     }
@@ -580,7 +583,7 @@ export default function UsePage({ params }: { params: Promise<{ id: string }> })
             }} type="button">提交并继续</button>
           </div>
         </div>}
-        {run.status === 'failed' && <p className={styles.error}>没有跑成：{run.state.error || '处理失败'}。可以调整内容后再试一次；反复失败请联系给你链接的人。</p>}
+        {run.status === 'failed' && <p className={styles.error}>没有跑成：{run.error || '处理失败'}。可以调整内容后再试一次；反复失败请联系给你链接的人。</p>}
         {run.status === 'succeeded' && !isChat && <>
           <OutputView outputs={mergedOutputs} />
           {(run.stages?.length || 0) > 0 && <div className={styles.stages}>
