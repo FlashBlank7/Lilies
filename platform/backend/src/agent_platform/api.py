@@ -3631,7 +3631,13 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
 
         # Build a DecisionTracker from session messages
         tracker = DecisionTracker(f"Session {session_id[:8]}")
-        messages = record.get("messages", [])
+        # storage.get_session 返回的 messages 是 ChatMessage 模型列表，不是 dict——
+        # 对模型调 .get() 抛 AttributeError，逃过下面的 except KeyError 直接 500。
+        # 与 api.py 里读会话的另一处（sse 那边）保持同一写法：先拍平再处理。
+        messages = [
+            item.model_dump(mode="json") if hasattr(item, "model_dump") else item
+            for item in record.get("messages", [])
+        ]
         # Extract decision points from user/assistant message pairs
         decision_count = 0
         for i, msg in enumerate(messages):
@@ -6048,10 +6054,16 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         except KeyError as error:
             raise HTTPException(404, str(error)) from error
         events = await services.storage.list_events(run_id, after)
-        return {"run_id": run_id, "events": [
-            {"id": e.id, "type": e.type, "at": e.created_at, "data": e.data}
-            for e in events[:limit]
-        ]}
+        # 截尾部而不是头部：一次运行可能有上千条事件（模型逐 token 的 *.delta），
+        # 取最前 limit 条的话 workflow.completed/failed 永远在窗口外，
+        # 客户端画出来的时间线永远"没有结局"。
+        truncated = len(events) > limit
+        window = events[-limit:] if truncated else events
+        return {"run_id": run_id, "total": len(events), "truncated": truncated,
+                "events": [
+                    {"id": e.id, "type": e.type, "at": e.created_at, "data": e.data}
+                    for e in window
+                ]}
 
     @app.get("/api/v1/runs/{run_id}/events", dependencies=[Depends(require_token)])
     async def run_events(run_id: str, request: Request, after: int = 0) -> StreamingResponse:

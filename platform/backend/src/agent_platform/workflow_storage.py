@@ -401,7 +401,12 @@ class WorkflowStorage:
     def _list_applications_sync(self) -> list[dict[str, Any]]:
         with self.storage._connect() as conn:
             rows = conn.execute(
+                # validation_contract_digest / validation_report_json 是 _evidence_result
+                # 判"证据是否仍然有效"的必需列：缺列时 row.get() 恒为 None，
+                # 会把 current 无条件降级成 stale（真机 11 个应用因此在列表页
+                # 恒显"证据已过期"，验收通过也进不了 ready_to_publish）。
                 """SELECT a.*, d.revision AS draft_revision, d.tested_hash, d.content_hash,
+                          d.validation_report_json,d.validation_contract_digest,
                           d.evidence_invalidated_at,d.evidence_invalidated_revision,
                           d.evidence_change_summary_json,d.snapshot_json AS draft_snapshot_json
                    FROM applications a JOIN application_drafts d ON d.application_id=a.id
@@ -481,7 +486,8 @@ class WorkflowStorage:
         with self.storage._connect() as conn:
             row = conn.execute(
                 """SELECT a.*, d.revision AS draft_revision, d.tested_hash, d.content_hash,
-                          d.validation_report_json,d.evidence_invalidated_at,
+                          d.validation_report_json,d.validation_contract_digest,
+                          d.evidence_invalidated_at,
                           d.evidence_invalidated_revision,d.evidence_change_summary_json,
                           d.snapshot_json AS draft_snapshot_json
                    FROM applications a JOIN application_drafts d ON d.application_id=a.id
