@@ -33,6 +33,11 @@ async def build_overview(services: Any) -> dict[str, Any]:
                 "FROM workflow_runs r JOIN applications a ON a.id=r.application_id "
                 "WHERE r.status='failed' ORDER BY r.created_at DESC LIMIT 8"
             ).fetchall()]
+            week_rows = conn.execute(
+                "SELECT substr(created_at,1,10) AS day, status, COUNT(*) AS n "
+                "FROM workflow_runs WHERE created_at >= date('now','-6 days') "
+                "GROUP BY day, status",
+            ).fetchall()
             builds_active = int(conn.execute(
                 "SELECT COUNT(*) FROM builds WHERE status IN ('queued','building')"
             ).fetchone()[0])
@@ -46,7 +51,7 @@ async def build_overview(services: Any) -> dict[str, Any]:
             drafts = {r["application_id"]: r["snapshot_json"] for r in conn.execute(
                 "SELECT application_id, snapshot_json FROM application_drafts"
             ).fetchall()}
-        return {"runs_today": runs_today, "failures": failures,
+        return {"runs_today": runs_today, "failures": failures, "week_rows": week_rows,
                 "builds_active": builds_active, "apps": apps, "fires": fires, "drafts": drafts}
 
     data = await asyncio.to_thread(query)
@@ -71,6 +76,21 @@ async def build_overview(services: Any) -> dict[str, Any]:
                     "last_fired": fire.get("last_fired"),
                     "last_fire_date": fire.get("local_date"),
                 })
+    week: dict[str, dict[str, int]] = {}
+    for row in data["week_rows"]:
+        day = week.setdefault(row["day"], {"ok": 0, "fail": 0, "other": 0})
+        if row["status"] == "succeeded":
+            day["ok"] += row["n"]
+        elif row["status"] == "failed":
+            day["fail"] += row["n"]
+        else:
+            day["other"] += row["n"]
+    from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+    days = [( _dt.now(_tz.utc) - _td(days=offset)).strftime("%Y-%m-%d")
+            for offset in range(6, -1, -1)]
+    week_list = [{"date": day, **week.get(day, {"ok": 0, "fail": 0, "other": 0})}
+                 for day in days]
+
     runs_today = data["runs_today"]
     return {
         "date_utc": today,
@@ -88,4 +108,5 @@ async def build_overview(services: Any) -> dict[str, Any]:
             for f in data["failures"]
         ],
         "published_workflows": len(data["apps"]),
+        "week": week_list,
     }
