@@ -22,14 +22,17 @@ class _FakeCursor:
 
 
 class _FakeConn:
-    def __init__(self, apps, runs, recent, drafts):
-        self._apps, self._runs, self._recent, self._drafts = apps, runs, recent, drafts
+    def __init__(self, apps, runs, recent, drafts, errors=()):
+        self._apps, self._runs, self._recent = apps, runs, recent
+        self._drafts, self._errors = drafts, errors
 
     def execute(self, sql, params=()):
         if "FROM applications" in sql:
             return _FakeCursor(self._apps)
         if "GROUP BY application_id" in sql:
             return _FakeCursor(self._runs)
+        if "status='failed'" in sql:
+            return _FakeCursor(self._errors)
         if "ORDER BY created_at DESC LIMIT" in sql:
             return _FakeCursor(self._recent)
         if "application_drafts" in sql:
@@ -43,8 +46,9 @@ class _FakeConn:
         return False
 
 
-def _services(apps, runs, recent, drafts):
-    storage = SimpleNamespace(_connect=lambda: _FakeConn(apps, runs, recent, drafts))
+def _services(apps, runs, recent, drafts, errors=()):
+    storage = SimpleNamespace(
+        _connect=lambda: _FakeConn(apps, runs, recent, drafts, errors))
     return SimpleNamespace(workflow_store=SimpleNamespace(storage=storage))
 
 
@@ -124,3 +128,46 @@ async def test_broken_snapshot_does_not_crash():
     ))
     assert report["items"][0]["state"] == "ok"
     assert report["items"][0]["scheduled"] is False
+
+
+@pytest.mark.asyncio
+async def test_broken_carries_last_error_summary():
+    """体检要说清"为什么坏"：带上最近一次失败的错误摘要，剥掉 node X failed 前缀。"""
+    report = await build_health(_services(
+        apps=[{"id": "a1", "name": "坏的"}],
+        runs=[{"application_id": "a1", "runs": 3, "succeeded": 0,
+               "last_success": None, "last_run": "2026-08-27"}],
+        recent=[{"application_id": "a1", "status": "failed"}],
+        drafts=[],
+        errors=[{"application_id": "a1",
+                 "error": "node fetch failed: HTTPConnectionPool timeout after 30s"},
+                {"application_id": "a1", "error": "更早的错误，不该被采用"}],
+    ))
+    item = report["items"][0]
+    assert item["last_error"] == "HTTPConnectionPool timeout after 30s"
+    assert "全部失败：HTTPConnectionPool timeout" in item["reason"]
+
+
+@pytest.mark.asyncio
+async def test_stale_has_no_error_noise():
+    """停摆的工作流没跑过，不该硬塞别人的错误。"""
+    report = await build_health(_services(
+        apps=[{"id": "a1", "name": "定时没动"}],
+        runs=[], recent=[],
+        drafts=[{"application_id": "a1", "snapshot_json": SCHEDULED}],
+        errors=[],
+    ))
+    item = report["items"][0]
+    assert item["state"] == "stale"
+    assert item["last_error"] == ""
+    assert "：" not in item["reason"]
+
+
+def test_brief_error_shapes():
+    from agent_platform.overview import _brief_error
+
+    assert _brief_error("") == ""
+    assert _brief_error("multi\nline\nerror") == "multi line error"
+    assert len(_brief_error("x" * 300)) == 110
+    # 前缀只在靠前出现时才剥，避免吃掉正文里的 " failed: "
+    assert _brief_error("a" * 80 + " failed: tail").startswith("aaa")

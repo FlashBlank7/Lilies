@@ -112,6 +112,19 @@ async def build_overview(services: Any) -> dict[str, Any]:
     }
 
 
+def _brief_error(error: str) -> str:
+    """错误文本 → 一行摘要：剥掉 "node X failed: " 前缀、砍到首个换行、限长。
+    体检要让人不点进去就知道大概是什么毛病。"""
+    text = " ".join(str(error or "").split())
+    if not text:
+        return ""
+    marker = " failed: "
+    index = text.find(marker)
+    if 0 <= index < 60:
+        text = text[index + len(marker):]
+    return text[:110]
+
+
 async def build_health(services: Any, days: int = 7) -> dict[str, Any]:
     """工作流健康度：谁悄悄坏了。
 
@@ -144,10 +157,20 @@ async def build_health(services: Any, days: int = 7) -> dict[str, Any]:
                 bucket = recent.setdefault(row["application_id"], [])
                 if len(bucket) < 5:
                     bucket.append(row["status"])
+            errors: dict[str, str] = {}
+            for row in conn.execute(
+                "SELECT application_id, "
+                "COALESCE(error, json_extract(state_json,'$.error'), '') AS error "
+                "FROM workflow_runs WHERE status='failed' "
+                "ORDER BY created_at DESC LIMIT 200"
+            ).fetchall():
+                # 每个应用只留最近一条（结果按时间倒序，先见即最近）
+                errors.setdefault(row["application_id"], str(row["error"] or ""))
             drafts = {r["application_id"]: r["snapshot_json"] for r in conn.execute(
                 "SELECT application_id, snapshot_json FROM application_drafts"
             ).fetchall()}
-        return {"apps": apps, "stats": stats, "recent": recent, "drafts": drafts}
+        return {"apps": apps, "stats": stats, "recent": recent,
+                "drafts": drafts, "errors": errors}
 
     data = await asyncio.to_thread(query)
 
@@ -172,6 +195,7 @@ async def build_health(services: Any, days: int = 7) -> dict[str, Any]:
             except Exception:  # noqa: BLE001 - 快照坏了不影响体检其余部分
                 scheduled = False
 
+        last_error = _brief_error(data["errors"].get(app["id"], ""))
         if runs and not succeeded:
             state, reason = "broken", f"近{days}天 {runs} 次运行全部失败"
         elif streak >= 3:
@@ -180,9 +204,12 @@ async def build_health(services: Any, days: int = 7) -> dict[str, Any]:
             state, reason = "stale", f"有定时任务，但近{days}天一次都没运行"
         else:
             state, reason = "ok", ""
+        if state == "broken" and last_error:
+            reason = f"{reason}：{last_error}"
         items.append({
             "application_id": app["id"], "workflow": app["name"], "state": state,
-            "reason": reason, "runs": runs, "succeeded": succeeded,
+            "reason": reason, "last_error": last_error,
+            "runs": runs, "succeeded": succeeded,
             "fail_streak": streak, "scheduled": scheduled,
             "last_success": stat.get("last_success"), "last_run": stat.get("last_run"),
         })
