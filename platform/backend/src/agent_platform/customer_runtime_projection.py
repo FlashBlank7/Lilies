@@ -281,7 +281,9 @@ def project_runtime_snapshot(snapshot: Any) -> dict[str, Any]:
 def project_runtime_application(application: Any) -> dict[str, Any]:
     source = _mapping(application)
     return {
-        "id": str(source.get("id") or ""),
+        # 只接受运行记录：拿到命令回执（只有 run_id 没有 id）时要炸得明白，
+        # 别静默投影出 id="" 的空壳交给客户端。
+        "id": str(source.get("id") or source.get("run_id") or ""),
         "name": str(source.get("name") or ""),
         "description": str(source.get("description") or ""),
         "requirement": str(source.get("requirement") or ""),
@@ -305,7 +307,9 @@ def project_runtime_run(run: Any) -> dict[str, Any]:
     source = _mapping(run)
     state = _mapping(source.get("state"))
     result: dict[str, Any] = {
-        "id": str(source.get("id") or state.get("run_id") or ""),
+        # 顶层 run_id 也认：runtime.resume 返回的命令回执只有 run_id 没有 id，
+        # 端点本该回读运行记录再投影，这里兜住是为了别产出 id="" 的空壳。
+        "id": str(source.get("id") or source.get("run_id") or state.get("run_id") or ""),
         "status": str(source.get("status") or "queued"),
         "outputs": project_public_value(source.get("outputs") or {}),
         "state": {

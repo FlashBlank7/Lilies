@@ -4763,7 +4763,10 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             "acceptance": None if not acceptance else {
                 "accepted": bool(acceptance.get("accepted")),
                 "passed_cases": acceptance.get("passed_cases"),
-                "total_cases": acceptance.get("total_cases"),
+                # 报告里没有 total_cases 这个键（另两处都是 len(cases)）——
+                # 取它恒为 None，业主页在"部分失败"这条最需要看清的路径上
+                # 恒显「1 / ? 通过」。
+                "total_cases": len(acceptance.get("cases") or []),
             },
             "published_version": application.get("active_version"),
         }
@@ -5211,16 +5214,28 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
 
     @app.post("/api/v1/use/{application_id}/runs/{run_id}/resume")
     async def use_resume_run(
-        application_id: str, run_id: str, body: ResumeRunRequest, code: str = ""
+        application_id: str, run_id: str, body: ResumeRunRequest,
+        code: str = "", view: str = "",
     ) -> dict[str, Any]:
         await _require_use_access(application_id, code)
         await _use_run(application_id, run_id)
         try:
-            return project_runtime_run(
-                await services.workflow_runtime.resume(run_id, body.values)
-            )
+            # runtime.resume 返回的是命令回执 {"run_id":…, "status":"queued"}，
+            # 不是运行记录——直接投影会产出 id=""、空快照、created_at=null，
+            # 还少了 stages/view 两个键，业主页拿到的对象与 GET 不是同一形状。
+            await services.workflow_runtime.resume(run_id, body.values)
         except (KeyError, ValueError, RuntimeError) as error:
             raise HTTPException(422, str(error)) from error
+        run = await _use_run(application_id, run_id)
+        state = run.get("state")
+        snapshot = (
+            getattr(state, "snapshot", None)
+            if not isinstance(state, dict)
+            else state.get("snapshot")
+        )
+        return project_view_run(
+            run, await _resolve_use_view(application_id, view, snapshot)
+        )
 
     @app.post("/api/v1/use/{application_id}/parse-table")
     async def use_parse_table(
