@@ -5241,6 +5241,42 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
                 return candidate
         raise FileNotFoundError(run_id)
 
+    @app.get("/api/v1/runs/{run_id}/artifacts", dependencies=[Depends(require_token)])
+    async def list_run_artifacts(run_id: str) -> list[dict[str, Any]]:
+        """令牌通道的产物列表（guanjia 客户端用）；无产物目录返回空表。"""
+        try:
+            await services.workflow_store.get_run(run_id)
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+        try:
+            folder = await asyncio.to_thread(_use_artifact_dir, run_id)
+        except Exception:  # noqa: BLE001 - 没有产物目录是常态
+            return []
+        return [
+            {"name": str(path.relative_to(folder)), "size": path.stat().st_size}
+            for path in sorted(folder.rglob("*")) if path.is_file()
+        ]
+
+    @app.get("/api/v1/runs/{run_id}/artifacts/{artifact_path:path}",
+             dependencies=[Depends(require_token)])
+    async def download_run_artifact(run_id: str, artifact_path: str) -> Any:
+        from fastapi.responses import FileResponse
+
+        try:
+            await services.workflow_store.get_run(run_id)
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+        try:
+            folder = await asyncio.to_thread(_use_artifact_dir, run_id)
+        except Exception as error:  # noqa: BLE001
+            raise HTTPException(404, "文件不存在") from error
+        target = (folder / artifact_path).resolve()
+        if folder.resolve() not in target.parents and target != folder.resolve():
+            raise HTTPException(404, "文件不存在")
+        if not target.is_file():
+            raise HTTPException(404, "文件不存在")
+        return FileResponse(target, filename=target.name)
+
     @app.get("/api/v1/use/{application_id}/runs/{run_id}/artifacts")
     async def use_list_artifacts(
         application_id: str, run_id: str, code: str = ""
