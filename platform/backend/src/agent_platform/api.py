@@ -5262,6 +5262,14 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
                 return candidate
         raise FileNotFoundError(run_id)
 
+    @app.get("/api/v1/scheduler/health", dependencies=[Depends(require_token)])
+    async def scheduler_health() -> dict[str, Any]:
+        """调度器还在不在：体检报「定时没按时开火」时，这是下一步要查的事实。"""
+        scheduler = getattr(services, "scheduler", None)
+        if scheduler is None or not hasattr(scheduler, "health"):
+            return {"running": False, "alive": False, "detail": "本实例没有调度器"}
+        return scheduler.health()
+
     @app.get("/api/v1/health-report", dependencies=[Depends(require_token)])
     async def workflow_health_report(
         days: int = Query(default=7, ge=1, le=90),

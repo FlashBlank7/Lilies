@@ -46,6 +46,11 @@ class WorkflowScheduler:
         self.worker_offload_enabled = worker_offload_enabled
         self.durable_worker_id = f"scheduler:{harness.worker_id}"
         self.task: asyncio.Task[None] | None = None
+        # 心跳：外面要能判断"调度器还在不在"。体检报「定时没按时开火」时，
+        # 用户的下一步是查调度器——没有这个信号那条建议就没法落地。
+        self.last_tick_at: datetime | None = None
+        self.last_error: str = ""
+        self.tick_count: int = 0
 
     def start(self) -> None:
         if self.task and not self.task.done():
@@ -66,13 +71,36 @@ class WorkflowScheduler:
         while True:
             try:
                 await self.tick()
+                self.last_error = ""
             except asyncio.CancelledError:
                 raise
             except Exception as error:
+                self.last_error = f"{type(error).__name__}: {error}"[:300]
                 await self.storage.append_event(
                     "scheduler", "scheduler.failed", {"error": str(error), "error_type": type(error).__name__}
                 )
+            # 出错也算跑过一轮：循环还活着这件事本身就是要报的信号
+            self.last_tick_at = datetime.now(timezone.utc)
+            self.tick_count += 1
             await asyncio.sleep(self.poll_seconds)
+
+    def health(self) -> dict[str, Any]:
+        """调度器自身的死活。alive 的判据是"最近一轮在两个轮询周期内"。"""
+        running = bool(self.task and not self.task.done())
+        last = self.last_tick_at
+        stale_after = max(self.poll_seconds * 2, 60)
+        behind = None if last is None else (
+            datetime.now(timezone.utc) - last).total_seconds()
+        alive = running and behind is not None and behind <= stale_after
+        return {
+            "running": running,
+            "alive": alive,
+            "last_tick_at": last.isoformat() if last else None,
+            "seconds_since_tick": None if behind is None else round(behind, 1),
+            "poll_seconds": self.poll_seconds,
+            "tick_count": self.tick_count,
+            "last_error": self.last_error,
+        }
 
     async def tick(self, now: datetime | None = None) -> list[dict[str, Any]]:
         now = now or datetime.now(timezone.utc)
