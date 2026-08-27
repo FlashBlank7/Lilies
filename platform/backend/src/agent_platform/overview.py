@@ -7,6 +7,13 @@ GET /api/v1/overview（bench 总览页）、管家工具 platform_overview（对
 
 from __future__ import annotations
 
+# 统计口径（2026-08-28 修正）：只算**发布版的真实运行**（version IS NOT NULL）。
+# 草稿自测运行（version 为空、带 draft_revision）是搭建过程中的中间产物——
+# 真机上 314 条运行里 255 条是自测，此前全部混进统计：
+# 体检会因搭建期的自测失败把工作流判成 broken，而 repair_workflow 在用户没给
+# 指示时会拿这个判定去自动开修复构建（唯一会自动花钱的路径）。
+_REAL_RUN = "version IS NOT NULL"
+
 import asyncio
 import json
 from datetime import datetime, timezone
@@ -24,7 +31,8 @@ async def build_overview(services: Any) -> dict[str, Any]:
     def query() -> dict[str, Any]:
         with storage._connect() as conn:
             runs_today = dict(conn.execute(
-                "SELECT status, COUNT(*) FROM workflow_runs WHERE created_at LIKE ? GROUP BY status",
+                "SELECT status, COUNT(*) FROM workflow_runs "
+                f"WHERE created_at LIKE ? AND {_REAL_RUN} GROUP BY status",
                 (f"{today}%",),
             ).fetchall())
             failures = [dict(r) for r in conn.execute(
@@ -33,12 +41,13 @@ async def build_overview(services: Any) -> dict[str, Any]:
                 # （WorkflowRunState 模型压根没这个字段），只留作老数据兜底。
                 "COALESCE(r.error, json_extract(r.state_json,'$.error'), '') AS error, a.name "
                 "FROM workflow_runs r JOIN applications a ON a.id=r.application_id "
-                "WHERE r.status='failed' ORDER BY r.created_at DESC LIMIT 8"
+                f"WHERE r.status='failed' AND r.{_REAL_RUN} "
+                "ORDER BY r.created_at DESC LIMIT 8"
             ).fetchall()]
             week_rows = conn.execute(
                 "SELECT substr(created_at,1,10) AS day, status, COUNT(*) AS n "
                 "FROM workflow_runs WHERE created_at >= date('now','-6 days') "
-                "GROUP BY day, status",
+                f"AND {_REAL_RUN} GROUP BY day, status",
             ).fetchall()
             builds_active = int(conn.execute(
                 "SELECT COUNT(*) FROM builds WHERE status IN ('queued','building')"
@@ -50,8 +59,11 @@ async def build_overview(services: Any) -> dict[str, Any]:
                 "SELECT application_id, MAX(created_at) AS last_fired, "
                 "MAX(local_date) AS local_date FROM schedule_fires GROUP BY application_id"
             ).fetchall()}
+            # 定时是否开火由**发布版**快照决定（scheduler 读的就是它）；
+            # 草稿里加了/删了 schedule_trigger 但没发布，调度器根本不知道。
             drafts = {r["application_id"]: r["snapshot_json"] for r in conn.execute(
-                "SELECT application_id, snapshot_json FROM application_drafts"
+                "SELECT v.application_id, v.snapshot_json FROM application_versions v "
+                "JOIN applications a ON a.id=v.application_id AND a.active_version=v.version"
             ).fetchall()}
         return {"runs_today": runs_today, "failures": failures, "week_rows": week_rows,
                 "builds_active": builds_active, "apps": apps, "fires": fires, "drafts": drafts}
@@ -148,12 +160,13 @@ async def build_health(services: Any, days: int = 7) -> dict[str, Any]:
                 "MAX(CASE WHEN status='succeeded' THEN created_at END) AS last_success, "
                 "MAX(created_at) AS last_run "
                 f"FROM workflow_runs WHERE created_at >= date('now','-{int(days) - 1} days') "
-                "GROUP BY application_id"
+                f"AND {_REAL_RUN} GROUP BY application_id"
             ).fetchall()}
             # 每个应用最近 5 次运行的状态，用来数"连续失败"
             recent: dict[str, list[str]] = {}
             for row in conn.execute(
-                "SELECT application_id, status FROM workflow_runs "
+                # 先过滤再截窗口：不然 400 条里塞满自测噪音，连败判定看不到真实运行
+                f"SELECT application_id, status FROM workflow_runs WHERE {_REAL_RUN} "
                 "ORDER BY created_at DESC LIMIT 400"
             ).fetchall():
                 bucket = recent.setdefault(row["application_id"], [])
@@ -163,13 +176,14 @@ async def build_health(services: Any, days: int = 7) -> dict[str, Any]:
             for row in conn.execute(
                 "SELECT application_id, "
                 "COALESCE(error, json_extract(state_json,'$.error'), '') AS error "
-                "FROM workflow_runs WHERE status='failed' "
+                f"FROM workflow_runs WHERE status='failed' AND {_REAL_RUN} "
                 "ORDER BY created_at DESC LIMIT 200"
             ).fetchall():
                 # 每个应用只留最近一条（结果按时间倒序，先见即最近）
                 errors.setdefault(row["application_id"], str(row["error"] or ""))
             drafts = {r["application_id"]: r["snapshot_json"] for r in conn.execute(
-                "SELECT application_id, snapshot_json FROM application_drafts"
+                "SELECT v.application_id, v.snapshot_json FROM application_versions v "
+                "JOIN applications a ON a.id=v.application_id AND a.active_version=v.version"
             ).fetchall()}
         return {"apps": apps, "stats": stats, "recent": recent,
                 "drafts": drafts, "errors": errors}

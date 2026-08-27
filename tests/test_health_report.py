@@ -28,6 +28,8 @@ class _FakeConn:
         self._drafts, self._errors = drafts, errors
 
     def execute(self, sql, params=()):
+        if "snapshot_json" in sql:          # 快照查询里也含 "applications"，先判它
+            return _FakeCursor(self._drafts)
         if "FROM applications" in sql:
             return _FakeCursor(self._apps)
         if "GROUP BY application_id" in sql:
@@ -36,7 +38,9 @@ class _FakeConn:
             return _FakeCursor(self._errors)
         if "ORDER BY created_at DESC LIMIT" in sql:
             return _FakeCursor(self._recent)
-        if "application_drafts" in sql:
+        # 定时口径改为发布版快照后 SQL 从 application_drafts 换成 application_versions；
+        # 桩按"取快照"这个语义匹配，别再绑死表名（绑死表名正是上次改口径时炸的原因）
+        if "snapshot_json" in sql:
             return _FakeCursor(self._drafts)
         raise AssertionError(sql)
 
