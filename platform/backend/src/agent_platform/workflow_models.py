@@ -300,6 +300,8 @@ class DraftOperation(BaseModel):
         "upsert_agent",
         "add_test",
         "remove_test",
+        "replace_workflow",
+        "replace_tests",
     ]
     data: dict[str, Any] = Field(default_factory=dict)
 
