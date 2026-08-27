@@ -105,13 +105,15 @@ class WorkflowConcierge:
             run_id = created["run_id"]
             for _ in range(40):
                 current = await services.workflow_store.get_run(run_id)
-                if current["status"] in ("succeeded", "failed"):
-                    outputs: dict = {}
-                    for value in (current["state"].get("outputs") or {}).values():
-                        if isinstance(value, dict):
-                            outputs.update(value)
+                if current["status"] in ("succeeded", "failed", "paused", "cancelled"):
+                    # workflow_store.get_run 返回的 state 是 WorkflowRunState 模型不是 dict，
+                    # 对它 .get() 会抛 AttributeError（真机 500）；outputs/error 的权威来源
+                    # 都在顶层，直接取。
+                    outputs = current.get("outputs")
+                    if not isinstance(outputs, dict):
+                        outputs = {}
                     return {"run_id": run_id, "status": current["status"],
-                            "outputs": outputs, "error": current["state"].get("error")}
+                            "outputs": outputs, "error": current.get("error")}
                 await asyncio.sleep(1.5)
             return {"run_id": run_id, "status": "running", "note": "仍在运行，可稍后用 recent_runs 查看"}
         if name == "recent_runs":
@@ -119,7 +121,12 @@ class WorkflowConcierge:
             if not app:
                 return {"error": "找不到该工作流"}
             runs = await services.workflow_store.list_runs(app["id"], limit=int(args.get("limit") or 5))
-            return {"runs": [{"id": r["id"], "status": r["status"], "created_at": r.get("created_at")} for r in runs]}
+            from .overview import _brief_error
+
+            return {"runs": [{"id": r["id"], "status": r["status"],
+                              "created_at": r.get("created_at"),
+                              "error": _brief_error(r.get("error") or "")}
+                             for r in runs]}
         if name == "generate_workflow":
             requirement = str(args.get("requirement") or "").strip()
             if len(requirement) < 10:

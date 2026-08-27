@@ -272,3 +272,71 @@ def test_repair_workflow_unknown_name(tmp_path) -> None:
         result = client.portal.call(concierge._exec, "repair_workflow",
                                     {"name_or_id": "不存在的"}, {"name": "t"})
         assert result["error"] == "找不到该工作流"
+
+
+def test_run_workflow_reads_top_level_fields(tmp_path) -> None:
+    """回归：get_run 返回的 state 是 pydantic 模型不是 dict。
+
+    对它 .get() 会抛 AttributeError —— 真机表现是管家「跑一下 X」整轮 500，
+    招牌功能直接不可用。outputs/error 都以顶层字段为准。
+    """
+    from agent_platform.assistant_agent import WorkflowConcierge
+
+    settings = Settings(api_token="workflow-test",
+                        data_dir=tmp_path / "d", workspace_root=tmp_path / "w")
+    with TestClient(create_app(settings)) as client:
+        services = client.app.state.services
+
+        class _State:  # 模拟 WorkflowRunState：没有 .get，也没有 error 字段
+            outputs = {"end": {"report": "不该被读到的中间态"}}
+
+        calls = {"n": 0}
+
+        async def fake_get_run(run_id):
+            calls["n"] += 1
+            return {"id": run_id, "status": "failed", "state": _State(),
+                    "outputs": {}, "error": "node start failed: missing required input: sales"}
+
+        async def fake_create_run(application_id, body, **kwargs):
+            return {"run_id": "r-1"}
+
+        services.workflow_store.get_run = fake_get_run
+        services.workflow_runtime.create_run = fake_create_run
+        created = client.post("/api/v1/applications",
+                              headers={"Authorization": "Bearer workflow-test"},
+                              json={"name": "跑跑看", "requirement": "随便"}).json()
+        assert created["id"]
+
+        concierge = WorkflowConcierge(services, settings)
+        result = client.portal.call(concierge._exec, "run_workflow",
+                                    {"name_or_id": "跑跑看", "inputs": {}}, {"name": "t"})
+
+    assert result["status"] == "failed"
+    assert "missing required input: sales" in result["error"]   # 顶层 error
+    assert result["outputs"] == {}                              # 不再吃 state 中间态
+    assert calls["n"] == 1
+
+
+def test_recent_runs_carries_error(tmp_path) -> None:
+    """「问 run X 为什么失败」这条产品自己印在屏幕上的路径，之前拿不到原因。"""
+    from agent_platform.assistant_agent import WorkflowConcierge
+
+    settings = Settings(api_token="workflow-test",
+                        data_dir=tmp_path / "d", workspace_root=tmp_path / "w")
+    with TestClient(create_app(settings)) as client:
+        services = client.app.state.services
+        created = client.post("/api/v1/applications",
+                              headers={"Authorization": "Bearer workflow-test"},
+                              json={"name": "查历史", "requirement": "随便"}).json()
+
+        async def fake_list_runs(application_id, limit=5):
+            return [{"id": "r-1", "status": "failed", "created_at": "2026-08-28",
+                     "error": "node fetch failed: HTTPConnectionPool timeout"}]
+
+        services.workflow_store.list_runs = fake_list_runs
+        concierge = WorkflowConcierge(services, settings)
+        result = client.portal.call(concierge._exec, "recent_runs",
+                                    {"name_or_id": "查历史"}, {"name": "t"})
+
+    assert result["runs"][0]["error"] == "HTTPConnectionPool timeout"  # 前缀已剥
+    assert created["id"]

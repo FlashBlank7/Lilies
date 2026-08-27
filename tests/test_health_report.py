@@ -1,6 +1,7 @@
 """工作流健康度：全败/连败/定时未触发的判定与排序。"""
 
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -171,3 +172,18 @@ def test_brief_error_shapes():
     assert len(_brief_error("x" * 300)) == 110
     # 前缀只在靠前出现时才剥，避免吃掉正文里的 " failed: "
     assert _brief_error("a" * 80 + " failed: tail").startswith("aaa")
+
+
+def test_brief_error_used_by_overview_failures() -> None:
+    """回归：失败原因的权威来源是顶层 error 列。
+
+    WorkflowRunState 模型没有 error 字段（'error' in model_fields == False），
+    所以此前 recent_failures 读 state_json.$.error 恒为空——today/网页/桌面通知
+    四个消费点全都显示"失败但没有原因"。
+    """
+    from agent_platform.workflow_models import WorkflowRunState
+
+    assert "error" not in WorkflowRunState.model_fields  # 前提：state 里根本没有它
+
+    sql = Path("platform/backend/src/agent_platform/overview.py").read_text(encoding="utf-8")
+    assert "COALESCE(r.error, json_extract(r.state_json,'$.error'), '') AS error" in sql

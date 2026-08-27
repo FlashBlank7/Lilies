@@ -29,7 +29,9 @@ async def build_overview(services: Any) -> dict[str, Any]:
             ).fetchall())
             failures = [dict(r) for r in conn.execute(
                 "SELECT r.id, r.application_id, substr(r.created_at,1,19) AS at, "
-                "json_extract(r.state_json,'$.error') AS error, a.name "
+                # 失败原因权威来源是顶层 error 列；state_json 里没有 error 字段
+                # （WorkflowRunState 模型压根没这个字段），只留作老数据兜底。
+                "COALESCE(r.error, json_extract(r.state_json,'$.error'), '') AS error, a.name "
                 "FROM workflow_runs r JOIN applications a ON a.id=r.application_id "
                 "WHERE r.status='failed' ORDER BY r.created_at DESC LIMIT 8"
             ).fetchall()]
@@ -104,7 +106,7 @@ async def build_overview(services: Any) -> dict[str, Any]:
         "schedules": schedules,
         "recent_failures": [
             {"run_id": f["id"][:8], "workflow": f["name"], "at": f["at"],
-             "error": (f.get("error") or "")[:120]}
+             "error": _brief_error(f.get("error") or "")}
             for f in data["failures"]
         ],
         "published_workflows": len(data["apps"]),
