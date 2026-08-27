@@ -121,7 +121,11 @@ class WorkflowConcierge:
                     "error": (build.get("error") or "")[:200]}
         return {"error": f"unknown tool: {name}"}
 
-    async def reply(self, history: list[dict], user: dict) -> tuple[list[dict], str]:
+    async def reply(self, history: list[dict], user: dict, emit=None) -> tuple[list[dict], str]:
+        async def _emit(event: dict) -> None:
+            if emit is not None:
+                await emit(event)
+
         messages = [ChatMessage(role="assistant" if m.get("role") == "assistant" else "user",
                                 content=[ContentBlock(type="text", text=str(m.get("text", ""))[:8000])])
                     for m in history[-12:]]
@@ -132,10 +136,17 @@ class WorkflowConcierge:
                 system=AGENT_SYSTEM, messages=messages, tools=TOOLS,
                 max_output_tokens=2048, thinking_enabled=False, effort="low",
                 tool_choice={"type": "auto"})
-            response = await collect_model_stream(stream, model=self.settings.deepseek_runtime_model)
+            async def forward(kind: str, data: dict) -> None:
+                if kind.endswith(".text.delta"):
+                    await _emit({"type": "delta", "text": data.get("text", "")})
+
+            response = await collect_model_stream(
+                stream, model=self.settings.deepseek_runtime_model,
+                emit=forward if emit is not None else None)
             calls = [b for b in response.blocks if b.type == "tool_use"]
             if not calls:
                 text = " ".join(b.text or "" for b in response.blocks if b.type == "text").strip()
+                await _emit({"type": "final", "text": text or "（无回复）"})
                 return actions, text or "（无回复）"
             messages.append(ChatMessage(role="assistant", content=response.blocks))
             result_blocks = []
@@ -150,10 +161,12 @@ class WorkflowConcierge:
                     if isinstance(result, dict) and result.get(key):
                         entry[key] = result[key]
                 actions.append(entry)
+                await _emit({"type": "action", **entry})
                 result_blocks.append(ContentBlock(
                     type="tool_result", tool_use_id=call.id,
                     content=json.dumps(result, ensure_ascii=False)[:4000]))
             messages.append(ChatMessage(role="user", content=result_blocks))
+        await _emit({"type": "final", "text": "（动作轮次到达上限，请把要求说得更具体些）"})
         return actions, "（动作轮次到达上限，请把要求说得更具体些）"
 
 

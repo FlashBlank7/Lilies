@@ -114,3 +114,18 @@ def test_generate_action_carries_build_id_for_cli_follow(tmp_path: Path) -> None
         build = client.get(f"/api/v1/builds/{action['build_id']}",
                            headers={"Authorization": "Bearer workflow-test"})
         assert build.status_code == 200
+
+
+def test_agent_stream_emits_action_and_final(tmp_path: Path) -> None:
+    settings = Settings(api_token="workflow-test", data_dir=tmp_path / "d", workspace_root=tmp_path / "w")
+    app = create_app(settings, ConciergeScript())
+    with TestClient(app) as client:
+        r = client.post("/api/v1/assistant/agent/stream",
+                        headers={"Authorization": "Bearer workflow-test"},
+                        json={"messages": [{"role": "user", "text": "有哪些工作流？"}]})
+        assert r.status_code == 200
+        events = [json.loads(line[6:]) for line in r.text.splitlines() if line.startswith("data: ")]
+        kinds = [e["type"] for e in events]
+        assert "action" in kinds and kinds[-1] == "final"
+        final = events[-1]
+        assert final["text"] == "平台上有 0 个已发布工作流"

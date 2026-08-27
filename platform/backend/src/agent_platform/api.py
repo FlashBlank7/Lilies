@@ -5480,6 +5480,42 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         actions, text = await concierge.reply(body.messages, _current_user(request))
         return {"actions": actions, "text": text}
 
+    @app.post("/api/v1/assistant/agent/stream", dependencies=[Depends(require_token)])
+    async def assistant_agent_stream(request: Request, body: AssistantChatRequest):
+        """管家 SSE 流：delta（文字）/ action（工具动作）/ final。CLI 实时渲染用。"""
+
+        from fastapi.responses import StreamingResponse
+
+        from .assistant_agent import WorkflowConcierge
+
+        queue: asyncio.Queue = asyncio.Queue()
+        concierge = WorkflowConcierge(services, settings)
+        user = _current_user(request)
+
+        async def emit(event: dict) -> None:
+            await queue.put(event)
+
+        async def worker() -> None:
+            try:
+                await concierge.reply(body.messages, user, emit=emit)
+            except Exception as error:  # noqa: BLE001 - 错误也走流内呈现
+                await queue.put({"type": "error", "text": str(error)[:300]})
+            await queue.put(None)
+
+        task = asyncio.create_task(worker())
+
+        async def gen():
+            try:
+                while True:
+                    event = await queue.get()
+                    if event is None:
+                        break
+                    yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+            finally:
+                task.cancel()
+
+        return StreamingResponse(gen(), media_type="text/event-stream")
+
     @app.post("/api/v1/assistant/chat", dependencies=[Depends(require_token)])
     async def assistant_chat(body: AssistantChatRequest) -> dict[str, Any]:
         from .agent_core import collect_model_stream
