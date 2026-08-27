@@ -1371,6 +1371,8 @@ class WorkflowRuntime:
                 return
             payload = {
                 "kind": "run_failed",
+                # 名字优先取应用行的当前名：改过名的工作流，发布版快照里还是旧名，
+                # 告警里出现用户在界面上找不到的名字比没有名字更误事。
                 "workflow": str(getattr(getattr(state, "snapshot", None), "name", "") or ""),
                 "run_id": str(getattr(state, "run_id", "") or ""),
                 "error": error[:500],
@@ -1379,8 +1381,14 @@ class WorkflowRuntime:
             }
             try:
                 run = await self.workflow_store.get_run(state.run_id)
-                payload["application_id"] = str(run.get("application_id") or "")
-            except Exception:  # noqa: BLE001 - 查不到就发不带 app id 的
+                application_id = str(run.get("application_id") or "")
+                payload["application_id"] = application_id
+                if application_id:
+                    application = await self.workflow_store.get_application(application_id)
+                    current_name = str(application.get("name") or "")
+                    if current_name:
+                        payload["workflow"] = current_name
+            except Exception:  # noqa: BLE001 - 查不到就用快照名，告警不能因此失败
                 pass
             async with httpx.AsyncClient(timeout=3.0) as client:
                 await client.post(url, json=payload)

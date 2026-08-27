@@ -23,11 +23,17 @@ class Hook(BaseHTTPRequestHandler):
         self.end_headers()
 
 
-def _fake_self(app_id="app-9"):
+def _fake_self(app_id="app-9", current_name=None):
     async def get_run(run_id):
         return {"application_id": app_id}
 
-    return SimpleNamespace(workflow_store=SimpleNamespace(get_run=get_run))
+    async def get_application(application_id):
+        if current_name is None:
+            raise KeyError(application_id)
+        return {"id": application_id, "name": current_name}
+
+    return SimpleNamespace(workflow_store=SimpleNamespace(
+        get_run=get_run, get_application=get_application))
 
 
 def _state():
@@ -71,5 +77,43 @@ def test_bad_url_never_raises(monkeypatch):
     try:
         asyncio.run(WorkflowRuntime._alert_run_failed(_fake_self(), _state(), "boom"))
     finally:
+        monkeypatch.delenv("ALERT_WEBHOOK_URL", raising=False)
+        get_settings.cache_clear()
+
+
+def test_alert_prefers_current_application_name(monkeypatch):
+    """改过名的工作流：告警里必须是用户界面上看得到的当前名，不是发布快照的旧名。"""
+    received.clear()
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Hook)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        monkeypatch.setenv(
+            "ALERT_WEBHOOK_URL", f"http://127.0.0.1:{server.server_address[1]}/alert")
+        get_settings.cache_clear()
+        asyncio.run(WorkflowRuntime._alert_run_failed(
+            _fake_self(current_name="文本行数与净字数统计"), _state(), "boom"))
+        assert received[0]["workflow"] == "文本行数与净字数统计"  # 非快照里的 "GPU日报"
+    finally:
+        server.shutdown()
+        server.server_close()
+        monkeypatch.delenv("ALERT_WEBHOOK_URL", raising=False)
+        get_settings.cache_clear()
+
+
+def test_alert_falls_back_to_snapshot_name(monkeypatch):
+    """查不到应用行（已删等）：退回快照名，告警照发不炸。"""
+    received.clear()
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Hook)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        monkeypatch.setenv(
+            "ALERT_WEBHOOK_URL", f"http://127.0.0.1:{server.server_address[1]}/alert")
+        get_settings.cache_clear()
+        asyncio.run(WorkflowRuntime._alert_run_failed(_fake_self(), _state(), "boom"))
+        assert received[0]["workflow"] == "GPU日报"
+        assert received[0]["application_id"] == "app-9"  # app id 在取名字之前已落好
+    finally:
+        server.shutdown()
+        server.server_close()
         monkeypatch.delenv("ALERT_WEBHOOK_URL", raising=False)
         get_settings.cache_clear()
