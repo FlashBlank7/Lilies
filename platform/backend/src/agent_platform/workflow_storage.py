@@ -1714,11 +1714,24 @@ class WorkflowStorage:
         row["outputs"] = json.loads(row.pop("outputs_json"))
         return row
 
-    async def list_runs(self, application_id: str, *, limit: int = 20) -> list[dict[str, Any]]:
+    async def list_runs(self, application_id: str, *, limit: int = 20,
+                        published_only: bool = False) -> list[dict[str, Any]]:
+        """published_only：只算发布版的真实运行，不算草稿自测。
+
+        统计口径必须和面板一致。面板（overview）早就只算
+        `version IS NOT NULL`——草稿自测是搭建过程的中间产物。
+        而这里默认全给，于是同一个问题两个数：真机上「服务器GPU日报」
+        管家报 33 次、面板报 10 次，差 3.3 倍。全库 386 条运行里
+        262 条（67%）是自测，所以这个差距不是边角料。
+
+        默认仍是 False：验收取证要看的正是那些自测运行，不能一刀切。
+        谁在做"给人看的统计"，谁就该显式打开它。
+        """
         rows = await asyncio.to_thread(
             self._list_runs_sync,
             application_id,
             max(1, min(limit, 100)),
+            published_only,
         )
         for row in rows:
             row["state"] = WorkflowRunState.model_validate_json(row.pop("state_json"))
@@ -1907,13 +1920,13 @@ class WorkflowStorage:
             },
         }
 
-    def _list_runs_sync(self, application_id: str, limit: int) -> list[dict[str, Any]]:
+    def _list_runs_sync(self, application_id: str, limit: int,
+                        published_only: bool = False) -> list[dict[str, Any]]:
         with self.storage._connect() as conn:
             rows = conn.execute(
-                """SELECT * FROM workflow_runs
-                   WHERE application_id=?
-                   ORDER BY created_at DESC
-                   LIMIT ?""",
+                "SELECT * FROM workflow_runs WHERE application_id=?"
+                + (" AND version IS NOT NULL" if published_only else "")
+                + " ORDER BY created_at DESC LIMIT ?",
                 (application_id, limit),
             ).fetchall()
             return [dict(row) for row in rows]

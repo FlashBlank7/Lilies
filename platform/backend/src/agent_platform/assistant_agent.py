@@ -433,17 +433,33 @@ class WorkflowConcierge:
             app = await self._resolve_app(str(args.get("name_or_id") or ""))
             if not app:
                 return {"error": "找不到该工作流"}
-            runs = await services.workflow_store.list_runs(app["id"], limit=int(args.get("limit") or 5))
+            asked = int(args.get("limit") or 5)
+            # 多取一条，用来判断"是不是还有更多"。
+            # 起因是真机上一次问答：问"昨天各跑了几次"，模型只拿到 5 条，
+            # 于是回了一句「记录在 08-27 处被截断了，我只能看到一部分」——
+            # 它察觉到了截断（这点是对的），但答不出数。
+            # 与其在提示词里嘱咐"计数问题记得把 limit 调大"（那是请求不是保证），
+            # 不如把"还有更多"这件事机械地告诉它。
+            # 只算发布版的真实运行——和面板同一个口径。
+            # 不加这个的话，同一个工作流管家说 33 次、面板说 10 次（真机实测）。
+            runs = await services.workflow_store.list_runs(
+                app["id"], limit=asked + 1, published_only=True)
+            more = len(runs) > asked
+            runs = runs[:asked]
             from .overview import _human_error
 
             # 状态与报错都翻成人话。这一处此前一直漏着：AST 那道门只扫
             # return 字面量的**顶层**键，而这里的 status 嵌在列表推导里，
             # 门看不见——门的盲区正好罩住了一个真泄漏。
-            return {"runs": [{"id": r["id"],
-                              "情况": _RUN_WORDS.get(r["status"], r["status"]),
-                              "created_at": r.get("created_at"),
-                              "没成的原因": _human_error(r.get("error") or "")}
-                             for r in runs]}
+            payload = {"runs": [{"id": r["id"],
+                                 "情况": _RUN_WORDS.get(r["status"], r["status"]),
+                                 "created_at": r.get("created_at"),
+                                 "没成的原因": _human_error(r.get("error") or "")}
+                                for r in runs]}
+            if more:
+                payload["还有更多"] = (f"这里只给了最近 {asked} 条。要数总数或看更早的，"
+                                       f"把 limit 调大再查一次。")
+            return payload
         if name == "generate_workflow":
             requirement = str(args.get("requirement") or "").strip()
             if len(requirement) < 10:

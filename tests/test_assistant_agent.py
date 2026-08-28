@@ -345,7 +345,9 @@ def test_recent_runs_carries_error(tmp_path) -> None:
                               headers={"Authorization": "Bearer workflow-test"},
                               json={"name": "查历史", "requirement": "随便"}).json()
 
-        async def fake_list_runs(application_id, limit=5):
+        # published_only 是 2026-08-29 加的：管家的运行次数要和面板同口径
+        # （真机上不加时管家报 33 次、面板报 10 次）。桩得跟上真签名。
+        async def fake_list_runs(application_id, limit=5, published_only=False):
             return [{"id": "r-1", "status": "failed", "created_at": "2026-08-28",
                      "error": "node fetch failed: HTTPConnectionPool timeout"}]
 
