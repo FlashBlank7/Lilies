@@ -20,6 +20,7 @@ import argparse
 import json
 import os
 import sys
+import re
 import time
 import urllib.error
 import urllib.request
@@ -58,6 +59,21 @@ def call(server: str, token: str, path: str, body: dict | None = None) -> tuple[
         return 0, str(error)[:300]
 
 
+# 回答里不该出现的内部词。三类都是真机上漏过的：
+#   状态码       needs_attention（「4 个需要关注（needs_attention）」）
+#   工具名       resume_build（「我就用 resume_build 让它接着跑」）
+#   上下文标记   <上下文 上一轮做了="…" />（原样出现在回答第一行）
+# 前两类已在工具边界上机械堵住，第三类在出口剪掉；
+# 这把尺子留着是为了下次再漏能当场发现，而不是等我又碰巧撞见。
+INTERNAL_WORDS = re.compile(
+    r"<上下文|needs_attention|published_version|"
+    r"\b(?:queued|building|succeeded|failed|paused|cancelled|stale|broken)\b|"
+    r"\b(?:list_workflows|run_workflow|recent_runs|generate_workflow|"
+    r"platform_overview|tidy_workflows|set_schedule|acceptance_check|"
+    r"repair_workflow|health_report|recent_builds|resume_build|abandon_build|"
+    r"build_status|explain_workflow)\b")
+
+
 class Smoke:
     """一次冒烟：逐项记录通过与否，最后汇总。"""
 
@@ -87,7 +103,14 @@ class Smoke:
         if expect_tool and expect_tool not in tools:
             self.check(name, False, f"{elapsed} 未调用 {expect_tool}（实际 {tools}）")
             return None
-        text = (data.get("text") or "").replace("\n", " ")[:70]
+        reply = data.get("text") or ""
+        leaked = sorted(set(INTERNAL_WORDS.findall(reply)))
+        text = reply.replace("\n", " ")[:70]
+        if leaked:
+            # 不是崩溃，但用户看得见：状态码/工具名/内部标记都不该出现在回答里
+            self.check(name, False,
+                       f"{elapsed} 回答里出现内部词 {leaked} · {text}")
+            return None
         self.check(name, True, f"{elapsed} · {tools} · {text}")
         return data
 

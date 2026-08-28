@@ -192,8 +192,11 @@ def test_health_report_tool_and_summary(monkeypatch, tmp_path) -> None:
         services = client.app.state.services
         concierge = WorkflowConcierge(services, settings)
         result = client.portal.call(concierge._exec, "health_report", {}, {"name": "t"})
-    assert result["counts"]["broken"] == 1
+    # 计数与状态都翻成人话了：broken/stale 这些词不再递给模型
+    assert result["有几个"]["确实在反复失败"] == 1
+    assert result["有几个"]["正常"] == 3
     assert [p["workflow"] for p in result["problems"]] == ["坏的日报"]  # ok 的不进 problems
+    assert result["problems"][0]["情况"] == "确实在反复失败"
     assert "连接超时" in result["problems"][0]["reason"]
     assert assistant_agent._summarize(result).startswith("⚠ 1 个要处理：坏的日报")
 
@@ -201,7 +204,7 @@ def test_health_report_tool_and_summary(monkeypatch, tmp_path) -> None:
 def test_health_summary_when_all_ok() -> None:
     from agent_platform.assistant_agent import _summarize
 
-    assert _summarize({"counts": {"ok": 9}, "problems": []}) == "✓ 9 个工作流都正常"
+    assert _summarize({"有几个": {"正常": 9}, "problems": []}) == "✓ 9 个工作流都正常"
 
 
 def test_repair_workflow_builds_on_existing_app(tmp_path) -> None:

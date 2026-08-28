@@ -574,9 +574,16 @@ class WorkflowConcierge:
             days = int(args.get("days") or 7)
             report = await build_health(services, days=max(1, min(days, 90)))
             bad = [i for i in report["items"] if i["state"] != "ok"]
+            counts = report["counts"]
+            # 别把 broken/stale/waiting 这些状态词递给模型：它会原样念出来
+            # （真机上就出现过「没有跑起来出错的（broken）」这种夹带）
             return {
-                "counts": report["counts"],
-                "problems": [{"workflow": i["workflow"], "state": i["state"],
+                "有几个": {"正常": counts.get("ok", 0),
+                           "确实在反复失败": counts.get("broken", 0),
+                           "有定时却一直没跑起来": counts.get("stale", 0),
+                           "还在跑、结果没出来": counts.get("waiting", 0)},
+                "problems": [{"workflow": i["workflow"],
+                              "情况": _HEALTH_WORDS.get(i["state"], i["state"]),
                               "reason": i["reason"], "application_id": i["application_id"],
                               "runs": i["runs"], "succeeded": i["succeeded"]}
                              for i in bad[:10]],
@@ -899,7 +906,7 @@ def _summarize(result: dict) -> str:
     if "problems" in result:
         problems = result["problems"]
         if not problems:
-            return f"✓ {result.get('counts', {}).get('ok', 0)} 个工作流都正常"
+            return f"✓ {result.get('有几个', {}).get('正常', 0)} 个工作流都正常"
         return f"⚠ {len(problems)} 个要处理：" + "、".join(
             p["workflow"] for p in problems[:3])
     if "runs_today" in result:
