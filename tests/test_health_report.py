@@ -40,6 +40,15 @@ async def test_scheduled_but_never_ran_is_stale(services):
 
 
 @pytest.mark.asyncio
+async def test_chinese_node_message_is_not_overwritten(services):
+    """节点自己抛的中文说明比任何模板都具体，别拿模板盖掉。"""
+    _seed(services, real_runs=["failed"] * 3,
+          fail_error="node calc failed: 公式包含不支持的字符 '$'（位置 7）")
+    item = (await build_health(services))["items"][0]
+    assert item["last_error"] == "公式包含不支持的字符 '$'（位置 7）"
+
+
+@pytest.mark.asyncio
 async def test_healthy_workflow_is_ok(services):
     _seed(services, real_runs=["succeeded"] * 3)
     report = await build_health(services)
@@ -49,12 +58,16 @@ async def test_healthy_workflow_is_ok(services):
 
 @pytest.mark.asyncio
 async def test_broken_carries_last_error_summary(services):
-    """体检要说清"为什么坏"，且剥掉 node X failed 前缀。"""
+    """体检要说清"为什么坏"：剥掉 node X failed 前缀，并且说人话。"""
     _seed(services, real_runs=["failed"] * 3,
           fail_error="node fetch failed: HTTPConnectionPool timeout after 30s")
     item = (await build_health(services))["items"][0]
-    assert item["last_error"] == "HTTPConnectionPool timeout after 30s"
-    assert "HTTPConnectionPool" in item["reason"]
+    assert "node fetch failed" not in item["last_error"]
+    assert "HTTPConnectionPool" not in item["last_error"]   # 英文原文不见业主
+    assert item["last_error"] == "连不上外部服务或等待超时"
+    # reason 里嵌的是同一句，所以也该是人话
+    assert "HTTPConnectionPool" not in item["reason"]
+    assert "连不上外部服务" in item["reason"]
 
 
 @pytest.mark.asyncio

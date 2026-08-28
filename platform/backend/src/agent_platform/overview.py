@@ -16,6 +16,7 @@ _REAL_RUN = "version IS NOT NULL"
 
 import asyncio
 import json
+import re
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 from typing import Any
@@ -119,7 +120,7 @@ async def build_overview(services: Any) -> dict[str, Any]:
         "schedules": schedules,
         "recent_failures": [
             {"run_id": f["id"][:8], "workflow": f["name"], "at": f["at"],
-             "error": _brief_error(f.get("error") or "")}
+             "error": _human_error(f.get("error") or "")}
             for f in data["failures"]
         ],
         "published_workflows": len(data["apps"]),
@@ -205,6 +206,37 @@ def _is_infra_error(error: str) -> bool:
 def _not_the_workflows_fault(error: str) -> bool:
     """这次失败该不该记在工作流头上。"""
     return _is_caller_error(error) or _is_infra_error(error)
+
+
+# 运行失败的常见原因 → 人话。措辞换掉，名字留着：
+# 业主要拿那个名字去改东西，翻没了等于没说。
+_RUN_ERROR_RULES = (
+    (re.compile(r"missing required input:\s*(\S+)"), "缺少必填输入「{0}」"),
+    (re.compile(r"workflow reference could not resolve node='([^']+)'"),
+     "引用了不存在的节点「{0}」"),
+    (re.compile(r"collection expression requires an array"), "汇总的对象不是一个列表"),
+    (re.compile(r"record_collection_normalize value must resolve"),
+     "要汇总的数据不是一组记录"),
+    (re.compile(r"unknown node type '?([\w-]+)'?"), "用了平台没有的节点类型「{0}」"),
+    (re.compile(r"^'([^']*)'$"), "配置里取了一个不存在的字段「{0}」"),
+    (re.compile(r"connection|timed? ?out|timeout", re.I), "连不上外部服务或等待超时"),
+)
+
+
+def _human_error(error: str) -> str:
+    """把一行运行报错换成业主看得懂的说法；认不出来的原样返回。
+
+    认不出就原样返回是有意的：运行报错里常常带着节点自己抛的中文说明，
+    硬套模板反而会把真正有用的话盖掉。
+    """
+    text = _brief_error(error)
+    if not text:
+        return ""
+    for pattern, template in _RUN_ERROR_RULES:
+        match = pattern.search(text)
+        if match:
+            return template.format(*match.groups()) if match.groups() else template
+    return text
 
 
 def _brief_error(error: str) -> str:
@@ -324,7 +356,7 @@ async def build_health(services: Any, days: int = 7) -> dict[str, Any]:
             _overdue(schedule_config, last_fired) if scheduled else (False, ""))
 
         raw_error = data["errors"].get(app["id"], "")
-        last_error = "" if _not_the_workflows_fault(raw_error) else _brief_error(raw_error)
+        last_error = "" if _not_the_workflows_fault(raw_error) else _human_error(raw_error)
         caller_errors = int(stat.get("caller_errors") or 0)
         infra_errors = int(stat.get("infra_errors") or 0)
         in_flight = int(stat.get("in_flight") or 0)
