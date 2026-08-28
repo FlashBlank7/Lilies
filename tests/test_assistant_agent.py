@@ -454,3 +454,43 @@ def test_system_prompt_carries_today() -> None:
     assert datetime.now(timezone.utc).strftime("%Y-%m-%d") in prompt
     assert "别从运行记录里推算" in prompt
     assert "不要把推理过程写进回答" in prompt
+
+
+def test_history_carries_action_traces() -> None:
+    """助手轮次要带上「对谁做了什么」，否则下一轮的「它」无从解析。
+
+    实测：验收完问「看一下它的验收报告」，管家反问「你说的它是哪个」——
+    因为历史只存了回答文本。在 CLI REPL 里这种指代是常态。
+    """
+    from agent_platform.assistant_agent import WorkflowConcierge
+
+    text = WorkflowConcierge._history_text({
+        "role": "assistant", "text": "验收完了，有一条不合格。",
+        "actions": [{"tool": "acceptance_check", "workflow": "文本行数与净字数统计"},
+                    {"tool": "list_workflows"}],
+    })
+    assert "acceptance_check(文本行数与净字数统计)" in text
+    assert "list_workflows" in text
+    assert "验收完了" in text          # 原文还在
+
+    # 用户轮次不加料
+    assert WorkflowConcierge._history_text(
+        {"role": "user", "text": "帮我验一下"}) == "帮我验一下"
+    # 没有动作时不留空壳标记
+    assert WorkflowConcierge._history_text(
+        {"role": "assistant", "text": "好的"}) == "好的"
+
+
+def test_agent_request_accepts_actions_in_messages(tmp_path) -> None:
+    """入口 schema 必须放行 actions——它是列表，此前 dict[str, str] 会 422。"""
+    settings = Settings(api_token="workflow-test",
+                        data_dir=tmp_path / "d", workspace_root=tmp_path / "w")
+    from agent_platform.api import AssistantChatRequest
+
+    body = AssistantChatRequest.model_validate({"messages": [
+        {"role": "user", "text": "验一下"},
+        {"role": "assistant", "text": "好了",
+         "actions": [{"tool": "acceptance_check", "workflow": "某工作流"}]},
+    ]})
+    assert body.messages[1]["actions"][0]["tool"] == "acceptance_check"
+    assert settings.api_token == "workflow-test"

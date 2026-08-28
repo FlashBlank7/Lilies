@@ -392,7 +392,9 @@ class BuildMessageRequest(BaseModel):
 class AssistantChatRequest(BaseModel):
     """本地客户端"一般任务"插件的远端对话入口（模型与计费留在服务端）。"""
 
-    messages: list[dict[str, str]] = Field(min_length=1, max_length=40)
+    # 值不能限成 str：助手轮次要带 actions（上一轮对谁做了什么），
+    # 那是列表——没有它，下一轮的「它」「那个」就无从解析
+    messages: list[dict[str, Any]] = Field(min_length=1, max_length=40)
     system: str = Field(default="", max_length=4_000)
 
 

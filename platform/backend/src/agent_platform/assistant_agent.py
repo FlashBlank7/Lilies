@@ -425,13 +425,36 @@ class WorkflowConcierge:
                     "error": (build.get("error") or "")[:200]}
         return {"error": f"unknown tool: {name}"}
 
+    @staticmethod
+    def _history_text(message: dict) -> str:
+        """助手轮次要带上「做了什么、对谁做的」。
+
+        只留回答文本的话，下一轮的「它」「那个」就无从解析——
+        实测验收完问「看一下它的验收报告」，管家只能反问「你说的它是哪个」。
+        """
+        text = str(message.get("text", ""))[:8000]
+        if message.get("role") != "assistant":
+            return text
+        marks = []
+        for action in message.get("actions") or []:
+            tool = action.get("tool")
+            if not tool:
+                continue
+            target = (action.get("workflow") or action.get("name")
+                      or action.get("app_id") or action.get("build_id") or "")
+            marks.append(f"{tool}({str(target)[:40]})" if target else str(tool))
+        if marks:
+            text = f"[上一轮做了：{'、'.join(marks[:4])}]\n{text}"
+        return text
+
     async def reply(self, history: list[dict], user: dict, emit=None) -> tuple[list[dict], str]:
         async def _emit(event: dict) -> None:
             if emit is not None:
                 await emit(event)
 
         messages = [ChatMessage(role="assistant" if m.get("role") == "assistant" else "user",
-                                content=[ContentBlock(type="text", text=str(m.get("text", ""))[:8000])])
+                                content=[ContentBlock(type="text",
+                                                      text=self._history_text(m))])
                     for m in history[-12:]]
         actions: list[dict] = []
         for _ in range(6):
