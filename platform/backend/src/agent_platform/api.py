@@ -165,34 +165,31 @@ from .web_collection import ControlledWebCollector
 logger = logging.getLogger(__name__)
 
 
-def _reads_as_chinese(text: str) -> bool:
-    """这段话是写给业主的吗？——产品对业主一律说中文，搭建方自言自语是英文。
-
-    比例判据而不是「含不含中文字」：搭建方的英文推理里也会夹中文节点标题
-    （"type": "end", "title": "输出"），只看含不含就全放行了。
-    """
-    cjk = sum(1 for ch in text if "\u4e00" <= ch <= "\u9fff")
-    return cjk >= 4 and cjk / max(len(text), 1) > 0.15
-
 def _owner_safe_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """业主看的那份记录：搭建方写给自己看的思考不外传。
+    """业主看的那份记录：搭建方写给自己看的话，一句都不给。
 
-    真机上业主页显示过搭建方的原话：
-      "I'll build this word/sentence counter workflow. Let me start by
-       checking the relevant block schemas… `variable_assigner` $formula"
-    英文 + 内部节点名，出现在付钱那方的页面上。
+    先前试过用「这段话是不是中文」当判据，失败了，而且失败得很彻底：
+    真机 76 份 transcript 上，按语种放行的 164 条里 70 条带着
+    <tool_call>、variable_assigner、$formula 这类东西——
+    线上主力 classic 引擎思考时全程中文，语种判据对它近乎零防护。
+    换成「有没有机器痕迹」也只挡住一半：剩下的是
+    「我删除了 aggregator→assigner 的边」这种纯中文的图上手术叙述，
+    照样不是业主该看的，而文本里没有可靠信号能把它和「对业主说的话」分开。
 
-    判据是「这段话是不是中文」：这个产品对业主一律说中文，
-    搭建方自言自语一律是英文。挡掉的轮次保留 tool_calls，
-    前端照旧能翻成「搭了一个环节」这类动作行，时间线不断。
+    所以不猜了：turn（搭建方轮次）的正文一律不给。业主该知道的一样不少——
+      · 里程碑走 kind=event（「工作流已发布为正式版 v1，现在可以试运行了」
+        「验收测试全绿，交付成立」都是 event，原样通过）
+      · 进度走 tool_calls，前端翻成「搭了一个环节」这类动作行
+      · 搭建方的提问、业主自己的消息，都另有渲染路径
+    真要让某一轮的正文出现在业主面前，正确做法是让搭建方**显式标注**
+    这一轮是说给业主听的，而不是让这里去猜。
     """
     safe: list[dict[str, Any]] = []
     for record in records:
         if record.get("kind") in ("owner", "event"):
             safe.append(record)
             continue
-        text = str(record.get("text") or "").strip()
-        if text and not _reads_as_chinese(text):
+        if str(record.get("text") or "").strip():
             record = {**record, "text": "", "text_withheld": True}
         safe.append(record)
     return safe
