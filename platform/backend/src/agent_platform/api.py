@@ -164,6 +164,39 @@ from .web_collection import ControlledWebCollector
 logger = logging.getLogger(__name__)
 
 
+def _reads_as_chinese(text: str) -> bool:
+    """这段话是写给业主的吗？——产品对业主一律说中文，搭建方自言自语是英文。
+
+    比例判据而不是「含不含中文字」：搭建方的英文推理里也会夹中文节点标题
+    （"type": "end", "title": "输出"），只看含不含就全放行了。
+    """
+    cjk = sum(1 for ch in text if "\u4e00" <= ch <= "\u9fff")
+    return cjk >= 4 and cjk / max(len(text), 1) > 0.15
+
+def _owner_safe_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """业主看的那份记录：搭建方写给自己看的思考不外传。
+
+    真机上业主页显示过搭建方的原话：
+      "I'll build this word/sentence counter workflow. Let me start by
+       checking the relevant block schemas… `variable_assigner` $formula"
+    英文 + 内部节点名，出现在付钱那方的页面上。
+
+    判据是「这段话是不是中文」：这个产品对业主一律说中文，
+    搭建方自言自语一律是英文。挡掉的轮次保留 tool_calls，
+    前端照旧能翻成「搭了一个环节」这类动作行，时间线不断。
+    """
+    safe: list[dict[str, Any]] = []
+    for record in records:
+        if record.get("kind") in ("owner", "event"):
+            safe.append(record)
+            continue
+        text = str(record.get("text") or "").strip()
+        if text and not _reads_as_chinese(text):
+            record = {**record, "text": "", "text_withheld": True}
+        safe.append(record)
+    return safe
+
+
 
 RUNTIME_ROUTE_CHECKS: dict[str, tuple[str, str]] = {
     "health": ("GET", "/health"),
@@ -4806,7 +4839,8 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             services.build_transcripts.read, build_id, after_turn=after_turn, limit=500,
         )
         summary = await asyncio.to_thread(services.build_transcripts.summary, build_id)
-        return {"build_id": build_id, "records": records, "summary": summary}
+        return {"build_id": build_id,
+                "records": _owner_safe_records(records), "summary": summary}
 
     @app.post("/api/v1/owner/{application_id}/message")
     async def owner_message(application_id: str, body: OwnerMessageRequest) -> dict[str, Any]:
