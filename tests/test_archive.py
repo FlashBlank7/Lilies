@@ -120,3 +120,39 @@ async def test_loose_name_match(services):
         SimpleNamespace(workflow_store=services._store), SimpleNamespace())
     found = await concierge._resolve_app("mechsmokegreeting")
     assert found and found["id"] == "a1"
+
+
+@pytest.mark.asyncio
+async def test_archiving_a_scheduled_workflow_says_so(services):
+    """收起带定时的工作流会连定时一起停——调度器遍历的就是「未归档」这个列表。
+    这是隐式副作用，必须说在前面。"""
+    import json as _json
+
+    store = services._store
+    snap = _json.dumps({"name": "定时的", "workflow": {"nodes": [
+        {"id": "s", "type": "schedule_trigger",
+         "config": {"hour": 8, "minute": 0, "timezone": "UTC"}}]}})
+    _add_app(services, "sched", "定时的", published=1)
+    with services.workflow_store.storage._connect() as conn:
+        conn.execute(
+            "INSERT INTO application_versions(application_id,version,snapshot_json,"
+            "content_hash,validation_report_json,created_at) VALUES('sched',1,?,?,'{}','2020-01-01')",
+            (snap, "h" * 64))
+
+    result = await store.set_archived("sched", True)
+    assert result["was_scheduled"] is True
+    assert "定时也一并停了" in result["schedule_effect"]
+    assert "sched" not in [a["id"] for a in await store.list_applications()]
+
+    back = await store.set_archived("sched", False)
+    assert back["was_scheduled"] is True
+    assert "恢复" in back["schedule_effect"]
+
+
+@pytest.mark.asyncio
+async def test_archiving_a_plain_workflow_says_nothing_extra(services):
+    """没有定时的就别提定时，免得平白吓人。"""
+    _add_app(services, "plain", "没定时的")
+    result = await services._store.set_archived("plain", True)
+    assert result["was_scheduled"] is False
+    assert result["schedule_effect"] == ""

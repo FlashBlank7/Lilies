@@ -1998,15 +1998,32 @@ class WorkflowStorage:
     def _set_archived_sync(self, application_id: str, archived: bool) -> dict[str, Any]:
         with self.storage._connect() as conn:
             row = conn.execute(
-                "SELECT id, name, active_version FROM applications WHERE id=?",
+                """SELECT a.id, a.name, a.active_version, v.snapshot_json
+                   FROM applications a
+                   LEFT JOIN application_versions v
+                     ON v.application_id=a.id AND v.version=a.active_version
+                   WHERE a.id=?""",
                 (application_id,)).fetchone()
             if not row:
                 raise KeyError(f"application not found: {application_id}")
             conn.execute(
                 "UPDATE applications SET archived_at=?, updated_at=? WHERE id=?",
                 (utc_now() if archived else None, utc_now(), application_id))
+        # 调度器遍历的就是「未归档的应用」，所以收起一个带定时的工作流
+        # 等于把它的定时也停了。这是隐式副作用，必须说在前面。
+        scheduled = False
+        if row["snapshot_json"]:
+            try:
+                scheduled = any(
+                    node.get("type") == "schedule_trigger"
+                    for node in json.loads(row["snapshot_json"])["workflow"]["nodes"])
+            except Exception:  # noqa: BLE001 - 快照坏了不影响归档本身
+                scheduled = False
         return {"application_id": application_id, "name": row["name"],
-                "archived": archived}
+                "archived": archived, "was_scheduled": scheduled,
+                "schedule_effect": (
+                    "定时也一并停了（放回列表就会恢复）" if scheduled and archived
+                    else "定时随之恢复" if scheduled else "")}
 
     async def list_archived(self) -> list[dict[str, Any]]:
         """已经收起来的。可逆的操作必须有回头路，否则用户不敢按第一下。"""

@@ -241,9 +241,11 @@ class WorkflowConcierge:
                 return {"error": "找不到该工作流"}
             archived = action == "archive"
             result = await services.workflow_store.set_archived(app["id"], archived)
-            return {**result,
-                    "note": "已从列表收起（数据都在，说「拿回 X」就能恢复）"
-                            if archived else "已放回列表"}
+            note = ("已从列表收起（数据都在，说「拿回 X」就能恢复）"
+                    if archived else "已放回列表")
+            if result.get("schedule_effect"):
+                note += "；" + result["schedule_effect"]
+            return {**result, "note": note}
         if name == "set_schedule":
             app = await self._resolve_app(str(args.get("name_or_id") or ""))
             if not app:
@@ -454,7 +456,9 @@ def _summarize(result: dict) -> str:
             return f"🧹 {total} 个可以收起来"
         return "✓ 按「从没发布且从没成功跑过」这个标准，没有可收的"
     if "archived" in result:
-        return ("📦 已收起 " if result["archived"] else "↩ 已放回 ") + str(result.get("name", ""))
+        mark = "📦 已收起 " if result["archived"] else "↩ 已放回 "
+        tail = "（定时也停了）" if result.get("was_scheduled") and result["archived"] else ""
+        return mark + str(result.get("name", "")) + tail
     if "before" in result and "after" in result:
         arrow = f"{result['before']} → {result['after']}"
         return (f"⏰ {arrow}" if result.get("published_version")
