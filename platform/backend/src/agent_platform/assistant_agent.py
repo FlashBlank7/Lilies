@@ -598,6 +598,10 @@ def _build_situation(status: str, pending_question: str | None,
         return "还在搭，正常进行中", "过一会儿再查一次即可，不用做什么"
     if status == "published":
         return "搭完了，已经发布可以用", "不用做什么"
+    if status == "cancelled":
+        # 别落到「状态未知 → 让它接着跑」：业主明确不要了的东西，
+        # 再劝他续跑是把已经做完的决定又翻出来
+        return "这个构建已经放弃了", "不用做什么；真要重来就当成新需求重新提"
     lowered = str(error).lower()
     reason = next((word for key, word in _BUILD_ERROR_WORDS if key in lowered), "")
     if status == "needs_attention":

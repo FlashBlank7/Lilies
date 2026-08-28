@@ -64,6 +64,7 @@ class BuildStatusQuestionTest(unittest.IsolatedAsyncioTestCase):
             ("building", None, ""),
             ("published", None, ""),
             ("failed", None, "Connection refused by upstream"),
+            ("cancelled", None, ""),
             ("weird_new_status", None, ""),
         ):
             agent = _concierge(status, question, error)
@@ -74,6 +75,14 @@ class BuildStatusQuestionTest(unittest.IsolatedAsyncioTestCase):
                                if key != "搭建方在问" and not key.startswith("_"))
             self.assertIsNone(LEAK.search(payload.lower()),
                               f"{status}/{error} 泄漏了内部词：{payload}")
+
+    async def test_cancelled_build_is_not_offered_for_resume(self):
+        """业主明确不要了的东西，别再劝他续跑。"""
+        agent = _concierge("cancelled", None, "")
+        result = await agent._exec("build_status", {"build_id": "b1"}, {})
+        self.assertIn("放弃", result["情况"])
+        self.assertNotIn("未知", result["情况"])
+        self.assertNotIn("接着跑", result["接下来"])
 
     async def test_recent_builds_translates_too(self):
         """真机漏的就是这条路：build_status 翻了，兄弟工具没翻。"""
@@ -92,7 +101,7 @@ class BuildStatusQuestionTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_every_state_tells_the_user_what_to_do(self):
         for status in ("building", "published", "needs_attention", "failed",
-                       "weird_new_status"):
+                       "cancelled", "weird_new_status"):
             agent = _concierge(status, None, "")
             result = await agent._exec("build_status", {"build_id": "b1"}, {})
             self.assertTrue(result["情况"].strip(), status)
