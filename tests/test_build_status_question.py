@@ -75,6 +75,21 @@ class BuildStatusQuestionTest(unittest.IsolatedAsyncioTestCase):
             self.assertIsNone(LEAK.search(payload.lower()),
                               f"{status}/{error} 泄漏了内部词：{payload}")
 
+    async def test_recent_builds_translates_too(self):
+        """真机漏的就是这条路：build_status 翻了，兄弟工具没翻。"""
+        state = MagicMock()
+        state.pending_question = None
+        services = MagicMock()
+        services.workflow_store.list_recent_builds = AsyncMock(return_value=[
+            {"id": "b1", "status": "needs_attention", "requirement": "做个日报",
+             "error": "model stream timed out after 600s", "team_state": state}])
+        agent = WorkflowConcierge(services, MagicMock())
+        result = await agent._exec("recent_builds", {}, {})
+        payload = " ".join(str(v) for row in result["builds"]
+                           for k, v in row.items() if not k.startswith("_"))
+        self.assertIsNone(LEAK.search(payload.lower()), payload)
+        self.assertIn("卡住", payload)
+
     async def test_every_state_tells_the_user_what_to_do(self):
         for status in ("building", "published", "needs_attention", "failed",
                        "weird_new_status"):

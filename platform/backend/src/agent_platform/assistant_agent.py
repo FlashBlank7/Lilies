@@ -426,11 +426,19 @@ class WorkflowConcierge:
             return await build_overview(self.services)
         if name == "recent_builds":
             builds = await services.workflow_store.list_recent_builds(limit=int(args.get("limit") or 5))
-            return {"builds": [{
-                "build_id": b["id"], "status": b["status"],
-                "requirement": (b.get("requirement") or "")[:60],
-                "pending_question": (b["team_state"].pending_question or "")[:120] or None,
-            } for b in builds]}
+            # 跟 build_status 走同一层翻译：状态码不能从这条路漏出去
+            # （真机上就是从这里漏的：「4 个需要关注（needs_attention）」）
+            rows = []
+            for b in builds:
+                question = (b["team_state"].pending_question or "")[:120]
+                situation, _ = _build_situation(
+                    b["status"], question or None, b.get("error") or "")
+                row = {"build_id": b["id"], "情况": situation,
+                       "要做的事": (b.get("requirement") or "")[:60]}
+                if question:
+                    row["搭建方在问"] = question
+                rows.append(row)
+            return {"builds": rows}
         if name == "resume_build":
             build_id = str(args.get("build_id") or "")
             build = await services.workflow_store.get_build(build_id)
