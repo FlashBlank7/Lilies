@@ -433,9 +433,18 @@ class WorkflowConcierge:
         if name == "build_status":
             build = await services.workflow_store.get_build(str(args.get("build_id") or ""))
             state = build["team_state"]
-            return {"status": build["status"], "revision": state.revision,
-                    "published_version": state.published_version,
-                    "error": (build.get("error") or "")[:200]}
+            result = {"status": build["status"], "revision": state.revision,
+                      "published_version": state.published_version,
+                      "error": (build.get("error") or "")[:200]}
+            # 停下来问业主时必须把问题带出来：只报 needs_attention 的话，
+            # 模型说得出「需要你注意」却说不出在问什么，用户等构建、构建等用户
+            if state.pending_question:
+                result["pending_question"] = state.pending_question[:600]
+                result["note"] = ("搭建停下来等你回话了——把问题原样转达给用户，"
+                                  "拿到答复后用 resume_build 带上 message 续跑")
+            elif build["status"] in ("queued", "building"):
+                result["note"] = "还在搭；revision 会往上走，说明在推进"
+            return result
         return {"error": f"unknown tool: {name}"}
 
     @staticmethod

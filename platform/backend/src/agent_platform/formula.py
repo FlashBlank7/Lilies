@@ -91,16 +91,6 @@ def _tokenize(text: str) -> list[tuple[str, Any]]:
             tokens.append(("str", text[i + 1:j]))
             i = j + 1
             continue
-        if ch in ("\"", "'"):
-            quote = ch
-            j = i + 1
-            while j < len(text) and text[j] != quote:
-                j += 1
-            if j >= len(text):
-                raise FormulaError(f"字符串未闭合（位置 {i}）")
-            tokens.append(("str", text[i + 1:j]))
-            i = j + 1
-            continue
         two = text[i:i + 2]
         if two in ("<=", ">=", "==", "!="):
             tokens.append(("op", two))

@@ -351,7 +351,7 @@ _ZH_BLOCKS = {
     "question_classifier": ("问题分类器", "把自由文本路由到指定类别。"),
     "parameter_extractor": ("参数提取器", "从文本中提取类型化 JSON 字段。"),
     "template_transform": ("模板转换", "用变量渲染模板。"),
-    "variable_assigner": ("变量赋值", "创建命名变量；$formula 做业务算术/记录聚合/字符串统计——sum_by 分组求和、pluck 抽字段、len(split(文本)) 数行、len(trim(文本)) 净字数、count 数出现次数。"),
+    "variable_assigner": ("变量赋值", "创建命名变量；$formula 做业务算术/记录聚合/字符串统计——sum_by 分组求和、pluck 抽字段、len(split(文本)) 数行、len(trim(文本)) 去掉首尾空白后的字符数（中间的空格与换行仍计入）、count 数出现次数。"),
     "variable_aggregator": ("变量聚合", "只做分支值合并/透传，不做任何算术——分组求和、合计请用 variable_assigner 的 $formula（sum_by/pluck）。"),
     "http_request": ("HTTP 请求", "调用外部 HTTP 接口。"),
     "durable_event_timer": (
@@ -1740,7 +1740,9 @@ def _computed_assignment_manual() -> dict[str, Any]:
             "avg/sum/min/max/len/abs/round/floor/ceil/when, record ops pluck/sum_by, "
             "string ops trim/split/count — len also measures strings: "
             "line_count = len(split(text)) (one-arg split = split lines), "
-            "clean_chars = len(trim(text)), occurrences = count(text, ','). "
+            "trimmed_chars = len(trim(text)) — trim strips only the ends, so "
+            "interior spaces and newlines still count; "
+            "occurrences = count(text, ','). "
             "Deterministic and audit-safe: the same inputs always produce the same "
             "numbers, unlike an LLM doing math or counting."
         ),
