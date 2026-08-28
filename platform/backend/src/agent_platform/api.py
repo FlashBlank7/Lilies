@@ -4525,7 +4525,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             raise HTTPException(409, "该应用没有可返修的构建")
         build = builds[0]
         if build["status"] in {"queued", "building"}:
-            raise HTTPException(409, "莉莉丝正在搭建中，等这轮结束再让她查")
+            raise HTTPException(409, "正在搭建中，等这轮结束再让它查")
         events = await services.storage.list_events(run_id, 0)
         state = run.get("state")
         merged: dict[str, Any] = {}
@@ -4593,7 +4593,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         dependencies=[Depends(require_token)],
     )
     async def repair_from_acceptance(application_id: str) -> dict[str, Any]:
-        """把最近一次监理验收的失败项组装成改单，交给莉莉丝返修。
+        """把最近一次监理验收的失败项组装成改单，交给构建方返修。
 
         焊接两个既有闭环：监考（机械验收）→ 返修（自查修复）。客户点一下
         "按验收单返修"，失败用例的期望 vs 实际差异就是证据，不需要任何人
@@ -4610,7 +4610,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             raise HTTPException(409, "该应用没有可返修的构建")
         build = builds[0]
         if build["status"] in {"queued", "building"}:
-            raise HTTPException(409, "莉莉丝正在搭建中，等这轮结束再返修")
+            raise HTTPException(409, "正在搭建中，等这轮结束再返修")
 
         lines: list[str] = []
         for missing in report.get("architecture_missing") or []:

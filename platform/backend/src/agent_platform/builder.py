@@ -598,7 +598,7 @@ class WorkflowBuilder:
                 })
                 self._record_event(
                     build_id, "waiting_owner",
-                    "莉莉丝暂停了搭建，等你回复上面的问题后继续",
+                    "搭建已暂停，等你回复上面的问题后继续",
                 )
                 await self.workflow_store.update_build(
                     build_id, status="needs_attention", team_state=state, error=""
@@ -693,7 +693,7 @@ class WorkflowBuilder:
             })
             self._record_event(
                 build_id, "needs_attention",
-                "搭建中途遇到问题停下来了，可以在下方留言让莉莉丝继续",
+                "搭建中途遇到问题停下来了，可以在下方留言让它继续",
             )
             await self.workflow_store.update_build(
                 build_id, status="needs_attention", team_state=state, error=str(error)
@@ -1121,7 +1121,7 @@ class WorkflowBuilder:
                     })
                     self._record_event(
                         build_id, "truncated",
-                        "这一轮思考超出输出上限被截断；已提醒莉莉丝压缩思考、直接行动",
+                        "这一轮思考超出输出上限被截断；已提醒构建方压缩思考、直接行动",
                     )
                     continue
                 self._record_turn(build_id, turn, teammate, response, [], state, model=actor_model)

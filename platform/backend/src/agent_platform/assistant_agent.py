@@ -52,7 +52,7 @@ TOOLS = [
                    input_schema={"type": "object", "properties": {
                        "name_or_id": {"type": "string"}, "limit": {"type": "integer"}},
                        "required": ["name_or_id"]}),
-    ToolDefinition(name="generate_workflow", description="用业务需求生成新工作流（远端莉莉丝构建，异步）",
+    ToolDefinition(name="generate_workflow", description="用业务需求生成新工作流（远端构建，异步）",
                    input_schema={"type": "object", "properties": {
                        "requirement": {"type": "string"},
                        "name": {"type": "string",
@@ -87,7 +87,7 @@ TOOLS = [
                    }, "required": ["name_or_id", "hour"]}),
     ToolDefinition(name="repair_workflow",
                    description="修一个已存在但跑不通的工作流：在原应用上开一次修复构建，"
-                               "莉莉丝从现有草稿改起（不是从零重做）。修复完会重新发布。"
+                               "构建智能体从现有草稿改起（不是从零重做）。修复完会重新发布。"
                                "用户说'修一下 X''X 坏了帮我修'用这个",
                    input_schema={"type": "object", "properties": {
                        "name_or_id": {"type": "string"},
@@ -102,7 +102,7 @@ TOOLS = [
                        "days": {"type": "integer", "description": "回看天数，默认 7"}}}),
     ToolDefinition(name="recent_builds", description="最近的生成任务（构建）列表：状态、需求摘要——找'刚才那个构建'用",
                    input_schema={"type": "object", "properties": {"limit": {"type": "integer"}}}),
-    ToolDefinition(name="resume_build", description="续跑一个暂停/失败的构建，可附带给莉莉丝的指示或对她提问的回答",
+    ToolDefinition(name="resume_build", description="续跑一个暂停/失败的构建，可附带指示或对构建方提问的回答",
                    input_schema={"type": "object", "properties": {
                        "build_id": {"type": "string"}, "message": {"type": "string"}},
                        "required": ["build_id"]}),
@@ -205,7 +205,7 @@ class WorkflowConcierge:
                 thinking_enabled=bool(args.get("thinking_enabled", False)), effort="low")
             services.builders.get("classic").start(build_id)
             return {"build_id": build_id, "app_id": app["id"],
-                    "note": "莉莉丝已开工（后台构建），用 build_status 跟进"}
+                    "note": "已开始搭建（后台进行），用 build_status 跟进"}
         if name == "tidy_workflows":
             action = str(args.get("action") or "suggest")
             if action == "suggest":

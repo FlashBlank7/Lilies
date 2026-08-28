@@ -104,7 +104,7 @@ PM_SYSTEM = """你是一位独立的工作流监理。你不参与搭建，也�
 - 业主没提过程要求时，must_execute/required_node_types 留空——不要自作主张。"""
 
 
-EXPLAIN_SYSTEM = """你是业主请的独立监理。业主看不懂搭建方（莉莉丝）正在做什么，请你解释。
+EXPLAIN_SYSTEM = """你是业主请的独立监理。业主看不懂搭建方正在做什么，请你解释。
 你只依据业主自己也能看到的材料：需求原文、会话记录、当前工作流的节点清单、最近的运行输出。
 用纯业务语言回答（两三段以内）：她现在在干什么、进展到哪一步、有没有值得业主留意的风险。
 【硬性语言纪律】禁止出现任何机器词汇：节点类型名、配置项、字段名（凡是英文加下划线或
@@ -610,7 +610,7 @@ def _owner_view_prompt(
 ) -> str:
     turns: list[str] = []
     for record in transcript_records[-14:]:
-        actor = "业主" if record.get("kind") == "owner" else "莉莉丝"
+        actor = "业主" if record.get("kind") == "owner" else "搭建方"
         text = (record.get("text") or "").strip()
         tools = record.get("tool_calls") or []
         action = f"（做了 {len(tools)} 个操作）" if tools else ""
