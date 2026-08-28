@@ -32,6 +32,7 @@ AGENT_SYSTEM = (
     "要修坏掉的工作流用 repair_workflow，把体检给出的失败原因原样传进 instruction；"
     "改定时时刻用 set_schedule（别拿 repair_workflow 去改定时）；"
     "列表乱了用 tidy_workflows——它只给建议，收起来前要用户点头；"
+    "用户问「靠不靠谱/帮我验一下」用 acceptance_check（第一次要问他要样例）；"
     "注意 broken（跑起来出错，可以修）与 stale（压根没跑/定时没开火，"
     "该做的是手动跑一次确认再查调度器）是两回事，别给同一条建议；"
     "运行前先用 list_workflows 确认输入声明；生成工作流用 generate_workflow"
@@ -85,6 +86,18 @@ TOOLS = [
                        "timezone": {"type": "string",
                                     "description": "IANA 时区名，如 Asia/Shanghai；不给则沿用原有"},
                    }, "required": ["name_or_id", "hour"]}),
+    ToolDefinition(name="acceptance_check",
+                   description="请独立监理验收一个已发布工作流：按业主给的样例出卷、"
+                               "逐条试运行、出一份验收单。用户说'帮我验一下''这东西靠谱吗'"
+                               "'验收报告呢'用这个。监理与搭建方互不见对方的工作内容。",
+                   input_schema={"type": "object", "properties": {
+                       "name_or_id": {"type": "string"},
+                       "examples": {"type": "string",
+                                    "description": "业主给的样例：什么输入应该得到什么结果。"
+                                                   "第一次验收必须给；之后再验可以不给"},
+                       "action": {"type": "string", "enum": ["check", "report"],
+                                  "description": "check 出卷并验收；report 只看上次的验收单"},
+                   }, "required": ["name_or_id"]}),
     ToolDefinition(name="repair_workflow",
                    description="修一个已存在但跑不通的工作流：在原应用上开一次修复构建，"
                                "构建智能体从现有草稿改起（不是从零重做）。修复完会重新发布。"
@@ -304,6 +317,34 @@ class WorkflowConcierge:
                     "note": ("已改并重新发布，下次按新时刻开火"
                              if published else
                              "草稿已改，但没能重新发布——定时仍按旧时刻走")}
+        if name == "acceptance_check":
+            from . import acceptance_pm
+
+            app = await self._resolve_app(str(args.get("name_or_id") or ""))
+            if not app:
+                return {"error": "找不到该工作流"}
+            if app.get("active_version") is None:
+                return {"error": f"「{app.get('name')}」还没有发布版——"
+                                 "验收的对象是交付物，先把它搭完发布再验"}
+
+            action = str(args.get("action") or "check")
+            if action == "report":
+                report = acceptance_pm.load_report(services.settings.data_dir, app["id"])
+                if not report:
+                    return {"error": "还没验收过——说「帮我验一下」并给几个样例即可"}
+                return _acceptance_summary(app, report)
+
+            examples = str(args.get("examples") or "").strip()
+            if len(examples) < 5:
+                spec = acceptance_pm.load_spec(services.settings.data_dir, app["id"])
+                if spec is None:
+                    return {"error": "第一次验收要给样例：什么输入应该得到什么结果。"
+                                     "比如「输入三行文本，应该得到行数 3」"}
+            else:
+                spec = await acceptance_pm.generate_spec(services, app, examples)
+                acceptance_pm.save_spec(services.settings.data_dir, app["id"], spec)
+            report = await acceptance_pm.run_acceptance(services, app["id"])
+            return _acceptance_summary(app, report)
         if name == "repair_workflow":
             app = await self._resolve_app(str(args.get("name_or_id") or ""))
             if not app:
@@ -433,6 +474,25 @@ class WorkflowConcierge:
         return actions, "（动作轮次到达上限，请把要求说得更具体些）"
 
 
+def _acceptance_summary(app: dict, report: dict) -> dict:
+    """只给结论与不合格项——整份验收单太长，塞进对话没人看。"""
+    cases = report.get("cases") or []
+    failed = [c for c in cases if not c.get("passed")]
+    return {
+        "workflow": app.get("name"),
+        "passed_cases": report.get("passed_cases", 0),
+        "total_cases": report.get("total_cases", len(cases)),
+        "verdict": "通过" if report.get("accepted") else "有不合格项",
+        "failed_cases": [
+            {"name": c.get("name"),
+             "why": [x.get("check") for x in (c.get("checks") or [])
+                     if not x.get("passed")][:4]}
+            for c in failed[:5]],
+        "note": ("全部通过" if not failed else
+                 "不合格的说「帮我修」就能进返修；完整验收单说「看验收报告」"),
+    }
+
+
 def _summarize(result: dict) -> str:
     if result.get("error"):
         return "✕ " + str(result["error"])[:60]
@@ -447,6 +507,9 @@ def _summarize(result: dict) -> str:
         return f"{len(result['runs'])} 条历史"
     if "builds" in result:
         return f"{len(result['builds'])} 个构建"
+    if "verdict" in result and "passed_cases" in result:
+        mark = "✓" if result["verdict"] == "通过" else "⚠"
+        return f"{mark} 验收 {result['passed_cases']}/{result['total_cases']} 条通过"
     if "archived_items" in result:
         total = result.get("total", 0)
         return f"📦 已收起 {total} 个" if total else "✓ 没有收起来的东西"

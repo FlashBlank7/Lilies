@@ -290,6 +290,36 @@ async def _pm_chat(
         raise
 
 
+def _io_contract(snapshot: Any) -> str:
+    """把发布版真实的输入输出字段摊给监理看。
+
+    不给的话它只能从需求原文猜字段名——实测猜出 lines/chars，
+    而工作流实际输出 line_count/char_count，好工作流被判不合格。
+    """
+    try:
+        nodes = [n.model_dump(mode="json") if hasattr(n, "model_dump") else n
+                 for n in snapshot.workflow.nodes]
+    except Exception:  # noqa: BLE001 - 拿不到就不给这段，别拖垮出卷
+        return ""
+    inputs: list[str] = []
+    outputs: list[str] = []
+    for node in nodes:
+        config = node.get("config") or {}
+        if node.get("type") == "start":
+            for item in config.get("inputs") or []:
+                inputs.append(f"{item.get('name')}（{item.get('type') or 'string'}）")
+        if node.get("type") in ("end", "answer"):
+            for key in (config.get("outputs") or {}):
+                outputs.append(str(key))
+    if not inputs and not outputs:
+        return ""
+    return (
+        "\n这个工作流实际声明的接口（**用例必须用这些字段名**，不要自己另起）：\n"
+        f"  输入：{'、'.join(inputs) or '（无声明）'}\n"
+        f"  输出：{'、'.join(outputs) or '（无声明）'}\n"
+    )
+
+
 async def generate_spec(
     services: Any,
     application: dict[str, Any],
@@ -297,9 +327,16 @@ async def generate_spec(
 ) -> AcceptanceSpec:
     """出卷：一次模型调用，把需求 + 业主例子翻译成验收规格。"""
 
+    contract = ""
+    try:
+        version_row = await services.workflow_store.get_version(application["id"])
+        contract = _io_contract(version_row["snapshot"])
+    except Exception:  # noqa: BLE001 - 还没发布版就没有契约可给
+        contract = ""
     prompt = (
         f"客户需求原文：\n{application.get('requirement') or application.get('description') or ''}\n\n"
-        f"业主的例子与要求（大白话）：\n{owner_examples}\n\n"
+        f"业主的例子与要求（大白话）：\n{owner_examples}\n"
+        f"{contract}\n"
         f"平台公开节点类型词表：\n{_catalog_lines(services.blocks)}\n\n"
         "请输出验收规格 JSON。"
     )
@@ -561,6 +598,8 @@ async def run_acceptance(services: Any, application_id: str) -> dict[str, Any]:
         "lineage_pass": not lineage_missing,
         "cases": case_rows,
         "passed_cases": passed_cases,
+        # 调用方不该自己去数 cases——三处消费点曾各写各的口径
+        "total_cases": len(case_rows),
         "accepted": (
             not architecture_missing
             and not lineage_missing
