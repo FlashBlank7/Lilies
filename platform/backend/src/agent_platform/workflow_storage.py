@@ -2083,9 +2083,13 @@ class WorkflowStorage:
         async with self._lock:
             await asyncio.to_thread(
                 self.storage._execute,
-                """UPDATE schedule_fires SET run_id=? WHERE application_id=? AND version=?
+                # 不按 version 找：认领时是按 (应用,节点,日期) 去重的，
+                # 这里再按版本找就对不上——重新发布之后，认领更新的是旧版本那一行，
+                # 而这里带的是当前发布版，UPDATE 命中 0 行，
+                # 那天的开火记录永远停在 run_id IS NULL，当天的定时就此卡死。
+                """UPDATE schedule_fires SET run_id=? WHERE application_id=?
                    AND node_id=? AND local_date=?""",
-                (run_id, application_id, version, node_id, local_date),
+                (run_id, application_id, node_id, local_date),
             )
 
     async def release_schedule_fire(
@@ -2094,9 +2098,12 @@ class WorkflowStorage:
         async with self._lock:
             await asyncio.to_thread(
                 self.storage._execute,
-                """DELETE FROM schedule_fires WHERE application_id=? AND version=?
+                # 同上：按 (应用,节点,日期) 释放。带 version 的话，
+                # 重新发布之后这条 DELETE 删不掉任何东西，
+                # 失败的那一炮就再也没法重试了。
+                """DELETE FROM schedule_fires WHERE application_id=?
                    AND node_id=? AND local_date=? AND run_id IS NULL""",
-                (application_id, version, node_id, local_date),
+                (application_id, node_id, local_date),
             )
 
     async def list_schedule_fires(self, application_id: str | None = None) -> list[dict[str, Any]]:

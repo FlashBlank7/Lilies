@@ -100,3 +100,37 @@ async def test_failed_fire_can_still_be_retried_across_a_republish(
             "UPDATE schedule_fires SET run_id='run-1', last_attempt_at=NULL"
             " WHERE application_id='a1'")
     assert await store.claim_schedule_fire("a1", 3, "sched", DATE) is True
+
+
+@pytest.mark.asyncio
+async def test_attach_and_release_find_the_row_after_a_republish(
+        store: WorkflowStorage) -> None:
+    """开火记录的整个生命周期要用同一个键。
+
+    回归背景（2026-08-29 独立复查）：认领改成按 (应用,节点,日期) 去重之后，
+    attach/release 还按 version 去找。重新发布之后两边对不上：
+      · attach 命中 0 行 → 那天的记录永远停在 run_id IS NULL
+      · release 删不掉 → 失败的那一炮再也没法重试
+    结果是「当天的定时就此卡死」，而且没有任何报错。
+    """
+    _app_row(store, "a1")
+    assert await store.claim_schedule_fire("a1", 1, "sched", DATE) is True
+
+    # 业主当天重新发布：现在的发布版是 3，而记录里躺着的是 1
+    await store.complete_schedule_fire("a1", 3, "sched", DATE, "run-9")
+    with store.storage._connect() as conn:
+        row = conn.execute("SELECT run_id FROM schedule_fires WHERE application_id='a1'").fetchone()
+    assert row["run_id"] == "run-9", "complete 没找到那一行（版本对不上）"
+
+
+@pytest.mark.asyncio
+async def test_release_after_a_republish_frees_the_slot(store: WorkflowStorage) -> None:
+    _app_row(store, "a1")
+    assert await store.claim_schedule_fire("a1", 1, "sched", DATE) is True
+    await store.release_schedule_fire("a1", 3, "sched", DATE)   # 版本已经变了
+    with store.storage._connect() as conn:
+        left = conn.execute("SELECT COUNT(*) c FROM schedule_fires "
+                            "WHERE application_id='a1'").fetchone()["c"]
+    assert left == 0, "release 没删掉（版本对不上），失败的那一炮再也重试不了"
+    # 释放之后当天可以重新开火
+    assert await store.claim_schedule_fire("a1", 3, "sched", DATE) is True
