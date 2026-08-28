@@ -118,7 +118,10 @@ TOOLS = [
                        "name_or_id": {"type": "string"},
                        "examples": {"type": "string",
                                     "description": "业主给的样例：什么输入应该得到什么结果。"
-                                                   "第一次验收必须给；之后再验可以不给"},
+                                                   "第一次验收必须给；之后再验可以不给。"
+                                                   "业主要改样例时，把他说的原话照传即可"
+                                                   "（只说变化的那一处也行，"
+                                                   "系统会带上他上次的原话）"},
                        "action": {"type": "string", "enum": ["check", "report"],
                                   "description": "check 出卷并验收；report 只看上次的验收单"},
                    }, "required": ["name_or_id"]}),
@@ -479,6 +482,14 @@ class WorkflowConcierge:
                 return _acceptance_summary(app, report)
 
             examples = str(args.get("examples") or "").strip()
+            if examples:
+                # 业主多半只说变化的那一处（「净字数应该是 11」），
+                # 把上一次的原话接上，他就不必整段重说
+                previous = acceptance_pm.load_spec(services.settings.data_dir, app["id"])
+                earlier = getattr(previous, "owner_words", "") if previous else ""
+                if earlier and earlier.strip() not in examples:
+                    examples = (f"业主先前说的：\n{earlier.strip()}\n\n"
+                                f"业主现在的更正（**以这句为准**）：\n{examples}")
             if len(examples) < 5:
                 spec = acceptance_pm.load_spec(services.settings.data_dir, app["id"])
                 if spec is None:
