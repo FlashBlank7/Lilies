@@ -20,7 +20,15 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
-      - name: Pytest（443+ 回归）
+      # 只开 F 类（pyflakes）：算了没用的变量、没引用的导入、
+      # 重复定义、没有占位符的 f-string。这些是"代码在说谎"的信号，
+      # 不是格式偏好——2026-08-29 靠它在产品代码里挖出 9 处，
+      # 其中一处（_display_description 解析完快照就丢掉）
+      # 函数名和实际行为完全对不上。
+      # 格式类规则（E5xx 行宽之类）故意不开，那些是口味。
+      - name: Ruff（只查真 bug 类）
+        run: ruff check platform/backend/src --select F
+      - name: Pytest（800+ 回归）
         run: pytest tests/ -q
 
   frontend:

@@ -877,23 +877,26 @@ class WorkflowStorage:
 
     @staticmethod
     def _application_result(result: dict[str, Any]) -> dict[str, Any]:
-        snapshot_json = result.pop("draft_snapshot_json", None)
+        # pop 不是为了取值，是为了把整份草稿快照**从返回体里摘掉**——
+        # 它几十 KB、含全部节点配置，不该跟着应用列表一起发出去。
+        result.pop("draft_snapshot_json", None)
         result["display_description"] = WorkflowStorage._display_description(
-            snapshot_json,
-            fallback=str(result.get("description") or result.get("requirement") or ""),
-        )
+            str(result.get("description") or result.get("requirement") or ""))
         validation_report_json = result.pop("validation_report_json", None)
         report = json.loads(validation_report_json) if validation_report_json else None
         result["evidence"] = WorkflowStorage._evidence_result(result, report)
         return result
 
     @staticmethod
-    def _display_description(snapshot_json: str | None, *, fallback: str) -> str:
-        try:
-            snapshot = json.loads(snapshot_json or "{}")
-        except json.JSONDecodeError:
-            snapshot = {}
-        return re.sub(r"\s+", " ", fallback).strip()[:500]
+    def _display_description(text: str) -> str:
+        """列表里显示的那句描述：压平空白、截到 500 字。
+
+        原先它收 snapshot_json，解析出来**再原样丢掉**，永远返回 fallback——
+        函数名说的是"从快照取"，做的是"trim 一下参数"。
+        真机核对过 15 个在用应用：快照里的 description 和 fallback
+        一字不差，全同。所以删掉的是死代码，不是丢功能。
+        """
+        return re.sub(r"\s+", " ", text).strip()[:500]
 
     @staticmethod
     def _json_list(value: str | None) -> list[dict[str, Any]]:

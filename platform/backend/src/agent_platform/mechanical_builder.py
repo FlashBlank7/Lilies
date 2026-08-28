@@ -1050,7 +1050,9 @@ class MechanicalBuilder(WorkflowBuilder):
             draft_now = await machine_execute("draft_inspect", {})
             snap_wf = (draft_now["snapshot"].get("workflow") or {})
             node_count = len(snap_wf.get("nodes") or [])
-            edge_count = len(snap_wf.get("edges") or [])
+            # 这里原先还算一个 edge_count。它是旧判据的遗留，算了没用——
+            # 紧接着的注释已经写明"按拓扑判，不按边数"。留着会让人
+            # 以为边数还参与判断。
             snap = {"nodes": snap_wf.get("nodes") or []}
             node_types = {str(n.get("type")) for n in (snap_wf.get("nodes") or [])}
             # 只有"骨架齐了"才强制接线：起点和终点都在，且边数不足以串起所有节点。

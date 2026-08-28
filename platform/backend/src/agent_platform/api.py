@@ -1687,10 +1687,10 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
 
 
 
-    formal_assignment_runtime = None
-    formal_developer_worker_broker = None
+    # 正式派工那套功能已经撤了，只剩两个占位还被下面两个函数读到
+    # （读到的永远是 None，所以那两个函数恒返回 False / None）。
+    # 另外三个占位一处引用都没有，删掉——留着会让人以为这套还在。
     formal_run_archiver = None
-    formal_independent_verification = None
     formal_source_provenance = None
 
 

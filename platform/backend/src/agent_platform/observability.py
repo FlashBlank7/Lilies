@@ -254,14 +254,14 @@ def render_metrics_summary(metrics: RunMetrics) -> str:
     """Render human-readable metrics summary."""
     lines = [
         f"# Run Metrics: {metrics.run_id[:8]}",
-        f"",
+        "",
         f"Status: {metrics.status}",
         f"Duration: {metrics.total_elapsed_ms/1000:.1f}s",
         f"Tokens: {metrics.total_input_tokens} in / {metrics.total_output_tokens} out",
         f"Cost: ${metrics.total_cost_usd:.4f}",
         f"Nodes: {metrics.node_count} | Tools: {metrics.tool_call_count} | Errors: {metrics.error_count}",
-        f"",
-        f"## Node Breakdown (by duration)",
+        "",
+        "## Node Breakdown (by duration)",
     ]
     for node in metrics.nodes[:10]:
         status = "❌" if node.failed else "✅"

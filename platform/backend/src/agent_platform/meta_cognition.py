@@ -302,7 +302,7 @@ def demo_dingtalk_workflow() -> WorkflowSpec:
     )
     api_no.sub_decisions.append(sub)
     tracker._current = sub
-    quick_yes = tracker.answer(
+    tracker.answer(
         "YES",
         outcome="只需定时启动 App",
         description="钉钉「急速打卡」: 在考勤时间范围内打开 App，自动完成打卡。最简方案。",
@@ -332,7 +332,7 @@ def demo_dingtalk_workflow() -> WorkflowSpec:
 
     # Branch: YES (add to the root decision point)
     tracker._current = tracker.roots[0]
-    api_yes = tracker.answer(
+    tracker.answer(
         "YES",
         outcome="使用 HTTP Request 积木直接调用 API",
         description="App 提供公开 API。获取凭证 → HTTP Request → schedule_trigger 定时触发。",
