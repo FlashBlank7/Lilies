@@ -67,7 +67,6 @@ class Settings(BaseSettings):
 
     max_parallel_tools: int = 4
     max_subagent_depth: int = 2
-    event_queue_size: int = 1000
     scheduler_poll_seconds: float = 30.0
     scheduler_worker_offload_enabled: bool = False
     templates_dir: Path | None = None

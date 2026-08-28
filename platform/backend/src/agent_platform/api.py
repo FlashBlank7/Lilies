@@ -3484,7 +3484,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         if record.state.status != "verified":
             raise HTTPException(
                 409,
-                f"only verified exact module versions can be inserted: {record.module_ref}",
+                f"只有验证通过、且指定了确切版本的模块才能插入：{record.module_ref}",
             )
         workflow = services.templates.expand_into_workflow(
             module_id,
@@ -3914,7 +3914,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         analyzer = RunAnalyzer(services.storage)
         metrics = await analyzer.analyze(run_id)
         if metrics is None:
-            raise HTTPException(404, f"no events found for run: {run_id}")
+            raise HTTPException(404, "这次运行没有留下任何记录，指标算不出来")
         return {
             "metrics": {
                 "run_id": metrics.run_id,
@@ -4568,7 +4568,8 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         if not services.builders.has(body.builder):
             raise HTTPException(
                 400,
-                f"unknown builder: {body.builder} (available: {', '.join(services.builders.names())})",
+                f"没有叫「{body.builder}」的搭建引擎；"
+                f"可选的是：{'、'.join(services.builders.names())}",
             )
         try:
             await services.workflow_store.get_application(application_id)
@@ -5727,7 +5728,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         import secrets
         name = str(body.get("name") or "").strip()
         if not (1 <= len(name) <= 40):
-            raise HTTPException(400, "name required (1-40 chars)")
+            raise HTTPException(400, "用户名不能为空，且不超过 40 个字")
         role = "admin" if body.get("role") == "admin" else "member"
         token = f"lil_{secrets.token_urlsafe(24)}"
         try:
@@ -5735,7 +5736,12 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
                 name, hashlib.sha256(token.encode("utf-8")).hexdigest(), role
             )
         except Exception as error:
-            raise HTTPException(409, f"user exists or invalid: {error}") from error
+            # 原先把 error 原样拼进 detail。它多半是
+            # "UNIQUE constraint failed: users.name"——
+            # 等于把库表结构回给调用方，而调用方看了也做不了什么。
+            # 真正的原因照常进日志，给人看的只留一句人话。
+            logger.warning("建用户失败：%s", error)
+            raise HTTPException(409, "这个用户名已经有人用了，换一个吧") from error
         await services.storage.append_event("system", "user.created", {"name": name, "role": role})
         # 令牌只在创建响应里出现一次，服务端只存哈希
         return {"user": {k: user[k] for k in ("id", "name", "role", "status")}, "token": token}
@@ -5864,7 +5870,12 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         try:
             build = await services.workflow_store.get_build(build_id)
             if build["status"] not in {"needs_attention", "cancelled", "ready", "published"}:
-                raise HTTPException(409, f"build cannot resume from {build['status']}")
+                # 用户敲 `guanjia resume` 会直接看到这句话，
+                # 所以既不能是英文，也不能把状态码原样抬出去。
+                still_running = build["status"] in ("queued", "building", "running")
+                raise HTTPException(409, "这个搭建还在跑，不用续——等它走完再说"
+                                    if still_running else
+                                    "这个搭建现在的状态续不了；重新发起一次吧")
             if body and body.message:
                 services.builders.for_build(build).queue_resume_message(build_id, body.message)
                 await asyncio.to_thread(

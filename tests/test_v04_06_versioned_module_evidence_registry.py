@@ -526,7 +526,10 @@ def test_capability_module_api_publishes_queries_verifies_and_reloads(
             },
         )
         assert refused.status_code == 409
-        assert "only verified exact module versions" in refused.text
+        # 2026-08-29 这句话翻成了中文（客户端会看到的报错不留英文）。
+        # 断言跟着改成"意思"，而不是当时那串英文字面。
+        detail = refused.json()["detail"]
+        assert "验证通过" in detail and "确切版本" in detail, detail
         versions = client.get(
             "/api/v1/capability-modules/echo_module/versions",
             headers=HEADERS,
