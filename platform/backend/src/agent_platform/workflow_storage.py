@@ -1931,25 +1931,30 @@ class WorkflowStorage:
         self, application_id: str, version: int, node_id: str, local_date: str
     ) -> bool:
         with self.storage._connect() as conn:
+            # 先看今天开过火没有——**不看版本**。
+            # 把版本算进去的话，重新发布一次就等于把当天的记录抹掉：
+            # 真机上 GPU 日报 00:00 正常开火，05:39 重新发布后 6 秒又开了一炮。
+            existing = conn.execute(
+                """SELECT sf.version, sf.run_id, wr.status
+                   FROM schedule_fires sf
+                   LEFT JOIN workflow_runs wr ON wr.id=sf.run_id
+                   WHERE sf.application_id=? AND sf.node_id=? AND sf.local_date=?
+                   ORDER BY sf.version DESC LIMIT 1""",
+                (application_id, node_id, local_date),
+            ).fetchone()
+            if existing is not None:
+                # 只有那一炮确实打失败了才允许重试（次数与退避见下面）
+                if existing["run_id"] and existing["status"] in {"failed", "cancelled"}:
+                    return self._reclaim_schedule_fire_sync(
+                        conn, application_id, int(existing["version"]), node_id, local_date)
+                return False
             cursor = conn.execute(
                 """INSERT OR IGNORE INTO schedule_fires
                    (application_id,version,node_id,local_date,run_id,created_at)
                    VALUES(?,?,?,?,NULL,?)""",
                 (application_id, version, node_id, local_date, utc_now()),
             )
-            if cursor.rowcount == 1:
-                return True
-            existing = conn.execute(
-                """SELECT sf.run_id, wr.status
-                   FROM schedule_fires sf
-                   LEFT JOIN workflow_runs wr ON wr.id=sf.run_id
-                   WHERE sf.application_id=? AND sf.version=? AND sf.node_id=? AND sf.local_date=?""",
-                (application_id, version, node_id, local_date),
-            ).fetchone()
-            if existing and existing["run_id"] and existing["status"] in {"failed", "cancelled"}:
-                return self._reclaim_schedule_fire_sync(
-                    conn, application_id, version, node_id, local_date)
-            return False
+            return cursor.rowcount == 1
 
     # 重试上限与退避：必然失败的定时任务不该把当天刷成上千次运行
     SCHEDULE_MAX_ATTEMPTS = 3
