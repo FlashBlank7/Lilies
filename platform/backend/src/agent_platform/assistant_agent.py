@@ -33,6 +33,7 @@ AGENT_SYSTEM = (
     "改定时时刻用 set_schedule（别拿 repair_workflow 去改定时）；"
     "列表乱了用 tidy_workflows——它只给建议，收起来前要用户点头；"
     "用户问「靠不靠谱/帮我验一下」用 acceptance_check（第一次要问他要样例）；"
+    "用户说「这个不要了/别修了」用 abandon_build，别一味劝他续跑；"
     "注意 broken（跑起来出错，可以修）与 stale（压根没跑/定时没开火，"
     "该做的是手动跑一次确认再查调度器）是两回事，别给同一条建议；"
     "运行前先用 list_workflows 确认输入声明；生成工作流用 generate_workflow"
@@ -129,6 +130,11 @@ TOOLS = [
                    input_schema={"type": "object", "properties": {
                        "build_id": {"type": "string"}, "message": {"type": "string"}},
                        "required": ["build_id"]}),
+    ToolDefinition(name="abandon_build",
+                   description="放弃一个不要了的构建。用户说'这个不要了''别修了'"
+                               "'取消吧''方向错了'用这个。已经搭完的不用取消。",
+                   input_schema={"type": "object", "properties": {
+                       "build_id": {"type": "string"}}, "required": ["build_id"]}),
     ToolDefinition(name="build_status", description="查询生成任务（构建）的状态",
                    input_schema={"type": "object", "properties": {"build_id": {"type": "string"}},
                                  "required": ["build_id"]}),
@@ -432,6 +438,21 @@ class WorkflowConcierge:
             await services.workflow_store.update_build(build_id, status="queued", error="")
             engine.start(build_id)
             return {"build_id": build_id, "status": "queued", "note": "已续跑，可用 build_status 跟进"}
+        if name == "abandon_build":
+            from .api import TERMINAL_BUILD_STATUSES
+
+            build_id = str(args.get("build_id") or "")
+            build = await services.workflow_store.get_build(build_id)
+            if build["status"] in TERMINAL_BUILD_STATUSES:
+                return {"情况": "这个构建早就结束了，没什么可放弃的",
+                        "接下来": "不用做什么"}
+            try:
+                services.builders.for_build(build).cancel(build_id)
+            except KeyError:
+                # 没在跑也照样能放弃——见 api.cancel_build 里的同一条理由
+                await services.workflow_store.update_build(
+                    build_id, status="cancelled", error="")
+            return {"情况": "已经放弃这个构建了", "接下来": "不用做什么"}
         if name == "build_status":
             build = await services.workflow_store.get_build(str(args.get("build_id") or ""))
             state = build["team_state"]

@@ -163,6 +163,9 @@ from .web_collection import ControlledWebCollector
 
 logger = logging.getLogger(__name__)
 
+# 已经走完的构建：取消它们没有意义，也不该把状态改写掉
+TERMINAL_BUILD_STATUSES = frozenset({"published", "cancelled", "failed"})
+
 
 
 RUNTIME_ROUTE_CHECKS: dict[str, tuple[str, str]] = {
@@ -5712,10 +5715,21 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
     async def cancel_build(build_id: str) -> dict[str, Any]:
         try:
             build = await services.workflow_store.get_build(build_id)
-            services.builders.for_build(build).cancel(build_id)
-            return {"build_id": build_id, "status": "cancelling"}
         except KeyError as error:
             raise HTTPException(404, str(error)) from error
+        try:
+            services.builders.for_build(build).cancel(build_id)
+            return {"build_id": build_id, "status": "cancelling"}
+        except KeyError:
+            # 没在跑不等于取消不了：停下来等业主、或进程重启后成了孤儿的构建，
+            # 内存里都没有任务。cancel 的语义是「我不要这个了」，
+            # 跟它此刻有没有在跑无关——否则这类构建永远没有出口。
+            if build["status"] in TERMINAL_BUILD_STATUSES:
+                return {"build_id": build_id, "status": build["status"],
+                        "note": "这个构建早就结束了，无需取消"}
+            await services.workflow_store.update_build(
+                build_id, status="cancelled", error="")
+            return {"build_id": build_id, "status": "cancelled"}
 
     @app.post(
         "/api/v1/applications/{application_id}/tests/run",
