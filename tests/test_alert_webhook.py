@@ -55,7 +55,10 @@ def test_alert_fires_with_payload(monkeypatch):
         assert body["workflow"] == "GPU日报"
         assert body["run_id"] == "r-1"
         assert body["application_id"] == "app-9"
-        assert len(body["error"]) == 500  # 截断
+        # error 是给人看的，走 _human_error 后按 110 收口；
+        # 原文留在 error_raw 里按 500 截断，机器消费方不受影响
+        assert len(body["error"]) == 110
+        assert len(body["error_raw"]) == 500
     finally:
         server.shutdown()
         server.server_close()
@@ -112,6 +115,34 @@ def test_alert_falls_back_to_snapshot_name(monkeypatch):
         asyncio.run(WorkflowRuntime._alert_run_failed(_fake_self(), _state(), "boom"))
         assert received[0]["workflow"] == "GPU日报"
         assert received[0]["application_id"] == "app-9"  # app id 在取名字之前已落好
+    finally:
+        server.shutdown()
+        server.server_close()
+        monkeypatch.delenv("ALERT_WEBHOOK_URL", raising=False)
+        get_settings.cache_clear()
+
+
+def test_alert_error_is_human_readable(monkeypatch):
+    """告警发到钉钉/飞书/手机上，收件人不在终端前面——更不该是英文原文。
+
+    真机验过（起个接收端真收一次）：以前送出去的是
+    node start failed: missing required input: text。
+    today 面板与体检早就翻成人话了，就差这一处。
+    """
+    received.clear()
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Hook)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        monkeypatch.setenv(
+            "ALERT_WEBHOOK_URL", f"http://127.0.0.1:{server.server_address[1]}/alert")
+        get_settings.cache_clear()
+        asyncio.run(WorkflowRuntime._alert_run_failed(
+            _fake_self(current_name="统计"), _state(),
+            "node start failed: missing required input: text"))
+        assert received, "webhook 未收到"
+        body = received[0]
+        assert body["error"] == "缺少必填输入「text」"          # 人看的
+        assert "missing required input" in body["error_raw"]   # 机器要的原文还在
     finally:
         server.shutdown()
         server.server_close()

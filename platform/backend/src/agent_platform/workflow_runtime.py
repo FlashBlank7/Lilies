@@ -1371,13 +1371,20 @@ class WorkflowRuntime:
             url = (get_settings().alert_webhook_url or "").strip()
             if not url:
                 return
+            from .overview import _human_error
+
+            # 告警是发到钉钉/飞书/手机上的，收件人多半不在终端前面。
+            # 这里更不该出现 node start failed: missing required input: text
+            # 这种原文——today 面板和体检早就翻成人话了，就差这一处。
+            # error_raw 保留原文给机器消费方，不占人眼。
             payload = {
                 "kind": "run_failed",
                 # 名字优先取应用行的当前名：改过名的工作流，发布版快照里还是旧名，
                 # 告警里出现用户在界面上找不到的名字比没有名字更误事。
                 "workflow": str(getattr(getattr(state, "snapshot", None), "name", "") or ""),
                 "run_id": str(getattr(state, "run_id", "") or ""),
-                "error": error[:500],
+                "error": (_human_error(error) or error)[:500],
+                "error_raw": error[:500],
                 "at": datetime.now(timezone.utc).isoformat(),
                 "application_id": "",
             }
