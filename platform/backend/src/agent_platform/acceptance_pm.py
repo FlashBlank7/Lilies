@@ -229,6 +229,15 @@ def normalize_spec_payload(payload: dict[str, Any]) -> dict[str, Any]:
         case = dict(case)
         expect = case.get("expect")
         expect = dict(expect) if isinstance(expect, dict) else {}
+        # 模型常把该放进 expect 的键写在用例这一层。AcceptanceCase 禁止多余字段，
+        # 于是一次笔误就让整场验收抛异常——真机上就这么失败过一次
+        # （cases.0.must_execute: Extra inputs are not permitted），
+        # 靠模型自己重试才蒙对。归一化本来就是干这个的：搬进去，别让它炸。
+        for key in ("required_fields", "equals", "contains", "not_contains",
+                    "must_execute", "must_not_execute"):
+            if key in case:
+                stray = case.pop(key)
+                expect.setdefault(key, stray)
         expect["required_fields"] = clean_list(expect.get("required_fields"))
         expect["equals"] = clean_map(expect.get("equals"))
         expect["contains"] = {
