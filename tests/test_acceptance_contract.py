@@ -57,3 +57,48 @@ def test_spec_prompt_includes_the_contract():
     body = source[start:start + 2000]
     assert "_io_contract" in body
     assert "{contract}" in body
+
+
+def test_the_contract_actually_reaches_the_prompt(tmp_path, monkeypatch):
+    """光测函数不够：generate_spec 真把它拼进提示词了吗？
+
+    这条的由来是自查——上面几条只测 _io_contract 的产出，
+    只要 generate_spec 里读版本的键名手滑一下，contract 就恒为空，
+    而全套测试照样全绿，没有任何一条执行过 generate_spec。
+    「断言源码里还有这个词」不等于「这个值真的到了下游」。
+    """
+    import asyncio
+    from types import SimpleNamespace
+
+    from agent_platform import acceptance_pm
+
+    snapshot = _snapshot([
+        {"id": "s", "type": "start", "title": "开始", "config": {"inputs": [
+            {"name": "text", "type": "string"}]}},
+        {"id": "e", "type": "end", "title": "结束",
+         "config": {"outputs": {"line_count": {"$ref": "x"}}}},
+    ])
+    seen = {}
+
+    async def fake_chat(services, application_id, system, prompt, phase, **kwargs):
+        seen["prompt"] = prompt
+        return ('{"summary": "查一查", "cases": [{"name": "c", '
+                '"inputs": {"text": "a"}, "expect": {"equals": {"line_count": 1}}}]}')
+
+    async def fake_get_version(application_id, *args, **kwargs):
+        return {"snapshot": snapshot}
+
+    monkeypatch.setattr(acceptance_pm, "_pm_chat", fake_chat)
+    services = SimpleNamespace(
+        settings=SimpleNamespace(data_dir=tmp_path),
+        blocks=SimpleNamespace(list=lambda: []),
+        workflow_store=SimpleNamespace(get_version=fake_get_version))
+
+    asyncio.run(acceptance_pm.generate_spec(
+        services, {"id": "a1", "requirement": "统计一段文字有几行几个字"},
+        "比如给它 a\nb，应该说 2 行 3 个字"))
+
+    prompt = seen.get("prompt", "")
+    assert "text（string）" in prompt, "工作流声明的输入没进提示词"
+    assert "line_count" in prompt, "工作流声明的输出没进提示词"
+    assert "不要自己另起" in prompt, "那句硬约束没进提示词"
