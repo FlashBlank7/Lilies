@@ -6213,7 +6213,9 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             await services.workflow_store.get_run(run_id)
         except KeyError as error:
             raise HTTPException(404, str(error)) from error
-        events = await services.storage.list_events(run_id, after)
+        # 尾窗下推到 SQL：原本全读进来再切片，18 万条的流照样要全量物化
+        events = await services.storage.list_events(run_id, after,
+                                                    limit=limit + 1, tail=True)
         # 截尾部而不是头部：一次运行可能有上千条事件（模型逐 token 的 *.delta），
         # 取最前 limit 条的话 workflow.completed/failed 永远在窗口外，
         # 客户端画出来的时间线永远"没有结局"。
@@ -6237,8 +6239,16 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         )
 
     @app.get("/v1/streams/{stream_id}", dependencies=[Depends(require_token)])
-    async def list_stream_events(stream_id: str, after: int = 0) -> list[dict[str, Any]]:
-        events = await services.storage.list_events(stream_id, after)
+    async def list_stream_events(
+        stream_id: str,
+        after: int = 0,
+        # 上限 1000 不是 5000：这个流里的旧事件平均 30 KB，
+        # 5000 条就是 150 MB 的响应体、5.8 秒——对任何客户端都没意义
+        limit: int = Query(default=500, ge=1, le=1000),
+    ) -> list[dict[str, Any]]:
+        # 原本不限量：真机上 platform_harness 流 435 MB / 单个构建流 18 万条，
+        # 一发请求就能把 API 冻十几秒、内存冲到几 GB
+        events = await services.storage.list_events(stream_id, after, limit=limit)
         return [event.model_dump(mode="json") for event in events]
 
     # ── Auto meta-cognition hook: Builder → template extraction ──

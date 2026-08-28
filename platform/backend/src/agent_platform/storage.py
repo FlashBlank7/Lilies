@@ -1084,14 +1084,36 @@ class Storage:
             handle.flush()
         return event
 
-    async def list_events(self, stream_id: str, after: int = 0) -> list[EventRecord]:
-        return await asyncio.to_thread(self._list_events_sync, stream_id, after)
+    async def list_events(self, stream_id: str, after: int = 0, *,
+                          limit: int | None = None,
+                          tail: bool = False) -> list[EventRecord]:
+        """读一个流的事件。
 
-    def _list_events_sync(self, stream_id: str, after: int) -> list[EventRecord]:
+        limit 一定要下推到 SQL，别「全读进来再切片」：真机上单个构建流
+        有 18 万条事件，platform_harness 流 435 MB——读全量会把
+        整个 API 冻住十几秒、内存冲到几 GB。
+        tail=True 取最后 limit 条（要看结局时用，开头那几条没意义）。
+        """
+        return await asyncio.to_thread(
+            self._list_events_sync, stream_id, after, limit, tail)
+
+    def _list_events_sync(self, stream_id: str, after: int,
+                          limit: int | None = None,
+                          tail: bool = False) -> list[EventRecord]:
         with self._connect() as conn:
-            rows = conn.execute(
-                "SELECT * FROM events WHERE stream_id=? AND seq>? ORDER BY seq", (stream_id, after)
-            ).fetchall()
+            if limit is None:
+                rows = conn.execute(
+                    "SELECT * FROM events WHERE stream_id=? AND seq>? ORDER BY seq",
+                    (stream_id, after)).fetchall()
+            elif tail:
+                rows = list(reversed(conn.execute(
+                    "SELECT * FROM events WHERE stream_id=? AND seq>? "
+                    "ORDER BY seq DESC LIMIT ?",
+                    (stream_id, after, int(limit))).fetchall()))
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM events WHERE stream_id=? AND seq>? ORDER BY seq LIMIT ?",
+                    (stream_id, after, int(limit))).fetchall()
         records = [
             EventRecord(
                 id=row["seq"],
@@ -1102,6 +1124,12 @@ class Storage:
             )
             for row in rows
         ]
+        # 已经按 limit 取够了就别补冷文件：tail 的「前段缺口」是**故意**留的，
+        # 不是归档造成的。不挡这一下的话，冷读会把全量补回来，限量当场失效
+        # （tail=10 实测返回 50 条）——而限量正是为了不把 18 万条读进内存。
+        if limit is not None and len(records) >= limit:
+            return records
+
         # 冷读回退：老事件被归档出 DB（追加式 JSONL 是权威全量副本）。
         # DB 结果前段有缺口时从冷文件补齐——诊断能力不因归档丢失。
         first_seq = records[0].id if records else None
@@ -1110,6 +1138,9 @@ class Storage:
             cold = self._read_cold_events(stream_id, after=after, before=upper)
             if cold:
                 records = cold + records
+        # 补过冷文件也要守住上限
+        if limit is not None and len(records) > limit:
+            records = records[-limit:] if tail else records[:limit]
         return records
 
     def _read_cold_events(
