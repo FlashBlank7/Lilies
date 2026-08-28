@@ -548,6 +548,18 @@ class WorkflowConcierge:
 # 内部报错 → 业主听得懂的话。模型只会照抄手里的词，所以别把英文递给它。
 _BUILD_ERROR_WORDS = (
     ("stream timed out", "搭建方想得太久，中途断了"),
+    # 下面几条是线上真实统计出来的常客，不是想象的错误码
+    ("perseverating", "搭建方反复提同一个被否掉的方案，自己绕不出来"),
+    ("restarted while building", "平台重启，把搭建打断了"),
+    ("repair cycles", "反复返修多次仍没通过验收"),
+    ("budget exhausted", "搭建预算用完了还没达标"),
+    ("before mandatory tests passed", "必测项还没跑过就停了"),
+    ("budget exceeded", "搭建预算用完了还没达标"),
+    ("invalid draft", "搭出来的图不成立，搭建方自己停了"),
+    ("returned 400", "模型服务拒绝了这次请求"),
+    ("returned 500", "模型服务自己出错了"),
+    ("task is not running", "后台任务已经不在了，多半是平台重启过"),
+    ("unique constraint", "平台内部记事出了岔子"),
     ("timed out", "等太久超时了"),
     ("timeout", "等太久超时了"),
     ("rate limit", "模型服务这会儿太忙"),
