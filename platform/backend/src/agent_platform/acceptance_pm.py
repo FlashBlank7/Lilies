@@ -746,6 +746,27 @@ async def review_progress(services: Any, application_id: str) -> str:
 # ---------------- 存取与验收单 ----------------
 
 
+# 验收单是交给业主的文档，不能出现 succeeded/failed 这类状态词。
+# 管家那边有一份同类的表（assistant_agent._RUN_WORDS），故意不跨模块引用：
+# 那是对话口吻，这里是文书口吻，措辞本来就该各自定。
+_RUN_WORDS = {
+    "succeeded": "跑通了",
+    "failed": "没跑通",
+    "paused": "停下来等人填东西",
+    "cancelled": "被取消了",
+    "running": "还在跑",
+    "queued": "排队中",
+}
+
+
+def _run_words(status: str) -> str:
+    text = str(status or "")
+    if text.startswith("error: "):
+        # 跑出异常时原本直接写英文异常原文，业主看了只会更慌
+        return "没能跑起来（平台内部出错）"
+    return _RUN_WORDS.get(text, text or "情况不明")
+
+
 def render_report_markdown(report: dict[str, Any]) -> str:
     lines = [
         f"# 验收单：{report['application_name']}",
@@ -770,7 +791,8 @@ def render_report_markdown(report: dict[str, Any]) -> str:
         lines.append(f"- 血缘核验：{lineage}")
     lines += ["", f"## 用例（{report['passed_cases']}/{len(report['cases'])} 通过）", ""]
     for row in report["cases"]:
-        lines.append(f"### {'✅' if row['passed'] else '❌'} {row['name']}（运行：{row['run_status']}）")
+        lines.append(f"### {'✅' if row['passed'] else '❌'} {row['name']}"
+                     f"（运行：{_run_words(row['run_status'])}）")
         lines.append("")
         lines.append("| 检查项 | 结果 | 实际 |")
         lines.append("| --- | --- | --- |")
