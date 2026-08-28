@@ -212,8 +212,11 @@ class WorkflowScheduler:
         idempotency_key: str | None = None,
         input_overrides: dict[str, Any] | None = None,
     ) -> DurableJobRecord:
+        # 幂等键里**不带版本号**：带的话，业主当天重新发布一次就换一个键，
+        # 当天再开一炮（发布几次开几炮）。非 durable 那条路已经因为
+        # 同一个原因修过（workflow_storage.claim_schedule_fire），两条路要一致。
         identity = idempotency_key or (
-            f"schedule:{application_id}:{version}:{node_id}:{local_date}"
+            f"schedule:{application_id}:{node_id}:{local_date}"
         )
         payload = {
             "inputs": {**config.inputs, **(input_overrides or {})},
