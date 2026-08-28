@@ -5290,6 +5290,23 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             return {"running": False, "alive": False, "detail": "本实例没有调度器"}
         return scheduler.health()
 
+    @app.post("/api/v1/applications/{application_id}/archive",
+              dependencies=[Depends(require_token)])
+    async def archive_application(application_id: str, archived: bool = True) -> dict[str, Any]:
+        """从列表里收起来（或拿回来）。数据一条不删。"""
+        try:
+            return await services.workflow_store.set_archived(application_id, archived)
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+
+    @app.get("/api/v1/applications-archivable", dependencies=[Depends(require_token)])
+    async def list_archivable(
+        days_idle: int = Query(default=7, ge=0, le=3650),
+    ) -> dict[str, Any]:
+        """建议可以收起来的：从没发布、从没成功跑过、且放了一阵子的草稿。"""
+        items = await services.workflow_store.list_archivable(days_idle=days_idle)
+        return {"days_idle": days_idle, "total": len(items), "items": items}
+
     @app.get("/api/v1/health-report", dependencies=[Depends(require_token)])
     async def workflow_health_report(
         days: int = Query(default=7, ge=1, le=90),

@@ -322,6 +322,11 @@ class WorkflowStorage:
                 conn.execute(
                     "ALTER TABLE applications ADD COLUMN delivery_mode TEXT NOT NULL DEFAULT 'guided'"
                 )
+            # 归档（2026-08-28）：搭建失败或中途放弃的工作流此前永远堆在列表里，
+            # 没有任何清理路径。真机上 71 个应用里 57 个从没发布过，
+            # 其中 46 个连一次成功运行都没有——用户用几个月就会被废弃草稿淹没。
+            if "archived_at" not in application_columns:
+                conn.execute("ALTER TABLE applications ADD COLUMN archived_at TEXT")
             if "governed_hard_gate" not in application_columns:
                 conn.execute(
                     "ALTER TABLE applications ADD COLUMN governed_hard_gate INTEGER NOT NULL DEFAULT 0"
@@ -435,6 +440,7 @@ class WorkflowStorage:
                           d.evidence_invalidated_at,d.evidence_invalidated_revision,
                           d.evidence_change_summary_json,d.snapshot_json AS draft_snapshot_json
                    FROM applications a JOIN application_drafts d ON d.application_id=a.id
+                   WHERE a.archived_at IS NULL
                    ORDER BY a.updated_at DESC"""
             ).fetchall()
             return [self._application_result(dict(row)) for row in rows]
@@ -1982,6 +1988,48 @@ class WorkflowStorage:
             (utc_now(), application_id, version, node_id, local_date),
         )
         return True
+
+    async def set_archived(self, application_id: str, archived: bool) -> dict[str, Any]:
+        """归档只是从列表里收起来——数据一条不删，随时能拿回来。"""
+        async with self._lock:
+            return await asyncio.to_thread(
+                self._set_archived_sync, application_id, archived)
+
+    def _set_archived_sync(self, application_id: str, archived: bool) -> dict[str, Any]:
+        with self.storage._connect() as conn:
+            row = conn.execute(
+                "SELECT id, name, active_version FROM applications WHERE id=?",
+                (application_id,)).fetchone()
+            if not row:
+                raise KeyError(f"application not found: {application_id}")
+            conn.execute(
+                "UPDATE applications SET archived_at=?, updated_at=? WHERE id=?",
+                (utc_now() if archived else None, utc_now(), application_id))
+        return {"application_id": application_id, "name": row["name"],
+                "archived": archived}
+
+    async def list_archivable(self, *, days_idle: int = 7) -> list[dict[str, Any]]:
+        """挑出「可以收起来」的：从没发布、也从没成功跑过、且已经放了一阵子的。
+
+        只给建议不自动动手——用户的草稿凭什么由我们替他决定清不清。
+        """
+        return await asyncio.to_thread(self._list_archivable_sync, days_idle)
+
+    def _list_archivable_sync(self, days_idle: int) -> list[dict[str, Any]]:
+        with self.storage._connect() as conn:
+            rows = conn.execute(
+                """SELECT a.id, a.name, a.updated_at,
+                          (SELECT COUNT(*) FROM workflow_runs r
+                            WHERE r.application_id=a.id) AS runs
+                   FROM applications a
+                   WHERE a.archived_at IS NULL
+                     AND a.active_version IS NULL
+                     AND NOT EXISTS (SELECT 1 FROM workflow_runs r
+                                      WHERE r.application_id=a.id AND r.status='succeeded')
+                     AND a.updated_at < datetime('now', ?)
+                   ORDER BY a.updated_at""",
+                (f"-{int(days_idle)} days",)).fetchall()
+        return [dict(row) for row in rows]
 
     async def complete_schedule_fire(
         self,

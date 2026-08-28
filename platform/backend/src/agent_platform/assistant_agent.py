@@ -31,6 +31,7 @@ AGENT_SYSTEM = (
     "问'有什么坏了/不正常'用 health_report（它已带失败原因，别再逐个查）；"
     "要修坏掉的工作流用 repair_workflow，把体检给出的失败原因原样传进 instruction；"
     "改定时时刻用 set_schedule（别拿 repair_workflow 去改定时）；"
+    "列表乱了用 tidy_workflows——它只给建议，收起来前要用户点头；"
     "注意 broken（跑起来出错，可以修）与 stale（压根没跑/定时没开火，"
     "该做的是手动跑一次确认再查调度器）是两回事，别给同一条建议；"
     "运行前先用 list_workflows 确认输入声明；生成工作流用 generate_workflow"
@@ -60,6 +61,16 @@ TOOLS = [
                    }, "required": ["requirement"]}),
     ToolDefinition(name="platform_overview", description="平台统筹总览：今日运行统计、定时任务、近期失败、进行中的构建",
                    input_schema={"type": "object", "properties": {}}),
+    ToolDefinition(name="tidy_workflows",
+                   description="列出可以收起来的废弃草稿（从没发布、从没成功跑过、"
+                               "且放了一阵子的），或把指定的一个收起来/拿回来。"
+                               "用户说'列表太乱了''把没用的收起来'用这个。",
+                   input_schema={"type": "object", "properties": {
+                       "action": {"type": "string", "enum": ["suggest", "archive", "restore"],
+                                  "description": "suggest 只看建议；archive/restore 需要 name_or_id"},
+                       "name_or_id": {"type": "string"},
+                       "days_idle": {"type": "integer", "description": "闲置几天算废弃，默认 7"},
+                   }}),
     ToolDefinition(name="set_schedule",
                    description="改一个已发布工作流的定时时刻（几点几分、哪个时区），"
                                "改完自动重新发布。用户说'改成早上七点跑''以后别跑了'用这个。"
@@ -122,7 +133,15 @@ class WorkflowConcierge:
                     continue
                 items.append({"name": app.get("name"), "id": app["id"],
                               "published_version": app.get("active_version")})
-            return {"workflows": items[:50], "total": len(items)}
+            hidden = len(apps) - len(items)
+            result = {"workflows": items[:50], "total": len(items)}
+            if hidden > 0 and args.get("only_published", True):
+                # 不说的话模型会以为"总共就这些"，用户问起草稿时它只能说找不到
+                result["unpublished_hidden"] = hidden
+                result["note"] = (f"另有 {hidden} 个未发布的草稿没列出来；"
+                                  "要看它们传 only_published=false，"
+                                  "要收拾用 tidy_workflows")
+            return result
         if name == "run_workflow":
             app = await self._resolve_app(str(args.get("name_or_id") or ""))
             if not app:
@@ -172,6 +191,27 @@ class WorkflowConcierge:
             services.builders.get("classic").start(build_id)
             return {"build_id": build_id, "app_id": app["id"],
                     "note": "莉莉丝已开工（后台构建），用 build_status 跟进"}
+        if name == "tidy_workflows":
+            action = str(args.get("action") or "suggest")
+            if action == "suggest":
+                # 默认 3 天：7 天太长，真机上一堆 6 天前的废弃草稿被判"很干净"，
+                # 用户看着满屏杂物、工具说没事，比不提供这功能还糟
+                items = await services.workflow_store.list_archivable(
+                    days_idle=int(args.get("days_idle") or 3))
+                return {"candidates": [
+                    {"name": i["name"], "id": i["id"], "runs": i["runs"],
+                     "last_touched": str(i["updated_at"])[:10]} for i in items[:20]],
+                    "total": len(items),
+                    "note": "这些从没发布也从没成功跑过。要收起来说一声，"
+                            "数据不删、随时能拿回来"}
+            app = await self._resolve_app(str(args.get("name_or_id") or ""))
+            if not app:
+                return {"error": "找不到该工作流"}
+            archived = action == "archive"
+            result = await services.workflow_store.set_archived(app["id"], archived)
+            return {**result,
+                    "note": "已从列表收起（数据都在，说「拿回 X」就能恢复）"
+                            if archived else "已放回列表"}
         if name == "set_schedule":
             app = await self._resolve_app(str(args.get("name_or_id") or ""))
             if not app:
@@ -373,6 +413,13 @@ def _summarize(result: dict) -> str:
         return f"{len(result['runs'])} 条历史"
     if "builds" in result:
         return f"{len(result['builds'])} 个构建"
+    if "candidates" in result:
+        total = result.get("total", 0)
+        if total:
+            return f"🧹 {total} 个可以收起来"
+        return "✓ 按「从没发布且从没成功跑过」这个标准，没有可收的"
+    if "archived" in result:
+        return ("📦 已收起 " if result["archived"] else "↩ 已放回 ") + str(result.get("name", ""))
     if "before" in result and "after" in result:
         arrow = f"{result['before']} → {result['after']}"
         return (f"⏰ {arrow}" if result.get("published_version")
