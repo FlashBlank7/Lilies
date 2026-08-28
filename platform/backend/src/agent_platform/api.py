@@ -17,7 +17,8 @@ from typing import Any, AsyncIterator, Literal
 from uuid import uuid4
 
 import httpx
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, status
+from fastapi import (Body, Depends, FastAPI, Header, HTTPException, Query,
+                     Request, status)
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
@@ -5342,8 +5343,20 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
 
     @app.post("/api/v1/applications/{application_id}/archive",
               dependencies=[Depends(require_token)])
-    async def archive_application(application_id: str, archived: bool = True) -> dict[str, Any]:
-        """从列表里收起来（或拿回来）。数据一条不删。"""
+    async def archive_application(
+        application_id: str,
+        archived: bool = True,
+        body: dict[str, Any] | None = Body(default=None),
+    ) -> dict[str, Any]:
+        """从列表里收起来（或拿回来）。数据一条不删。
+
+        archived 既可以走查询串，也可以放请求体。两种都收是因为
+        原本只认查询串：调用方发 {"archived": false} 想拿回来，
+        body 被静默忽略、取了默认值 True，结果**又收了一次**——
+        跟他要的正好相反。静默做反的事比报错更糟。
+        """
+        if isinstance(body, dict) and "archived" in body:
+            archived = bool(body["archived"])
         try:
             return await services.workflow_store.set_archived(application_id, archived)
         except KeyError as error:
