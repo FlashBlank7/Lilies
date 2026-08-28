@@ -14,15 +14,30 @@ from typing import Any
 from .agent_core import collect_model_stream
 from .models import ChatMessage, ContentBlock, ToolDefinition
 
+def _system_prompt() -> str:
+    """带上今天的日期——不然它得靠运行记录猜「昨天」是哪天，实测会猜错。"""
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc)
+    return AGENT_SYSTEM + (
+        f"\n当前时间：{now.strftime('%Y-%m-%d %H:%M')} UTC"
+        f"（Asia/Shanghai 为 {now.astimezone().strftime('%Y-%m-%d %H:%M')}）。"
+        "用户说「今天/昨天」以此为准，别从运行记录里推算。")
+
+
 AGENT_SYSTEM = (
     "你是工作流平台的管家智能体，通过工具帮用户生成、运行、统筹工作流。"
     "规则：查数据必须用工具，绝不虚构结果或历史；回答给出工具返回的真实数字；"
     "问'有什么坏了/不正常'用 health_report（它已带失败原因，别再逐个查）；"
     "要修坏掉的工作流用 repair_workflow，把体检给出的失败原因原样传进 instruction；"
+    "改定时时刻用 set_schedule（别拿 repair_workflow 去改定时）；"
     "注意 broken（跑起来出错，可以修）与 stale（压根没跑/定时没开火，"
     "该做的是手动跑一次确认再查调度器）是两回事，别给同一条建议；"
     "运行前先用 list_workflows 确认输入声明；生成工作流用 generate_workflow"
     "（提交后告知用户构建已开始，可用 build_status 跟进）；语气简洁友好。"
+    "只给结论，不要把推理过程写进回答——"
+    "「让我看看」「我需要确认」「实际上」这类话是你的思考，用户不该看到；"
+    "工具没有的能力就直说没有并给出替代路径，不要反复自我怀疑。"
 )
 
 TOOLS = [
@@ -45,6 +60,18 @@ TOOLS = [
                    }, "required": ["requirement"]}),
     ToolDefinition(name="platform_overview", description="平台统筹总览：今日运行统计、定时任务、近期失败、进行中的构建",
                    input_schema={"type": "object", "properties": {}}),
+    ToolDefinition(name="set_schedule",
+                   description="改一个已发布工作流的定时时刻（几点几分、哪个时区），"
+                               "改完自动重新发布。用户说'改成早上七点跑''以后别跑了'用这个。"
+                               "把 hour 设为 -1 表示取消定时。",
+                   input_schema={"type": "object", "properties": {
+                       "name_or_id": {"type": "string"},
+                       "hour": {"type": "integer",
+                                "description": "0-23；-1 表示取消定时"},
+                       "minute": {"type": "integer", "description": "0-59，默认 0"},
+                       "timezone": {"type": "string",
+                                    "description": "IANA 时区名，如 Asia/Shanghai；不给则沿用原有"},
+                   }, "required": ["name_or_id", "hour"]}),
     ToolDefinition(name="repair_workflow",
                    description="修一个已存在但跑不通的工作流：在原应用上开一次修复构建，"
                                "莉莉丝从现有草稿改起（不是从零重做）。修复完会重新发布。"
@@ -145,6 +172,64 @@ class WorkflowConcierge:
             services.builders.get("classic").start(build_id)
             return {"build_id": build_id, "app_id": app["id"],
                     "note": "莉莉丝已开工（后台构建），用 build_status 跟进"}
+        if name == "set_schedule":
+            app = await self._resolve_app(str(args.get("name_or_id") or ""))
+            if not app:
+                return {"error": "找不到该工作流"}
+            hour = int(args.get("hour", -1))
+            minute = int(args.get("minute") or 0)
+            if hour != -1 and not (0 <= hour <= 23):
+                return {"error": "hour 要在 0-23 之间，或用 -1 取消定时"}
+            if not (0 <= minute <= 59):
+                return {"error": "minute 要在 0-59 之间"}
+
+            draft = await services.workflow_store.get_draft(app["id"])
+            snapshot = draft["snapshot"].model_dump(mode="json")
+            nodes = snapshot.get("workflow", {}).get("nodes", [])
+            node = next((n for n in nodes if n.get("type") == "schedule_trigger"), None)
+            if node is None:
+                return {"error": f"「{app.get('name')}」没有定时节点——"
+                                 "要加定时得重新生成或让我改造它，说一声我来做"}
+            if hour == -1:
+                return {"error": "取消定时需要删掉定时节点，这一步会改变工作流结构；"
+                                 "说「把 X 的定时去掉」我用修复流程来做，别用这个工具"}
+
+            config = dict(node.get("config") or {})
+            before = f"{int(config.get('hour', 0)):02d}:{int(config.get('minute', 0)):02d} " \
+                     f"{config.get('timezone') or 'UTC'}"
+            config["hour"] = hour
+            config["minute"] = minute
+            if args.get("timezone"):
+                config["timezone"] = str(args["timezone"])
+            after = f"{hour:02d}:{minute:02d} {config.get('timezone') or 'UTC'}"
+
+            from uuid import uuid4
+            from .workflow_models import DraftOperation
+
+            try:
+                await services.applications.apply_operation(app["id"], DraftOperation(
+                    expected_revision=int(draft["revision"]),
+                    idempotency_key=f"set-schedule-{uuid4().hex[:12]}",
+                    op="update_node",
+                    data={"node_id": node["id"], "changes": {"config": config},
+                          "merge_config": False},
+                ))
+            except Exception as error:  # noqa: BLE001 - 转成用户能懂的话
+                return {"error": f"改定时没成功：{str(error)[:200]}"}
+
+            published = None
+            publish_error = ""
+            try:
+                result = await services.workflow_store.publish(
+                    app["id"], acknowledge_warnings=True)
+                published = result.get("version")
+            except Exception as error:  # noqa: BLE001
+                publish_error = str(error)[:200]
+            return {"workflow": app.get("name"), "before": before, "after": after,
+                    "published_version": published, "publish_error": publish_error,
+                    "note": ("已改并重新发布，下次按新时刻开火"
+                             if published else
+                             "草稿已改，但没能重新发布——定时仍按旧时刻走")}
         if name == "repair_workflow":
             app = await self._resolve_app(str(args.get("name_or_id") or ""))
             if not app:
@@ -237,7 +322,7 @@ class WorkflowConcierge:
         for _ in range(6):
             stream = self.services.provider.stream(
                 model=self.settings.deepseek_runtime_model,
-                system=AGENT_SYSTEM, messages=messages, tools=TOOLS,
+                system=_system_prompt(), messages=messages, tools=TOOLS,
                 max_output_tokens=2048, thinking_enabled=False, effort="low",
                 tool_choice={"type": "auto"})
             async def forward(kind: str, data: dict) -> None:
@@ -288,6 +373,10 @@ def _summarize(result: dict) -> str:
         return f"{len(result['runs'])} 条历史"
     if "builds" in result:
         return f"{len(result['builds'])} 个构建"
+    if "before" in result and "after" in result:
+        arrow = f"{result['before']} → {result['after']}"
+        return (f"⏰ {arrow}" if result.get("published_version")
+                else f"⚠ {arrow}（未发布）")
     if "problems" in result:
         problems = result["problems"]
         if not problems:

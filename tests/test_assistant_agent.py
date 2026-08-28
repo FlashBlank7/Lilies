@@ -373,3 +373,84 @@ def test_repair_refuses_when_nothing_is_attributably_broken(monkeypatch, tmp_pat
     assert "error" in result
     assert "waiting" in result["error"]
     assert not started, "不该启动任何构建"
+
+
+def test_set_schedule_changes_time_and_republishes(tmp_path) -> None:
+    """改定时是个再自然不过的需求，此前没有对应工具——实测管家绕了 10 秒、
+    调了 4 个工具，最后什么都没做成。"""
+    from agent_platform.assistant_agent import WorkflowConcierge
+
+    settings = Settings(api_token="workflow-test",
+                        data_dir=tmp_path / "d", workspace_root=tmp_path / "w")
+    headers = {"Authorization": "Bearer workflow-test"}
+    with TestClient(create_app(settings)) as client:
+        services = client.app.state.services
+        created = client.post("/api/v1/applications", headers=headers,
+                              json={"name": "每日日报", "requirement": "每天出日报"}).json()
+        draft = client.get(f"/api/v1/applications/{created['id']}/draft",
+                           headers=headers).json()
+        client.post(f"/api/v1/applications/{created['id']}/draft", headers=headers,
+                    json={"expected_revision": draft["revision"],
+                          "idempotency_key": "add-sched", "op": "add_node",
+                          "data": {"node": {
+                              "id": "sched", "type": "schedule_trigger",
+                              "title": "每天八点",
+                              "config": {"hour": 8, "minute": 0,
+                                         "timezone": "Asia/Shanghai", "inputs": {}}}}})
+
+        published = {}
+        async def fake_publish(app_id, acknowledge_warnings=False):
+            published["app"] = app_id
+            return {"version": 7}
+        services.workflow_store.publish = fake_publish
+
+        concierge = WorkflowConcierge(services, settings)
+        result = client.portal.call(
+            concierge._exec, "set_schedule",
+            {"name_or_id": "每日日报", "hour": 7, "minute": 30}, {"name": "t"})
+
+        after = client.get(f"/api/v1/applications/{created['id']}/draft",
+                           headers=headers).json()
+
+    assert result["before"].startswith("08:00")
+    assert result["after"].startswith("07:30")
+    assert result["published_version"] == 7
+    assert published["app"] == created["id"]
+    node = next(n for n in after["snapshot"]["workflow"]["nodes"]
+                if n["type"] == "schedule_trigger")
+    assert (node["config"]["hour"], node["config"]["minute"]) == (7, 30)
+    assert node["config"]["timezone"] == "Asia/Shanghai"   # 没给就沿用原有
+
+
+def test_set_schedule_rejects_bad_input(tmp_path) -> None:
+    from agent_platform.assistant_agent import WorkflowConcierge
+
+    settings = Settings(api_token="workflow-test",
+                        data_dir=tmp_path / "d", workspace_root=tmp_path / "w")
+    with TestClient(create_app(settings)) as client:
+        services = client.app.state.services
+        client.post("/api/v1/applications",
+                    headers={"Authorization": "Bearer workflow-test"},
+                    json={"name": "没有定时的", "requirement": "随便"})
+        concierge = WorkflowConcierge(services, settings)
+        call = lambda args: client.portal.call(  # noqa: E731
+            concierge._exec, "set_schedule", args, {"name": "t"})
+
+        assert "0-23" in call({"name_or_id": "没有定时的", "hour": 25})["error"]
+        assert "0-59" in call({"name_or_id": "没有定时的", "hour": 8,
+                               "minute": 90})["error"]
+        assert "找不到" in call({"name_or_id": "不存在的", "hour": 8})["error"]
+        # 没有定时节点：说清楚而不是默默失败
+        assert "没有定时节点" in call({"name_or_id": "没有定时的", "hour": 8})["error"]
+
+
+def test_system_prompt_carries_today() -> None:
+    """不告诉它今天几号，它会从运行记录里猜「昨天」——实测猜错过。"""
+    from datetime import datetime, timezone
+
+    from agent_platform.assistant_agent import _system_prompt
+
+    prompt = _system_prompt()
+    assert datetime.now(timezone.utc).strftime("%Y-%m-%d") in prompt
+    assert "别从运行记录里推算" in prompt
+    assert "不要把推理过程写进回答" in prompt
