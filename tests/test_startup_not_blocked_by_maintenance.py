@@ -10,6 +10,7 @@ syscall 是 pread64——不是死锁，是在 1 GB 的 events 表上全表扫�
 维护慢可以忍，服务起不来不能忍。
 """
 
+import asyncio
 import threading
 import time
 from pathlib import Path
@@ -21,45 +22,45 @@ from agent_platform.config import Settings
 from agent_platform.storage import Storage
 
 
+def _app(tmp_path: Path):
+    return create_app(Settings(api_token="startup-test",
+                               data_dir=tmp_path / "data",
+                               workspace_root=tmp_path / "ws",
+                               scheduler_poll_seconds=3600))
+
+
 def test_slow_event_maintenance_does_not_delay_readiness(tmp_path: Path,
                                                          monkeypatch) -> None:
-    started = threading.Event()
-    release = threading.Event()
-
     async def glacial_archive(self, *, keep_days: int):
-        started.set()
-        # 模拟真机：慢到近乎无限。必须**远长于**下面那个就绪等待，
-        # 否则挂回启动路径时它只是「慢一点」，测试照样会绿——就没有区分力了。
-        release.wait(timeout=180)
+        # 必须 await 着睡，不能用 threading 的阻塞等待：后台维护跑在事件循环上，
+        # 阻塞式等待会把整个循环连同 /health 一起冻住，
+        # 那样测的就不是「有没有挂在启动路径上」了。
+        # 这版测试自己踩过这个坑：单跑碰巧绿，整套一起跑就红。
+        await asyncio.sleep(600)
         return {"removed": 0, "remaining": 0}
 
     monkeypatch.setattr(Storage, "archive_events_before", glacial_archive)
 
-    app = create_app(Settings(api_token="startup-test",
-                              data_dir=tmp_path / "data",
-                              workspace_root=tmp_path / "ws",
-                              scheduler_poll_seconds=3600))
-
-    ready = threading.Event()
-    failure: list[BaseException] = []
+    # 维护永远跑不完，服务却必须照常应答：
+    # TestClient 的 with 进得去（启动完成）就说明维护没挂在启动路径上。
+    # 放线程里跑并设一个截止时间：真挂回启动路径时要「红」，不要「挂住」——
+    # 卡死的测试在 CI 上比失败的测试更难查。
+    done, failure = threading.Event(), []
 
     def boot() -> None:
         try:
-            with TestClient(app) as client:
+            with TestClient(_app(tmp_path)) as client:
                 assert client.get("/health").status_code == 200
-                ready.set()
+                assert client.get("/health").status_code == 200
         except BaseException as error:  # noqa: BLE001 - 交回主线程报告
             failure.append(error)
-            ready.set()
+        finally:
+            done.set()
 
     thread = threading.Thread(target=boot, daemon=True)
     thread.start()
-    # 维护还卡着的时候，服务就该已经能应答了。
-    # 45 秒不是给维护的，是给建库+建表本身的：这台机器磁盘慢，
-    # 整套测试并跑时冷启动一次要十几秒，20 秒会偶发假红。
-    assert ready.wait(timeout=45), "维护没跑完，服务就起不来——又挂回启动路径上了"
-    release.set()
-    thread.join(timeout=20)
+    # 120 秒是留给建库建表的（这台机器磁盘慢），远小于桩里睡的 600 秒
+    assert done.wait(timeout=120), "维护没跑完，服务就起不来——又挂回启动路径上了"
     assert not failure, failure
 
 
@@ -70,11 +71,7 @@ def test_maintenance_failure_does_not_take_the_service_down(tmp_path: Path,
 
     monkeypatch.setattr(Storage, "archive_events_before", exploding_archive)
 
-    app = create_app(Settings(api_token="startup-test",
-                              data_dir=tmp_path / "data",
-                              workspace_root=tmp_path / "ws",
-                              scheduler_poll_seconds=3600))
-    with TestClient(app) as client:
+    with TestClient(_app(tmp_path)) as client:
         assert client.get("/health").status_code == 200
         time.sleep(0.2)   # 让后台任务有机会抛出来
         assert client.get("/health").status_code == 200
