@@ -1,22 +1,29 @@
-"""搭建方停下来问业主时，build_status 必须把问题带出来。
+"""构建状态：既要说得出「在问什么」，也要说人话。
 
-回归背景：build_status 只返回状态词，遇到 needs_attention 时模型
-说得出「需要你注意」却说不出在问什么——用户等构建、构建等用户。
+回归背景（2026-08-28 真机）：问「那个构建怎么样了」，回答里三处内部词
+直接见了用户——「状态：needs_attention」「`model stream timed out after 600s`」
+「第 8 版修订」。提示词里禁止机器词汇拦不住，模型手里只有这些词。
 """
+import re
 import unittest
 from unittest.mock import AsyncMock, MagicMock
 
 from agent_platform.assistant_agent import WorkflowConcierge
 
+# 状态码、英文报错、内部计数——一个都不该出现在给模型的载荷里
+LEAK = re.compile(r"needs_attention|queued|building|published|revision|"
+                  r"stream timed out|rate limit|[a-z]{4,} [a-z]{4,} [a-z]{4,}")
 
-def _concierge(status, pending_question):
+
+def _concierge(status, pending_question, error=""):
     state = MagicMock()
-    state.revision = 3
+    state.revision = 8
     state.published_version = None
     state.pending_question = pending_question
     services = MagicMock()
     services.workflow_store.get_build = AsyncMock(
-        return_value={"id": "b1", "status": status, "error": "", "team_state": state})
+        return_value={"id": "b1", "status": status, "error": error,
+                      "team_state": state})
     return WorkflowConcierge(services, MagicMock())
 
 
@@ -24,23 +31,52 @@ class BuildStatusQuestionTest(unittest.IsolatedAsyncioTestCase):
     async def test_pending_question_is_surfaced(self):
         agent = _concierge("needs_attention", "净字数要不要算标点？")
         result = await agent._exec("build_status", {"build_id": "b1"}, {})
-        self.assertEqual(result["pending_question"], "净字数要不要算标点？")
+        self.assertEqual(result["搭建方在问"], "净字数要不要算标点？")
         # 光把问题塞进去还不够：模型得知道拿到答复后怎么送回去
-        self.assertIn("resume_build", result["note"])
+        self.assertIn("resume_build", result["接下来"])
 
     async def test_long_question_is_truncated_not_dropped(self):
         agent = _concierge("needs_attention", "问" * 5000)
         result = await agent._exec("build_status", {"build_id": "b1"}, {})
-        self.assertTrue(result["pending_question"])
-        self.assertLessEqual(len(result["pending_question"]), 600)
+        self.assertTrue(result["搭建方在问"])
+        self.assertLessEqual(len(result["搭建方在问"]), 600)
 
     async def test_running_build_says_it_is_still_working(self):
         agent = _concierge("building", None)
         result = await agent._exec("build_status", {"build_id": "b1"}, {})
-        self.assertNotIn("pending_question", result)
-        self.assertIn("revision", result["note"])
+        self.assertNotIn("搭建方在问", result)
+        self.assertIn("还在搭", result["情况"])
 
-    async def test_finished_build_gets_no_misleading_note(self):
-        agent = _concierge("published", None)
+    async def test_stall_is_explained_in_plain_language(self):
+        agent = _concierge("needs_attention", None,
+                           "model stream timed out after 600s")
         result = await agent._exec("build_status", {"build_id": "b1"}, {})
-        self.assertNotIn("note", result)
+        self.assertIn("卡住", result["情况"])
+        # 超时的原因要说出来，但要说人话
+        self.assertIn("断了", result["情况"])
+        self.assertIn("resume_build", result["接下来"])
+
+    async def test_no_internal_words_reach_the_model(self):
+        for status, question, error in (
+            ("needs_attention", None, "model stream timed out after 600s"),
+            ("needs_attention", "要不要算标点？", ""),
+            ("building", None, ""),
+            ("published", None, ""),
+            ("failed", None, "Connection refused by upstream"),
+            ("weird_new_status", None, ""),
+        ):
+            agent = _concierge(status, question, error)
+            result = await agent._exec("build_status", {"build_id": "b1"}, {})
+            # 搭建方原话（问题正文）是业主要看的，不算泄漏，排除掉再查
+            payload = " ".join(str(value) for key, value in result.items()
+                               if key != "搭建方在问")
+            self.assertIsNone(LEAK.search(payload.lower()),
+                              f"{status}/{error} 泄漏了内部词：{payload}")
+
+    async def test_every_state_tells_the_user_what_to_do(self):
+        for status in ("building", "published", "needs_attention", "failed",
+                       "weird_new_status"):
+            agent = _concierge(status, None, "")
+            result = await agent._exec("build_status", {"build_id": "b1"}, {})
+            self.assertTrue(result["情况"].strip(), status)
+            self.assertTrue(result["接下来"].strip(), status)

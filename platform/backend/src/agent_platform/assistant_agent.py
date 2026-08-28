@@ -433,17 +433,14 @@ class WorkflowConcierge:
         if name == "build_status":
             build = await services.workflow_store.get_build(str(args.get("build_id") or ""))
             state = build["team_state"]
-            result = {"status": build["status"], "revision": state.revision,
-                      "published_version": state.published_version,
-                      "error": (build.get("error") or "")[:200]}
-            # 停下来问业主时必须把问题带出来：只报 needs_attention 的话，
-            # 模型说得出「需要你注意」却说不出在问什么，用户等构建、构建等用户
+            situation, what_to_do = _build_situation(
+                build["status"], state.pending_question, build.get("error") or "")
+            result = {"情况": situation, "接下来": what_to_do,
+                      "已发布版本": state.published_version}
+            # 停下来问业主时必须把问题带出来：只报「需要你处理」的话，
+            # 模型说得出「要你处理」却说不出在问什么，用户等构建、构建等用户
             if state.pending_question:
-                result["pending_question"] = state.pending_question[:600]
-                result["note"] = ("搭建停下来等你回话了——把问题原样转达给用户，"
-                                  "拿到答复后用 resume_build 带上 message 续跑")
-            elif build["status"] in ("queued", "building"):
-                result["note"] = "还在搭；revision 会往上走，说明在推进"
+                result["搭建方在问"] = state.pending_question[:600]
             return result
         return {"error": f"unknown tool: {name}"}
 
@@ -521,6 +518,44 @@ class WorkflowConcierge:
         return actions, "（动作轮次到达上限，请把要求说得更具体些）"
 
 
+# 内部报错 → 业主听得懂的话。模型只会照抄手里的词，所以别把英文递给它。
+_BUILD_ERROR_WORDS = (
+    ("stream timed out", "搭建方想得太久，中途断了"),
+    ("timed out", "等太久超时了"),
+    ("timeout", "等太久超时了"),
+    ("rate limit", "模型服务这会儿太忙"),
+    ("429", "模型服务这会儿太忙"),
+    ("connection", "连不上模型服务"),
+    ("unauthorized", "模型服务的凭据不对"),
+    ("401", "模型服务的凭据不对"),
+)
+
+
+def _build_situation(status: str, pending_question: str | None,
+                     error: str) -> tuple[str, str]:
+    """把构建状态翻成一句人话，外加一句「所以你能做什么」。
+
+    revision（第几版修订）不外传：那是搭建方的内部计数，
+    业主看了只会以为自己该关心版本号。
+    """
+    if pending_question:
+        return ("搭建停下来了，在等业主回话",
+                "把问题原样转达给用户；拿到答复后用 resume_build 带上 message 续跑")
+    if status in ("queued", "building"):
+        return "还在搭，正常进行中", "过一会儿再查一次即可，不用做什么"
+    if status == "published":
+        return "搭完了，已经发布可以用", "不用做什么"
+    lowered = str(error).lower()
+    reason = next((word for key, word in _BUILD_ERROR_WORDS if key in lowered), "")
+    if status == "needs_attention":
+        return (f"搭建中途卡住了（{reason}）" if reason else "搭建中途卡住了",
+                "多半是一时的，用 resume_build 让它接着跑就行")
+    if status in ("failed", "error"):
+        return (f"这次没搭成（{reason}）" if reason else "这次没搭成",
+                "可以用 resume_build 让它接着跑；连着不成就把需求说得更具体些")
+    return "搭建状态未知", "用 resume_build 让它接着跑试试"
+
+
 def _acceptance_summary(app: dict, report: dict) -> dict:
     """只给结论与不合格项——整份验收单太长，塞进对话没人看。"""
     cases = report.get("cases") or []
@@ -558,6 +593,8 @@ def _summarize(result: dict) -> str:
         return f"{len(result['runs'])} 条历史"
     if "builds" in result:
         return f"{len(result['builds'])} 个构建"
+    if "情况" in result:
+        return str(result["情况"])
     if "verdict" in result and "passed_cases" in result:
         mark = "✓" if result["verdict"] == "通过" else "⚠"
         return f"{mark} 验收 {result['passed_cases']}/{result['total_cases']} 条通过"
