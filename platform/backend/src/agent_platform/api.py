@@ -180,6 +180,24 @@ def _owner_safe_summary(summary: dict[str, Any] | None) -> dict[str, Any]:
             "tool_call_count": summary.get("tool_call_count", 0)}
 
 
+# kind=event 里真正给业主看的：发布、要业主拿主意、被截断。
+# 其余（主要是 event="phase" 的构建阶段诊断）默认不给——
+# 真机上 368 条 phase 里 85 条带着模型名和英文报错。
+_OWNER_EVENT_KINDS = frozenset({"published", "needs_attention", "truncated"})
+
+
+def _owner_facing_event(record: dict[str, Any]) -> bool:
+    """这条里程碑给不给业主看。
+
+    两个来源：写入点显式标注 for_owner=True，或者事件类别本身就是给业主的。
+    类别兜底是为了老记录——2026-08-29 之前写下的没有 for_owner 这个键，
+    但「已发布」「要你拿个主意」当时就该给业主看，现在也是。
+    """
+    if record.get("for_owner"):
+        return True
+    return record.get("event") in _OWNER_EVENT_KINDS
+
+
 def _owner_safe_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """业主看的那份记录：搭建方写给自己看的话，一句都不给。
 
@@ -201,7 +219,10 @@ def _owner_safe_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """
     safe: list[dict[str, Any]] = []
     for record in records:
-        if record.get("kind") in ("owner", "event"):
+        if record.get("kind") == "owner":
+            safe.append(record)
+            continue
+        if record.get("kind") == "event" and _owner_facing_event(record):
             safe.append(record)
             continue
         if str(record.get("text") or "").strip():

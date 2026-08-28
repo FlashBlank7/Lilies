@@ -1409,7 +1409,9 @@ class MechanicalBuilder(WorkflowBuilder):
             await self._emit(build_id, "build.mechanical.phase", {"phase": "verify", "cycle": cycle})
             report = await machine_execute("test_run", {})
             if report.get("passed"):
-                self._record_event(build_id, "phase", "验收测试全绿，交付成立")
+                # 业主等的就是这句
+                self._record_event(build_id, "phase", "验收测试全绿，交付成立",
+                                   for_owner=True)
                 return "mechanical build passed acceptance"
             failures = json.dumps(
                 report.get("results") or report, ensure_ascii=False, default=str
@@ -1436,8 +1438,10 @@ class MechanicalBuilder(WorkflowBuilder):
                     f"acceptance still failing after {max_repair_cycles} repair cycles"
                 )
             await self._emit(build_id, "build.mechanical.phase", {"phase": "repair", "cycle": cycle + 1})
+            # 返修是业主该知道的：东西还没好，正在改
             self._record_event(
-                build_id, "phase", f"验收未过，进入第 {cycle + 1} 轮修复"
+                build_id, "phase", f"验收未过，进入第 {cycle + 1} 轮修复",
+                for_owner=True,
             )
             feedback = ""
             consecutive_reads = 0

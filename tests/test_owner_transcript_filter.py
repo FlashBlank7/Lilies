@@ -49,8 +49,15 @@ class OwnerSeesNoBuilderProseTest(unittest.TestCase):
         self.assertEqual(out[0]["tool_calls"], [{"tool": "draft_add_node"}])
 
     def test_milestone_events_pass_through(self):
-        """业主该知道的里程碑都是 event，不受影响——这是敢全挡 turn 的前提。"""
-        out = _owner_safe_records([{"kind": "event", "text": MILESTONE}])
+        """业主该知道的里程碑照常过——这是敢全挡 turn 的前提。
+
+        假数据带上 event="published"：真机 465 条 kind=event 全都有类别名
+        （phase 368、needs_attention 61、published 19、truncated 17），
+        一条不带的都没有。原先的假数据省了这个字段，
+        于是 2026-08-29 收紧闸口时它先红了——红的是假数据，不是产品。
+        """
+        out = _owner_safe_records(
+            [{"kind": "event", "event": "published", "text": MILESTONE}])
         self.assertEqual(out[0]["text"], MILESTONE)
         self.assertNotIn("text_withheld", out[0])
 
@@ -86,7 +93,7 @@ class OwnerEndpointUsesTheFilterTest(unittest.TestCase):
             services.build_transcripts.read = MagicMock(return_value=[
                 {"kind": "turn", "text": CHINESE_THINKING,
                  "tool_calls": [{"tool": "draft_add_node"}]},
-                {"kind": "event", "text": MILESTONE},
+                {"kind": "event", "event": "published", "text": MILESTONE},
             ])
             services.build_transcripts.summary = MagicMock(return_value={})
             response = client.get("/api/v1/owner/app-1/transcript?code=x")

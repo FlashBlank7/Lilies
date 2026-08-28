@@ -197,16 +197,28 @@ def owner_record(*, text: str, draft_revision: int) -> dict[str, Any]:
     }
 
 
-def event_record(*, text: str, event: str, draft_revision: int = 0) -> dict[str, Any]:
+def event_record(*, text: str, event: str, draft_revision: int = 0,
+                 for_owner: bool = False) -> dict[str, Any]:
     """Record one platform milestone (发布/等待回复/取消) as a first-class stream item.
 
     Turn text can be missed or skimmed; milestones must be unmissable. Renderers
     key on ``kind == "event"`` and show these as centered system badges.
+
+    ``for_owner`` 决定这条给不给业主看，**默认不给**。
+    原因是量出来的：真机 76 份 transcript 里 kind=event 共 465 条，
+    其中 368 条是 event="phase"（构建阶段的内部诊断），
+    85 条带着模型名或成串英文——「架构规划：local2/Qwen/Qwen3-32B 选型」
+    这种直接摆在业主面前。闸口把 kind=event 整类当白名单放行，
+    所以这 85 条一条没挡。
+
+    默认拒绝的方向是故意的：将来新加写入点忘了标注，
+    业主少看一行内部日志，而不是多看一行模型名。
     """
 
     return {
         "kind": "event",
         "event": event,
+        "for_owner": for_owner,
         "turn": 1,
         "actor": "platform",
         "model": "",

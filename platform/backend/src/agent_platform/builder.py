@@ -2613,7 +2613,8 @@ class WorkflowBuilder:
             rows.append(LabeledObservation(features=features, units=units, label=int(item["label"])))
         return rows
 
-    def _record_event(self, build_id: str, event: str, text: str) -> None:
+    def _record_event(self, build_id: str, event: str, text: str,
+                      *, for_owner: bool = False) -> None:
         """Milestones (发布/等待/取消/故障) go into the transcript as system badges.
 
         Turn text is easy to skim past; the owner must never wonder "so did it
@@ -2622,7 +2623,8 @@ class WorkflowBuilder:
 
         if self.transcripts is None:
             return
-        self.transcripts.append(build_id, event_record(text=text, event=event))
+        self.transcripts.append(
+            build_id, event_record(text=text, event=event, for_owner=for_owner))
 
     def _record_turn(
         self,
