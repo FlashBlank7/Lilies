@@ -183,7 +183,19 @@ export default function OwnerPage({ params }: { params: Promise<{ id: string }> 
         // 但也别让时间线凭空断一截。
         // 原先这里写的是 `text ? … : null`——可上面刚 `if (text) return`，
         // 走到这行 text 必然为空，占位从来没渲染出来过。
-        return record.text_withheld ? <div className={styles.action} key={index}>⚙ 在琢磨下一步</div> : null
+        //
+        // 连着好几轮都被挡下时只出一行：真机上一次搭建 59 条记录里
+        // 33 条是这种，一条一行就是满屏一模一样的「在琢磨下一步」——
+        // 那比断一截更糟。占位是为了让人知道"它还在干活"，
+        // 说一次就够了。
+        if (!record.text_withheld) return null
+        const previous = records[index - 1]
+        const previousWasPlaceholder = Boolean(
+          previous && previous.kind !== 'owner' && previous.kind !== 'event'
+          && previous.text_withheld && !(previous.text || '').trim()
+          && !describeAction(previous))
+        return previousWasPlaceholder ? null
+          : <div className={styles.action} key={index}>⚙ 在琢磨下一步</div>
       })}
       {state?.build?.pending_question && <div className={styles.question}>
         <b>这里有个问题等你回复</b>{state.build.pending_question}
