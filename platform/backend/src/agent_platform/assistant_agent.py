@@ -836,7 +836,14 @@ class WorkflowConcierge:
                     "assistant-agent", "agent.tool", {
                         "user": user.get("name"), "tool": call.name,
                         "ok": "error" not in result})
-                entry = {"tool": call.name, "summary": _summarize(result)}
+                # label 是给人看的名字。客户端界面上原先直接印 tool，
+                # 于是用户看到「⚙ recent_runs → …」——回答正文里被
+                # _without_tool_names 拦下来的东西，从动作行大摇大摆地出去了。
+                # 同一个闸没装满所有出口，今天第三次撞见。
+                # tool 保留：客户端旧版本认它，事件流也按它统计。
+                entry = {"tool": call.name,
+                         "label": _TOOL_WORDS.get(call.name or "", call.name or ""),
+                         "summary": _summarize(result)}
                 for key in ("build_id", "app_id", "run_id"):
                     if isinstance(result, dict) and result.get(key):
                         entry[key] = result[key]

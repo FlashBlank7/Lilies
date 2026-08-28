@@ -54,7 +54,11 @@ def test_concierge_executes_tools_server_side(tmp_path: Path) -> None:
                         json={"messages": [{"role": "user", "text": "有哪些工作流？"}]})
         assert r.status_code == 200, r.text
         data = r.json()
-        assert data["actions"] == [{"tool": "list_workflows", "summary": "0 个工作流"}]
+        # 2026-08-29 起动作事件多带一个 label（给人看的中文名）——
+        # 客户端界面原先直接印 tool，用户看到的是「⚙ list_workflows」。
+        assert data["actions"] == [{"tool": "list_workflows",
+                                    "label": "查工作流列表",
+                                    "summary": "0 个工作流"}]
         assert data["text"] == "平台上有 0 个已发布工作流"
 
 
