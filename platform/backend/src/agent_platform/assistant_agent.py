@@ -9,11 +9,14 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from typing import Any
 
 from .agent_core import collect_model_stream
 from .models import ChatMessage, ContentBlock, ToolDefinition
 from .workflow_storage import TERMINAL_BUILD_STATUSES
+
+logger = logging.getLogger(__name__)
 
 def _system_prompt() -> str:
     """带上今天的日期——不然它得靠运行记录猜「昨天」是哪天，实测会猜错。"""
@@ -170,6 +173,16 @@ class WorkflowConcierge:
             if len(matches) == 1:
                 return matches[0]
         return None
+
+    async def _get_build_or_error(self, build_id: str) -> tuple[dict | None, dict | None]:
+        """回 (build, error)。构建号是模型填的，填错很常见——不能让它掀翻整轮。"""
+        if not build_id:
+            return None, {"error": "没给构建号。用 recent_builds 找到那一个再来。"}
+        try:
+            return await self.services.workflow_store.get_build(build_id), None
+        except KeyError:
+            return None, {"error": "找不到这个构建号。用 recent_builds 列一下最近的，"
+                                   "对上再重试；也可能是它属于别的工作流。"}
 
     async def _exec(self, name: str, args: dict, user: dict) -> dict:
         services = self.services
@@ -451,7 +464,9 @@ class WorkflowConcierge:
             return {"builds": rows}
         if name == "resume_build":
             build_id = str(args.get("build_id") or "")
-            build = await services.workflow_store.get_build(build_id)
+            build, failure = await self._get_build_or_error(build_id)
+            if failure:
+                return failure
             if build["status"] in ("queued", "building"):
                 return {"error": "该构建正在进行中，无需续跑"}
             # 搭建方那边会把这条当「业主的答复」并标为最高优先级——
@@ -466,7 +481,9 @@ class WorkflowConcierge:
             return {"build_id": build_id, "status": "queued", "note": "已续跑，可用 build_status 跟进"}
         if name == "abandon_build":
             build_id = str(args.get("build_id") or "")
-            build = await services.workflow_store.get_build(build_id)
+            build, failure = await self._get_build_or_error(build_id)
+            if failure:
+                return failure
             if build["status"] in TERMINAL_BUILD_STATUSES:
                 return {"情况": "这个构建早就结束了，没什么可放弃的",
                         "接下来": "不用做什么"}
@@ -478,7 +495,10 @@ class WorkflowConcierge:
                     build_id, status="cancelled", error="")
             return {"情况": "已经放弃这个构建了", "接下来": "不用做什么"}
         if name == "build_status":
-            build = await services.workflow_store.get_build(str(args.get("build_id") or ""))
+            build, failure = await self._get_build_or_error(
+                str(args.get("build_id") or ""))
+            if failure:
+                return failure
             state = build["team_state"]
             situation, what_to_do = _build_situation(
                 build["status"], state.pending_question, build.get("error") or "")
@@ -553,7 +573,14 @@ class WorkflowConcierge:
             messages.append(ChatMessage(role="assistant", content=response.blocks))
             result_blocks = []
             for call in calls:
-                result = await self._exec(call.name or "", call.input or {}, user)
+                try:
+                    result = await self._exec(call.name or "", call.input or {}, user)
+                except Exception:  # noqa: BLE001 - 工具报错是数据，不是崩溃
+                    # 十几个工具、参数全由模型填，总会有填错的。
+                    # 让模型收到一句可读的错误自己纠正，胜过业主收到一个 500。
+                    logger.exception("concierge tool failed: %s", call.name)
+                    result = {"error": f"「{call.name}」这一步没执行成功。"
+                                       "换个方式试试，或把情况如实告诉用户。"}
                 await self.services.storage.append_event(
                     "assistant-agent", "agent.tool", {
                         "user": user.get("name"), "tool": call.name,
