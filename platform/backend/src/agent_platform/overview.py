@@ -32,9 +32,15 @@ async def build_overview(services: Any) -> dict[str, Any]:
 
     def query() -> dict[str, Any]:
         with storage._connect() as conn:
+            # 归档过滤：失败清单、应用列表、体检都加了，today 和本周没加，
+            # 于是面板自己跟自己打架——真机 2026-08-29 量到本周失败 25 次，
+            # 而清单最多只解释得了 13 次，另外 12 次属于已归档的工作流：
+            # 数字在，出处查不到。口径要么都算要么都不算，不能一半一半。
             runs_today = dict(conn.execute(
-                "SELECT status, COUNT(*) FROM workflow_runs "
-                f"WHERE created_at LIKE ? AND {_REAL_RUN} GROUP BY status",
+                "SELECT r.status, COUNT(*) FROM workflow_runs r "
+                "JOIN applications a ON a.id=r.application_id "
+                f"WHERE r.created_at LIKE ? AND a.archived_at IS NULL AND r.{_REAL_RUN} "
+                "GROUP BY r.status",
                 (f"{today}%",),
             ).fetchall())
             failures = [dict(r) for r in conn.execute(
@@ -53,9 +59,10 @@ async def build_overview(services: Any) -> dict[str, Any]:
                 "ORDER BY r.created_at DESC LIMIT 500"
             ).fetchall()]
             week_rows = conn.execute(
-                "SELECT substr(created_at,1,10) AS day, status, COUNT(*) AS n "
-                "FROM workflow_runs WHERE created_at >= date('now','-6 days') "
-                f"AND {_REAL_RUN} GROUP BY day, status",
+                "SELECT substr(r.created_at,1,10) AS day, r.status, COUNT(*) AS n "
+                "FROM workflow_runs r JOIN applications a ON a.id=r.application_id "
+                "WHERE r.created_at >= date('now','-6 days') "
+                f"AND a.archived_at IS NULL AND r.{_REAL_RUN} GROUP BY day, r.status",
             ).fetchall()
             builds_active = int(conn.execute(
                 "SELECT COUNT(*) FROM builds WHERE status IN ('queued','building')"
