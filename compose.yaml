@@ -69,6 +69,10 @@ services:
       args:
         SANDBOX_UID: ${SANDBOX_UID:-10001}
         SANDBOX_GID: ${SANDBOX_GID:-10001}
+    # 只构建、不驻留：镜像的 CMD 是 sleep infinity，直接跑会让 api 的
+    # service_completed_successfully 永远等下去（一键部署就是卡在这）。
+    # 覆盖成立刻退出的命令，镜像照样在 up 时构建出来。
+    command: ["true"]
     # 默认启动时自动构建；infra profile 下跳过
     profiles: []
 
