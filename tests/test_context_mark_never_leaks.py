@@ -13,7 +13,9 @@ import unittest
 from unittest.mock import AsyncMock, MagicMock
 
 import agent_platform.assistant_agent as module
-from agent_platform.assistant_agent import WorkflowConcierge, _without_context_marks
+from agent_platform.assistant_agent import (WorkflowConcierge,
+                                            _without_context_marks,
+                                            _without_tool_names)
 from agent_platform.models import ContentBlock
 
 
@@ -57,3 +59,36 @@ class ReplyNeverEmitsTheMarkTest(unittest.IsolatedAsyncioTestCase):
             module.collect_model_stream = original
         self.assertEqual(text, "它不能发邮件")
         self.assertNotIn("上下文", text)
+
+
+class ToolNamesNeverReachTheUserTest(unittest.TestCase):
+    """工具名也靠剪，不靠嘱咐。
+
+    提示词里早写着「回答里不出现工具名」，可它还是照说。真机原话：
+        「我只能通过 tidy_workflows 把工作流收起来」
+        「用 build_status 跟进即可」
+    这些是 snake_case 的内部标识符，中文回答里没有正当理由出现。
+    """
+
+    def test_tool_name_becomes_a_phrase_not_a_hole(self):
+        # 换成词组而不是删掉，免得把句子弄断
+        out = _without_tool_names("我只能通过 tidy_workflows 把工作流收起来")
+        self.assertNotIn("tidy_workflows", out)
+        self.assertIn("收拾列表", out)
+
+    def test_every_tool_name_is_covered(self):
+        from agent_platform.assistant_agent import TOOLS
+
+        for tool in TOOLS:
+            out = _without_tool_names(f"用 {tool.name} 就行")
+            self.assertNotIn(tool.name, out, f"{tool.name} 没有对应的人话")
+
+    def test_ordinary_text_is_untouched(self):
+        for text in ("「文本行数与净字数统计」跑通了", "正常回答", ""):
+            self.assertEqual(_without_tool_names(text), text)
+
+    def test_it_runs_on_the_reply_path(self):
+        # 接线：出口那道清洗要真的调用它
+        out = _without_context_marks('<上下文 a="1" />用 build_status 跟进')
+        self.assertNotIn("build_status", out)
+        self.assertNotIn("上下文", out)

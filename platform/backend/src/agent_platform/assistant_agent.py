@@ -24,13 +24,39 @@ logger = logging.getLogger(__name__)
 _CONTEXT_MARK = re.compile(r"<上下文[^>]*/>\s*")
 
 
+# 工具名 → 人话。提示词里早就写着「回答里不出现工具名」，可它还是照说
+# （真机原话：「我只能通过 tidy_workflows 把工作流收起来」）。
+# 这些是 snake_case 的内部标识符，中文回答里没有任何正当理由出现，
+# 所以直接换掉——换成词组而不是删掉，免得把句子弄断。
+_TOOL_WORDS = {
+    "list_workflows": "查工作流列表", "run_workflow": "跑工作流",
+    "recent_runs": "查运行记录", "generate_workflow": "生成工作流",
+    "platform_overview": "看平台总览", "tidy_workflows": "收拾列表",
+    "set_schedule": "改定时", "acceptance_check": "请监理验收",
+    "repair_workflow": "修工作流", "health_report": "做体检",
+    "recent_builds": "查生成任务", "resume_build": "让它接着跑",
+    "abandon_build": "放弃构建", "build_status": "查搭建进度",
+    "explain_workflow": "讲讲它怎么做的",
+}
+_TOOL_NAMES = re.compile(r"\b(" + "|".join(sorted(_TOOL_WORDS, key=len, reverse=True))
+                         + r")\b")
+
+
+def _without_tool_names(text: str) -> str:
+    """把回答里的工具名换成人话。
+
+    提示词管不住的就机械保证——今天状态码、上下文标记都是这么解决的。
+    """
+    return _TOOL_NAMES.sub(lambda m: _TOOL_WORDS[m.group(1)], text)
+
+
 def _without_context_marks(text: str) -> str:
     """把内部上下文标记从回答里剪掉。
 
     提示词里已经写了「绝不能出现在回答里」，但那是约束不是保证——
     真机上它照样出现在回答的第一行。能机械保证的就别只靠嘱咐。
     """
-    return _CONTEXT_MARK.sub("", str(text or "")).strip()
+    return _without_tool_names(_CONTEXT_MARK.sub("", str(text or ""))).strip()
 
 def _system_prompt() -> str:
     """带上今天的日期——不然它得靠运行记录猜「昨天」是哪天，实测会猜错。"""
@@ -63,7 +89,9 @@ AGENT_SYSTEM = (
     "工具返回里下划线开头的字段（如 _怎么做）同样是给你看的操作指引，"
     "照做但绝不复述，回答里不出现工具名、状态码、字段名；"
     "只给结论，不要把推理过程写进回答——"
-    "「让我看看」「我需要确认」「实际上」这类话是你的思考，用户不该看到；"
+    "「让我看看」「我需要确认」「我来整理一下」「我需要先搞清楚」「实际上」"
+    "这类话是你的思考，用户不该看到——**第一句就直接给结论**，"
+    "别铺垫、别复述题目、别把时区换算和逐条核对的过程写出来；"
     "「有哪些/现在怎么样/还剩几个」这类问清单与现状的问题，每次都要现查工具，"
     "不能拿上一轮的回答当答案——列表随时在变，照着旧的说等于报错数；"
     "工具没有的能力就直说没有并给出替代路径，不要反复自我怀疑；"
