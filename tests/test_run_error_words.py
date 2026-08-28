@@ -51,3 +51,48 @@ class RunErrorWordsTest(unittest.TestCase):
     def test_empty_stays_empty(self):
         self.assertEqual(_human_error(""), "")
         self.assertEqual(_human_error("   "), "")
+
+
+class ReferenceErrorIsNotReversedTest(unittest.TestCase):
+    """线上最大一族失败（72 条）原本被翻**反**了。
+
+    原文 could not resolve node='X' path=['f'] container_type=NoneType
+    的意思是「取不到 X 的 f 这一项」——节点就在图上。
+    原译文说「引用了不存在的节点「X」」，会把人引去找一个其实存在的节点，
+    修的方向正好相反，而且把原文里唯一可执行的信息（哪个字段、为什么取不到）全丢了。
+    """
+
+    NONE_TYPE = ("node end failed: workflow reference could not resolve "
+                 "node='template_transform' path=['text']; "
+                 "failed_segment='text'; container_type=NoneType")
+    DICT_TYPE = ("node end failed: workflow reference could not resolve "
+                 "node='aggregator' path=['by_store']; "
+                 "failed_segment='by_store'; container_type=dict")
+
+    def test_it_no_longer_says_the_node_is_missing(self):
+        for error in (self.NONE_TYPE, self.DICT_TYPE):
+            self.assertNotIn("不存在的节点", _human_error(error), error[:60])
+
+    def test_it_names_both_the_node_and_the_field(self):
+        out = _human_error(self.NONE_TYPE)
+        self.assertIn("template_transform", out)
+        self.assertIn("text", out)
+
+    def test_container_type_becomes_the_real_cause(self):
+        self.assertIn("没有产出", _human_error(self.NONE_TYPE))
+        self.assertIn("没有这一项", _human_error(self.DICT_TYPE))
+
+    def test_container_type_survives_truncation(self):
+        """判据要在未截断的原文上跑。
+
+        _brief_error 砍到 110 字，而 container_type 恰好在那之后——
+        先截再匹配就永远读不到真因（第一版就是这么错的）。
+        """
+        self.assertGreater(len(self.NONE_TYPE), 110)
+        self.assertIn("没有产出", _human_error(self.NONE_TYPE))
+
+    def test_without_container_type_it_still_reads_well(self):
+        out = _human_error("node x failed: workflow reference could not "
+                           "resolve node='n' path=['p']")
+        self.assertIn("取不到", out)
+        self.assertIn("n", out)

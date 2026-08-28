@@ -212,8 +212,17 @@ def _not_the_workflows_fault(error: str) -> bool:
 # 业主要拿那个名字去改东西，翻没了等于没说。
 _RUN_ERROR_RULES = (
     (re.compile(r"missing required input:\s*(\S+)"), "缺少必填输入「{0}」"),
+    # 这是线上最大一族失败（72 条）。原本译成「引用了不存在的节点」是**反的**：
+    # 节点就在图上，取不到的是它的某一项产出。照这个译文去找一个不存在的节点，
+    # 只会白忙。container_type 恰好区分了两种真因，一并说清楚：
+    #   NoneType → 那一步压根没产出      dict → 产出里没有这一项
+    (re.compile(r"could not resolve node='([^']+)' path=\['([^']*)'\]"
+                r"(?:[^;]*;)*\s*container_type=(\w+)"),
+     "取不到「{0}」的「{1}」——{2}"),
+    (re.compile(r"could not resolve node='([^']+)' path=\['([^']*)'\]"),
+     "取不到「{0}」的「{1}」"),
     (re.compile(r"workflow reference could not resolve node='([^']+)'"),
-     "引用了不存在的节点「{0}」"),
+     "取不到「{0}」的产出"),
     (re.compile(r"collection expression requires an array"), "汇总的对象不是一个列表"),
     (re.compile(r"record_collection_normalize value must resolve"),
      "要汇总的数据不是一组记录"),
@@ -252,10 +261,21 @@ def _human_error(error: str) -> str:
     text = _brief_error(error)
     if not text:
         return ""
+    # 判据在**未截断**的原文上跑：_brief_error 砍到 110 字，
+    # 而 container_type 恰好在那之后——截完再匹配就永远读不到真因
+    full = " ".join(str(error or "").split())
     for pattern, template in _RUN_ERROR_RULES:
-        match = pattern.search(text)
+        match = pattern.search(full) or pattern.search(text)
         if match:
-            return template.format(*match.groups()) if match.groups() else template
+            if not match.groups():
+                return template
+            groups = list(match.groups())
+            if len(groups) == 3:      # 第三组是 container_type，翻成真因
+                groups[2] = {"NoneType": "那一步没有产出",
+                             "dict": "它的产出里没有这一项",
+                             "list": "它的产出是个列表，没有这一项"}.get(
+                                 groups[2], f"拿到的是 {groups[2]}")
+            return template.format(*groups)
     return text
 
 
