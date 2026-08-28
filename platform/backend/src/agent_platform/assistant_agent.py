@@ -50,13 +50,68 @@ def _without_tool_names(text: str) -> str:
     return _TOOL_NAMES.sub(lambda m: _TOOL_WORDS[m.group(1)], text)
 
 
+# 自言自语：模型在回答里叙述自己接下来要干什么。
+# 提示词里点名禁过这些说法（见系统提示词里那一条），2026-08-29 冒烟照样撞出
+# 「实际上，」和「我需要把」。第 N 次印证同一件事：
+# **提示词里的禁令是请求，不是保证**。所以在这里机械剪掉。
+#
+# 分两种剪法，因为它们承载的东西不一样：
+#   · 整句是叙述意图的（「我需要把这三个都查一遍。」）→ 整句删掉
+#   · 只是个口头语的（「实际上，第三个工作流的记录断了」）→ 只删口头语，
+#     后面那半是真信息，整句删掉反而把内容弄丢了
+_NARRATION_SENTENCE = re.compile(
+    # 触发词**前面**那段不跨逗号：一句话里常常前半是内容、后半才是旁白
+    # （「有三个已发布工作流，我逐个查它们的记录。」）——
+    # 跨过去就把内容一起删了。触发词后面则一路吃到句末，那整段就是旁白。
+    r"[^。！？\n，]*?(?:我来整理|让我看看|首先我|我需要(?:先|查|把|确认)|"
+    r"我先(?:去|来|查|看)|接下来我|我(?:逐个|挨个|依次)查|我(?:来|去|这就)查)"
+    r"[^。！？\n]*[。！？]?"
+)
+_FILLER = re.compile(r"实际上，|事实上，|说白了，")
+
+
+def _without_thinking_aloud(text: str) -> str:
+    """删掉自言自语，留下真信息。"""
+    cleaned = _NARRATION_SENTENCE.sub("", str(text or ""))
+    cleaned = _FILLER.sub("", cleaned)
+    # 剪完可能留下空行或行首标点
+    cleaned = re.sub(r"^[\s，。、；：]+", "", cleaned, flags=re.M)
+    return re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+
+
+_SENTENCE_END = re.compile(r"[。！？\n]")
+
+
+def clean_stream(pending: str, chunk: str) -> tuple[str, str]:
+    """流式清洗：回 (可以发出去的部分, 还得攒着的部分)。
+
+    存在的理由是一个结构性漏洞：所有回复清洗（上下文标记、工具名、
+    自言自语）此前**只作用于 final 事件**，而 delta 是原样转发的。
+    客户端把 delta 逐字打印，final 只在"没流过"时才用——
+    也就是说清洗对真正的交互式 CLI 完全没生效，
+    而那正是招牌功能。实测同一次回答：流式 1283 字、final 1221 字，
+    差的 62 个字用户全看到了。
+
+    做法是攒到句子边界再清洗再发：已经打出去的字收不回来，
+    所以只发"清洗过的完整句子"。代价是逐句而不是逐字出现，
+    换来的是流式和最终结果说的是同一件事。
+    """
+    buffer = pending + chunk
+    matches = list(_SENTENCE_END.finditer(buffer))
+    if not matches:
+        return "", buffer
+    cut = matches[-1].end()
+    return _without_context_marks(buffer[:cut]), buffer[cut:]
+
+
 def _without_context_marks(text: str) -> str:
     """把内部上下文标记从回答里剪掉。
 
     提示词里已经写了「绝不能出现在回答里」，但那是约束不是保证——
     真机上它照样出现在回答的第一行。能机械保证的就别只靠嘱咐。
     """
-    return _without_tool_names(_CONTEXT_MARK.sub("", str(text or ""))).strip()
+    return _without_thinking_aloud(
+        _without_tool_names(_CONTEXT_MARK.sub("", str(text or "")))).strip()
 
 def _system_prompt() -> str:
     """带上今天的日期——不然它得靠运行记录猜「昨天」是哪天，实测会猜错。"""
@@ -739,15 +794,29 @@ class WorkflowConcierge:
                 system=_system_prompt(), messages=messages, tools=TOOLS,
                 max_output_tokens=2048, thinking_enabled=False, effort="low",
                 tool_choice={"type": "auto"})
+            pending_text = ""
+
             async def forward(kind: str, data: dict) -> None:
-                if kind.endswith(".text.delta"):
-                    await _emit({"type": "delta", "text": data.get("text", "")})
+                nonlocal pending_text
+                if not kind.endswith(".text.delta"):
+                    return
+                # 攒到句子边界再清洗再发：打出去的字收不回来
+                out, pending_text = clean_stream(pending_text, data.get("text", ""))
+                if out:
+                    await _emit({"type": "delta", "text": out})
 
             response = await collect_model_stream(
                 stream, model=self.settings.deepseek_runtime_model,
                 emit=forward if emit is not None else None)
             calls = [b for b in response.blocks if b.type == "tool_use"]
             if not calls:
+                # 最后半句（没有句号收尾的那截）也要清洗后发出去，
+                # 否则流式会缺尾巴，而客户端只在"没流过"时才用 final。
+                if pending_text.strip():
+                    tail = _without_context_marks(pending_text)
+                    if tail:
+                        await _emit({"type": "delta", "text": tail})
+                    pending_text = ""
                 text = _without_context_marks(
                     " ".join(b.text or "" for b in response.blocks if b.type == "text"))
                 await _emit({"type": "final", "text": text or "（无回复）"})
