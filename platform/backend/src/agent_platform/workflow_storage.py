@@ -303,6 +303,17 @@ class WorkflowStorage:
                 conn.execute(
                     "ALTER TABLE workflow_runs ADD COLUMN triggered_by TEXT NOT NULL DEFAULT ''"
                 )
+            # 定时重试上限（2026-08-28）：此前失败即无条件重认领，
+            # 一个必然失败的定时任务能在一天里放大成上千次运行。
+            fire_columns = {
+                row["name"]
+                for row in conn.execute("PRAGMA table_info(schedule_fires)").fetchall()
+            }
+            if "attempts" not in fire_columns:
+                conn.execute(
+                    "ALTER TABLE schedule_fires ADD COLUMN attempts INTEGER NOT NULL DEFAULT 1")
+            if "last_attempt_at" not in fire_columns:
+                conn.execute("ALTER TABLE schedule_fires ADD COLUMN last_attempt_at TEXT")
             application_columns = {
                 row["name"]
                 for row in conn.execute("PRAGMA table_info(applications)").fetchall()
@@ -1926,19 +1937,51 @@ class WorkflowStorage:
                 (application_id, version, node_id, local_date),
             ).fetchone()
             if existing and existing["run_id"] and existing["status"] in {"failed", "cancelled"}:
-                conn.execute(
-                    """DELETE FROM schedule_fires
-                       WHERE application_id=? AND version=? AND node_id=? AND local_date=?""",
-                    (application_id, version, node_id, local_date),
-                )
-                conn.execute(
-                    """INSERT INTO schedule_fires
-                       (application_id,version,node_id,local_date,run_id,created_at)
-                       VALUES(?,?,?,?,NULL,?)""",
-                    (application_id, version, node_id, local_date, utc_now()),
-                )
-                return True
+                return self._reclaim_schedule_fire_sync(
+                    conn, application_id, version, node_id, local_date)
             return False
+
+    # 重试上限与退避：必然失败的定时任务不该把当天刷成上千次运行
+    SCHEDULE_MAX_ATTEMPTS = 3
+    SCHEDULE_BACKOFF_BASE_SECONDS = 60
+    SCHEDULE_BACKOFF_CAP_SECONDS = 3600
+
+    def _reclaim_schedule_fire_sync(self, conn, application_id: str, version: int,
+                                    node_id: str, local_date: str) -> bool:
+        """失败后重新认领：有次数上限、有退避，且**不重写 created_at**。
+
+        重写 created_at 会让 overview 取的 MAX(created_at) 一直是"刚刚"，
+        逾期检测因此恒为 False——风暴期间体检看起来完全正常。
+        """
+        row = conn.execute(
+            """SELECT attempts, last_attempt_at FROM schedule_fires
+               WHERE application_id=? AND version=? AND node_id=? AND local_date=?""",
+            (application_id, version, node_id, local_date),
+        ).fetchone()
+        attempts = int((row["attempts"] if row else 1) or 1)
+        if attempts >= self.SCHEDULE_MAX_ATTEMPTS:
+            return False
+        last_attempt = (row["last_attempt_at"] if row else None) or None
+        if last_attempt:
+            from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+
+            backoff = min(self.SCHEDULE_BACKOFF_BASE_SECONDS * (2 ** (attempts - 1)),
+                          self.SCHEDULE_BACKOFF_CAP_SECONDS)
+            try:
+                previous = _dt.fromisoformat(str(last_attempt))
+                if previous.tzinfo is None:
+                    previous = previous.replace(tzinfo=_tz.utc)
+                if _dt.now(_tz.utc) - previous < _td(seconds=backoff):
+                    return False        # 还在退避窗口里
+            except ValueError:
+                pass
+        conn.execute(
+            """UPDATE schedule_fires
+               SET run_id=NULL, attempts=attempts+1, last_attempt_at=?
+               WHERE application_id=? AND version=? AND node_id=? AND local_date=?""",
+            (utc_now(), application_id, version, node_id, local_date),
+        )
+        return True
 
     async def complete_schedule_fire(
         self,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -19,6 +20,9 @@ from .storage import Storage
 from .workflow_models import WorkflowRunRequest
 from .workflow_runtime import WorkflowRuntime
 from .workflow_storage import WorkflowStorage
+
+
+logger = logging.getLogger(__name__)
 
 
 class WorkflowScheduler:
@@ -51,11 +55,29 @@ class WorkflowScheduler:
         self.last_tick_at: datetime | None = None
         self.last_error: str = ""
         self.tick_count: int = 0
+        self.restart_count: int = 0
 
     def start(self) -> None:
         if self.task and not self.task.done():
             return
-        self.task = asyncio.create_task(self._loop())
+        self.task = asyncio.create_task(self._supervise())
+
+    async def _supervise(self) -> None:
+        """循环挂了要自己爬起来。
+
+        实测缺陷：_loop 的 except 里裸调 append_event——它自己撞锁抛异常时，
+        异常从 except 块里逃出去，整个调度线程永久死亡，定时任务全体静默停摆。
+        """
+        while True:
+            try:
+                await self._loop()
+            except asyncio.CancelledError:
+                raise
+            except BaseException as error:  # noqa: BLE001 - 循环绝不能就这么没了
+                self.restart_count += 1
+                self.last_error = f"循环异常重启（第 {self.restart_count} 次）：{error}"[:300]
+                logger.exception("调度循环异常，%s 秒后重启", min(self.poll_seconds, 5))
+                await asyncio.sleep(min(self.poll_seconds, 5))
 
     async def stop(self) -> None:
         if not self.task:
@@ -76,9 +98,12 @@ class WorkflowScheduler:
                 raise
             except Exception as error:
                 self.last_error = f"{type(error).__name__}: {error}"[:300]
-                await self.storage.append_event(
-                    "scheduler", "scheduler.failed", {"error": str(error), "error_type": type(error).__name__}
-                )
+                try:
+                    await self.storage.append_event(
+                        "scheduler", "scheduler.failed",
+                        {"error": str(error), "error_type": type(error).__name__})
+                except Exception:  # noqa: BLE001 - 记事失败不能反杀循环
+                    logger.exception("调度器记事失败（原始错误：%s）", self.last_error)
             # 出错也算跑过一轮：循环还活着这件事本身就是要报的信号
             self.last_tick_at = datetime.now(timezone.utc)
             self.tick_count += 1
@@ -99,6 +124,7 @@ class WorkflowScheduler:
             "seconds_since_tick": None if behind is None else round(behind, 1),
             "poll_seconds": self.poll_seconds,
             "tick_count": self.tick_count,
+            "restart_count": self.restart_count,
             "last_error": self.last_error,
         }
 
