@@ -197,6 +197,12 @@ def test_health_report_tool_and_summary(monkeypatch, tmp_path) -> None:
     assert result["有几个"]["正常"] == 3
     assert [p["workflow"] for p in result["problems"]] == ["坏的日报"]  # ok 的不进 problems
     assert result["problems"][0]["情况"] == "确实在反复失败"
+    # 整份载荷里不许再出现英文状态词：接线自查发现，
+    # 把原来的 counts 加回去测试照样全绿——那这道翻译就能被悄悄拆掉。
+    # 真机上漏的正是这个：「没有跑起来出错的（broken）… （stale）」
+    blob = json.dumps(result, ensure_ascii=False)
+    for word in ("broken", "stale", "waiting", '"ok"'):
+        assert word not in blob, f"体检载荷里出现英文状态词 {word}：{blob[:200]}"
     assert "连接超时" in result["problems"][0]["reason"]
     assert assistant_agent._summarize(result).startswith("⚠ 1 个要处理：坏的日报")
 
