@@ -380,6 +380,11 @@ class WorkflowConcierge:
             from .overview import build_health
 
             instruction = str(args.get("instruction") or "").strip()
+            if instruction:
+                # 同 resume_build：修什么这件事被转述走样，就会修错东西。
+                # 只在模型确实给了指示时才并原话——否则下面那道闸就形同虚设：
+                # 空指示会被业主的上一句话填满，径直闯过体检门去花钱。
+                instruction = _keep_owner_words(instruction, self._owner_words)
             if not instruction:
                 # 没给指示就去体检取原因——但只认"确实坏了且说得出原因"的情况。
                 # 这是全系统唯一会自动花钱的路径，不能凭"看起来不正常"就开构建。
@@ -444,7 +449,10 @@ class WorkflowConcierge:
             build = await services.workflow_store.get_build(build_id)
             if build["status"] in ("queued", "building"):
                 return {"error": "该构建正在进行中，无需续跑"}
-            message = str(args.get("message") or "").strip()
+            # 搭建方那边会把这条当「业主的答复」并标为最高优先级——
+            # 转述走样的话，它就拿着走样的指令干活
+            message = _keep_owner_words(str(args.get("message") or ""),
+                                        self._owner_words)
             engine = services.builders.for_build(build)
             if message:
                 engine.queue_resume_message(build_id, message)
@@ -611,6 +619,24 @@ def _build_situation(status: str, pending_question: str | None,
         return (f"这次没搭成（{reason}）" if reason else "这次没搭成",
                 "可以让它接着跑；连着不成就把需求说得更具体些")
     return "搭建状态未知", "让它接着跑试试"
+
+
+def _keep_owner_words(rendition: str, owner_words: str) -> str:
+    """模型转述的指示 + 业主原话。两者实质相同就只留一份。
+
+    不用原话直接替换：模型有时确实要把好几轮对话拼成一条指示。
+    但只留转述是不行的——已经实测过它会改写业主给的具体内容。
+    """
+    rendition = (rendition or "").strip()
+    owner_words = (owner_words or "").strip()
+    if not owner_words:
+        return rendition
+    if not rendition:
+        return owner_words
+    squeeze = lambda text: "".join(text.split())  # noqa: E731 - 只为比对，不留形态
+    if squeeze(owner_words) in squeeze(rendition):
+        return rendition
+    return f"{rendition}\n\n业主原话：{owner_words}"
 
 
 def _acceptance_summary(app: dict, report: dict) -> dict:
