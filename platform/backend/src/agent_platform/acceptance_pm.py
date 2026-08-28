@@ -64,9 +64,12 @@ class AcceptanceSpec(BaseModel):
     cases: list[AcceptanceCase] = Field(min_length=1, max_length=PM_MAX_CASES)
     # 监理的主动性只许进建议栏：业主不采纳就不生效，绝不混进 cases。
     suggestions: list[str] = Field(default_factory=list, max_length=8)
-    # 业主的原话。出完卷就丢掉的话，卷子会成为唯一的真相——
-    # 监理翻错了也没人看得见。老卷子没有这个字段，故给默认值。
+    # 交给监理出卷的那份材料（可能是管家整理过的）。
     owner_examples: str = Field(default="", max_length=4_000)
+    # 业主逐字说的那句话，机械从对话里取，模型碰不到。
+    # 两者分开存是有原因的：实测管家会把业主的例子改写掉，
+    # 若只存一份，拿它去核对等于自己跟自己对，永远对得上。
+    owner_words: str = Field(default="", max_length=4_000)
 
 
 PM_SYSTEM = """你是一位独立的工作流监理。你不参与搭建，也永远不指导搭建方；
@@ -335,6 +338,7 @@ async def generate_spec(
     services: Any,
     application: dict[str, Any],
     owner_examples: str,
+    owner_words: str = "",
 ) -> AcceptanceSpec:
     """出卷：一次模型调用，把需求 + 业主例子翻译成验收规格。"""
 
@@ -362,6 +366,7 @@ async def generate_spec(
     payload = normalize_spec_payload(_json_object_from_text(text))
     # 模型不该也不会自己填这个，由我们按原样存
     payload["owner_examples"] = owner_examples[:4_000]
+    payload["owner_words"] = (owner_words or owner_examples)[:4_000]
     return AcceptanceSpec.model_validate(payload)
 
 
@@ -610,7 +615,7 @@ async def run_acceptance(services: Any, application_id: str) -> dict[str, Any]:
         "lineage_pass": not lineage_missing,
         "cases": case_rows,
         # 只在有不合格项时摆出来：全过的时候没人需要对照，摆着反而是噪音
-        "owner_examples": (spec.owner_examples
+        "owner_examples": (spec.owner_words or spec.owner_examples
                            if any(not row["passed"] for row in case_rows) else ""),
         "passed_cases": passed_cases,
         # 调用方不该自己去数 cases——三处消费点曾各写各的口径

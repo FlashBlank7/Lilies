@@ -146,6 +146,9 @@ class WorkflowConcierge:
     def __init__(self, services: Any, settings: Any):
         self.services = services
         self.settings = settings
+        # 业主最近一句原话，机械留存：凡是要「照业主说的」核对的地方，
+        # 都不能用模型转述的版本，否则等于自己跟自己对
+        self._owner_words = ""
 
     async def _resolve_app(self, name_or_id: str,
                            *, include_archived: bool = False) -> dict | None:
@@ -363,7 +366,8 @@ class WorkflowConcierge:
                     return {"error": "第一次验收要给样例：什么输入应该得到什么结果。"
                                      "比如「输入三行文本，应该得到行数 3」"}
             else:
-                spec = await acceptance_pm.generate_spec(services, app, examples)
+                spec = await acceptance_pm.generate_spec(
+                    services, app, examples, owner_words=self._owner_words)
                 acceptance_pm.save_spec(services.settings.data_dir, app["id"], spec)
             report = await acceptance_pm.run_acceptance(services, app["id"])
             return _acceptance_summary(app, report)
@@ -499,6 +503,9 @@ class WorkflowConcierge:
             if emit is not None:
                 await emit(event)
 
+        self._owner_words = next(
+            (str(m.get("text", ""))[:4_000] for m in reversed(history)
+             if m.get("role") != "assistant" and str(m.get("text", "")).strip()), "")
         messages = [ChatMessage(role="assistant" if m.get("role") == "assistant" else "user",
                                 content=[ContentBlock(type="text",
                                                       text=self._history_text(m))])
@@ -611,12 +618,13 @@ def _acceptance_summary(app: dict, report: dict) -> dict:
              "why": [{"检查": x.get("check"), "实际": x.get("actual")}
                      for x in (c.get("checks") or []) if not x.get("passed")][:4]}
             for c in failed[:5]],
-        # 判不合格时把业主原话一并给出：监理有可能把例子翻错，
-        # 那种情况下该改的是卷子，不是工作流（真机上发生过一次，烧了一个构建）
-        "业主当初的原话": report.get("owner_examples") or "",
+        # 判不合格时把业主逐字原话一并给出：监理有可能把例子翻错，
+        # 那种情况下该改的是卷子，不是工作流（真机上发生过一次，烧了一个构建）。
+        # 这句是机械取来的，不是你转述的版本——照它核对才有意义。
+        "业主逐字说的话": report.get("owner_examples") or "",
         "note": ("全部通过" if not failed else
                  "「实际」就是这次真跑出来的值，照它说，别自己推算。"
-                 "先拿「业主当初的原话」跟用例对一遍："
+                 "先拿「业主逐字说的话」跟用例对一遍："
                  "考的跟他说的不是一回事，就是卷子错了，请他换个自洽的例子重验；"
                  "对得上才是工作流的问题，那时才提「帮我修」"),
     }

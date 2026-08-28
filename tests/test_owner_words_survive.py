@@ -42,6 +42,15 @@ class OwnerWordsSurviveTest(unittest.TestCase):
             normalize_spec_payload(_spec_payload(owner_examples=OWNER)))
         self.assertEqual(spec.owner_examples, OWNER)
 
+    def test_paraphrase_and_verbatim_are_kept_apart(self):
+        """管家会改写业主的例子——两份分开存，核对才有意义。"""
+        spec = AcceptanceSpec.model_validate(normalize_spec_payload(_spec_payload(
+            owner_examples="「abc」「de」「f」，行数 3、净字数 5",   # 管家转述的
+            owner_words="「第一行」「第二行」「第三行」，行数 3、净字数 5")))  # 业主说的
+        self.assertIn("abc", spec.owner_examples)
+        self.assertIn("第一行", spec.owner_words)
+        self.assertNotIn("abc", spec.owner_words)
+
     def test_old_spec_without_the_field_still_loads(self):
         # 这个字段是后加的，既有的卷子文件里没有
         spec = AcceptanceSpec.model_validate(normalize_spec_payload(_spec_payload()))
