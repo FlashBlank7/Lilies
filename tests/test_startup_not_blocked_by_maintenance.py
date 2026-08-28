@@ -28,8 +28,9 @@ def test_slow_event_maintenance_does_not_delay_readiness(tmp_path: Path,
 
     async def glacial_archive(self, *, keep_days: int):
         started.set()
-        # 模拟真机：慢到近乎无限。挂在启动路径上的话，服务就永远起不来。
-        release.wait(timeout=30)
+        # 模拟真机：慢到近乎无限。必须**远长于**下面那个就绪等待，
+        # 否则挂回启动路径时它只是「慢一点」，测试照样会绿——就没有区分力了。
+        release.wait(timeout=180)
         return {"removed": 0, "remaining": 0}
 
     monkeypatch.setattr(Storage, "archive_events_before", glacial_archive)
@@ -53,8 +54,10 @@ def test_slow_event_maintenance_does_not_delay_readiness(tmp_path: Path,
 
     thread = threading.Thread(target=boot, daemon=True)
     thread.start()
-    # 维护还卡着的时候，服务就该已经能应答了
-    assert ready.wait(timeout=20), "维护没跑完，服务就起不来——又挂回启动路径上了"
+    # 维护还卡着的时候，服务就该已经能应答了。
+    # 45 秒不是给维护的，是给建库+建表本身的：这台机器磁盘慢，
+    # 整套测试并跑时冷启动一次要十几秒，20 秒会偶发假红。
+    assert ready.wait(timeout=45), "维护没跑完，服务就起不来——又挂回启动路径上了"
     release.set()
     thread.join(timeout=20)
     assert not failure, failure
