@@ -43,7 +43,8 @@ async def build_overview(services: Any) -> dict[str, Any]:
                 # （WorkflowRunState 模型压根没这个字段），只留作老数据兜底。
                 "COALESCE(r.error, json_extract(r.state_json,'$.error'), '') AS error, a.name "
                 "FROM workflow_runs r JOIN applications a ON a.id=r.application_id "
-                f"WHERE r.status='failed' AND r.{_REAL_RUN} "
+                # 退休工作流的旧失败没必要继续占着面板
+                f"WHERE r.status='failed' AND a.archived_at IS NULL AND r.{_REAL_RUN} "
                 "ORDER BY r.created_at DESC LIMIT 8"
             ).fetchall()]
             week_rows = conn.execute(
@@ -55,7 +56,10 @@ async def build_overview(services: Any) -> dict[str, Any]:
                 "SELECT COUNT(*) FROM builds WHERE status IN ('queued','building')"
             ).fetchone()[0])
             apps = [dict(r) for r in conn.execute(
-                "SELECT id, name, active_version FROM applications WHERE active_version IS NOT NULL"
+                # 收起来的不算：业主收它就是为了「别再管它」，
+                # 还数进「已发布」会出现收拾完数字反而变大的怪事
+                "SELECT id, name, active_version FROM applications "
+                "WHERE active_version IS NOT NULL AND archived_at IS NULL"
             ).fetchall()]
             fires = {r["application_id"]: dict(r) for r in conn.execute(
                 "SELECT application_id, MAX(created_at) AS last_fired, "
@@ -281,7 +285,10 @@ async def build_health(services: Any, days: int = 7) -> dict[str, Any]:
     def query() -> dict[str, Any]:
         with storage._connect() as conn:
             apps = [dict(r) for r in conn.execute(
-                "SELECT id, name FROM applications WHERE active_version IS NOT NULL"
+                # 收起来的不体检：调度器也不再触发它（list_applications 会过滤），
+                # 继续检查的话它永远满足「有定时却没运行」→ 永远被判 stale
+                "SELECT id, name FROM applications "
+                "WHERE active_version IS NOT NULL AND archived_at IS NULL"
             ).fetchall()]
             stats = {r["application_id"]: dict(r) for r in conn.execute(
                 "SELECT application_id, COUNT(*) AS runs, "
