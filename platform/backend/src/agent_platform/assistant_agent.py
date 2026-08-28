@@ -154,12 +154,18 @@ class WorkflowConcierge:
             from .overview import build_health
 
             instruction = str(args.get("instruction") or "").strip()
-            if not instruction:  # 没给指示就自己去体检取失败原因，别让莉莉丝盲修
+            if not instruction:
+                # 没给指示就去体检取原因——但只认"确实坏了且说得出原因"的情况。
+                # 这是全系统唯一会自动花钱的路径，不能凭"看起来不正常"就开构建。
                 report = await build_health(services, days=7)
-                for item in report["items"]:
-                    if item["application_id"] == app["id"] and item["state"] != "ok":
-                        instruction = item["reason"]
-                        break
+                hit = next((item for item in report["items"]
+                            if item["application_id"] == app["id"]), None)
+                if hit and hit["state"] == "broken" and hit.get("last_error"):
+                    instruction = hit["reason"]
+                else:
+                    state = (hit or {}).get("state", "unknown")
+                    return {"error": f"这个工作流没有可归因的失败原因（当前状态：{state}）。"
+                                     "要修什么请说清楚，比如把报错原文贴给我。"}
             requirement = (
                 f"修复现有工作流「{app.get('name')}」。它已发布但运行失败。\n"
                 f"失败情况：{instruction or '运行报错，原因见最近运行记录'}\n"

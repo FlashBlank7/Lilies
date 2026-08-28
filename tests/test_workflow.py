@@ -2310,26 +2310,26 @@ def test_platform_harness_worker_runner_renews_lease_for_long_handler(tmp_path: 
     async def scenario() -> None:
         storage = Storage(tmp_path / "data")
         await storage.initialize()
-        harness = PlatformHarness(storage=storage, worker_lease_seconds=0.25)
+        harness = PlatformHarness(storage=storage, worker_lease_seconds=0.6)
         await harness.start_task(
             "runner-renew-1",
             kind="scheduler_manual_trigger",
             owner_id="owner-a",
             resource_id="schedule-a",
             worker_id="producer",
-            lease_seconds=0.25,
+            lease_seconds=0.6,
         )
         await harness.release_task_lease("runner-renew-1", worker_id="producer", next_status="queued")
 
         async def handler(_record):
-            await asyncio.sleep(0.55)
+            await asyncio.sleep(1.2)
             return {"handled": True}
 
         runner = PlatformHarnessWorkerRunner(
             harness=harness,
             worker_id="worker-a",
-            lease_seconds=0.25,
-            renewal_interval_seconds=0.05,
+            lease_seconds=0.6,
+            renewal_interval_seconds=0.12,
             handlers={"scheduler_manual_trigger": handler},
         )
         results = await runner.run_once(limit=5)
@@ -2337,6 +2337,8 @@ def test_platform_harness_worker_runner_renews_lease_for_long_handler(tmp_path: 
         assert [(item.task_id, item.status) for item in results] == [("runner-renew-1", "succeeded")]
         finished = await harness.get_task("runner-renew-1")
         assert finished.status == "succeeded"
+        # 时间等比放大：全量跑时机器负载高，0.05s 的续期间隔会被挤掉几拍，
+        # 这条曾偶发失败（单独跑必过）。语义不变：长任务期间续期要发生多次。
         assert finished.lease_version > 3
         assert finished.metadata["worker_runner"]["renewal_count"] >= 1
         assert finished.metadata["worker_runner"]["result"]["handled"] is True

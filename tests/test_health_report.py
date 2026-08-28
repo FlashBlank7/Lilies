@@ -44,7 +44,7 @@ async def test_healthy_workflow_is_ok(services):
     _seed(services, real_runs=["succeeded"] * 3)
     report = await build_health(services)
     assert report["items"][0]["state"] == "ok"
-    assert report["counts"] == {"broken": 0, "stale": 0, "ok": 1}
+    assert report["counts"] == {"broken": 0, "stale": 0, "waiting": 0, "ok": 1}
 
 
 @pytest.mark.asyncio
@@ -116,3 +116,38 @@ def test_failure_reason_comes_from_top_level_error_column() -> None:
     assert "error" not in WorkflowRunState.model_fields
     sql = Path("platform/backend/src/agent_platform/overview.py").read_text(encoding="utf-8")
     assert "COALESCE(r.error, json_extract(r.state_json,'$.error'), '') AS error" in sql
+
+
+@pytest.mark.asyncio
+async def test_in_flight_run_is_waiting_not_broken(services):
+    """还在跑/等人工确认 ≠ 坏了。
+
+    此前 runs 计入 queued/running/paused，一个正在跑的工作流会被判"全部失败"，
+    而 repair_workflow 在没给指示时会拿这个判定自动开构建——唯一会花钱的路径。
+    """
+    _seed(services, real_runs=["running"])
+    item = (await build_health(services))["items"][0]
+    assert item["state"] == "waiting", item
+    assert "尚无终态结果" in item["reason"]
+
+
+@pytest.mark.asyncio
+async def test_paused_run_is_waiting(services):
+    _seed(services, real_runs=["paused"])
+    assert (await build_health(services))["items"][0]["state"] == "waiting"
+
+
+@pytest.mark.asyncio
+async def test_in_flight_does_not_mask_real_failures(services):
+    """有终态失败时照报 broken，别把 waiting 当免死金牌。"""
+    _seed(services, real_runs=["failed", "running"])
+    item = (await build_health(services))["items"][0]
+    assert item["state"] == "broken"
+
+
+@pytest.mark.asyncio
+async def test_platform_congestion_is_not_the_workflows_fault(services):
+    """数据库繁忙是平台自身拥塞，不该记在工作流头上。"""
+    _seed(services, real_runs=["failed"] * 3,
+          fail_error="database is locked")
+    assert (await build_health(services))["items"][0]["state"] == "ok"

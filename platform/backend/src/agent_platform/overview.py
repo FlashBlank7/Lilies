@@ -176,6 +176,9 @@ def _overdue(config: dict[str, Any], last_fired: str | None,
 # 调用方错误：工作流本身没毛病，是这次调用没按输入声明来。
 # 不能算进"坏了"——否则任何人从 CLI 试跑忘了带参数，都会把工作流刷成 broken，
 # 进而可能触发自动修复构建（花钱）。真机上就是被冒烟脚本刷出来的。
+_TERMINAL_RUN_STATUSES = ("succeeded", "failed", "cancelled")
+_IN_FLIGHT_STATUSES = ("queued", "running", "paused")
+
 _CALLER_ERROR_MARKERS = (
     "missing required input",
     "input validation failed",
@@ -187,6 +190,21 @@ _CALLER_ERROR_MARKERS = (
 def _is_caller_error(error: str) -> bool:
     text = str(error or "").lower()
     return any(marker in text for marker in _CALLER_ERROR_MARKERS)
+
+
+# 平台自身拥塞：数据库繁忙、连接排队——不是工作流写错了
+_INFRA_ERROR_MARKERS = ("database is locked", "database table is locked",
+                        "platform-congestion")
+
+
+def _is_infra_error(error: str) -> bool:
+    text = str(error or "").lower()
+    return any(marker in text for marker in _INFRA_ERROR_MARKERS)
+
+
+def _not_the_workflows_fault(error: str) -> bool:
+    """这次失败该不该记在工作流头上。"""
+    return _is_caller_error(error) or _is_infra_error(error)
 
 
 def _brief_error(error: str) -> str:
@@ -220,9 +238,19 @@ async def build_health(services: Any, days: int = 7) -> dict[str, Any]:
             stats = {r["application_id"]: dict(r) for r in conn.execute(
                 "SELECT application_id, COUNT(*) AS runs, "
                 "SUM(CASE WHEN status='succeeded' THEN 1 ELSE 0 END) AS succeeded, "
+                # 只有出了终态的运行才能用来判"坏没坏"——
+                # 正在跑、排队中、等人工确认的都还没有结论
+                "SUM(CASE WHEN status IN ('succeeded','failed','cancelled') "
+                "  THEN 1 ELSE 0 END) AS terminal_runs, "
+                "SUM(CASE WHEN status IN ('queued','running','paused') "
+                "  THEN 1 ELSE 0 END) AS in_flight, "
                 "SUM(CASE WHEN status='failed' AND "
                 "  COALESCE(error, json_extract(state_json,'$.error'), '') "
                 "  LIKE '%missing required input%' THEN 1 ELSE 0 END) AS caller_errors, "
+                # 平台自身拥塞（数据库繁忙等）不是工作流的错
+                "SUM(CASE WHEN status='failed' AND "
+                "  COALESCE(error, json_extract(state_json,'$.error'), '') "
+                "  LIKE '%database is locked%' THEN 1 ELSE 0 END) AS infra_errors, "
                 "MAX(CASE WHEN status='succeeded' THEN created_at END) AS last_success, "
                 "MAX(created_at) AS last_run "
                 f"FROM workflow_runs WHERE created_at >= date('now','-{int(days) - 1} days') "
@@ -271,8 +299,10 @@ async def build_health(services: Any, days: int = 7) -> dict[str, Any]:
         streak = 0
         for entry in data["recent"].get(app["id"], []):
             status, error = (entry if isinstance(entry, tuple) else (entry, ""))
-            if status == "failed" and _is_caller_error(error):
-                continue          # 调用方没按声明给输入：跳过，既不计数也不中断
+            if status in _IN_FLIGHT_STATUSES:
+                continue          # 还没有结论，跳过
+            if status == "failed" and _not_the_workflows_fault(error):
+                continue          # 调用方传错参数 / 平台拥塞：不计数也不中断
             if status == "failed":
                 streak += 1
             else:
@@ -294,13 +324,20 @@ async def build_health(services: Any, days: int = 7) -> dict[str, Any]:
             _overdue(schedule_config, last_fired) if scheduled else (False, ""))
 
         raw_error = data["errors"].get(app["id"], "")
-        last_error = "" if _is_caller_error(raw_error) else _brief_error(raw_error)
+        last_error = "" if _not_the_workflows_fault(raw_error) else _brief_error(raw_error)
         caller_errors = int(stat.get("caller_errors") or 0)
-        real_runs = runs - caller_errors          # 调用方错误不算工作流跑过
-        if real_runs > 0 and not succeeded:
-            state, reason = "broken", f"近{days}天 {real_runs} 次运行全部失败"
+        infra_errors = int(stat.get("infra_errors") or 0)
+        in_flight = int(stat.get("in_flight") or 0)
+        # 判"坏没坏"只看有结论的运行：调用方传错参数、平台自身拥塞都不算工作流的错
+        terminal = int(stat.get("terminal_runs") or 0) - caller_errors - infra_errors
+        if terminal > 0 and not succeeded:
+            state, reason = "broken", f"近{days}天 {terminal} 次运行全部失败"
         elif streak >= 3:
             state, reason = "broken", f"最近连续失败 {streak} 次"
+        elif in_flight and terminal == 0:
+            # 还在跑/等人工确认——没有结论，不能当成坏了
+            # （此前会判 broken，而 repair_workflow 在没给指示时会拿这个判定自动开构建）
+            state, reason = "waiting", "有运行在进行或等待人工确认，尚无终态结果"
         elif overdue and last_fired:
             # 跑过、然后悄悄不跑了——定时任务最常见的静默失效
             state, reason = "stale", (
@@ -321,11 +358,11 @@ async def build_health(services: Any, days: int = 7) -> dict[str, Any]:
             "last_success": stat.get("last_success"), "last_run": stat.get("last_run"),
         })
 
-    rank = {"broken": 0, "stale": 1, "ok": 2}
+    rank = {"broken": 0, "stale": 1, "waiting": 2, "ok": 3}
     items.sort(key=lambda item: (rank[item["state"]], -item["runs"]))
     return {
         "days": days,
         "counts": {state: sum(1 for i in items if i["state"] == state)
-                   for state in ("broken", "stale", "ok")},
+                   for state in ("broken", "stale", "waiting", "ok")},
         "items": items,
     }

@@ -251,9 +251,11 @@ def test_repair_workflow_pulls_reason_from_health(monkeypatch, tmp_path) -> None
         services.builders.get("classic").start = lambda build_id: None
 
         async def fake_health(_services, days=7):
+            # 闸门要求：state=broken 且有可归因的 last_error 才允许自动开构建
             return {"days": days, "counts": {}, "items": [
                 {"application_id": created["id"], "workflow": "坏掉的日报",
-                 "state": "broken", "reason": "近7天 6 次运行全部失败：连接超时"}]}
+                 "state": "broken", "last_error": "连接超时",
+                 "reason": "近7天 6 次运行全部失败：连接超时"}]}
 
         monkeypatch.setattr(overview, "build_health", fake_health)
         concierge = WorkflowConcierge(services, settings)
@@ -340,3 +342,34 @@ def test_recent_runs_carries_error(tmp_path) -> None:
 
     assert result["runs"][0]["error"] == "HTTPConnectionPool timeout"  # 前缀已剥
     assert created["id"]
+
+
+def test_repair_refuses_when_nothing_is_attributably_broken(monkeypatch, tmp_path) -> None:
+    """没给指示、体检又说不出原因时，不能自动开构建——这是唯一会花钱的路径。"""
+    from agent_platform import overview
+    from agent_platform.assistant_agent import WorkflowConcierge
+
+    settings = Settings(api_token="workflow-test",
+                        data_dir=tmp_path / "d", workspace_root=tmp_path / "w")
+    with TestClient(create_app(settings)) as client:
+        services = client.app.state.services
+        created = client.post("/api/v1/applications",
+                              headers={"Authorization": "Bearer workflow-test"},
+                              json={"name": "在跑的", "requirement": "随便"}).json()
+        started = []
+        services.builders.get("classic").start = lambda build_id: started.append(build_id)
+
+        async def fake_health(_services, days=7):
+            return {"days": days, "counts": {}, "items": [
+                {"application_id": created["id"], "workflow": "在跑的",
+                 "state": "waiting", "last_error": "",
+                 "reason": "有运行在进行或等待人工确认，尚无终态结果"}]}
+
+        monkeypatch.setattr(overview, "build_health", fake_health)
+        concierge = WorkflowConcierge(services, settings)
+        result = client.portal.call(concierge._exec, "repair_workflow",
+                                    {"name_or_id": "在跑的"}, {"name": "t"})
+
+    assert "error" in result
+    assert "waiting" in result["error"]
+    assert not started, "不该启动任何构建"
