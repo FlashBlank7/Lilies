@@ -55,3 +55,32 @@ class DedupeFailuresTest(unittest.TestCase):
 
     def test_empty_input(self):
         self.assertEqual(_dedupe_failures([]), [])
+
+
+class CountIsNotCappedBySqlLimitTest(unittest.TestCase):
+    """×N 的次数不能被 SQL 的取数上限封顶。
+
+    回归背景（2026-08-29 独立复查）：SQL 原本 `LIMIT 8`，合并却在 Python 里做，
+    于是次数封顶在 8——线上真值 13 显示成 ×8，少报 38%，
+    而同一个产品的 health-report 端点算得出 13，两个面板互相打脸。
+    昨天那次「合并同因」只修了一半：显示合并了，取数没跟上。
+    """
+
+    def test_dedupe_counts_everything_it_is_given(self):
+        rows = _dedupe_failures([
+            _fail(f"r{i:04d}", "统计", f"2026-08-28T{i % 24:02d}:00",
+                  "node start failed: missing required input: text")
+            for i in range(13)])
+        self.assertEqual(rows[0]["count"], 13)
+
+    def test_a_rare_cause_is_not_pushed_out_by_repeats(self):
+        # 20 条同因 + 1 条别的：合并后两条都要在
+        rows = _dedupe_failures(
+            [_fail(f"a{i:03d}", "统计", "2026-08-28T06:00",
+                   "node start failed: missing required input: text")
+             for i in range(20)]
+            + [_fail("z1", "日报", "2026-08-27T06:00",
+                     "node agg failed: collection expression requires an array")])
+        self.assertEqual(len(rows), 2)
+        self.assertEqual({r["workflow"] for r in rows}, {"统计", "日报"})
+        self.assertEqual(rows[0]["count"], 20)

@@ -45,7 +45,12 @@ async def build_overview(services: Any) -> dict[str, Any]:
                 "FROM workflow_runs r JOIN applications a ON a.id=r.application_id "
                 # 退休工作流的旧失败没必要继续占着面板
                 f"WHERE r.status='failed' AND a.archived_at IS NULL AND r.{_REAL_RUN} "
-                "ORDER BY r.created_at DESC LIMIT 8"
+                # 取够再合并。原本是 LIMIT 8：合并在 Python 里做，
+                # 而 SQL 先砍到 8 行——于是 ×N 的次数**封顶在 8**
+                # （线上真值 13 显示成 ×8，少报 38%），
+                # 同因重复占满 8 行时别的工作流照样被挤出去，
+                # 也就是说昨天那次「合并同因」只修了一半。
+                "ORDER BY r.created_at DESC LIMIT 500"
             ).fetchall()]
             week_rows = conn.execute(
                 "SELECT substr(created_at,1,10) AS day, status, COUNT(*) AS n "
@@ -122,7 +127,8 @@ async def build_overview(services: Any) -> dict[str, Any]:
         },
         "builds_active": data["builds_active"],
         "schedules": schedules,
-        "recent_failures": _dedupe_failures(data["failures"]),
+        # 合并之后再截：截的是「不同的毛病」，不是「行数」
+        "recent_failures": _dedupe_failures(data["failures"])[:8],
         "published_workflows": len(data["apps"]),
         "week": week_list,
     }
