@@ -472,6 +472,9 @@ def test_history_carries_action_traces() -> None:
     assert "acceptance_check(文本行数与净字数统计)" in text
     assert "list_workflows" in text
     assert "验收完了" in text          # 原文还在
+    # 标签形式而不是方括号：方括号看起来像正文，实测模型会原样抄进回答
+    assert text.startswith("<上下文 ")
+    assert "/>" in text
 
     # 用户轮次不加料
     assert WorkflowConcierge._history_text(

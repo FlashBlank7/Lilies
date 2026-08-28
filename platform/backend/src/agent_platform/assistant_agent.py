@@ -37,9 +37,12 @@ AGENT_SYSTEM = (
     "该做的是手动跑一次确认再查调度器）是两回事，别给同一条建议；"
     "运行前先用 list_workflows 确认输入声明；生成工作流用 generate_workflow"
     "（提交后告知用户构建已开始，可用 build_status 跟进）；语气简洁友好。"
+    "历史里的 <上下文 …/> 标签是给你解析指代用的，绝不能出现在回答里；"
     "只给结论，不要把推理过程写进回答——"
     "「让我看看」「我需要确认」「实际上」这类话是你的思考，用户不该看到；"
-    "工具没有的能力就直说没有并给出替代路径，不要反复自我怀疑。"
+    "工具没有的能力就直说没有并给出替代路径，不要反复自我怀疑；"
+    "工具返回的数字原样引用——不要自己推算，更不要在数字对不上时"
+    "猜「可能是工具算错了」，对不上就照实说对不上。"
 )
 
 TOOLS = [
@@ -63,9 +66,12 @@ TOOLS = [
     ToolDefinition(name="platform_overview", description="平台统筹总览：今日运行统计、定时任务、近期失败、进行中的构建",
                    input_schema={"type": "object", "properties": {}}),
     ToolDefinition(name="tidy_workflows",
-                   description="列出可以收起来的废弃草稿（从没发布、从没成功跑过、"
-                               "且放了一阵子的），或把指定的一个收起来/拿回来。"
-                               "用户说'列表太乱了''把没用的收起来'用这个。",
+                   description="收拾工作流列表。四种用法："
+                               "suggest 列出可以收起来的废弃草稿（从没发布、"
+                               "从没成功跑过、放了一阵子）；list_archived 列出已经收起来的；"
+                               "archive 收起一个；restore 拿回一个。"
+                               "用户说'列表太乱了''把没用的收起来''收起来的有哪些'"
+                               "'拿回 X'都用这个。",
                    input_schema={"type": "object", "properties": {
                        "action": {"type": "string",
                                   "enum": ["suggest", "archive", "restore", "list_archived"],
@@ -444,7 +450,9 @@ class WorkflowConcierge:
                       or action.get("app_id") or action.get("build_id") or "")
             marks.append(f"{tool}({str(target)[:40]})" if target else str(tool))
         if marks:
-            text = f"[上一轮做了：{'、'.join(marks[:4])}]\n{text}"
+            # 用 XML 式标签而不是方括号：方括号看起来像正文的一部分，
+            # 实测模型会把它原样抄进回答
+            text = f"<上下文 上一轮做了=\"{'、'.join(marks[:4])}\" />\n{text}"
         return text
 
     async def reply(self, history: list[dict], user: dict, emit=None) -> tuple[list[dict], str]:
@@ -506,13 +514,17 @@ def _acceptance_summary(app: dict, report: dict) -> dict:
         "passed_cases": report.get("passed_cases", 0),
         "total_cases": report.get("total_cases", len(cases)),
         "verdict": "通过" if report.get("accepted") else "有不合格项",
+        # 必须带实际值：只给检查项名字的话，模型看不到「实际是多少」，
+        # 实测它会脑补一个数字并反过来说「疑似验收方比对出了问题」
         "failed_cases": [
             {"name": c.get("name"),
-             "why": [x.get("check") for x in (c.get("checks") or [])
-                     if not x.get("passed")][:4]}
+             "run_status": c.get("run_status"),
+             "why": [{"检查": x.get("check"), "实际": x.get("actual")}
+                     for x in (c.get("checks") or []) if not x.get("passed")][:4]}
             for c in failed[:5]],
         "note": ("全部通过" if not failed else
-                 "不合格的说「帮我修」就能进返修；完整验收单说「看验收报告」"),
+                 "「实际」就是这次真跑出来的值，照它说，别自己推算；"
+                 "不合格的说「帮我修」就能进返修"),
     }
 
 
