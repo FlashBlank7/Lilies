@@ -118,11 +118,7 @@ async def build_overview(services: Any) -> dict[str, Any]:
         },
         "builds_active": data["builds_active"],
         "schedules": schedules,
-        "recent_failures": [
-            {"run_id": f["id"][:8], "workflow": f["name"], "at": f["at"],
-             "error": _human_error(f.get("error") or "")}
-            for f in data["failures"]
-        ],
+        "recent_failures": _dedupe_failures(data["failures"]),
         "published_workflows": len(data["apps"]),
         "week": week_list,
     }
@@ -221,6 +217,26 @@ _RUN_ERROR_RULES = (
     (re.compile(r"^'([^']*)'$"), "配置里取了一个不存在的字段「{0}」"),
     (re.compile(r"connection|timed? ?out|timeout", re.I), "连不上外部服务或等待超时"),
 )
+
+
+def _dedupe_failures(failures: list) -> list[dict[str, Any]]:
+    """同一个工作流的同一个原因只占一行，带上次数。
+
+    客户端只显示前几条：同因重复会把别的工作流的问题挤出屏幕，
+    真机上就发生过——5 条重复盖掉了另一个工作流的两个不同问题。
+    保留最先出现的那条（上游按时间倒序给），次数累加。
+    """
+    merged: dict[tuple[str, str], dict[str, Any]] = {}
+    for item in failures:
+        error = _human_error(item.get("error") or "")
+        key = (item["name"], error)
+        existing = merged.get(key)
+        if existing is None:
+            merged[key] = {"run_id": item["id"][:8], "workflow": item["name"],
+                           "at": item["at"], "error": error, "count": 1}
+        else:
+            existing["count"] += 1
+    return list(merged.values())
 
 
 def _human_error(error: str) -> str:
