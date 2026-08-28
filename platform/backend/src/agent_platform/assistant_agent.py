@@ -611,9 +611,14 @@ def _acceptance_summary(app: dict, report: dict) -> dict:
              "why": [{"检查": x.get("check"), "实际": x.get("actual")}
                      for x in (c.get("checks") or []) if not x.get("passed")][:4]}
             for c in failed[:5]],
+        # 判不合格时把业主原话一并给出：监理有可能把例子翻错，
+        # 那种情况下该改的是卷子，不是工作流（真机上发生过一次，烧了一个构建）
+        "业主当初的原话": report.get("owner_examples") or "",
         "note": ("全部通过" if not failed else
-                 "「实际」就是这次真跑出来的值，照它说，别自己推算；"
-                 "不合格的说「帮我修」就能进返修"),
+                 "「实际」就是这次真跑出来的值，照它说，别自己推算。"
+                 "先拿「业主当初的原话」跟用例对一遍："
+                 "考的跟他说的不是一回事，就是卷子错了，请他换个自洽的例子重验；"
+                 "对得上才是工作流的问题，那时才提「帮我修」"),
     }
 
 
