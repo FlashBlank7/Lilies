@@ -5263,6 +5263,17 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         application_id: str, body: WorkflowRunRequest, code: str = ""
     ) -> dict[str, Any]:
         await _require_use_access(application_id, code)
+        # 收起来的工作流不该还能被触发。定时那条路已经不再触发它了
+        # （调度器走 list_applications，本来就过滤归档），但客户侧这条没砍——
+        # 两个入口不对称。后果是：运行照跑照花钱，而 today / 体检 / 失败告警
+        # 都带着 archived_at IS NULL 过滤，对这些运行全盲。
+        try:
+            application = await services.workflow_store.get_application(application_id)
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+        if application.get("archived_at"):
+            raise HTTPException(409, f"「{application.get('name')}」已经收起来了，"
+                                     "先把它拿回列表再跑")
         try:
             body.use_draft = False
             return await services.workflow_runtime.create_run(application_id, body)
