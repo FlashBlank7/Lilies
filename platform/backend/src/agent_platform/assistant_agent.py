@@ -259,10 +259,19 @@ class WorkflowConcierge:
                     outputs = current.get("outputs")
                     if not isinstance(outputs, dict):
                         outputs = {}
-                    return {"run_id": run_id, "status": current["status"],
-                            "outputs": outputs, "error": current.get("error")}
+                    from .overview import _human_error
+
+                    result = {"run_id": run_id, "情况": _RUN_WORDS.get(
+                        current["status"], current["status"]), "outputs": outputs}
+                    # 报错也要说人话：_human_error 本来就有，
+                    # 之前只给 today 面板和体检用，管家自己跑出来的错反倒是英文原文
+                    reason = _human_error(current.get("error") or "")
+                    if reason:
+                        result["没成的原因"] = reason
+                    return result
                 await asyncio.sleep(1.5)
-            return {"run_id": run_id, "status": "running", "note": "仍在运行，可稍后用 recent_runs 查看"}
+            return {"run_id": run_id, "情况": "还在跑",
+                    "note": "超过等待时间了，可稍后用 recent_runs 看结果"}
         if name == "recent_runs":
             app = await self._resolve_app(str(args.get("name_or_id") or ""))
             if not app:
@@ -394,7 +403,10 @@ class WorkflowConcierge:
             except Exception as error:  # noqa: BLE001
                 publish_error = str(error)[:200]
             return {"workflow": app.get("name"), "before": before, "after": after,
-                    "published_version": published, "publish_error": publish_error,
+                    "published_version": published,
+                    # 下划线键 = 给模型的内部细节，约定过不许复述：
+                    # 这是原始异常文本，多半是英文，念出来业主也看不懂
+                    "_发布失败详情": publish_error,
                     "note": ("已改并重新发布，下次按新时刻开火"
                              if published else
                              "草稿已改，但没能重新发布——定时仍按旧时刻走")}
@@ -451,7 +463,8 @@ class WorkflowConcierge:
                     instruction = hit["reason"]
                 else:
                     state = (hit or {}).get("state", "unknown")
-                    return {"error": f"这个工作流没有可归因的失败原因（当前状态：{state}）。"
+                    return {"error": "这个工作流没有可归因的失败原因"
+                                     f"（{_HEALTH_WORDS.get(state, _HEALTH_WORDS['unknown'])}）。"
                                      "要修什么请说清楚，比如把报错原文贴给我。"}
             requirement = (
                 f"修复现有工作流「{app.get('name')}」。它已发布但运行失败。\n"
@@ -516,7 +529,8 @@ class WorkflowConcierge:
                 engine.queue_resume_message(build_id, message)
             await services.workflow_store.update_build(build_id, status="queued", error="")
             engine.start(build_id)
-            return {"build_id": build_id, "status": "queued", "note": "已续跑，可用 build_status 跟进"}
+            return {"build_id": build_id, "情况": "已经让它接着跑了",
+                    "note": "过一会儿再查一次即可"}
         if name == "abandon_build":
             build_id = str(args.get("build_id") or "")
             build, failure = await self._get_build_or_error(build_id)
@@ -551,7 +565,7 @@ class WorkflowConcierge:
             if state.pending_question:
                 result["搭建方在问"] = state.pending_question[:600]
             return result
-        return {"error": f"unknown tool: {name}"}
+        return {"error": f"没有「{name}」这个工具——换个方式，或如实告诉用户做不到"}
 
     @staticmethod
     def _history_text(message: dict) -> str:
@@ -636,6 +650,24 @@ class WorkflowConcierge:
         await _emit({"type": "final", "text": "（动作轮次到达上限，请把要求说得更具体些）"})
         return actions, "（动作轮次到达上限，请把要求说得更具体些）"
 
+
+# 运行状态 → 人话。跟构建状态那套并列：模型手里有什么词就说什么词。
+_HEALTH_WORDS = {
+    "broken": "确实在反复失败",
+    "stale": "有定时却一直没跑起来",
+    "waiting": "还在跑，结果没出来",
+    "ok": "看起来是正常的",
+    "unknown": "查不到它的近况",
+}
+
+_RUN_WORDS = {
+    "succeeded": "跑成了",
+    "failed": "没跑成",
+    "running": "还在跑",
+    "queued": "排着队还没开始",
+    "paused": "停下来等人填东西",
+    "cancelled": "被取消了",
+}
 
 # 内部报错 → 业主听得懂的话。模型只会照抄手里的词，所以别把英文递给它。
 _BUILD_ERROR_WORDS = (
@@ -745,7 +777,8 @@ def _summarize(result: dict) -> str:
         return f"{result['total']} 个工作流"
     if "outputs" in result:
         pairs = [f"{k}={str(v)[:30]}" for k, v in list(result["outputs"].items())[:3]]
-        return ("✓ " if result.get("status") == "succeeded" else "⚠ ") + " · ".join(pairs)
+        mark = "✓ " if result.get("情况") == "跑成了" else "⚠ "
+        return mark + (" · ".join(pairs) or str(result.get("情况", "")))
     if "build_id" in result:
         return "⚙ 构建已提交"
     if "runs" in result:

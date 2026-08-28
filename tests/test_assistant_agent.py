@@ -154,7 +154,7 @@ def test_recent_builds_and_resume_tools(tmp_path: Path) -> None:
         assert any(item["build_id"] == build_id for item in listed["builds"])
         resumed = client.portal.call(concierge._exec, "resume_build",
                                      {"build_id": build_id, "message": "继续"}, {"name": "t"})
-        assert resumed.get("status") == "queued", resumed
+        assert resumed.get("情况") == "已经让它接着跑了", resumed
 
 
 def test_derive_app_name_readable() -> None:
@@ -313,8 +313,9 @@ def test_run_workflow_reads_top_level_fields(tmp_path) -> None:
         result = client.portal.call(concierge._exec, "run_workflow",
                                     {"name_or_id": "跑跑看", "inputs": {}}, {"name": "t"})
 
-    assert result["status"] == "failed"
-    assert "missing required input: sales" in result["error"]   # 顶层 error
+    assert result["情况"] == "没跑成"
+    # 原因取自顶层 error，并且翻成人话——名字要留住，措辞不留英文
+    assert result["没成的原因"] == "缺少必填输入「sales」"
     assert result["outputs"] == {}                              # 不再吃 state 中间态
     assert calls["n"] == 1
 
@@ -371,7 +372,8 @@ def test_repair_refuses_when_nothing_is_attributably_broken(monkeypatch, tmp_pat
                                     {"name_or_id": "在跑的"}, {"name": "t"})
 
     assert "error" in result
-    assert "waiting" in result["error"]
+    # 状态词翻成人话了：waiting 这种内部词不该出现在给业主的话里
+    assert "还在跑" in result["error"]
     assert not started, "不该启动任何构建"
 
 

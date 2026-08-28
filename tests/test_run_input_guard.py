@@ -55,7 +55,7 @@ class RunInputGuardTest(unittest.IsolatedAsyncioTestCase):
         agent, services = _agent([{"name": "lang", "type": "string",
                                    "required": False}])
         result = await agent._exec("run_workflow", {"name_or_id": "统计"}, {})
-        self.assertEqual(result["status"], "succeeded")
+        self.assertEqual(result["情况"], "跑成了")
         services.workflow_runtime.create_run.assert_awaited_once()
 
     async def test_blank_string_counts_as_missing(self):
@@ -69,7 +69,7 @@ class RunInputGuardTest(unittest.IsolatedAsyncioTestCase):
         agent, services = _agent([{"name": "text", "type": "string"}])
         result = await agent._exec(
             "run_workflow", {"name_or_id": "统计", "inputs": {"text": "hi"}}, {})
-        self.assertEqual(result["status"], "succeeded")
+        self.assertEqual(result["情况"], "跑成了")
         services.workflow_runtime.create_run.assert_awaited_once()
 
     async def test_undeclarable_workflow_is_not_blocked(self):
@@ -77,7 +77,7 @@ class RunInputGuardTest(unittest.IsolatedAsyncioTestCase):
         agent, services = _agent([])
         services.workflow_store.get_version = AsyncMock(side_effect=KeyError("no version"))
         result = await agent._exec("run_workflow", {"name_or_id": "统计"}, {})
-        self.assertEqual(result["status"], "succeeded")
+        self.assertEqual(result["情况"], "跑成了")
         services.workflow_runtime.create_run.assert_awaited_once()
 
     async def test_list_workflows_actually_returns_the_declaration(self):
