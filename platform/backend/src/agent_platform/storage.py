@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import sqlite3
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
@@ -9,6 +10,8 @@ from pathlib import Path
 from typing import Any, AsyncIterator
 
 from .models import AgentSpec, ChatMessage, EventRecord, utc_now
+
+logger = logging.getLogger(__name__)
 
 
 class Storage:
@@ -1201,7 +1204,10 @@ class Storage:
                 path.unlink()
                 compressed += 1
                 saved += original - target.stat().st_size
-            except Exception:
+            except Exception as error:  # noqa: BLE001 - 压不动一个文件不该停下整轮
+                # 静默 continue 的问题是：磁盘一直涨，日志里什么都没有，
+                # 而"压缩了 0 个"和"一个都没压成"长得一模一样。
+                logger.warning("冷事件文件压不动 %s：%s", path.name, error)
                 continue
         return {"compressed": compressed, "bytes_saved": saved}
 

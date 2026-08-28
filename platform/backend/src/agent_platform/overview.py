@@ -16,10 +16,13 @@ _REAL_RUN = "version IS NOT NULL"
 
 import asyncio
 import json
+import logging
 import re
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 def _today_prefix() -> str:
@@ -95,7 +98,13 @@ async def build_overview(services: Any) -> dict[str, Any]:
             continue
         try:
             nodes = json.loads(snapshot)["workflow"]["nodes"]
-        except Exception:
+        except Exception as error:  # noqa: BLE001 - 一个坏快照不该让整块统计塌掉
+            # 静默 continue 的后果不轻：这个工作流的定时会从面板上消失，
+            # 而体检里「有定时却没跑起来」也是基于这张表——
+            # 也就是说一个定时任务可以无声地脱离监控，而且看上去像"它没有定时"。
+            # 跳过是对的（一个坏快照不能拖垮整块统计），但必须留痕。
+            logger.warning("读不出「%s」的流程图，它的定时不会出现在面板上：%s",
+                           app.get("name") or app["id"], error)
             continue
         for node in nodes:
             if node.get("type") == "schedule_trigger":
