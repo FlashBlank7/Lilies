@@ -5,6 +5,8 @@ import hashlib
 import json
 import math
 import sqlite3
+
+from .db import connect as _sqlite_connect
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
@@ -160,7 +162,7 @@ class ForecastModelService:
         self._lock = asyncio.Lock()
 
     def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path)
+        conn = _sqlite_connect(self.db_path)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL")
         return conn

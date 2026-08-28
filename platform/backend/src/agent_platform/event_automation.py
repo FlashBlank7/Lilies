@@ -14,6 +14,7 @@ from uuid import uuid4
 import websockets
 from pydantic import BaseModel, Field, field_validator
 
+from .db import connect as _sqlite_connect
 from .platform_harness import PlatformHarness
 
 
@@ -134,7 +135,7 @@ class EventAutomationService:
         await asyncio.to_thread(self._initialize_sync)
 
     def _initialize_sync(self) -> None:
-        with sqlite3.connect(self.database_path) as connection:
+        with _sqlite_connect(self.database_path) as connection:
             connection.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS event_subscriptions (
@@ -257,7 +258,7 @@ class EventAutomationService:
         request: EventSubscriptionCreateRequest,
     ) -> dict[str, Any]:
         now = utc_now()
-        with sqlite3.connect(self.database_path) as connection:
+        with _sqlite_connect(self.database_path) as connection:
             try:
                 connection.execute(
                     "INSERT INTO event_subscriptions "
@@ -287,7 +288,7 @@ class EventAutomationService:
         )
 
     def _get_subscription_sync(self, subscription_id: str) -> dict[str, Any]:
-        with sqlite3.connect(self.database_path) as connection:
+        with _sqlite_connect(self.database_path) as connection:
             connection.row_factory = sqlite3.Row
             row = connection.execute(
                 "SELECT * FROM event_subscriptions WHERE id=?",
@@ -321,7 +322,7 @@ class EventAutomationService:
             query += " WHERE application_id=?"
             parameters = (application_id,)
         query += " ORDER BY created_at"
-        with sqlite3.connect(self.database_path) as connection:
+        with _sqlite_connect(self.database_path) as connection:
             rows = connection.execute(query, parameters).fetchall()
         return [self._get_subscription_sync(str(row[0])) for row in rows]
 
@@ -348,7 +349,7 @@ class EventAutomationService:
         subscription_id: str,
         enabled: bool,
     ) -> None:
-        with sqlite3.connect(self.database_path) as connection:
+        with _sqlite_connect(self.database_path) as connection:
             cursor = connection.execute(
                 "UPDATE event_subscriptions SET enabled=?,status=?,last_error=NULL,"
                 "updated_at=? WHERE id=?",
@@ -504,7 +505,7 @@ class EventAutomationService:
         subscription_id: str,
         event_identity: str,
     ) -> bool:
-        with sqlite3.connect(self.database_path) as connection:
+        with _sqlite_connect(self.database_path) as connection:
             before = connection.total_changes
             connection.execute(
                 "INSERT OR IGNORE INTO event_receipts "
@@ -518,7 +519,7 @@ class EventAutomationService:
         subscription_id: str,
         event_identity: str,
     ) -> None:
-        with sqlite3.connect(self.database_path) as connection:
+        with _sqlite_connect(self.database_path) as connection:
             connection.execute(
                 "DELETE FROM event_receipts WHERE subscription_id=? "
                 "AND event_identity=? AND run_id IS NULL",
@@ -531,7 +532,7 @@ class EventAutomationService:
         event_identity: str,
         run_id: str,
     ) -> None:
-        with sqlite3.connect(self.database_path) as connection:
+        with _sqlite_connect(self.database_path) as connection:
             connection.execute(
                 "UPDATE event_receipts SET run_id=? WHERE subscription_id=? "
                 "AND event_identity=?",
@@ -544,7 +545,7 @@ class EventAutomationService:
             )
 
     def _set_subscription_connected_sync(self, subscription_id: str) -> None:
-        with sqlite3.connect(self.database_path) as connection:
+        with _sqlite_connect(self.database_path) as connection:
             connection.execute(
                 "UPDATE event_subscriptions SET status='connected',last_error=NULL,"
                 "updated_at=? WHERE id=?",
@@ -556,7 +557,7 @@ class EventAutomationService:
         subscription_id: str,
         error_code: str,
     ) -> None:
-        with sqlite3.connect(self.database_path) as connection:
+        with _sqlite_connect(self.database_path) as connection:
             connection.execute(
                 "UPDATE event_subscriptions SET status='reconnecting',"
                 "reconnect_count=reconnect_count+1,last_error=?,updated_at=? "
@@ -585,7 +586,7 @@ class EventAutomationService:
     ) -> dict[str, Any]:
         occurred_at = parse_time(request.occurred_at)
         now = utc_now()
-        with sqlite3.connect(self.database_path) as connection:
+        with _sqlite_connect(self.database_path) as connection:
             connection.row_factory = sqlite3.Row
             existing = connection.execute(
                 "SELECT * FROM event_timers WHERE timer_key=?",
@@ -705,7 +706,7 @@ class EventAutomationService:
         return await asyncio.to_thread(self._get_timer_sync, timer_key)
 
     def _get_timer_sync(self, timer_key: str) -> dict[str, Any]:
-        with sqlite3.connect(self.database_path) as connection:
+        with _sqlite_connect(self.database_path) as connection:
             connection.row_factory = sqlite3.Row
             row = connection.execute(
                 "SELECT * FROM event_timers WHERE timer_key=?",
@@ -761,7 +762,7 @@ class EventAutomationService:
         if clauses:
             query += " WHERE " + " AND ".join(clauses)
         query += " ORDER BY created_at"
-        with sqlite3.connect(self.database_path) as connection:
+        with _sqlite_connect(self.database_path) as connection:
             rows = connection.execute(query, parameters).fetchall()
         return [self._get_timer_sync(str(row[0])) for row in rows]
 
@@ -774,7 +775,7 @@ class EventAutomationService:
 
     def _claim_due_timers_sync(self) -> list[dict[str, Any]]:
         now = utc_now()
-        with sqlite3.connect(self.database_path) as connection:
+        with _sqlite_connect(self.database_path) as connection:
             connection.row_factory = sqlite3.Row
             connection.execute("BEGIN IMMEDIATE")
             rows = connection.execute(
@@ -828,7 +829,7 @@ class EventAutomationService:
         error_code: str,
     ) -> None:
         now = utc_now()
-        with sqlite3.connect(self.database_path) as connection:
+        with _sqlite_connect(self.database_path) as connection:
             row = connection.execute(
                 "SELECT attempt_count FROM event_timers WHERE timer_key=?",
                 (timer_key,),
@@ -858,7 +859,7 @@ class EventAutomationService:
         run_id: str,
     ) -> None:
         now = utc_now()
-        with sqlite3.connect(self.database_path) as connection:
+        with _sqlite_connect(self.database_path) as connection:
             connection.execute(
                 "UPDATE event_timers SET status='dispatched',run_id=?,updated_at=? "
                 "WHERE timer_key=?",

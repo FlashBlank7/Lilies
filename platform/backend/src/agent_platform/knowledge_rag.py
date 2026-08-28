@@ -8,6 +8,8 @@ import math
 import re
 import sqlite3
 import unicodedata
+
+from .db import connect as _sqlite_connect
 from datetime import datetime, timezone
 from html.parser import HTMLParser
 from pathlib import Path
@@ -281,7 +283,7 @@ class KnowledgeIndexService:
         self._lock = asyncio.Lock()
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.db_path)
+        connection = _sqlite_connect(self.db_path)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA journal_mode=WAL")
         connection.execute("PRAGMA foreign_keys=ON")

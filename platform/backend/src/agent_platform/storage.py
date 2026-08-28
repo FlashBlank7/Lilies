@@ -26,11 +26,9 @@ class Storage:
         await asyncio.to_thread(self._initialize_sync)
 
     def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA foreign_keys=ON")
-        return conn
+        from .db import connect
+
+        return connect(self.db_path)
 
     def _initialize_sync(self) -> None:
         with self._connect() as conn:
