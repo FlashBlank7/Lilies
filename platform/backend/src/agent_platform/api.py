@@ -205,6 +205,38 @@ def _owner_facing_event(record: dict[str, Any]) -> bool:
     return record.get("event") in _OWNER_EVENT_KINDS
 
 
+def _owner_build_note(status: str, pending_question: str | None,
+                      error: str | None) -> tuple[str, str]:
+    """业主看到的「现在怎么了 / 你能做什么」。
+
+    需要这个函数，是因为两条完全不同的路都会走成 needs_attention：
+      · 搭建方主动问业主（ask_owner）——有 pending_question，业主该回答
+      · 搭建自己崩了（异常兜底）——没有问题，业主只是被卡住了
+    业主页两种都渲染成「这里有个问题等你回复」+「回答上面的问题，搭建会继续」。
+    真机 75 个构建、61 次停下来，pending_question 一条都没有——
+    也就是说这句话每次都在请业主回答一个不存在的问题，
+    而到底出了什么事，一个字都没说。
+
+    翻译表和管家那边共用（_BUILD_ERROR_WORDS，已有测试覆盖），
+    但「接下来做什么」不能共用：管家那半是写给管家的
+    （「把上面的问题原样转达给业主」），照抄给业主人称就错了。
+    """
+    from .assistant_agent import _BUILD_ERROR_WORDS
+
+    if pending_question:
+        return "搭建停下来了，在等你回话", "回答上面的问题，搭建就会接着做"
+    if status in ("queued", "building", "running"):
+        return "正在搭", "不用做什么；搭好了这里会显示"
+    if status in ("published", "ready"):
+        return "搭好了，可以试运行了", ""
+    if status == "cancelled":
+        return "这个搭建已经放弃了", "想重来的话，直接说新的需求就行"
+    lowered = str(error or "").lower()
+    reason = next((word for key, word in _BUILD_ERROR_WORDS if key in lowered), "")
+    stopped = f"搭建中途卡住了（{reason}）" if reason else "搭建中途卡住了"
+    return stopped, "多半是一时的——在下面留句话，它就会接着搭"
+
+
 def _owner_safe_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """业主看的那份记录：搭建方写给自己看的话，一句都不给。
 
@@ -4869,6 +4901,14 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
                 "status": latest["status"],
                 "pending_question": latest["team_state"].pending_question
                 if latest["status"] == "needs_attention" else None,
+                # 停下来的时候到底怎么了、业主能做什么——
+                # 原先一个字都没有，前端只好把"崩了"也渲染成"有问题等你回复"
+                **dict(zip(("situation", "what_to_do"), _owner_build_note(
+                    latest["status"],
+                    latest["team_state"].pending_question
+                    if latest["status"] == "needs_attention" else None,
+                    latest.get("error"),
+                ))),
                 "updated_at": latest["updated_at"],
             },
             "acceptance": None if not acceptance else {

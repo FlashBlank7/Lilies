@@ -11,7 +11,8 @@ import styles from './owner.module.css'
 
 type OwnerState = {
   application: { id: string; name: string }
-  build: { id: string; status: string; pending_question: string | null; updated_at: string } | null
+  build: { id: string; status: string; pending_question: string | null;
+           situation?: string; what_to_do?: string; updated_at: string } | null
   acceptance: { accepted: boolean; passed_cases?: number; total_cases?: number } | null
   published_version: number | null
 }
@@ -19,6 +20,8 @@ type OwnerState = {
 type TranscriptRecord = {
   kind?: string
   text?: string
+  // 后端挡下搭建方正文时置 true（正文换成空串）。时间线靠它补占位。
+  text_withheld?: boolean
   turn?: number
   tool_calls?: Array<{ tool: string; arguments: Record<string, unknown> }>
 }
@@ -100,16 +103,12 @@ export default function OwnerPage({ params }: { params: Promise<{ id: string }> 
   const status = state?.build ? STATUS[state.build.status] || { label: '进行中', tone: 'working' } : null
   const building = Boolean(state?.build && ACTIVE.has(state.build.status))
 
-  const deliveryNote = useMemo(() => {
-    if (!state?.build || !['ready', 'published'].includes(state.build.status)) return ''
-    for (let index = records.length - 1; index >= 0; index -= 1) {
-      const record = records[index]
-      if (record.kind !== 'owner' && record.kind !== 'event' && (record.text || '').trim().length > 40) {
-        return (record.text || '').trim()
-      }
-    }
-    return ''
-  }, [state, records])
+  // 「交付说明」原先是去 records 里捞搭建方最后一段长文本。
+  // 后端 2026-08-28 起把搭建方正文一律清空（那些话不是写给业主的），
+  // 于是这段代码永远返回 ''——功能死了，页面上什么也不显示，没人发现。
+  // 现在改用后端明确给业主的那句话：它由 _owner_build_note 生成，
+  // 不是从模型自言自语里捞出来的。
+  const deliveryNote = state?.build?.what_to_do || ''
 
   async function send() {
     const text = message.trim()
@@ -164,7 +163,9 @@ export default function OwnerPage({ params }: { params: Promise<{ id: string }> 
       {!state.acceptance.accepted && !building && <button className={styles.repair} onClick={() => void repair()}>按验收单返修</button>}
     </div>}
 
-    {deliveryNote && <div className={styles.delivery}><b>交付说明</b>{deliveryNote}</div>}
+    {state?.build?.situation && <div className={styles.delivery}>
+      <b>{state.build.situation}</b>{deliveryNote}
+    </div>}
 
     <div className={styles.stream} ref={streamRef}>
       {!records.length && <div className={styles.empty}>
@@ -178,8 +179,11 @@ export default function OwnerPage({ params }: { params: Promise<{ id: string }> 
         if (text) return <div className={`${styles.msg} ${styles.lilith}`} key={index}><em>搭建方</em>{text}</div>
         const action = describeAction(record)
         if (action) return <div className={styles.action} key={index}>⚙ {action}</div>
-        // 英文自言自语的那一轮：不把原文抬出去，也别让时间线突然断掉
-        return text ? <div className={styles.action} key={index}>⚙ 在琢磨下一步</div> : null
+        // 搭建方那一轮的正文被后端挡下了：不把原文抬出去，
+        // 但也别让时间线凭空断一截。
+        // 原先这里写的是 `text ? … : null`——可上面刚 `if (text) return`，
+        // 走到这行 text 必然为空，占位从来没渲染出来过。
+        return record.text_withheld ? <div className={styles.action} key={index}>⚙ 在琢磨下一步</div> : null
       })}
       {state?.build?.pending_question && <div className={styles.question}>
         <b>这里有个问题等你回复</b>{state.build.pending_question}
