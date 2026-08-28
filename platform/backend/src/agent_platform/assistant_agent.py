@@ -351,11 +351,15 @@ class WorkflowConcierge:
             if not app:
                 return {"error": "找不到该工作流"}
             runs = await services.workflow_store.list_runs(app["id"], limit=int(args.get("limit") or 5))
-            from .overview import _brief_error
+            from .overview import _human_error
 
-            return {"runs": [{"id": r["id"], "status": r["status"],
+            # 状态与报错都翻成人话。这一处此前一直漏着：AST 那道门只扫
+            # return 字面量的**顶层**键，而这里的 status 嵌在列表推导里，
+            # 门看不见——门的盲区正好罩住了一个真泄漏。
+            return {"runs": [{"id": r["id"],
+                              "情况": _RUN_WORDS.get(r["status"], r["status"]),
                               "created_at": r.get("created_at"),
-                              "error": _brief_error(r.get("error") or "")}
+                              "没成的原因": _human_error(r.get("error") or "")}
                              for r in runs]}
         if name == "generate_workflow":
             requirement = str(args.get("requirement") or "").strip()

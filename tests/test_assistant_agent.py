@@ -350,7 +350,9 @@ def test_recent_runs_carries_error(tmp_path) -> None:
         result = client.portal.call(concierge._exec, "recent_runs",
                                     {"name_or_id": "查历史"}, {"name": "t"})
 
-    assert result["runs"][0]["error"] == "HTTPConnectionPool timeout"  # 前缀已剥
+    # 键名与措辞都改了：status → 情况（翻成人话），error → 没成的原因（走 _human_error）
+    assert result["runs"][0]["没成的原因"] == "连不上外部服务或等待超时"
+    assert "status" not in result["runs"][0]
     assert created["id"]
 
 

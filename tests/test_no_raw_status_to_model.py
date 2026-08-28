@@ -28,11 +28,16 @@ def _exec_returns() -> list[tuple[int, str]]:
     for fn in ast.walk(tree):
         if not (isinstance(fn, ast.AsyncFunctionDef) and fn.name == "_exec"):
             continue
+        # 扫 _exec 里**所有**字典字面量，不只是 return 的顶层。
+        # 原本只扫顶层，于是漏掉了嵌在列表推导里的那一个：
+        #   return {"runs": [{"id": …, "status": r["status"]} for r in runs]}
+        # 门的盲区正好罩住了一个真泄漏——只扫自己看得见的地方，
+        # 等于自己给自己发了张通行证。
         for node in ast.walk(fn):
-            if isinstance(node, ast.Return) and isinstance(node.value, ast.Dict):
-                for key in node.value.keys:
+            if isinstance(node, ast.Dict):
+                for key in node.keys:
                     if isinstance(key, ast.Constant) and isinstance(key.value, str):
-                        found.append((node.lineno, key.value))
+                        found.append((key.lineno, key.value))
     return found
 
 
@@ -47,5 +52,5 @@ def test_no_internal_status_keys_reach_the_model() -> None:
 def test_the_guard_actually_scans_something() -> None:
     """别让扫描器因为找不到 _exec 而空跑通过。"""
     returns = _exec_returns()
-    assert len(returns) > 20, f"只扫到 {len(returns)} 个返回键，扫描器多半失效了"
+    assert len(returns) > 40, f"只扫到 {len(returns)} 个键，扫描器多半失效了"
     assert any(key == "情况" for _, key in returns), "没扫到翻译后的「情况」键"
