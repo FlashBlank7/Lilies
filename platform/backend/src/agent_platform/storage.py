@@ -1174,6 +1174,19 @@ class Storage:
                 continue
         return {"compressed": compressed, "bytes_saved": saved}
 
+    async def ensure_event_indexes(self) -> None:
+        """事件表的维护用索引。
+
+        故意不放进建表脚本：这台真机上 events 有 1 GB，建索引要扫全表，
+        放启动路径上照样把服务堵住。它属于后台维护的一部分。
+        """
+        await asyncio.to_thread(self._ensure_event_indexes_sync)
+
+    def _ensure_event_indexes_sync(self) -> None:
+        with self._connect() as conn:
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_events_created_at "
+                         "ON events(created_at)")
+
     async def archive_events_before(self, *, keep_days: int) -> dict[str, int]:
         """把 DB 里的老事件删掉（JSONL 冷文件是权威全量，读取端自动回退）。
 

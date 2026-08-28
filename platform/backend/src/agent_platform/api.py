@@ -1752,22 +1752,33 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         await services.openapi_connectors.initialize()
         await services.workflow_store.fail_interrupted_runs()
         await services.workflow_store.fail_interrupted_builds()
-        archived = await services.storage.archive_events_before(
-            keep_days=settings.event_archive_keep_days
-        )
-        if archived["removed"]:
-            print(
-                f"[storage] 事件归档：DB 移除 {archived['removed']} 行"
-                f"（冷文件为权威全量），剩余 {archived['remaining']} 行"
-            )
-        compressed = await services.storage.compress_cold_event_files(
-            older_than_days=settings.event_compress_after_days
-        )
-        if compressed["compressed"]:
-            print(
-                f"[storage] 冷文件压缩：{compressed['compressed']} 个，"
-                f"省 {compressed['bytes_saved'] / 1e6:.1f} MB"
-            )
+        async def _event_maintenance() -> None:
+            """事件归档与冷文件压缩——**不能挂在启动路径上**。
+
+            真机上这台机器 events 表 1 GB，归档的 DELETE 要全表扫，
+            实测跑一次约 90 分钟；挂在启动上就等于每次重启停机 90 分钟，
+            而且随数据增长只会更久。维护慢可以忍，服务起不来不能忍。
+            """
+            try:
+                await services.storage.ensure_event_indexes()
+                archived = await services.storage.archive_events_before(
+                    keep_days=settings.event_archive_keep_days
+                )
+                if archived["removed"]:
+                    logger.info("事件归档：DB 移除 %s 行（冷文件为权威全量），剩余 %s 行",
+                                archived["removed"], archived["remaining"])
+                compressed = await services.storage.compress_cold_event_files(
+                    older_than_days=settings.event_compress_after_days
+                )
+                if compressed["compressed"]:
+                    logger.info("冷文件压缩：%s 个，省 %.1f MB",
+                                compressed["compressed"], compressed["bytes_saved"] / 1e6)
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001 - 维护失败不该拖垮服务
+                logger.exception("事件维护失败（服务照常运行）")
+
+        maintenance_task = asyncio.create_task(_event_maintenance())
         # 运行产物过期清除（产物可由重跑再生，客户已通过使用页下载）
         import shutil as _shutil
         import time as _time
@@ -1787,11 +1798,14 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
                 print(f"[storage] 运行产物清理：{purged} 个过期运行目录")
         services.scheduler.start()
         await services.event_automation.start()
+
         local_lilies_recovery_task: asyncio.Task[Any] | None = None
         lifespan_ready = asyncio.Event()
         adaptive_refresh_task: asyncio.Task[Any] | None = None
         lifespan_ready.set()
         yield
+        # 维护可能还在跑（真机上一次要几十分钟）：关停时取消，别拖着不退
+        maintenance_task.cancel()
         if (
             services.worker_process_manager is not None
             and services.worker_process_manager.is_running
