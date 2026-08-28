@@ -1847,8 +1847,12 @@ class PlatformHarness:
     async def _emit(
         self, record: PlatformTaskRecord, event_type: str, extra: dict[str, Any] | None = None
     ) -> None:
+        # 不嵌 usage：那是这条任务至今的**全部**用量明细，
+        # 每条事件都抄一份就成了平方级增长（真机上 26518 条事件占了 859 MB，
+        # 进而让启动时的全表扫描要跑 90 分钟）。
+        # 这一次的用量由 extra 带着，聚合值看 usage_counts。
         data = {
-            "task": record.model_dump(mode="json"),
+            "task": record.model_dump(mode="json", exclude={"usage"}),
             **(extra or {}),
         }
         await self.storage.append_event("platform_harness", event_type, data)
