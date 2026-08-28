@@ -54,3 +54,36 @@ class BuildErrorTranslationTest(unittest.TestCase):
         self.assertNotIn("brand", situation)
         self.assertTrue(situation.strip())
         self.assertTrue(what_to_do.strip())
+
+
+# 每一族报错必须译出**它自己的那个意思**。
+# 只验「是中文、没英文」是不够的：把整张表换成「花开富贵」，
+# 那三条断言全都通过——测了形式，没测语义。
+MEANING = (
+    ("model stream timed out after 600s", ("断", "太久")),
+    ("model perseverating: identical rejected proposal 3x", ("绕", "同一个", "反复")),
+    ("acceptance still failing after 4 repair cycles", ("返修", "验收")),
+    ("tool call budget exceeded: 201 > 200", ("预算", "用完")),
+    ("scaffold budget exhausted with invalid draft", ("预算", "用完")),
+    ("platform restarted while building — resume to continue", ("重启", "打断")),
+    ("builder stopped with invalid draft: workflow must contain", ("图", "不成立")),
+    ("OpenAI-compatible API returned 400: bad request", ("拒绝", "模型服务")),
+    ("platform task is not running: abc status=failed", ("重启", "不在")),
+    ("UNIQUE constraint failed: events.stream_id", ("记事", "内部")),
+)
+
+
+class TranslationsMeanTheRightThingTest(unittest.TestCase):
+    def test_each_family_keeps_its_own_meaning(self):
+        wrong = []
+        for error, expected_any in MEANING:
+            situation, _ = _build_situation("needs_attention", None, error)
+            if not any(word in situation for word in expected_any):
+                wrong.append(f"{error[:44]} → {situation}"
+                             f"（期望提到 {'/'.join(expected_any)} 之一）")
+        self.assertEqual(wrong, [], "翻译丢了原意：\n" + "\n".join(wrong))
+
+    def test_different_families_do_not_collapse_into_one_phrase(self):
+        """全表换成同一句话也该红——不然「翻对了」和「翻成花开富贵」没区别。"""
+        seen = {_build_situation("needs_attention", None, e)[0] for e, _ in MEANING}
+        self.assertGreater(len(seen), 5, f"{len(MEANING)} 族报错只译出 {len(seen)} 种说法")
