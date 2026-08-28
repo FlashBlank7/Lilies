@@ -174,6 +174,27 @@ class WorkflowConcierge:
                 return matches[0]
         return None
 
+    async def _declared_inputs(self, app_id: str) -> list[dict[str, Any]]:
+        """发布版 start 节点声明的输入。取不到就回空——宁可不拦，不可误拦。"""
+        try:
+            version = await self.services.workflow_store.get_version(app_id)
+            nodes = version["snapshot"].workflow.nodes
+        except Exception:  # noqa: BLE001 - 没发布版/结构异常都当作「说不清」
+            return []
+        fields: list[dict[str, Any]] = []
+        for node in nodes:
+            if getattr(node, "type", None) != "start":
+                continue
+            config = getattr(node, "config", None) or {}
+            for item in config.get("inputs") or []:
+                if isinstance(item, dict) and item.get("name"):
+                    fields.append({
+                        "名字": str(item["name"]),
+                        "类型": str(item.get("type") or "string"),
+                        "必填": bool(item.get("required", True)),
+                    })
+        return fields
+
     async def _get_build_or_error(self, build_id: str) -> tuple[dict | None, dict | None]:
         """回 (build, error)。构建号是模型填的，填错很常见——不能让它掀翻整轮。"""
         if not build_id:
@@ -192,8 +213,15 @@ class WorkflowConcierge:
             for app in apps:
                 if args.get("only_published", True) and not app.get("active_version"):
                     continue
-                items.append({"name": app.get("name"), "id": app["id"],
-                              "published_version": app.get("active_version")})
+                item = {"name": app.get("name"), "id": app["id"],
+                        "published_version": app.get("active_version")}
+                if app.get("active_version"):
+                    # 工具说明一直写着「输入声明」，却从没真的给过——
+                    # 模型于是不知道该问业主要什么，直接空跑，白造一条失败记录
+                    declared = await self._declared_inputs(app["id"])
+                    if declared:
+                        item["要给的输入"] = declared
+                items.append(item)
             hidden = len(apps) - len(items)
             result = {"workflows": items[:50], "total": len(items)}
             if hidden > 0 and args.get("only_published", True):
@@ -208,8 +236,18 @@ class WorkflowConcierge:
             if not app:
                 return {"error": f"找不到唯一匹配的工作流: {args.get('name_or_id')}"}
             from .workflow_models import WorkflowRunRequest
+            given = dict(args.get("inputs") or {})
+            declared = await self._declared_inputs(app["id"])
+            missing = [f["名字"] for f in declared
+                       if f["必填"] and not str(given.get(f["名字"], "")).strip()]
+            if missing:
+                # 注定失败的运行不该被创建：那条失败记录会永久留在业主的历史里，
+                # 还会喂给体检和「近期失败」面板，看起来像是工作流坏了
+                return {"error": f"还缺这些输入：{'、'.join(missing)}",
+                        "这个工作流要什么": declared,
+                        "接下来": "问业主要这几项，拿到再跑；别自己编"}
             created = await services.workflow_runtime.create_run(
-                app["id"], WorkflowRunRequest(inputs=dict(args.get("inputs") or {})),
+                app["id"], WorkflowRunRequest(inputs=given),
                 origin="assistant-agent")
             run_id = created["run_id"]
             for _ in range(40):
