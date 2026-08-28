@@ -12,7 +12,8 @@ from agent_platform.assistant_agent import WorkflowConcierge
 
 # 状态码、英文报错、内部计数——一个都不该出现在给模型的载荷里
 LEAK = re.compile(r"needs_attention|queued|building|published|revision|"
-                  r"stream timed out|rate limit|[a-z]{4,} [a-z]{4,} [a-z]{4,}")
+                  r"stream timed out|rate limit|resume_build|build_status|"
+                  r"[a-z]{4,} [a-z]{4,} [a-z]{4,}")
 
 
 def _concierge(status, pending_question, error=""):
@@ -33,7 +34,7 @@ class BuildStatusQuestionTest(unittest.IsolatedAsyncioTestCase):
         result = await agent._exec("build_status", {"build_id": "b1"}, {})
         self.assertEqual(result["搭建方在问"], "净字数要不要算标点？")
         # 光把问题塞进去还不够：模型得知道拿到答复后怎么送回去
-        self.assertIn("resume_build", result["接下来"])
+        self.assertIn("等他回答", result["接下来"])
 
     async def test_long_question_is_truncated_not_dropped(self):
         agent = _concierge("needs_attention", "问" * 5000)
@@ -54,7 +55,7 @@ class BuildStatusQuestionTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("卡住", result["情况"])
         # 超时的原因要说出来，但要说人话
         self.assertIn("断了", result["情况"])
-        self.assertIn("resume_build", result["接下来"])
+        self.assertIn("接着跑", result["接下来"])
 
     async def test_no_internal_words_reach_the_model(self):
         for status, question, error in (
@@ -67,9 +68,10 @@ class BuildStatusQuestionTest(unittest.IsolatedAsyncioTestCase):
         ):
             agent = _concierge(status, question, error)
             result = await agent._exec("build_status", {"build_id": "b1"}, {})
-            # 搭建方原话（问题正文）是业主要看的，不算泄漏，排除掉再查
+            # 下划线键是公开约定的「给模型的指引」，不进业主视野；
+            # 搭建方原话是业主要看的正文，两者都排除后再扫
             payload = " ".join(str(value) for key, value in result.items()
-                               if key != "搭建方在问")
+                               if key != "搭建方在问" and not key.startswith("_"))
             self.assertIsNone(LEAK.search(payload.lower()),
                               f"{status}/{error} 泄漏了内部词：{payload}")
 

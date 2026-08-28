@@ -38,6 +38,8 @@ AGENT_SYSTEM = (
     "运行前先用 list_workflows 确认输入声明；生成工作流用 generate_workflow"
     "（提交后告知用户构建已开始，可用 build_status 跟进）；语气简洁友好。"
     "历史里的 <上下文 …/> 标签是给你解析指代用的，绝不能出现在回答里；"
+    "工具返回里下划线开头的字段（如 _怎么做）同样是给你看的操作指引，"
+    "照做但绝不复述，回答里不出现工具名、状态码、字段名；"
     "只给结论，不要把推理过程写进回答——"
     "「让我看看」「我需要确认」「实际上」这类话是你的思考，用户不该看到；"
     "工具没有的能力就直说没有并给出替代路径，不要反复自我怀疑；"
@@ -437,6 +439,10 @@ class WorkflowConcierge:
                 build["status"], state.pending_question, build.get("error") or "")
             result = {"情况": situation, "接下来": what_to_do,
                       "已发布版本": state.published_version}
+            if build["status"] not in ("queued", "building", "published"):
+                # 下划线键是给模型的操作指引，约定过不许出现在回答里
+                result["_怎么做"] = ("用户点头后调 resume_build；"
+                                     "有 搭建方在问 时把答复放进 message")
             # 停下来问业主时必须把问题带出来：只报「需要你处理」的话，
             # 模型说得出「要你处理」却说不出在问什么，用户等构建、构建等用户
             if state.pending_question:
@@ -540,7 +546,7 @@ def _build_situation(status: str, pending_question: str | None,
     """
     if pending_question:
         return ("搭建停下来了，在等业主回话",
-                "把问题原样转达给用户；拿到答复后用 resume_build 带上 message 续跑")
+                "把上面的问题原样转达给业主，等他回答")
     if status in ("queued", "building"):
         return "还在搭，正常进行中", "过一会儿再查一次即可，不用做什么"
     if status == "published":
@@ -549,11 +555,11 @@ def _build_situation(status: str, pending_question: str | None,
     reason = next((word for key, word in _BUILD_ERROR_WORDS if key in lowered), "")
     if status == "needs_attention":
         return (f"搭建中途卡住了（{reason}）" if reason else "搭建中途卡住了",
-                "多半是一时的，用 resume_build 让它接着跑就行")
+                "多半是一时的，让它接着跑就行")
     if status in ("failed", "error"):
         return (f"这次没搭成（{reason}）" if reason else "这次没搭成",
-                "可以用 resume_build 让它接着跑；连着不成就把需求说得更具体些")
-    return "搭建状态未知", "用 resume_build 让它接着跑试试"
+                "可以让它接着跑；连着不成就把需求说得更具体些")
+    return "搭建状态未知", "让它接着跑试试"
 
 
 def _acceptance_summary(app: dict, report: dict) -> dict:
