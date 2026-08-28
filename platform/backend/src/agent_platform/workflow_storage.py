@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import hmac
 import json
 import re
 import sqlite3
@@ -1516,8 +1517,17 @@ class WorkflowStorage:
         return row["code"] if row else None
 
     async def verify_access_code(self, application_id: str, code: str) -> bool:
+        """使用码校验。用 compare_digest 而不是 ==。
+
+        码本身是 secrets.token_urlsafe(9)（约 70 位熵），爆破不现实，
+        所以这不是在堵一个能打通的洞，而是把口径对齐：
+        API 令牌、密码哈希、连接器密钥在这个仓里全都用 compare_digest，
+        只有这两处是 ==。同一个做法没铺满所有点，本身就是个信号。
+        """
         stored = await self.get_access_code(application_id)
-        return bool(stored) and bool(code) and stored == code
+        if not stored or not code:
+            return False
+        return hmac.compare_digest(str(stored), str(code))
 
     async def ensure_access_code(self, application_id: str) -> str:
         """取现行访问码；没有才生成——复制多视图链接时不作废旧链接。"""
@@ -1564,8 +1574,17 @@ class WorkflowStorage:
         return row["code"] if row else None
 
     async def verify_owner_code(self, application_id: str, code: str) -> bool:
+        """业主码校验。用 compare_digest 而不是 ==。
+
+        码本身是 secrets.token_urlsafe(9)（约 70 位熵），爆破不现实，
+        所以这不是在堵一个能打通的洞，而是把口径对齐：
+        API 令牌、密码哈希、连接器密钥在这个仓里全都用 compare_digest，
+        只有这两处是 ==。同一个做法没铺满所有点，本身就是个信号。
+        """
         stored = await self.get_owner_code(application_id)
-        return bool(stored) and bool(code) and stored == code
+        if not stored or not code:
+            return False
+        return hmac.compare_digest(str(stored), str(code))
 
     async def ensure_owner_code(self, application_id: str) -> str:
         existing = await self.get_owner_code(application_id)
