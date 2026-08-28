@@ -66,8 +66,10 @@ TOOLS = [
                                "且放了一阵子的），或把指定的一个收起来/拿回来。"
                                "用户说'列表太乱了''把没用的收起来'用这个。",
                    input_schema={"type": "object", "properties": {
-                       "action": {"type": "string", "enum": ["suggest", "archive", "restore"],
-                                  "description": "suggest 只看建议；archive/restore 需要 name_or_id"},
+                       "action": {"type": "string",
+                                  "enum": ["suggest", "archive", "restore", "list_archived"],
+                                  "description": "suggest 看建议；list_archived 看已收起的；"
+                                                 "archive/restore 需要 name_or_id"},
                        "name_or_id": {"type": "string"},
                        "days_idle": {"type": "integer", "description": "闲置几天算废弃，默认 7"},
                    }}),
@@ -115,13 +117,26 @@ class WorkflowConcierge:
         self.services = services
         self.settings = settings
 
-    async def _resolve_app(self, name_or_id: str) -> dict | None:
+    async def _resolve_app(self, name_or_id: str,
+                           *, include_archived: bool = False) -> dict | None:
         apps = await self.services.workflow_store.list_applications()
+        if include_archived:
+            # 已归档的不在常规列表里，但「拿回 X」必须能按名字找到它
+            apps = list(apps) + list(await self.services.workflow_store.list_archived())
         for app in apps:
             if app["id"] == name_or_id or app.get("name") == name_or_id:
                 return app
         matches = [a for a in apps if name_or_id in (a.get("name") or "")]
-        return matches[0] if len(matches) == 1 else None
+        if len(matches) == 1:
+            return matches[0]
+        if not matches:
+            # 反向包含：用户说的名字更长（带了他记得的修饰），或大小写/空格有出入
+            loose = name_or_id.strip().lower().replace(" ", "")
+            matches = [a for a in apps
+                       if loose and loose in (a.get("name") or "").lower().replace(" ", "")]
+            if len(matches) == 1:
+                return matches[0]
+        return None
 
     async def _exec(self, name: str, args: dict, user: dict) -> dict:
         services = self.services
@@ -204,7 +219,24 @@ class WorkflowConcierge:
                     "total": len(items),
                     "note": "这些从没发布也从没成功跑过。要收起来说一声，"
                             "数据不删、随时能拿回来"}
-            app = await self._resolve_app(str(args.get("name_or_id") or ""))
+            if action == "list_archived":
+                items = await services.workflow_store.list_archived()
+                shown = items[:30]
+                payload = {"archived_items": [
+                    {"name": i["name"], "id": i["id"],
+                     "archived_at": str(i["archived_at"])[:10]} for i in shown],
+                    "total": len(items),
+                    "note": "说「拿回 X」就能放回列表"}
+                if len(items) > len(shown):
+                    # 别让模型以为「就这些」：它会据此断定某个没列出来的不存在
+                    payload["truncated"] = True
+                    payload["note"] += (f"。这里只列了 {len(shown)}/{len(items)} 个，"
+                                        "用户报的名字即使不在上面也可能存在——"
+                                        "直接按名字 restore 即可，找不到会明确报错")
+                return payload
+            # 拿回来时要能按名字找到已归档的——它们不在常规列表里
+            app = await self._resolve_app(
+                str(args.get("name_or_id") or ""), include_archived=True)
             if not app:
                 return {"error": "找不到该工作流"}
             archived = action == "archive"
@@ -413,6 +445,9 @@ def _summarize(result: dict) -> str:
         return f"{len(result['runs'])} 条历史"
     if "builds" in result:
         return f"{len(result['builds'])} 个构建"
+    if "archived_items" in result:
+        total = result.get("total", 0)
+        return f"📦 已收起 {total} 个" if total else "✓ 没有收起来的东西"
     if "candidates" in result:
         total = result.get("total", 0)
         if total:

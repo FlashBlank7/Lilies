@@ -74,3 +74,49 @@ async def test_archivable_respects_idle_window(services):
     assert await store.list_archivable(days_idle=7) == []
     # 窗口设为 0 天：连"今天动过的"也算，用来验证参数真的生效
     assert {i["name"] for i in await store.list_archivable(days_idle=0)} == set()
+
+
+@pytest.mark.asyncio
+async def test_archived_list_is_visible(services):
+    """收起来的必须看得见——可逆操作没有回头路，用户就不敢按第一下。"""
+    store = services._store
+    _add_app(services, "a1", "收起来的")
+    _add_app(services, "a2", "还在列表里的")
+    await store.set_archived("a1", True)
+
+    archived = await store.list_archived()
+    assert [i["name"] for i in archived] == ["收起来的"]
+    assert archived[0]["archived_at"]
+    assert "还在列表里的" not in [i["name"] for i in archived]
+
+
+@pytest.mark.asyncio
+async def test_resolve_finds_archived_when_asked(services):
+    """「拿回 X」要能按名字找到已归档的——它们不在常规列表里。"""
+    from types import SimpleNamespace
+
+    from agent_platform.assistant_agent import WorkflowConcierge
+
+    store = services._store
+    _add_app(services, "a1", "收起来的日报")
+    await store.set_archived("a1", True)
+
+    concierge = WorkflowConcierge(
+        SimpleNamespace(workflow_store=store), SimpleNamespace())
+    assert await concierge._resolve_app("收起来的日报") is None          # 默认看不到
+    found = await concierge._resolve_app("收起来的日报", include_archived=True)
+    assert found and found["id"] == "a1"
+
+
+@pytest.mark.asyncio
+async def test_loose_name_match(services):
+    """用户报的名字常常带点出入（大小写、空格）——别因此说找不到。"""
+    from types import SimpleNamespace
+
+    from agent_platform.assistant_agent import WorkflowConcierge
+
+    _add_app(services, "a1", "Mech Smoke Greeting")
+    concierge = WorkflowConcierge(
+        SimpleNamespace(workflow_store=services._store), SimpleNamespace())
+    found = await concierge._resolve_app("mechsmokegreeting")
+    assert found and found["id"] == "a1"

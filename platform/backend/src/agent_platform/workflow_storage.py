@@ -2008,6 +2008,21 @@ class WorkflowStorage:
         return {"application_id": application_id, "name": row["name"],
                 "archived": archived}
 
+    async def list_archived(self) -> list[dict[str, Any]]:
+        """已经收起来的。可逆的操作必须有回头路，否则用户不敢按第一下。"""
+        return await asyncio.to_thread(self._list_archived_sync)
+
+    def _list_archived_sync(self) -> list[dict[str, Any]]:
+        with self.storage._connect() as conn:
+            rows = conn.execute(
+                """SELECT a.id, a.name, a.archived_at, a.active_version,
+                          (SELECT COUNT(*) FROM workflow_runs r
+                            WHERE r.application_id=a.id) AS runs
+                   FROM applications a
+                   WHERE a.archived_at IS NOT NULL
+                   ORDER BY a.archived_at DESC""").fetchall()
+        return [dict(row) for row in rows]
+
     async def list_archivable(self, *, days_idle: int = 7) -> list[dict[str, Any]]:
         """挑出「可以收起来」的：从没发布、也从没成功跑过、且已经放了一阵子的。
 

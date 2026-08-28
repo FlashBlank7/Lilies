@@ -5299,6 +5299,12 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         except KeyError as error:
             raise HTTPException(404, str(error)) from error
 
+    @app.get("/api/v1/applications-archived", dependencies=[Depends(require_token)])
+    async def list_archived_applications() -> dict[str, Any]:
+        """已收起来的。归档是可逆操作，得看得见才敢按。"""
+        items = await services.workflow_store.list_archived()
+        return {"total": len(items), "items": items}
+
     @app.get("/api/v1/applications-archivable", dependencies=[Depends(require_token)])
     async def list_archivable(
         days_idle: int = Query(default=7, ge=0, le=3650),
