@@ -1,0 +1,67 @@
+"""体检说"都正常"之前，得看过调度器还在不在。
+
+回归背景（2026-08-29）：管家的 health_report 只看工作流本身，
+最后还给模型一句「problems 为空表示所有已发布工作流都正常」。
+可调度器刚死、还没到任何定时点的时候，"有定时却没跑起来"仍然是 0——
+报告全绿，而所有定时任务其实都不会再开火了。
+
+客户端 doctor 同一天修过一模一样的形状：没查调度器却宣布「一切正常」。
+"""
+import unittest
+
+from agent_platform.assistant_agent import _scheduler_words
+
+
+class SchedulerWordsTest(unittest.TestCase):
+    def test_a_dead_scheduler_says_what_it_means(self):
+        words = _scheduler_words({"alive": False, "seconds_since_tick": 900})
+        self.assertIn("停了", words)
+        self.assertIn("不会再开火", words)
+        self.assertIn("900", words)
+
+    def test_a_live_scheduler_says_when_it_last_ticked(self):
+        self.assertIn("3 秒前", _scheduler_words({"alive": True, "seconds_since_tick": 3}))
+
+    def test_no_scheduler_at_all_is_not_silently_ok(self):
+        words = _scheduler_words(None)
+        self.assertIn("不会自动跑", words)
+
+    def test_no_internal_words_reach_the_model(self):
+        """alive / seconds_since_tick 这些词递给模型，它会原样念出来。"""
+        for health in ({"alive": False, "seconds_since_tick": 10},
+                       {"alive": True, "seconds_since_tick": 1},
+                       {"alive": True}, None):
+            words = _scheduler_words(health)
+            self.assertNotIn("alive", words)
+            self.assertNotIn("seconds_since_tick", words)
+
+    def test_a_missing_tick_time_does_not_crash(self):
+        self.assertTrue(_scheduler_words({"alive": True}).strip())
+        self.assertTrue(_scheduler_words({"alive": False}).strip())
+
+
+class HealthReportCarriesItTest(unittest.IsolatedAsyncioTestCase):
+    """并进去了没有——接线才算数。"""
+
+    async def test_the_tool_result_includes_the_scheduler(self):
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock, patch
+
+        from agent_platform.assistant_agent import WorkflowConcierge
+
+        agent = WorkflowConcierge.__new__(WorkflowConcierge)
+        agent.services = SimpleNamespace(
+            scheduler=SimpleNamespace(
+                health=lambda: {"alive": False, "seconds_since_tick": 600}))
+
+        with patch("agent_platform.overview.build_health",
+                   AsyncMock(return_value={"items": [], "counts": {"ok": 3}})):
+            result = await agent._exec("health_report", {}, {})
+
+        self.assertIn("定时调度", result)
+        self.assertIn("停了", result["定时调度"])
+        self.assertIn("定时", result["note"], "note 还在说「都正常」，会把用户带偏")
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -42,6 +42,20 @@ _TOOL_NAMES = re.compile(r"\b(" + "|".join(sorted(_TOOL_WORDS, key=len, reverse=
                          + r")\b")
 
 
+def _scheduler_words(health: dict | None) -> str:
+    """调度器状态翻成人话。给模型的东西里不留 alive / seconds_since_tick。"""
+    if not health:
+        return "这台机器上没开调度器，所有定时都不会自动跑"
+    if not health.get("alive"):
+        since = health.get("seconds_since_tick")
+        when = f"上次轮询在 {int(since)} 秒前" if isinstance(since, (int, float)) else "从来没轮询过"
+        return f"调度器停了（{when}）——所有定时任务都不会再开火，要重启平台服务"
+    since = health.get("seconds_since_tick")
+    if isinstance(since, (int, float)):
+        return f"调度器正常，{int(since)} 秒前刚轮询过"
+    return "调度器正常"
+
+
 def _without_tool_names(text: str) -> str:
     """把回答里的工具名换成人话。
 
@@ -693,7 +707,16 @@ class WorkflowConcierge:
                               "reason": i["reason"], "application_id": i["application_id"],
                               "runs": i["runs"], "succeeded": i["succeeded"]}
                              for i in bad[:10]],
-                "note": "problems 为空表示所有已发布工作流都正常",
+                # 调度器活不活，是体检里最容易漏掉的一块：
+                # 它刚死、还没到任何定时点的时候，"有定时却没跑起来"仍然是 0，
+                # 于是这份报告看上去全绿，而所有定时任务其实都不会再开火了。
+                # 客户端 doctor 同一天修过同一个形状的毛病。
+                "定时调度": _scheduler_words(
+                    services.scheduler.health()
+                    if getattr(services, "scheduler", None) is not None
+                    and hasattr(services.scheduler, "health") else None),
+                "note": "problems 为空只表示已发布工作流本身没问题；"
+                        "定时能不能按时开火要看「定时调度」那一项",
             }
         if name == "platform_overview":
             from .overview import build_overview
