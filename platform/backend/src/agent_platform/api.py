@@ -180,10 +180,16 @@ def _owner_safe_summary(summary: dict[str, Any] | None) -> dict[str, Any]:
             "tool_call_count": summary.get("tool_call_count", 0)}
 
 
-# kind=event 里真正给业主看的：发布、要业主拿主意、被截断。
-# 其余（主要是 event="phase" 的构建阶段诊断）默认不给——
-# 真机上 368 条 phase 里 85 条带着模型名和英文报错。
-_OWNER_EVENT_KINDS = frozenset({"published", "needs_attention", "truncated"})
+# kind=event 里按类别兜底放行的，只有两种：结果出来了、要业主拿个主意。
+# 判据是「业主看了能做什么」——
+#   published        东西好了，可以去试运行            → 给
+#   needs_attention  卡住了，等他留言才能往下走        → 给
+#   truncated        这一轮输出超长，自己重试一次就过  → 不给
+#   phase            构建状态机走到哪一步了            → 不给
+# truncated 真机上 17 条，原文是「这一轮思考超出输出上限被截断；
+# 已提醒构建方压缩思考、直接行动」——业主看了既做不了什么，
+# 又平白知道了一堆内部机制。它写完就 continue，是自愈的。
+_OWNER_EVENT_KINDS = frozenset({"published", "needs_attention"})
 
 
 def _owner_facing_event(record: dict[str, Any]) -> bool:

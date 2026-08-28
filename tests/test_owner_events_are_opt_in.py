@@ -64,6 +64,17 @@ class OwnerEventsAreOptInTest(unittest.TestCase):
             {"kind": "event", "event": "phase",
              "text": "架构规划：local2/Qwen/Qwen3-32B 选型"}]), [])
 
+    def test_self_healing_retries_are_not_owner_business(self):
+        """truncated：这一轮输出超长，自己重试一次就过去了。
+
+        业主看了做不了任何事，却平白读到「思考超出输出上限」
+        「已提醒构建方压缩思考」这类内部机制。真机 17 条。
+        判据是「他看了能做什么」，不是「这算不算里程碑」。
+        """
+        self.assertEqual(self._texts([
+            {"kind": "event", "event": "truncated",
+             "text": "这一轮思考超出输出上限被截断；已提醒构建方压缩思考、直接行动"}]), [])
+
     def test_owner_own_words_are_never_withheld(self):
         """业主自己写的需求原文照原样回显，哪怕里面有英文。"""
         own = "输入姓名 name（字符串），输出 greeting = Hello Ada"
