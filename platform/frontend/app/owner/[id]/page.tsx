@@ -34,6 +34,17 @@ const STATUS: Record<string, { label: string; tone: string }> = {
   failed: { label: '遇到问题', tone: 'waiting' },
 }
 
+// 搭建方的思考是英文写给自己看的，业主看不懂也不该看：
+// 真机上的原话是「I'll build this word/sentence counter workflow…
+// `variable_assigner` $formula with `len(split(...))`」——
+// 英文 + 内部节点名，出现在客户面上。
+// 判据用「这段话是不是中文」：这个产品对业主一律说中文，
+// 搭建方自言自语一律是英文。中文的（交付说明、对业主的解释）留着给他看。
+function isForOwner(text: string): boolean {
+  const cjk = (text.match(/[\u4e00-\u9fff]/g) || []).length
+  return cjk >= 4 && cjk / text.length > 0.15
+}
+
 // 纯工具轮翻译成业主能读的动作行（与会话页同一套话术的精简版）
 function describeAction(record: TranscriptRecord): string {
   const phrases: string[] = []
@@ -172,9 +183,11 @@ export default function OwnerPage({ params }: { params: Promise<{ id: string }> 
         if (record.kind === 'event') return record.text
           ? <div className={styles.action} key={index}>· {record.text}</div> : null
         const text = (record.text || '').trim()
-        if (text) return <div className={`${styles.msg} ${styles.lilith}`} key={index}><em>搭建方</em>{text}</div>
+        if (text && isForOwner(text)) return <div className={`${styles.msg} ${styles.lilith}`} key={index}><em>搭建方</em>{text}</div>
         const action = describeAction(record)
-        return action ? <div className={styles.action} key={index}>⚙ {action}</div> : null
+        if (action) return <div className={styles.action} key={index}>⚙ {action}</div>
+        // 英文自言自语的那一轮：不把原文抬出去，也别让时间线突然断掉
+        return text ? <div className={styles.action} key={index}>⚙ 在琢磨下一步</div> : null
       })}
       {state?.build?.pending_question && <div className={styles.question}>
         <b>这里有个问题等你回复</b>{state.build.pending_question}
