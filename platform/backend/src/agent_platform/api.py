@@ -5,6 +5,7 @@ import base64
 import hashlib
 import hmac
 import json
+import logging
 import re
 import shutil
 import subprocess
@@ -159,6 +160,9 @@ from .workflow_models import (
 from .workflow_runtime import WorkflowRuntime
 from .workflow_storage import PublishGateError, RevisionConflict, WorkflowStorage
 from .web_collection import ControlledWebCollector
+
+logger = logging.getLogger(__name__)
+
 
 
 RUNTIME_ROUTE_CHECKS: dict[str, tuple[str, str]] = {
@@ -4907,22 +4911,38 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         buffer = io.BytesIO()
         with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as bundle:
             # 工作区产出（两种切面都有）
+            # "目录还不存在"是常态（工作流没跑过），"路径越界/读不了"是真错误——
+            # 此前同一个 except 把两者抹平成 root=None，于是真错误会静默产出
+            # 一个 22 字节的空 zip 交到用户手里。
+            root = None
             try:
                 root = await asyncio.to_thread(
                     services.sandboxes.resolve_workspace, application_id
                 )
-            except Exception:
-                root = None
+            except Exception as error:  # noqa: BLE001 - 下面按消息分流
+                if "does not exist" not in str(error):
+                    logger.warning("交付包读不了工作区 %s：%s", application_id, error)
+                    raise HTTPException(
+                        503, f"工作区不可读，交付包未生成：{error}") from error
+            skipped: list[str] = []
             if root is not None:
                 for path in sorted(root.rglob("*")):
-                    if not path.is_file():
-                        continue
-                    rel = path.relative_to(root)
-                    if rel.parts and rel.parts[0] == "data":
-                        continue
-                    if path.stat().st_size > 50_000_000:
-                        continue
-                    bundle.write(path, f"workspace/{rel}")
+                    try:
+                        if not path.is_file():
+                            continue
+                        rel = path.relative_to(root)
+                        if rel.parts and rel.parts[0] == "data":
+                            continue
+                        if path.stat().st_size > 50_000_000:
+                            skipped.append(f"{rel}（超过 50MB）")
+                            continue
+                        bundle.write(path, f"workspace/{rel}")
+                    except OSError as error:
+                        # 单个文件读不了不该毁掉整包，但要在包里留痕
+                        skipped.append(f"{path.name}（{error}）")
+            if skipped:
+                bundle.writestr("workspace/_跳过的文件.txt",
+                                "以下文件没有打进包里：\n" + "\n".join(skipped))
 
             if profile == "customer":
                 code = await services.workflow_store.ensure_access_code(application_id)
