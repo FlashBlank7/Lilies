@@ -5,9 +5,11 @@
 同一个模型也在填 resume_build.message —— 那条在搭建方那边被当成
 「The owner replied:」并标为最高优先级。
 """
+import asyncio
 import unittest
+from unittest.mock import AsyncMock, MagicMock
 
-from agent_platform.assistant_agent import _keep_owner_words
+from agent_platform.assistant_agent import WorkflowConcierge, _keep_owner_words
 
 OWNER = "告诉它净字数不算换行，只数汉字"
 
@@ -39,6 +41,18 @@ class KeepOwnerWordsTest(unittest.TestCase):
 
     def test_both_empty_is_empty(self):
         self.assertEqual(_keep_owner_words("", ""), "")
+
+    def test_generate_echoes_what_it_actually_submitted(self):
+        """需求是模型组织的措辞，构建要跑好几分钟——早一句确认最省事。"""
+        services = MagicMock()
+        services.workflow_store.create_application = AsyncMock(
+            return_value={"id": "a1", "name": "日报"})
+        services.workflow_store.create_build = AsyncMock()
+        agent = WorkflowConcierge(services, MagicMock())
+        result = asyncio.run(agent._exec(
+            "generate_workflow", {"requirement": "每天统计门店销售额并出一份日报"}, {}))
+        self.assertIn("每天统计门店销售额", result["要做的事"])
+        self.assertIn("念给业主听", result["note"])
 
     def test_specifics_dropped_by_the_paraphrase_are_recoverable(self):
         # 真机那类改写：具体数据被换掉了，原话必须还在

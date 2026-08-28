@@ -237,8 +237,13 @@ class WorkflowConcierge:
                 build_id, app["id"], requirement, True, 36, 3, 1800.0, "auto",
                 thinking_enabled=bool(args.get("thinking_enabled", False)), effort="low")
             services.builders.get("classic").start(build_id)
+            # 把提交的需求回给模型并要求念出来：需求是模型自己组织的措辞，
+            # 它有可能跟业主的本意走样，而一次构建要跑好几分钟。
+            # 早一句确认，胜过让业主等到最后才发现建的不是他要的东西。
             return {"build_id": build_id, "app_id": app["id"],
-                    "note": "已开始搭建（后台进行），用 build_status 跟进"}
+                    "工作流名": app_name, "要做的事": requirement,
+                    "note": "已开始搭建（后台进行）。把「要做的事」原样念给业主听，"
+                            "让他确认这就是他要的——不对就说一声，现在放弃重来最省事"}
         if name == "tidy_workflows":
             action = str(args.get("action") or "suggest")
             if action == "suggest":
