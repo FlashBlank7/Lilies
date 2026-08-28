@@ -107,6 +107,10 @@ def _derive_application_name(requirement: str) -> str:
     return first[:32].rstrip(" ，,：:；;") or "新智能体"
 
 
+# 已经走完的构建：取消它们没有意义，也不该把状态改写掉
+TERMINAL_BUILD_STATUSES = frozenset({"published", "cancelled", "failed"})
+
+
 class WorkflowStorage:
     def __init__(self, storage: Storage) -> None:
         self.storage = storage

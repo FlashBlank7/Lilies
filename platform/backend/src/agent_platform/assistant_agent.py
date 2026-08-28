@@ -13,6 +13,7 @@ from typing import Any
 
 from .agent_core import collect_model_stream
 from .models import ChatMessage, ContentBlock, ToolDefinition
+from .workflow_storage import TERMINAL_BUILD_STATUSES
 
 def _system_prompt() -> str:
     """带上今天的日期——不然它得靠运行记录猜「昨天」是哪天，实测会猜错。"""
@@ -439,8 +440,6 @@ class WorkflowConcierge:
             engine.start(build_id)
             return {"build_id": build_id, "status": "queued", "note": "已续跑，可用 build_status 跟进"}
         if name == "abandon_build":
-            from .api import TERMINAL_BUILD_STATUSES
-
             build_id = str(args.get("build_id") or "")
             build = await services.workflow_store.get_build(build_id)
             if build["status"] in TERMINAL_BUILD_STATUSES:

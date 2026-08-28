@@ -158,13 +158,10 @@ from .workflow_models import (
     WorkflowTestSuiteRequest,
 )
 from .workflow_runtime import WorkflowRuntime
-from .workflow_storage import PublishGateError, RevisionConflict, WorkflowStorage
+from .workflow_storage import TERMINAL_BUILD_STATUSES, PublishGateError, RevisionConflict, WorkflowStorage
 from .web_collection import ControlledWebCollector
 
 logger = logging.getLogger(__name__)
-
-# 已经走完的构建：取消它们没有意义，也不该把状态改写掉
-TERMINAL_BUILD_STATUSES = frozenset({"published", "cancelled", "failed"})
 
 
 
