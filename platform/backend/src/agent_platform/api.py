@@ -13,6 +13,7 @@ from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass
 from functools import lru_cache
 from pathlib import Path
+from time import monotonic
 from typing import Any, AsyncIterator, Literal
 from uuid import uuid4
 
@@ -1831,7 +1832,16 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             真机上这台机器 events 表 1 GB，归档的 DELETE 要全表扫，
             实测跑一次约 90 分钟；挂在启动上就等于每次重启停机 90 分钟，
             而且随数据增长只会更久。维护慢可以忍，服务起不来不能忍。
+
+            开头结尾各打一行日志，哪怕什么也没删。原先只在"真删了行"时才打，
+            于是跑完没事干、还在跑、压根没起来——三种情况在日志里长得一模一样。
+            这个任务要跑 90 分钟，正是最需要知道它走到哪的场景：
+            出问题时第一个要回答的问题是"它跑过没有"，不是"它删了多少"。
             """
+            started = monotonic()
+            logger.info("事件维护开始（归档保留 %s 天，冷文件 %s 天后压缩）",
+                        settings.event_archive_keep_days,
+                        settings.event_compress_after_days)
             try:
                 await services.storage.ensure_event_indexes()
                 archived = await services.storage.archive_events_before(
@@ -1846,10 +1856,18 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
                 if compressed["compressed"]:
                     logger.info("冷文件压缩：%s 个，省 %.1f MB",
                                 compressed["compressed"], compressed["bytes_saved"] / 1e6)
+                logger.info("事件维护完成：耗时 %.1f 秒，归档 %s 行、压缩 %s 个文件",
+                            monotonic() - started, archived["removed"],
+                            compressed["compressed"])
             except asyncio.CancelledError:
+                # 关服时取消是正常的，但"跑了多久被打断"要留痕：
+                # 每次重启都在同一处被砍，说明它根本没机会跑完。
+                logger.info("事件维护被打断（服务关闭），已跑 %.1f 秒",
+                            monotonic() - started)
                 raise
             except Exception:  # noqa: BLE001 - 维护失败不该拖垮服务
-                logger.exception("事件维护失败（服务照常运行）")
+                logger.exception("事件维护失败（服务照常运行），已跑 %.1f 秒",
+                                 monotonic() - started)
 
         maintenance_task = asyncio.create_task(_event_maintenance())
         # 运行产物过期清除（产物可由重跑再生，客户已通过使用页下载）
