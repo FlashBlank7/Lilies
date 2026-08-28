@@ -50,7 +50,11 @@ services:
       - ./workspaces:/workspaces
       - /var/run/docker.sock:/var/run/docker.sock
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      # 用 python 不用 curl：镜像基于 python:3.13-slim，里面根本没有 curl，
+      # 健康检查会永远 "executable file not found"，api 永不健康，
+      # 依赖 service_healthy 的 web 也就永不启动。
+      test: ["CMD", "python", "-c",
+             "import urllib.request as u; u.urlopen('http://localhost:8000/health', timeout=3)"]
       interval: 10s
       timeout: 5s
       retries: 5
