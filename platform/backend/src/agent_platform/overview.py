@@ -175,16 +175,45 @@ def _last_expected_fire(config: dict[str, Any], now: datetime | None = None) -> 
     return today_fire.astimezone(timezone.utc)
 
 
+def _was_live_at_last_fire(config: dict[str, Any], published_at: str | None,
+                           now: datetime | None = None) -> bool:
+    """上一次该开火的时刻，这个定时上线了没有。
+
+    取不到发布时刻就当作"上线了"——宁可误报，也别把真逾期漏了。
+    """
+    if not published_at:
+        return True
+    expected = _last_expected_fire(config, now)
+    if expected is None:
+        return True
+    try:
+        live_since = datetime.fromisoformat(str(published_at))
+    except ValueError:
+        return True
+    if live_since.tzinfo is None:
+        live_since = live_since.replace(tzinfo=timezone.utc)
+    return live_since <= expected
+
+
 def _overdue(config: dict[str, Any], last_fired: str | None,
-             now: datetime | None = None, grace_minutes: int = 90) -> tuple[bool, str]:
+             now: datetime | None = None, grace_minutes: int = 90,
+             published_at: str | None = None) -> tuple[bool, str]:
     """该开火却没开火？返回 (是否逾期, 本该开火的时刻文本)。
 
     宽限 90 分钟：调度器有抖动、任务本身也要跑一会儿，卡太紧会天天误报。
+
+    published_at 是这个定时上线的时刻。没有它就会误报一整类情况：
+    下午两点发布一个「每天 8:00」的工作流，last_fired 是空，
+    而"上一次该开火的时刻"是今早 8 点——于是刚设好就被判「有定时却没跑起来」。
+    用户前脚发布、后脚看见面板说它坏了。
+    本该开火的时刻早于上线时刻的，那一炮它没赶上，不算它的账。
     """
     expected = _last_expected_fire(config, now)
     if expected is None:
         return False, ""
     label = expected.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    if not _was_live_at_last_fire(config, published_at, now):
+        return False, label                       # 那一炮响的时候它还没上线
     if not last_fired:
         return True, label                        # 有定时、从没开过火
     try:
@@ -386,16 +415,21 @@ async def build_health(services: Any, days: int = 7) -> dict[str, Any]:
                     f"  FROM workflow_runs WHERE status='failed' AND {_REAL_RUN}"
                     ") WHERE rn = 1"
                 ).fetchall()}
-            drafts = {r["application_id"]: r["snapshot_json"] for r in conn.execute(
-                "SELECT v.application_id, v.snapshot_json FROM application_versions v "
+            version_rows = conn.execute(
+                "SELECT v.application_id, v.snapshot_json, v.created_at "
+                "FROM application_versions v "
                 "JOIN applications a ON a.id=v.application_id AND a.active_version=v.version"
-            ).fetchall()}
+            ).fetchall()
+            drafts = {r["application_id"]: r["snapshot_json"] for r in version_rows}
+            # 发布时刻：判"该开火却没开火"要用它排除掉"那时它还没上线"
+            published_at = {r["application_id"]: r["created_at"] for r in version_rows}
             fires = {r["application_id"]: r["last_fired"] for r in conn.execute(
                 "SELECT application_id, MAX(created_at) AS last_fired "
                 "FROM schedule_fires GROUP BY application_id"
             ).fetchall()}
         return {"apps": apps, "stats": stats, "recent": recent,
-                "drafts": drafts, "errors": errors, "fires": fires}
+                "drafts": drafts, "errors": errors, "fires": fires,
+                "published_at": published_at}
 
     data = await asyncio.to_thread(query)
 
@@ -428,8 +462,11 @@ async def build_health(services: Any, days: int = 7) -> dict[str, Any]:
             except Exception:  # noqa: BLE001 - 快照坏了不影响体检其余部分
                 scheduled = False
         last_fired = (data.get("fires") or {}).get(app["id"])
+        live_at = (data.get("published_at") or {}).get(app["id"])
+        was_live = _was_live_at_last_fire(schedule_config, live_at) if scheduled else True
         overdue, expected_at = (
-            _overdue(schedule_config, last_fired) if scheduled else (False, ""))
+            _overdue(schedule_config, last_fired, published_at=live_at)
+            if scheduled else (False, ""))
 
         raw_error = data["errors"].get(app["id"], "")
         last_error = "" if _not_the_workflows_fault(raw_error) else _human_error(raw_error)
@@ -451,7 +488,11 @@ async def build_health(services: Any, days: int = 7) -> dict[str, Any]:
             state, reason = "stale", (
                 f"定时没按时开火：上次 {str(last_fired)[:16].replace('T', ' ')}，"
                 f"本该 {expected_at}")
-        elif scheduled and (overdue or not runs):
+        elif scheduled and was_live and (overdue or not runs):
+            # was_live：上一炮响的时候它上线了没有。
+            # 少了这个判断，刚发布的定时工作流因为"窗口内零运行"直接判 stale——
+            # 和上面 overdue 那条是同一个误报，只是走了另一条分支。
+            # 同一个判据没铺满所有分支，今天已经是第 N 次。
             state, reason = "stale", f"有定时任务，但近{days}天一次都没运行"
         else:
             state, reason = "ok", ""

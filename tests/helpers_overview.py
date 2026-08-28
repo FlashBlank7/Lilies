@@ -58,9 +58,14 @@ def _seed(services, *, app_id="app-1", published_version=1,
             (app_id, 1, draft_snapshot, "h" * 64))
         if published_version is not None:
             conn.execute(
+                # 发布时刻设成 30 天前，而不是"现在"。
+                # 2026-08-29：体检开始判"上一炮响的时候它上线了没有"——
+                # 刚发布的定时不该立刻被判「有定时却没跑起来」。
+                # 夹具写 datetime('now') 的话，就成了"刚发布、却在 2020 年开过火"，
+                # 现实里不存在这种状态，测的也就不是它们声称要测的场景。
                 "INSERT INTO application_versions(application_id,version,snapshot_json,"
                 "content_hash,validation_report_json,created_at) "
-                "VALUES(?,?,?,?,'{}',datetime('now'))",
+                "VALUES(?,?,?,?,'{}',datetime('now','-30 days'))",
                 (app_id, published_version, version_snapshot, "h" * 64))
         index = 0
         for status in real_runs:
