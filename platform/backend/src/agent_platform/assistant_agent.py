@@ -61,6 +61,13 @@ TOOLS = [
                    input_schema={"type": "object", "properties": {
                        "name_or_id": {"type": "string"}, "inputs": {"type": "object"}},
                        "required": ["name_or_id"]}),
+    ToolDefinition(name="explain_workflow",
+                   description="讲清楚一个工作流是怎么做的：要什么输入、分几步、"
+                               "每步干什么、出什么结果、有没有定时。"
+                               "用户问'它是怎么做的''这个工作流长什么样'"
+                               "'它到底干了啥'用这个。",
+                   input_schema={"type": "object", "properties": {
+                       "name_or_id": {"type": "string"}}, "required": ["name_or_id"]}),
     ToolDefinition(name="recent_runs", description="查询某工作流最近运行历史",
                    input_schema={"type": "object", "properties": {
                        "name_or_id": {"type": "string"}, "limit": {"type": "integer"}},
@@ -274,6 +281,48 @@ class WorkflowConcierge:
                 await asyncio.sleep(1.5)
             return {"run_id": run_id, "情况": "还在跑",
                     "note": "超过等待时间了，可稍后用 recent_runs 看结果"}
+        if name == "explain_workflow":
+            app = await self._resolve_app(str(args.get("name_or_id") or ""))
+            if not app:
+                return {"error": "找不到该工作流"}
+            if app.get("active_version") is None:
+                return {"error": f"「{app.get('name')}」还没有发布版，"
+                                 "现在只有草稿——搭完发布了才好讲它做什么"}
+            try:
+                version = await services.workflow_store.get_version(app["id"])
+                nodes = list(version["snapshot"].workflow.nodes)
+            except Exception:  # noqa: BLE001 - 读不到就直说，别编
+                return {"error": "读不到它的结构，稍后再试"}
+
+            def title(node_type: str) -> str:
+                try:
+                    return services.blocks.get(node_type).title
+                except Exception:  # noqa: BLE001 - 目录里没有就用原名
+                    return node_type
+
+            steps, inputs, outputs, schedule = [], [], [], None
+            for node in nodes:
+                config = getattr(node, "config", None) or {}
+                node_type = getattr(node, "type", "")
+                if node_type == "start":
+                    inputs = [f"{i.get('name')}（{i.get('type') or 'string'}）"
+                              for i in config.get("inputs") or [] if i.get("name")]
+                    continue
+                if node_type == "schedule_trigger":
+                    schedule = (f"每天 {config.get('hour', 0):02d}:"
+                                f"{config.get('minute', 0):02d}"
+                                f"（{config.get('timezone') or 'UTC'}）")
+                    continue
+                if node_type in ("end", "answer"):
+                    outputs = list((config.get("outputs") or {}).keys())
+                    continue
+                steps.append(title(node_type))
+            return {"工作流": app.get("name"),
+                    "要给它什么": inputs or ["（不用给，自己跑）"],
+                    "它做几步": steps or ["（只有取值与出结果，没有中间步骤）"],
+                    "会得到什么": outputs or ["（没有声明输出）"],
+                    "定时": schedule or "没有定时，要手动跑",
+                    "note": "用业主的话复述，别照抄节点名；他问细节再展开"}
         if name == "recent_runs":
             app = await self._resolve_app(str(args.get("name_or_id") or ""))
             if not app:
@@ -787,6 +836,8 @@ def _summarize(result: dict) -> str:
         return f"{len(result['runs'])} 条历史"
     if "builds" in result:
         return f"{len(result['builds'])} 个构建"
+    if "它做几步" in result:
+        return f"{result.get('工作流')}：{len(result['它做几步'])} 步"
     if "情况" in result:
         return str(result["情况"])
     if "verdict" in result and "passed_cases" in result:
