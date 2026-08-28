@@ -77,8 +77,10 @@ TOOLS = [
                                   "enum": ["suggest", "archive", "restore", "list_archived"],
                                   "description": "suggest 看建议；list_archived 看已收起的；"
                                                  "archive/restore 需要 name_or_id"},
-                       "name_or_id": {"type": "string"},
-                       "days_idle": {"type": "integer", "description": "闲置几天算废弃，默认 7"},
+                       "name_or_id": {"type": "string",
+                                      "description": "archive/restore 的目标；"
+                                                     "配 list_archived 时当关键词过滤用"},
+                       "days_idle": {"type": "integer", "description": "闲置几天算废弃，默认 3"},
                    }}),
     ToolDefinition(name="set_schedule",
                    description="改一个已发布工作流的定时时刻（几点几分、哪个时区），"
@@ -240,6 +242,11 @@ class WorkflowConcierge:
                             "数据不删、随时能拿回来"}
             if action == "list_archived":
                 items = await services.workflow_store.list_archived()
+                # 用户多半是来找某一个的，不是要通读几十条——给个过滤比翻页管用
+                keyword = str(args.get("name_or_id") or "").strip().lower()
+                if keyword:
+                    items = [i for i in items
+                             if keyword in str(i.get("name") or "").lower()]
                 shown = items[:30]
                 payload = {"archived_items": [
                     {"name": i["name"], "id": i["id"],
