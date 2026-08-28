@@ -354,27 +354,38 @@ async def build_health(services: Any, days: int = 7) -> dict[str, Any]:
                 f"AND {_REAL_RUN} GROUP BY application_id"
             ).fetchall()}
             # 每个应用最近 5 次运行的状态，用来数"连续失败"
-            recent: dict[str, list[str]] = {}
+            recent: dict[str, list[tuple[str, str]]] = {}
+            # 每个应用**各取**最近 8 条，不是全局取 400 条再分桶。
+            # 全局窗口的毛病和 recent_failures 那次一模一样：一个忙碌的工作流
+            # 就能把别人挤出窗口，于是安静工作流的连败根本看不到，
+            # 体检照样报「0 个反复失败」。真机上单个工作流已占全部运行的 56%，
+            # 现在 124 条还没撑破 400，但方向是明确的。
+            # 带上 error 是为了把「调用方没给参数」这类失败排除在连败判定之外。
             for row in conn.execute(
-                # 先过滤再截窗口：不然 400 条里塞满自测噪音，连败判定看不到真实运行。
-                # 带上 error 是为了把"调用方没给参数"这类失败排除在连败判定之外。
-                "SELECT application_id, status, "
-                "COALESCE(error, json_extract(state_json,'$.error'), '') AS error "
-                f"FROM workflow_runs WHERE {_REAL_RUN} "
-                "ORDER BY created_at DESC LIMIT 400"
+                "SELECT application_id, status, error FROM ("
+                "  SELECT application_id, status, "
+                "    COALESCE(error, json_extract(state_json,'$.error'), '') AS error, "
+                "    ROW_NUMBER() OVER (PARTITION BY application_id "
+                "                       ORDER BY created_at DESC) AS rn "
+                f"  FROM workflow_runs WHERE {_REAL_RUN}"
+                ") WHERE rn <= 8"
             ).fetchall():
-                bucket = recent.setdefault(row["application_id"], [])
-                if len(bucket) < 8:      # 放宽一点：调用方错误会被跳过，窗口太小容易看不到真实运行
-                    bucket.append((row["status"], row["error"]))
-            errors: dict[str, str] = {}
-            for row in conn.execute(
-                "SELECT application_id, "
-                "COALESCE(error, json_extract(state_json,'$.error'), '') AS error "
-                f"FROM workflow_runs WHERE status='failed' AND {_REAL_RUN} "
-                "ORDER BY created_at DESC LIMIT 200"
-            ).fetchall():
-                # 每个应用只留最近一条（结果按时间倒序，先见即最近）
-                errors.setdefault(row["application_id"], str(row["error"] or ""))
+                recent.setdefault(row["application_id"], []).append(
+                    (row["status"], row["error"]))
+            # 每个应用最近一条失败原因。同样按应用分窗，不用全局 LIMIT——
+            # 全局取 200 条的话，一个高频失败的工作流会把别人的原因全挤掉，
+            # 于是那些工作流被判成「反复失败」却给不出原因。
+            errors: dict[str, str] = {
+                row["application_id"]: str(row["error"] or "")
+                for row in conn.execute(
+                    "SELECT application_id, error FROM ("
+                    "  SELECT application_id, "
+                    "    COALESCE(error, json_extract(state_json,'$.error'), '') AS error, "
+                    "    ROW_NUMBER() OVER (PARTITION BY application_id "
+                    "                       ORDER BY created_at DESC) AS rn "
+                    f"  FROM workflow_runs WHERE status='failed' AND {_REAL_RUN}"
+                    ") WHERE rn = 1"
+                ).fetchall()}
             drafts = {r["application_id"]: r["snapshot_json"] for r in conn.execute(
                 "SELECT v.application_id, v.snapshot_json FROM application_versions v "
                 "JOIN applications a ON a.id=v.application_id AND a.active_version=v.version"
