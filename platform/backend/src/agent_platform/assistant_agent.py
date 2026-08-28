@@ -96,7 +96,10 @@ TOOLS = [
                        "name_or_id": {"type": "string",
                                       "description": "archive/restore 的目标；"
                                                      "配 list_archived 时当关键词过滤用"},
-                       "days_idle": {"type": "integer", "description": "闲置几天算废弃，默认 3"},
+                       "days_idle": {"type": "integer",
+                                     "description": "配 suggest 时是「闲置几天算废弃」（默认 3）；"
+                                                    "配 list_archived 时是「只看最近几天收起来的」"
+                                                    "——用户说「上周收的那些」传 7"},
                    }}),
     ToolDefinition(name="set_schedule",
                    description="改一个已发布工作流的定时时刻（几点几分、哪个时区），"
@@ -378,6 +381,14 @@ class WorkflowConcierge:
                 if keyword:
                     items = [i for i in items
                              if keyword in str(i.get("name") or "").lower()]
+                # 「上周收的那些」——按名字过滤答不了这种问法
+                days = args.get("days_idle")
+                if days:
+                    from datetime import datetime, timedelta, timezone
+
+                    edge = (datetime.now(timezone.utc)
+                            - timedelta(days=int(days))).isoformat()
+                    items = [i for i in items if str(i.get("archived_at") or "") >= edge]
                 shown = items[:30]
                 payload = {"archived_items": [
                     {"name": i["name"], "id": i["id"],
