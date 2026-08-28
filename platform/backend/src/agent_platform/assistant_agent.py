@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from typing import Any
 
 from .agent_core import collect_model_stream
@@ -17,6 +18,19 @@ from .models import ChatMessage, ContentBlock, ToolDefinition
 from .workflow_storage import TERMINAL_BUILD_STATUSES
 
 logger = logging.getLogger(__name__)
+
+# 塞进历史给模型解析指代的标记。它**只应**出现在输入里；
+# 实测模型会把它抄进回答（方括号版、XML 版都抄过），所以出口再剪一道。
+_CONTEXT_MARK = re.compile(r"<上下文[^>]*/>\s*")
+
+
+def _without_context_marks(text: str) -> str:
+    """把内部上下文标记从回答里剪掉。
+
+    提示词里已经写了「绝不能出现在回答里」，但那是约束不是保证——
+    真机上它照样出现在回答的第一行。能机械保证的就别只靠嘱咐。
+    """
+    return _CONTEXT_MARK.sub("", str(text or "")).strip()
 
 def _system_prompt() -> str:
     """带上今天的日期——不然它得靠运行记录猜「昨天」是哪天，实测会猜错。"""
@@ -692,7 +706,8 @@ class WorkflowConcierge:
                 emit=forward if emit is not None else None)
             calls = [b for b in response.blocks if b.type == "tool_use"]
             if not calls:
-                text = " ".join(b.text or "" for b in response.blocks if b.type == "text").strip()
+                text = _without_context_marks(
+                    " ".join(b.text or "" for b in response.blocks if b.type == "text"))
                 await _emit({"type": "final", "text": text or "（无回复）"})
                 return actions, text or "（无回复）"
             messages.append(ChatMessage(role="assistant", content=response.blocks))
