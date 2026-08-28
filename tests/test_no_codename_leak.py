@@ -53,3 +53,28 @@ def test_the_check_can_actually_see_strings() -> None:
             if isinstance(n, ast.Constant) and isinstance(n.value, str)
             and "莉莉丝" in n.value and n.value not in _docstrings(tree)]
     assert len(hits) == 1
+
+
+# 业主页是**免登录的客户面**——付钱的那方，不是平台操作者。
+# 操作者自己的页面（session / pm）故意不在这里管：那是用户自己的产品语汇。
+OWNER_PAGE = Path("platform/frontend/app/owner/[id]/page.tsx")
+
+
+def test_no_codename_on_the_owner_facing_page() -> None:
+    """客户看的那一页不能出现内部代号——他不知道那是谁。
+
+    这条的由来：平台侧早就把代号泄漏当 bug 修了，但上面那道门
+    只扫后端 Python，扫不到前端。业主页里当时有 7 处「莉莉丝」，
+    包括状态标签「莉莉丝搭建中」。
+    """
+    if not OWNER_PAGE.is_file():          # 前端可以不在这个仓库里
+        return
+    leaks = []
+    for number, line in enumerate(OWNER_PAGE.read_text(encoding="utf-8").splitlines(), 1):
+        stripped = line.strip()
+        if stripped.startswith(("*", "//", "/*")):   # 注释是给维护者看的
+            continue
+        for name in CODENAMES:
+            if name in line:
+                leaks.append(f"{OWNER_PAGE.name}:{number} {stripped[:70]}")
+    assert not leaks, "业主（客户）页出现内部代号：\n" + "\n".join(leaks)

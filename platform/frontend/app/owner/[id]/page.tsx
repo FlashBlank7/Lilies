@@ -26,7 +26,7 @@ type TranscriptRecord = {
 const ACTIVE = new Set(['queued', 'building'])
 const STATUS: Record<string, { label: string; tone: string }> = {
   queued: { label: '排队中', tone: 'working' },
-  building: { label: '莉莉丝搭建中', tone: 'working' },
+  building: { label: '搭建中', tone: 'working' },
   needs_attention: { label: '等你回复', tone: 'waiting' },
   ready: { label: '已就绪', tone: 'done' },
   published: { label: '已交付', tone: 'done' },
@@ -93,7 +93,8 @@ export default function OwnerPage({ params }: { params: Promise<{ id: string }> 
     streamRef.current?.scrollTo({ top: streamRef.current.scrollHeight, behavior: 'smooth' })
   }, [records.length])
 
-  const status = state?.build ? STATUS[state.build.status] || { label: state.build.status, tone: 'working' } : null
+  // 兜底不能把英文状态码原样抬给客户看
+  const status = state?.build ? STATUS[state.build.status] || { label: '进行中', tone: 'working' } : null
   const building = Boolean(state?.build && ACTIVE.has(state.build.status))
 
   const deliveryNote = useMemo(() => {
@@ -118,7 +119,7 @@ export default function OwnerPage({ params }: { params: Promise<{ id: string }> 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ code, message: text }),
       })
-      setNotice(result.delivered === 'live' ? '已送达，莉莉丝下一轮开工前会读到。' : '莉莉丝已带着你的新要求继续工作。')
+      setNotice(result.delivered === 'live' ? '已送达，下一轮开工前会读到。' : '已带着你的新要求继续。')
       setMessage('')
       window.setTimeout(() => void refresh(), 600)
     } catch (error) {
@@ -136,7 +137,7 @@ export default function OwnerPage({ params }: { params: Promise<{ id: string }> 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ code }),
       })
-      setNotice(`已按验收单发起返修（${result.failure_items} 项失败项），莉莉丝开工了。`)
+      setNotice(`已按验收单发起返修（${result.failure_items} 项失败项），已经开工了。`)
       window.setTimeout(() => void refresh(), 600)
     } catch (error) {
       if (!denied) setNotice(String(error))
@@ -164,19 +165,19 @@ export default function OwnerPage({ params }: { params: Promise<{ id: string }> 
 
     <div className={styles.stream} ref={streamRef}>
       {!records.length && <div className={styles.empty}>
-        {state?.build ? '莉莉丝正在准备，稍等片刻…' : '服务方还没有为这个应用发起搭建。'}
+        {state?.build ? '正在准备，稍等片刻…' : '服务方还没有为这个应用发起搭建。'}
       </div>}
       {records.map((record, index) => {
         if (record.kind === 'owner') return <div className={`${styles.msg} ${styles.owner}`} key={index}>{record.text}</div>
         if (record.kind === 'event') return record.text
           ? <div className={styles.action} key={index}>· {record.text}</div> : null
         const text = (record.text || '').trim()
-        if (text) return <div className={`${styles.msg} ${styles.lilith}`} key={index}><em>莉莉丝</em>{text}</div>
+        if (text) return <div className={`${styles.msg} ${styles.lilith}`} key={index}><em>搭建方</em>{text}</div>
         const action = describeAction(record)
         return action ? <div className={styles.action} key={index}>⚙ {action}</div> : null
       })}
       {state?.build?.pending_question && <div className={styles.question}>
-        <b>莉莉丝在等你回复</b>{state.build.pending_question}
+        <b>这里有个问题等你回复</b>{state.build.pending_question}
       </div>}
     </div>
 
@@ -185,8 +186,8 @@ export default function OwnerPage({ params }: { params: Promise<{ id: string }> 
       <div className={styles.row}>
         <textarea
           placeholder={state?.build?.pending_question ? '回答上面的问题，搭建会继续。'
-            : building ? '想调整就直接说，莉莉丝下一轮开工前会读到。'
-            : state?.build ? '想改什么？直接说，莉莉丝会在现有成果上继续。'
+            : building ? '想调整就直接说，下一轮开工前会读到。'
+            : state?.build ? '想改什么？直接说，会在现有成果上继续。'
             : '等服务方发起搭建后，这里就可以对话了。'}
           value={message}
           disabled={!state?.build}
