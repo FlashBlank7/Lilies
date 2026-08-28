@@ -82,3 +82,41 @@ class ActionEventCarriesTheLabelTest(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ActionSummaryIsForUsersTest(unittest.TestCase):
+    """动作行那句摘要也是给用户看的，同样不许出现内部工具名。
+
+    工具的 error 文案是写给模型的（「没给构建号。用 recent_builds 找到那一个」），
+    可它原样进 summary，于是界面上写着 recent_builds。
+    修在 _summarize 这个边界上——将来新加的工具错误也一样受用。
+    """
+
+    def test_a_tool_name_in_an_error_is_translated(self):
+        from agent_platform.assistant_agent import _summarize
+
+        summary = _summarize({"error": "没给构建号。用 recent_builds 找到那一个再来。"})
+        self.assertNotIn("recent_builds", summary)
+        self.assertIn("生成任务", summary)
+
+    def test_every_tool_error_string_in_the_module_is_clean_after_summarising(self):
+        """把源码里所有工具 error 文案都过一遍，一个都不许漏。"""
+        import re
+
+        from agent_platform.assistant_agent import _summarize
+        from pathlib import Path
+        import agent_platform.assistant_agent as module
+
+        source = Path(module.__file__).read_text(encoding="utf-8")
+        leaked = []
+        for match in re.finditer(r'"error":\s*f?"([^"]{4,})"', source):
+            text = re.sub(r"\{[^}]*\}", "", match.group(1))
+            summary = _summarize({"error": text})
+            if re.search(r"[a-z_]{4,}_[a-z_]{3,}", summary):
+                leaked.append(summary)
+        self.assertEqual(leaked, [], f"动作行会显示内部名字：{leaked}")
+
+    def test_a_normal_summary_is_untouched(self):
+        from agent_platform.assistant_agent import _summarize
+
+        self.assertEqual(_summarize({"workflows": [], "total": 3}), "3 个工作流")

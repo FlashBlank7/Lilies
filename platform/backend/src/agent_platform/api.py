@@ -5831,8 +5831,15 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         async def worker() -> None:
             try:
                 await concierge.reply(body.messages, user, emit=emit)
-            except Exception as error:  # noqa: BLE001 - 错误也走流内呈现
-                await queue.put({"type": "error", "text": str(error)[:300]})
+            except Exception:  # noqa: BLE001 - 错误也走流内呈现
+                # 原先把 str(error) 直接发给客户端，客户端原样显示——
+                # 一段英文异常文本，可能还带着 SQL、文件路径、模型名。
+                # 管家的回答正文有一整套清洗，而这条出口一点都没有。
+                # 真因进日志（今天刚把 logging 配起来），给用户的只留一句人话。
+                logger.exception("管家这一轮出错了")
+                await queue.put({"type": "error",
+                                 "text": "管家这一轮没答上来，再说一遍试试；"
+                                         "一直这样就去看后端日志。"})
             await queue.put(None)
 
         task = asyncio.create_task(worker())

@@ -977,8 +977,14 @@ def _acceptance_summary(app: dict, report: dict) -> dict:
 
 
 def _summarize(result: dict) -> str:
+    """动作行上那句话。**这是给用户看的**，不是给模型看的。
+
+    工具的 error 文案是写给模型的（「没给构建号。用 recent_builds 找到那一个」），
+    可它会原样进动作行——于是用户看到 recent_builds 这种内部名字。
+    过一遍已有的工具名清洗：修在边界上，将来新加的工具错误也一样受用。
+    """
     if result.get("error"):
-        return "✕ " + str(result["error"])[:60]
+        return "✕ " + _without_tool_names(str(result["error"]))[:60]
     if "workflows" in result:
         return f"{result['total']} 个工作流"
     if "outputs" in result:
