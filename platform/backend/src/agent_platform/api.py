@@ -13,7 +13,7 @@ from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass
 from functools import lru_cache
 from pathlib import Path
-from time import monotonic
+from time import monotonic, time
 from typing import Any, AsyncIterator, Literal
 from uuid import uuid4
 
@@ -1901,24 +1901,60 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
                 logger.exception("事件维护失败（服务照常运行），已跑 %.1f 秒",
                                  monotonic() - started)
 
-        maintenance_task = asyncio.create_task(_event_maintenance())
-        # 运行产物过期清除（产物可由重跑再生，客户已通过使用页下载）
-        import shutil as _shutil
-        import time as _time
+        async def _purge_run_artifacts() -> None:
+            """清掉过期的运行产物。**不能挂在启动路径上**。
 
-        artifacts_root = settings.workspace_root / ".workflow-run-artifacts"
-        if artifacts_root.is_dir():
-            cutoff = _time.time() - settings.run_artifacts_keep_days * 86_400
-            purged = 0
-            for run_dir in artifacts_root.iterdir():
-                try:
-                    if run_dir.is_dir() and run_dir.stat().st_mtime < cutoff:
-                        _shutil.rmtree(run_dir, ignore_errors=True)
+            原先这段就写在 startup 里，同步遍历目录 + stat + rmtree。
+            产物少的时候看不出来，多了就是每次重启都卡在这——
+            和事件归档那次 90 分钟停机是同一类错误（阻塞调用放在启动路径），
+            那次已经付过学费了。
+
+            产物可由重跑再生，客户也已通过使用页下载过，所以删是安全的；
+            但"安全"不等于"可以在启动时同步做"。
+            """
+            keep_days = int(settings.run_artifacts_keep_days)
+            root = settings.workspace_root / ".workflow-run-artifacts"
+
+            def purge() -> tuple[int, int]:
+                if keep_days < 1:
+                    # 配成 0 或负数的话 cutoff 就是"现在"，
+                    # 会把刚跑完那一刻的产物一起删掉。删数据的默认值
+                    # 不能这么松：看不懂的配置一律当成"别删"。
+                    logger.warning("run_artifacts_keep_days=%s 会删掉刚产出的东西，"
+                                   "本轮跳过清理", keep_days)
+                    return 0, 0
+                if not root.is_dir():
+                    return 0, 0
+                cutoff = time() - keep_days * 86_400
+                purged = failed = 0
+                for run_dir in root.iterdir():
+                    try:
+                        if not (run_dir.is_dir() and run_dir.stat().st_mtime < cutoff):
+                            continue
+                    except OSError:
+                        continue
+                    try:
+                        # 原先带 ignore_errors=True，删失败也照样 purged += 1，
+                        # 于是日志里的数字是"想删几个"而不是"删掉几个"。
+                        shutil.rmtree(run_dir)
                         purged += 1
-                except OSError:
-                    continue
-            if purged:
-                print(f"[storage] 运行产物清理：{purged} 个过期运行目录")
+                    except OSError as error:
+                        failed += 1
+                        logger.warning("删不掉过期产物 %s：%s", run_dir.name, error)
+                return purged, failed
+
+            try:
+                purged, failed = await asyncio.to_thread(purge)
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001 - 清理失败不该拖垮服务
+                logger.exception("运行产物清理失败（服务照常运行）")
+                return
+            if purged or failed:
+                logger.info("运行产物清理：删掉 %s 个过期目录，%s 个删不掉", purged, failed)
+
+        maintenance_task = asyncio.create_task(_event_maintenance())
+        artifacts_task = asyncio.create_task(_purge_run_artifacts())
         services.scheduler.start()
         await services.event_automation.start()
 
@@ -1927,8 +1963,10 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         adaptive_refresh_task: asyncio.Task[Any] | None = None
         lifespan_ready.set()
         yield
-        # 维护可能还在跑（真机上一次要几十分钟）：关停时取消，别拖着不退
+        # 维护可能还在跑（真机上一次要几十分钟）：关停时取消，别拖着不退。
+        # 产物清理同理——新起的后台任务忘了取消的话，关服会挂在那儿等它。
         maintenance_task.cancel()
+        artifacts_task.cancel()
         if (
             services.worker_process_manager is not None
             and services.worker_process_manager.is_running
