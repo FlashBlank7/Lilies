@@ -165,6 +165,21 @@ from .web_collection import ControlledWebCollector
 logger = logging.getLogger(__name__)
 
 
+def _owner_safe_summary(summary: dict[str, Any] | None) -> dict[str, Any]:
+    """业主看的那份概览：内部角色名与模型状态不外传。
+
+    原本把 build_transcripts.summary 整个发出去，里面有
+      actors        ['architect','coordinator','repairer','test-author',…]
+      last_stop_reason  'max_tokens' / 'tool_use' / 'end_turn'
+    都是内部编制与模型内部状态，业主既看不懂也不该看到。
+    （操作者页面用的是同一个 summary 的原件，不受影响。）
+    """
+    summary = summary or {}
+    return {"available": bool(summary.get("available")),
+            "turn_count": summary.get("turn_count", 0),
+            "tool_call_count": summary.get("tool_call_count", 0)}
+
+
 def _owner_safe_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """业主看的那份记录：搭建方写给自己看的话，一句都不给。
 
@@ -4838,7 +4853,8 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         )
         summary = await asyncio.to_thread(services.build_transcripts.summary, build_id)
         return {"build_id": build_id,
-                "records": _owner_safe_records(records), "summary": summary}
+                "records": _owner_safe_records(records),
+                "summary": _owner_safe_summary(summary)}
 
     @app.post("/api/v1/owner/{application_id}/message")
     async def owner_message(application_id: str, body: OwnerMessageRequest) -> dict[str, Any]:

@@ -21,7 +21,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 from fastapi.testclient import TestClient
 
-from agent_platform.api import _owner_safe_records, create_app
+from agent_platform.api import (_owner_safe_records, _owner_safe_summary,
+                                create_app)
 from agent_platform.config import Settings
 
 ENGLISH_THINKING = ("I'll build this word/sentence counter workflow. Let me start by "
@@ -96,3 +97,38 @@ class OwnerEndpointUsesTheFilterTest(unittest.TestCase):
         self.assertTrue(records[0]["text_withheld"])
         self.assertEqual(records[0]["tool_calls"][0]["tool"], "draft_add_node")
         self.assertEqual(records[1]["text"], MILESTONE)      # 里程碑还在
+
+
+class OwnerSummaryHidesInternalsTest(unittest.TestCase):
+    """概览里的内部编制与模型状态不能发给业主。
+
+    原本把 build_transcripts.summary 整个发出去，里面有
+      actors            ['architect','coordinator','repairer','test-author',…]
+      last_stop_reason  'max_tokens' / 'tool_use'
+    业主既看不懂也不该看到。业主页今天不渲染它，但接口对任何
+    持业主码的人都开着——不渲染不等于不外传。
+    """
+
+    FULL = {"build_id": "b1", "available": True, "turn_count": 47,
+            "tool_call_count": 132, "failed_tool_call_count": 3,
+            "actors": ["architect", "coordinator", "repairer"],
+            "last_stop_reason": "max_tokens"}
+
+    def test_internal_fields_are_dropped(self):
+        out = _owner_safe_summary(self.FULL)
+        for key in ("actors", "last_stop_reason", "failed_tool_call_count"):
+            self.assertNotIn(key, out, key)
+
+    def test_no_internal_role_name_survives_anywhere(self):
+        blob = repr(_owner_safe_summary(self.FULL))
+        for name in ("architect", "coordinator", "repairer", "max_tokens"):
+            self.assertNotIn(name, blob, name)
+
+    def test_progress_numbers_survive(self):
+        out = _owner_safe_summary(self.FULL)
+        self.assertIs(out["available"], True)
+        self.assertEqual(out["turn_count"], 47)
+
+    def test_missing_summary_does_not_explode(self):
+        self.assertIs(_owner_safe_summary(None)["available"], False)
+        self.assertIs(_owner_safe_summary({})["available"], False)
