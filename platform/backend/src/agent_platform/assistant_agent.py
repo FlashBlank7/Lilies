@@ -542,6 +542,17 @@ class WorkflowConcierge:
                 "一共几个": len(apps),
                 "已发布几个": published_total,
                 "没发布的草稿有几个": len(apps) - published_total,
+                # 「最久没跑的是哪个」也直接给。
+                #
+                # 补上每行的"最后一次是什么时候"之后再问，它**日期报对了、
+                # 结论还是错的**：三个工作流最后一次分别是 08-28 13:51 /
+                # 08-28 19:14 / 08-29 00:00，它挑了 19:14 那个说最久没跑。
+                # 排序这种事平台一句 ORDER BY 就有——**算得出的别留给它算**，
+                # 和上面那个占比是同一条。
+                #
+                # 从没跑过的单独说，不混进排序里：那是"没有证据"，
+                # 不是"很久没动"（体检那边今天刚把这两件事分开）。
+                "最久没跑的是": _stalest(items),
                 # 占比也直接给。除法是它自己能做，但"能做"和"每次都做对"是两回事：
                 # 准确性哨兵里「已发布的占比是多少」连着两轮都要重问一遍才答对，
                 # 而 3 和 15 这两个数明明就摆在上面。
@@ -1558,6 +1569,24 @@ class WorkflowConcierge:
 
 
 # 运行状态 → 人话。跟构建状态那套并列：模型手里有什么词就说什么词。
+def _stalest(items: list[dict]) -> str:
+    """已发布的工作流里，最久没跑的是哪个。
+
+    从没跑过的单独说：那是"没有证据"，不是"很久没动"。
+    """
+    published = [i for i in items if i.get("published_version")]
+    if not published:
+        return "没有已发布的工作流"
+    never = [i["name"] for i in published
+             if i.get("最后一次是什么时候") == "从没跑过"]
+    if never:
+        names = "、".join(never[:3])
+        return f"{names} 从没跑过——那是还没验过，不是很久没动"
+    ranked = sorted(published, key=lambda i: str(i.get("最后一次是什么时候") or ""))
+    top = ranked[0]
+    return f"{top['name']}（最后一次 {top['最后一次是什么时候']}）"
+
+
 _FAILURE_REASON_WORDS = {
     # 分类名是给机器看的英文 slug（observability._classify_failure 定的）。
     # 直接递给模型，它会原样念给业主听——真机上出现过

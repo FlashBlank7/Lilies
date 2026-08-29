@@ -139,3 +139,60 @@ class TestEachWorkflowSaysWhenItLastRan:
                 "'2026-08-29T23:00:00+00:00','2026-08-29T23:00:00+00:00')")
         [row] = (await _list(services))["workflows"]
         assert row["最后一次是什么时候"] == "从没跑过", row
+
+
+class TestTheStalestOneIsWorkedOutForIt:
+    """补上"最后一次是什么时候"之后再问，它**日期报对了、结论还是错的**。
+
+    真机（2026-08-29）：三个工作流最后一次分别是 08-28 13:51 /
+    08-28 19:14 / 08-29 00:00，它挑了 19:14 那个说"最久没跑"。
+    排序平台一句 ORDER BY 就有——**算得出的别留给它算**。
+    """
+
+    @staticmethod
+    def _add_run(services, app_id: str, when: str) -> None:
+        with services.workflow_store.storage._connect() as conn:
+            conn.execute(
+                "INSERT INTO workflow_runs(id,application_id,version,draft_revision,"
+                "status,state_json,outputs_json,error,created_at,updated_at) "
+                "VALUES(?,?,1,NULL,'succeeded','{}','{}',NULL,?,?)",
+                (f"{app_id}-{when}", app_id, when, when))
+
+    @pytest.mark.asyncio
+    async def test_it_picks_the_oldest_not_the_newest(self, services):  # noqa: F811
+        """同一天里差几个钟头的那种，正是真机上挑错的形状。"""
+        _add_app(services, "old", "旧的", published=True)
+        _add_app(services, "new", "新的", published=True)
+        self._add_run(services, "old", "2026-08-28T13:51:00+00:00")
+        self._add_run(services, "new", "2026-08-28T19:14:00+00:00")
+        answer = (await _list(services))["最久没跑的是"]
+        assert "旧的" in answer and "新的" not in answer, answer
+
+    @pytest.mark.asyncio
+    async def test_it_shows_the_date_it_ranked_on(self, services):  # noqa: F811
+        """光给名字没法复核；把依据一起给出来。"""
+        _add_app(services, "old", "旧的", published=True)
+        self._add_run(services, "old", "2026-08-28T13:51:00+00:00")
+        assert "2026-08-28 13:51" in (await _list(services))["最久没跑的是"]
+
+    @pytest.mark.asyncio
+    async def test_never_run_is_said_apart(self, services):  # noqa: F811
+        """从没跑过的单独说——那是"没有证据"，不是"很久没动"。"""
+        _add_app(services, "old", "旧的", published=True)
+        _add_app(services, "fresh", "没跑过的", published=True)
+        self._add_run(services, "old", "2026-08-28T13:51:00+00:00")
+        answer = (await _list(services))["最久没跑的是"]
+        assert "没跑过的" in answer and "还没验过" in answer, answer
+
+    @pytest.mark.asyncio
+    async def test_drafts_are_not_ranked(self, services):  # noqa: F811
+        """未发布的草稿不参与——问的是"工作流最久没跑"，草稿本来就不跑。"""
+        _add_app(services, "old", "旧的", published=True)
+        _add_app(services, "d", "草稿", published=False)
+        self._add_run(services, "old", "2026-08-28T13:51:00+00:00")
+        answer = (await _list(services, only_published=False))["最久没跑的是"]
+        assert "草稿" not in answer, answer
+
+    @pytest.mark.asyncio
+    async def test_an_empty_platform_says_so(self, services):  # noqa: F811
+        assert "没有已发布" in (await _list(services))["最久没跑的是"]
