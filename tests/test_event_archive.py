@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import asyncio
+import unittest
 from pathlib import Path
 
 from agent_platform.storage import Storage
@@ -101,3 +102,62 @@ def test_cold_file_compression_roundtrip(tmp_path: Path) -> None:
         assert [e.id for e in merged] == [1, 2, 3, 4, 5, 6]
 
     asyncio.run(scenario())
+
+
+class UnreadableRetentionMeansDoNotDeleteTest(unittest.IsolatedAsyncioTestCase):
+    """保留天数写歪了（0 或负数），一条都不删。
+
+    变异验证（2026-08-29）：`max(0, keep_days)` 那个夹子没有任何测试。
+    而它本身也不救命——负数被夹成 0，**而 0 恰恰是最狠的那个值**：
+    cutoff 变成"现在"，除了每个 stream 的哨兵行，业务事件（审计线索）
+    全部删掉，日志上只写一句"归档 N 行"。
+
+    产物清理那一侧早就定了规矩：「看不懂的配置一律当成别删。
+    这是删数据的地方该有的默认方向。」两处本该一个脾气，
+    而事件这边一直是反的——同一个仓里两条删数据的路，
+    对同一个 0 给出相反的解释，这本身就是个信号。
+
+    第一版我加的是 ge=0（加载时报错），被产物那边的测试当场顶回来了：
+    那条测试明写着"负数也不删"是一条安全属性。报错会把手误变成
+    "服务起不来"；什么都不删则既安全又能继续服务。听它的。
+    """
+
+    async def _archive(self, keep_days: int):
+        from pathlib import Path as _Path
+        from tempfile import TemporaryDirectory
+
+        from agent_platform.storage import Storage
+
+        tmp = TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        storage = Storage(_Path(tmp.name) / "d")
+        await storage.initialize()
+        for i in range(5):
+            await storage.append_event("s1", "tick", {"n": i})
+        with storage._connect() as conn:
+            conn.execute("UPDATE events SET created_at='2020-01-01T00:00:00+00:00'")
+        return storage, await storage.archive_events_before(keep_days=keep_days)
+
+    async def test_zero_deletes_nothing(self):
+        storage, result = await self._archive(0)
+        self.assertEqual(result["removed"], 0, "keep_days=0 却动手删了")
+        self.assertEqual(result["remaining"], 5)
+
+    async def test_a_negative_window_deletes_nothing(self):
+        _, result = await self._archive(-1)
+        self.assertEqual(result["removed"], 0)
+        self.assertEqual(result["remaining"], 5)
+
+    async def test_a_sane_window_still_archives(self):
+        """别把闸关死：正常配置照样要删。
+
+        没有这一条的话，"一律不删"也能让上面两条全绿。
+        """
+        _, result = await self._archive(7)
+        self.assertGreater(result["removed"], 0)
+        self.assertGreaterEqual(result["remaining"], 1, "哨兵行要留着")
+
+    async def test_the_sentinel_row_survives_even_then(self):
+        """每个 stream 留最大 seq 那行：全删会让新事件序号回退、和冷文件撞号。"""
+        _, result = await self._archive(7)
+        self.assertEqual(result["remaining"], 1)

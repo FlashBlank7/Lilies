@@ -92,6 +92,11 @@ class Settings(BaseSettings):
     platform_harness_secret_kms_previous_keys: dict[str, str] = Field(default_factory=dict, repr=False)
     # 事件冷归档：启动时把早于 N 天的事件移出 DB（JSONL 冷文件是权威全量，
     # 读取端自动回退）。斩断 events 表无节制增长（实测 82.8 万行/557MB）。
+    # 这三个数写歪了（0 或负数）不会被拦下，而是**一律按"别删"处理**——
+    # 产物清理那一侧早就是这么做的（"看不懂的配置一律当成别删。
+    # 这是删数据的地方该有的默认方向"），事件归档 2026-08-29 跟上。
+    # 加载时报错是另一种选择，但那会让一个手误变成"服务起不来"；
+    # 而"什么都不删"既安全又能继续服务，日志里会说清它没动手。
     event_archive_keep_days: int = 7
     # 生命周期：不活跃事件冷文件 gzip 压缩（不删除）；运行产物过期清除。
     event_compress_after_days: int = 14

@@ -1260,8 +1260,23 @@ class Storage:
         return await asyncio.to_thread(self._archive_events_before_sync, keep_days)
 
     def _archive_events_before_sync(self, keep_days: int) -> dict[str, int]:
+        with self._connect() as conn:
+            if keep_days < 1:
+                # 配成 0 或负数时 cutoff 就是"现在"，除了每个 stream 的哨兵行，
+                # 业务事件（审计线索）会被**全部**删掉，而且悄无声息——
+                # 日志上只会写一句"归档 N 行"。
+                # 产物清理那一侧早就定了规矩：看不懂的配置一律当成"别删"，
+                # 这是删数据的地方该有的默认方向。这里跟上，两处一个脾气。
+                # （原先是 max(0, keep_days)，把负数夹成 0，
+                #   而 0 恰恰是最destructive的那个值。）
+                remaining = conn.execute(
+                    "SELECT COUNT(*) AS c FROM events").fetchone()["c"]
+                logger.warning(
+                    "event_archive_keep_days=%s 会把事件删光，这次什么都不删。"
+                    "真要清空请显式删库，别靠这个配置。", keep_days)
+                return {"removed": 0, "remaining": remaining}
         cutoff = (
-            datetime.now(timezone.utc) - timedelta(days=max(0, keep_days))
+            datetime.now(timezone.utc) - timedelta(days=keep_days)
         ).isoformat()
         with self._connect() as conn:
             before = conn.execute("SELECT COUNT(*) AS c FROM events").fetchone()["c"]
