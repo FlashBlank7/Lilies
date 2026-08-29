@@ -282,18 +282,44 @@ def _owner_safe_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
       · 搭建方的提问、业主自己的消息，都另有渲染路径
     真要让某一轮的正文出现在业主面前，正确做法是让搭建方**显式标注**
     这一轮是说给业主听的，而不是让这里去猜。
+
+    **改成白名单（2026-08-29）。**原来是黑名单：只把 text 换成空串，
+    别的字段原样递出去。而"别的字段"里装着的东西，量过之后是这样的
+    （真机 76 份 transcript、2653 条记录，按当时的规则跑一遍）：
+
+      · thinking 非空 452 条——搭建方的原始思考，正是这段注释开头说
+        "一句都不给"的那种话。英文的有 "Okay, let's see. The user wants…"，
+        中文的有 "end节点的greeting字段仍然是字面量'string'"。
+        **闸装在 text 上，没装在 thinking 上**，而两者是同一类东西。
+      · model 泄了四个模型名，包括 local/Qwen/Qwen3-4B-Instruct-2507
+      · actor 泄了十个内部角色名（architect、configurator、repairer…）
+      · tool_calls 里的 arguments / result 有 2547 条带机器痕迹
+
+    这个接口只要有业主码就能直接 curl，前端渲不渲染都不影响它已经发出去了。
+
+    黑名单的毛病不只是"这次漏了三样"：transcript 以后多一个字段，
+    它就自动出现在业主那边。白名单反过来——多的字段默认不给，
+    要给得有人显式加进来。
+
+    留下的就是业主页真正用到的那几样（前端只读 kind/text/text_withheld
+    和 tool_calls[].tool，连 arguments 都没用）：
     """
+    keep = ("kind", "turn", "recorded_at", "text_withheld")
     safe: list[dict[str, Any]] = []
     for record in records:
-        if record.get("kind") == "owner":
-            safe.append(record)
-            continue
-        if record.get("kind") == "event" and _owner_facing_event(record):
-            safe.append(record)
-            continue
-        if str(record.get("text") or "").strip():
-            record = {**record, "text": "", "text_withheld": True}
-        safe.append(record)
+        trimmed: dict[str, Any] = {k: record[k] for k in keep if k in record}
+        # 动作行只需要工具名——前端拿它翻成「搭了一个环节」这类话。
+        # arguments / result 一律不给：那里面是节点 id、公式、schema。
+        calls = [{"tool": call.get("tool")} for call in record.get("tool_calls") or []]
+        if calls:
+            trimmed["tool_calls"] = calls
+        if record.get("kind") == "owner" or (
+                record.get("kind") == "event" and _owner_facing_event(record)):
+            trimmed["text"] = record.get("text", "")
+        elif str(record.get("text") or "").strip():
+            trimmed["text"] = ""
+            trimmed["text_withheld"] = True
+        safe.append(trimmed)
     return safe
 
 
