@@ -1132,10 +1132,26 @@ class WorkflowConcierge:
             target = (action.get("workflow") or action.get("name")
                       or action.get("app_id") or action.get("build_id") or "")
             marks.append(f"{tool}({str(target)[:40]})" if target else str(tool))
-        if marks:
+        # 上一轮说过的数字不能当依据。
+        #
+        # 真机实测（2026-08-29）：上文里放一句「一共 40 个工作流，25 个已发布」
+        # （编的），再问「那已发布的占比是多少」，它**一次工具都没调**，
+        # 直接答 62.5%。真值是 15 个里 3 个 = 20%。
+        # 同一轮的另外两个探测（编一个不存在的工作流、谎称做过一个动作）
+        # 它都去查了并当场戳穿——差别在于这一问长得像纯算术题：
+        # 数字"已经在手上"，看不出还需要查。
+        #
+        # 系统提示词里禁"凭上文作答"是请求不是保证，今天已经反复印证。
+        # 改成把提醒贴在**数字出现的地方**：这一招在这个项目上比写进
+        # 系统提示词管用（工具返回值里的那些说明就是这么起作用的）。
+        if marks or _NUMBERS.search(text):
+            attrs = f' 上一轮做了="{"、".join(marks[:4])}"' if marks else ""
+            note = (" 提醒=\"上面这些数字是上一轮的旧数，不可信也不可引用。"
+                    "这一轮凡是要用到数字（算比例、算平均、比大小、直接作答），"
+                    "一律先重新查一次，拿刚查到的数说话\"" if _NUMBERS.search(text) else "")
             # 用 XML 式标签而不是方括号：方括号看起来像正文的一部分，
             # 实测模型会把它原样抄进回答
-            text = f"<上下文 上一轮做了=\"{'、'.join(marks[:4])}\" />\n{text}"
+            text = f"<上下文{attrs}{note} />\n{text}"
         return text
 
     async def reply(self, history: list[dict], user: dict, emit=None) -> tuple[list[dict], str]:
@@ -1182,8 +1198,13 @@ class WorkflowConcierge:
                     pending_text = ""
                 text = _without_context_marks(
                     " ".join(b.text or "" for b in response.blocks if b.type == "text"))
-                await _emit({"type": "final", "text": text or "（无回复）"})
-                return actions, text or "（无回复）"
+                # 空回答不能只回一句「（无回复）」——那是个死胡同：
+                # 用户不知道是自己问得不对、还是平台坏了、还是该重说一遍。
+                # 流式那条路（api.py）早就有一句能行动的话了，这条没有。
+                blank = ("这一轮我没答上来。换个说法再问一次试试；"
+                         "一直这样就去看后端日志（agent_platform 的 WARNING 以上）。")
+                await _emit({"type": "final", "text": text or blank})
+                return actions, text or blank
             messages.append(ChatMessage(role="assistant", content=response.blocks))
             result_blocks = []
             for call in calls:
@@ -1228,6 +1249,13 @@ _HEALTH_WORDS = {
     "ok": "看起来是正常的",
     "unknown": "查不到它的近况",
 }
+
+# 助手上一轮的回答里有没有"数字"。判得宽一点无所谓：多贴一句提醒的代价，
+# 远小于拿旧数字算出一个错答案的代价。
+# 版本号「v3」「版本 1」这类不算——它们不是会变的统计量，
+# 而且几乎每条回答都带，一律贴提醒就成了噪音。
+_NUMBERS = re.compile(r"(?<![vV版本])\d{1,}\s*(?:次|个|条|%|％|天|分钟|小时)")
+
 
 _RUN_WORDS = {
     "succeeded": "跑成了",
