@@ -718,12 +718,42 @@ class WorkflowConcierge:
                     services.scheduler.health()
                     if getattr(services, "scheduler", None) is not None
                     and hasattr(services.scheduler, "health") else None),
+                # 说清这份数据**不回答什么**。真机实测：问"昨天有没有失败的运行"，
+                # 模型调了体检、拿到"全部正常"，就答"昨天没有失败"——
+                # 而当天有 5 次失败（那个工作流 5 败 26 成，不算"坏"，
+                # 体检本来就不该报它）。工具用错了，而结果里没有任何东西
+                # 提醒它用错了。这句话贴在数据旁边，比写在系统提示词里可靠。
+                "这份数据不回答什么": (
+                    f"它只看「现在健不健康」——判据是最近 {days} 天的连败和"
+                    "定时有没有停摆。它**不回答**「某一天有没有失败过」："
+                    "一个工作流可以昨天失败 5 次、成功 26 次，"
+                    "在这里仍然显示正常。要查某天的失败，用 platform_overview 的"
+                    "最近失败清单，或 recent_runs 看那个工作流的逐次记录。"),
                 "note": "problems 为空只表示已发布工作流本身没问题；"
                         "定时能不能按时开火要看「定时调度」那一项",
             }
         if name == "platform_overview":
             from .overview import build_overview
-            return await build_overview(self.services)
+
+            data = await build_overview(self.services)
+            # 失败清单的字段名会被读错：count 是**这个原因在窗口内一共出现过几次**，
+            # 而 at 是最近一次的时刻。两个挨在一起，模型读成了"当天失败 13 次"——
+            # 真机上当天是 5 次，13 是近 7 天的合计（实测复现过两次）。
+            # 接口本身不动（客户端和前端读的是原字段），只把**给模型的这一份**
+            # 换成不会读错的名字。
+            failures = []
+            for row in data.get("recent_failures") or []:
+                failures.append({
+                    "工作流": row.get("workflow"),
+                    "最近一次失败在": row.get("at"),
+                    "这个原因一共出现过几次": row.get("count", 1),
+                    "原因": row.get("error"),
+                    "run_id": row.get("run_id"),
+                })
+            return {**data, "recent_failures": failures,
+                    "失败清单怎么读": "「一共出现过几次」是整个窗口的合计，"
+                                      "不是「最近一次失败在」那天的次数。"
+                                      "要某一天的次数，用 recent_runs 逐次看。"}
         if name == "recent_builds":
             builds = await services.workflow_store.list_recent_builds(limit=int(args.get("limit") or 5))
             # 跟 build_status 走同一层翻译：状态码不能从这条路漏出去
