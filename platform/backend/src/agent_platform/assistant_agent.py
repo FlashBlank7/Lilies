@@ -781,7 +781,9 @@ class WorkflowConcierge:
                     "定时有没有停摆。它**不回答**「某一天有没有失败过」："
                     "一个工作流可以昨天失败 5 次、成功 26 次，"
                     "在这里仍然显示正常。要查某天的失败，用 platform_overview 的"
-                    "最近失败清单，或 recent_runs 看那个工作流的逐次记录。"),
+                    "最近失败清单，或 recent_runs 看那个工作流的逐次记录（带 day）。"
+                    "也**不回答**「哪个工作流失败最多」——那要看 list_workflows，"
+                    "它给出每个工作流至今跑了几次、其中成败各多少。"),
                 "note": "problems 为空只表示已发布工作流本身没问题；"
                         "定时能不能按时开火要看「定时调度」那一项",
             }
@@ -839,8 +841,15 @@ class WorkflowConcierge:
                 return sum(tally.values()), dict(tally)
 
             total, by_situation = await asyncio.to_thread(_build_counts)
-            return {"builds": rows, "一共几个": total, "按情况计数": by_situation,
-                    "上面这几条": f"只是最近 {len(rows)} 个，不是全部"}
+            # 键名就把话说死。真机实测：返回里明明有「一共几个: 75」、
+            # 也写着"只是最近 5 个，不是全部"，它仍然答"一共查到了 25 个"——
+            # 它读的是列表长度。那就别让这个列表叫得像全集。
+            # 汇总放在长列表**前面**：工具结果送给模型前会截到 4000 字，
+            # 排在列表后面的字段会被先切掉。真机上 limit=25 时载荷 3943 字，
+            # 离 4000 只差 57——再多一条就静默丢掉「一共几个」，
+            # 而模型只会说"工具没有提供总量字段"。
+            return {"一共几个": total, "按情况计数": by_situation,
+                    "最近几个（不是全部）": rows}
         if name == "resume_build":
             build_id = str(args.get("build_id") or "")
             build, failure = await self._get_build_or_error(build_id)
@@ -995,7 +1004,7 @@ class WorkflowConcierge:
                 await _emit({"type": "action", **entry})
                 result_blocks.append(ContentBlock(
                     type="tool_result", tool_use_id=call.id,
-                    content=json.dumps(result, ensure_ascii=False)[:4000]))
+                    content=_capped(result)))
             messages.append(ChatMessage(role="user", content=result_blocks))
         await _emit({"type": "final", "text": "（动作轮次到达上限，请把要求说得更具体些）"})
         return actions, "（动作轮次到达上限，请把要求说得更具体些）"
@@ -1120,6 +1129,24 @@ def _acceptance_summary(app: dict, report: dict) -> dict:
     }
 
 
+_TOOL_RESULT_CAP = 4000
+
+
+def _capped(result: dict) -> str:
+    """工具结果送给模型的那份，超长要**说出来**。
+
+    原先是 json.dumps(...)[:4000]——切了就切了，模型不知道自己看的是半截。
+    这和今天修的"给一页却不说是一页"是同一个病，只是发生在更下面一层：
+    那边是列表只给一页，这边是整个载荷被拦腰截断。
+    """
+    text = json.dumps(result, ensure_ascii=False)
+    if len(text) <= _TOOL_RESULT_CAP:
+        return text
+    return (text[:_TOOL_RESULT_CAP]
+            + f"\n（以上内容被截断：完整结果 {len(text)} 字，只给了前 "
+              f"{_TOOL_RESULT_CAP} 字。要更少的条目就把 limit 调小再查一次。）")
+
+
 def _summarize(result: dict) -> str:
     """动作行上那句话。**这是给用户看的**，不是给模型看的。
 
@@ -1139,8 +1166,8 @@ def _summarize(result: dict) -> str:
         return "⚙ 构建已提交"
     if "runs" in result:
         return f"{len(result['runs'])} 条历史"
-    if "builds" in result:
-        return f"{len(result['builds'])} 个构建"
+    if "最近几个（不是全部）" in result:
+        return f"共 {result.get('一共几个', '?')} 个构建"
     if "它做几步" in result:
         return f"{result.get('工作流')}：{len(result['它做几步'])} 步"
     if "情况" in result:

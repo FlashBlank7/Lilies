@@ -94,7 +94,7 @@ class BuildStatusQuestionTest(unittest.IsolatedAsyncioTestCase):
              "error": "model stream timed out after 600s", "team_state": state}])
         agent = WorkflowConcierge(services, MagicMock())
         result = await agent._exec("recent_builds", {}, {})
-        payload = " ".join(str(v) for row in result["builds"]
+        payload = " ".join(str(v) for row in result["最近几个（不是全部）"]
                            for k, v in row.items() if not k.startswith("_"))
         self.assertIsNone(LEAK.search(payload.lower()), payload)
         self.assertIn("卡住", payload)

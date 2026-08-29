@@ -155,7 +155,7 @@ def test_recent_builds_and_resume_tools(tmp_path: Path) -> None:
         services = client.app.state.services
         concierge = WorkflowConcierge(services, settings)
         listed = client.portal.call(concierge._exec, "recent_builds", {}, {"name": "t"})
-        assert any(item["build_id"] == build_id for item in listed["builds"])
+        assert any(item["build_id"] == build_id for item in listed["最近几个（不是全部）"])
         resumed = client.portal.call(concierge._exec, "resume_build",
                                      {"build_id": build_id, "message": "继续"}, {"name": "t"})
         assert resumed.get("情况") == "已经让它接着跑了", resumed
