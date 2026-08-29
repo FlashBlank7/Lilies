@@ -221,10 +221,52 @@ def _expected_text(truth: object) -> str:
     return expected
 
 
+_CHINESE_DIGITS = {"零": "0", "一": "1", "二": "2", "两": "2", "三": "3", "四": "4",
+                   "五": "5", "六": "6", "七": "7", "八": "8", "九": "9"}
+
+
+def _with_chinese_numerals(text: str) -> str:
+    """把「五次」这类中文数字也折成阿拉伯数字再比。
+
+    2026-08-29「昨天一共有几次失败的运行」连着两次判错，而手动复问
+    7 次全对、答案里明明写着 5。复现不出来，所以这里补的是**一个说得通的
+    成因**，不是已经证实的那个：管家用中文说「五次」是完全正确的答案，
+    而检查只认阿拉伯数字，会把它判成错。
+
+    哨兵冤枉平台几次之后就没人再看它了——宁可先把这类假红掐掉。
+    只折 0–99：更大的数模型一律写阿拉伯数字（真机 15 题全是）。
+    """
+    import re
+
+    # 只折**真的在数数**的地方：后面跟着量词，或者跟着另一个数字。
+    # 不加这个限制的话「一共」会变成「1共」——真值是 1 而答案说
+    # 「一共有 0 次失败」时就成了假绿。宁可少折，不能折出假绿。
+    pattern = re.compile(
+        r"[零一二两三四五六七八九十]+(?=(?:次|个|条|天|位|份|%|％|分钟|小时))")
+
+    def fold(match: re.Match) -> str:
+        chunk, out, index = match.group(0), [], 0
+        while index < len(chunk):
+            char = chunk[index]
+            if char == "十":
+                before = out.pop() if out and out[-1].isdigit() else ""
+                after = (_CHINESE_DIGITS.get(chunk[index + 1], "")
+                         if index + 1 < len(chunk) else "")
+                out.append(f"{before or '1'}{after or '0'}")
+                index += 2 if after else 1
+                continue
+            out.append(_CHINESE_DIGITS.get(char, char))
+            index += 1
+        return "".join(out)
+
+    return pattern.sub(fold, text)
+
+
 def _answers(truth: object, answer: str) -> bool:
     # 数字答案允许带千分位/空格/加粗
     flat = answer.replace(",", "").replace(" ", "").replace("*", "")
-    return _expected_text(truth) in flat
+    expected = _expected_text(truth)
+    return expected in flat or expected in _with_chinese_numerals(flat)
 
 
 def main() -> int:
