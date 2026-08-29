@@ -5147,7 +5147,11 @@ def test_builder_refuses_to_remove_last_node_required_by_mandatory_test(tmp_path
             if event["type"] == "build.operation" and event["data"].get("tool") == "draft_remove_node"
         ]
         assert remove_events and remove_events[0]["data"]["success"] is False
-        assert "would break mandatory test required_node_types" in remove_events[0]["data"]["result"]
+        # 2026-08-29：这句拒绝改成中文并给出三条出路
+        # （真机出现过 5 次，模型看着英文不知道该改测试还是补节点）
+        detail = remove_events[0]["data"]["result"]
+        assert "删不掉" in detail and "mandatory" in detail, detail
+        assert "test_remove" in detail or "顶上" in detail, detail
         draft = client.get(f"/api/v1/applications/{app_id}/draft", headers=headers()).json()
         node_ids = {node["id"] for node in draft["snapshot"]["workflow"]["nodes"]}
         assert "template" in node_ids

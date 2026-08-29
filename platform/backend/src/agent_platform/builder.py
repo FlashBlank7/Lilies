@@ -912,9 +912,10 @@ class WorkflowBuilder:
                 blocked_tests.append(test.id)
         if blocked_tests:
             raise RuntimeError(
-                f"removing node {node_id!r} would break mandatory test required_node_types "
-                f"for node type {node.type!r}: {blocked_tests}. "
-                "Update or remove the affected tests first, or add a replacement node with the same type."
+                f"删不掉「{node_id}」：这些 mandatory 测试点名要有 {node.type} "
+                f"类型的节点——{'、'.join(blocked_tests)}。"
+                f"三条路选一条：先改/删掉这些测试（test_update、test_remove）；"
+                f"或者先加一个同样是 {node.type} 类型的节点顶上，再删这个。"
             )
 
     async def _draft_validation_summary(self, application_id: str) -> dict[str, Any]:
