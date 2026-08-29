@@ -21,7 +21,7 @@ RUFF="$ROOT/.venv/bin/ruff"
 
 if [ "$target" = "bench" ]; then
   SRC="$HOME/code/bench"
-  LINT_PATH="guanjia"
+  LINT_PATH="guanjia scripts tests"
 else
   SRC="$ROOT"
   # scripts 也要扫：里面是冒烟、准确性核对、跨端点对账这些**用来验别人**的东西，
