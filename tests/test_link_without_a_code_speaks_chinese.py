@@ -135,15 +135,17 @@ def _codes(client, app_id: str) -> tuple[str, str]:
     (lambda c: c[:1], "只给第一位"),
     (lambda c: c[:len(c) // 2], "只给前一半"),
     (lambda c: c + "x", "多一位"),
-    (lambda c: c.upper() if c.lower() != c.upper() else c + "X", "大小写变了"),
+    # swapcase 而不是 upper：码本来就全大写时 upper 原样返回，
+    # 那一条就得 skip 掉（原来正是这么写的）。**概率性跳过的用例，
+    # 等于那条性质偶尔没人测**——换个必然改变的变换，skip 就不需要了。
+    (lambda c: c.swapcase() if c.lower() != c.upper() else c + "X", "大小写变了"),
     (lambda c: c[::-1], "倒过来"),
 ])
 def test_a_partial_use_code_is_refused(client, mangle, why):
     app_id = _app_id(client)
     use, _ = _codes(client, app_id)
     bad = mangle(use)
-    if bad == use:                     # 全数字的码大小写变不了，跳过那一条
-        pytest.skip("这个码没法这样改")
+    assert bad != use, f"{why}: 这个变换没真的改动码，等于没测（{use!r}）"
     response = client.get(f"/api/v1/use/{app_id}/definition?code={bad}")
     assert response.status_code == 403, f"{why} 竟然放行了：{bad}"
 
