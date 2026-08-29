@@ -35,6 +35,38 @@ from .workflow_models import (
 )
 
 
+
+# pydantic 的英文报错 → 人话。只翻真机上真出现过的那几种（2026-08-29 统计
+# 76 份搭建 transcript：valid list ×76、Extra inputs ×53、其余都是个位数），
+# 没出现过的原样保留——胡乱翻一堆没见过的句式，只会在真出现时翻错。
+_PYDANTIC_ZH = (
+    ("Input should be a valid list", "这里要一个数组"),
+    ("Extra inputs are not permitted", "这个字段不属于这里，多半是层级放错了"),
+    ("Input should be a valid dictionary or instance of", "这里要一个对象"),
+    ("Input should be a valid dictionary", "这里要一个对象"),
+    ("Input should be a valid integer", "这里要一个整数"),
+    ("Input should be a valid number", "这里要一个数字"),
+    ("Input should be a valid string", "这里要一段文字"),
+    ("Input should be a valid boolean", "这里要 true 或 false"),
+    ("Field required", "这个字段必须填"),
+    ("Input should be ", "这里只能填："),
+    ("Value error, ", ""),
+)
+
+
+def _zh_pydantic(message: str) -> str:
+    """把 pydantic 的报错换成人话；没见过的句式原样保留。"""
+    for english, chinese in _PYDANTIC_ZH:
+        if message.startswith(english):
+            tail = message[len(english):].strip()
+            if not chinese:
+                return tail or message
+            if not tail or not english.endswith(" "):
+                return chinese
+            return f"{chinese}{tail}" if chinese.endswith("：") else f"{chinese}：{tail}"
+    return message
+
+
 class InputField(BaseModel):
     name: str
     label: str = ""
@@ -1996,7 +2028,8 @@ class BlockRegistry:
             elif isinstance(got, (dict, list)):
                 got_text = f"（收到 {json.dumps(got, ensure_ascii=False, default=str)[:60]}）"
             invalid.append(
-                f"{pretty}{where}：{item.get('msg', 'invalid')}{got_text}"
+                f"{pretty}{where}：{_zh_pydantic(str(item.get('msg') or 'invalid'))}"
+                f"{got_text}"
             )
         parts: list[str] = []
         if missing:

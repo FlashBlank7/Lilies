@@ -1886,11 +1886,15 @@ def _validate_paths(paths: list[list[PathSegment]], *, label: str) -> None:
     for path in paths:
         if not path or len(path) > MAX_PATH_DEPTH:
             raise ValueError(
-                f"{label} must contain paths of 1 to {MAX_PATH_DEPTH} segments"
+                # 这条会一路传到搭建模型眼前（record_collection_normalize 的
+                # 配置报错真机上出现 43 次），别留英文
+                f"{label}：每条路径要有 1 到 {MAX_PATH_DEPTH} 段，"
+                f"写成 [[\"字段名\"], [\"上级\", \"下级\"]] 这样"
             )
         for segment in path:
             if isinstance(segment, bool) or not isinstance(segment, (str, int)):
-                raise TypeError(f"{label} path segments must be strings or integers")
+                raise TypeError(f"{label}：路径的每一段只能是字段名（文字）"
+                                f"或数组下标（整数）")
             if isinstance(segment, str) and (
                 not segment or len(segment) > 128
             ):
