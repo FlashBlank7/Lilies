@@ -51,10 +51,14 @@ class RunMetrics:
     # 这次运行到底有没有留下用量数据。
     #
     # 不加这一格的话，"没记过用量"和"确实一个 token 都没花"在结果里
-    # 长得一模一样，都是 0。真机上工作流运行**从来没有**记过用量
-    # （node.completed 事件里 usage 是 {}），于是这个接口对每一次运行
-    # 都报 0 token / $0——看起来像是算过了，其实什么都没有。
-    # 0 和"没有"要分得开，这是这个仓里反复出现的一条。
+    # 长得一模一样，都是 0。0 和"没有"要分得开，这是这个仓里反复出现的一条。
+    #
+    # 加这一格时我判断错过一次，记在这儿：当时看到每次运行都报 0，
+    # 就下结论说"平台从来没记过用量"。实际是**取错了位置**——
+    # node.completed 把用量挂在 outputs.usage 下面，而取数的地方
+    # 只看顶层 data["usage"]。真机 951 条 node.completed 里，
+    # 21 个运行带着真数（比如输入 617 / 输出 1307）。
+    # 教训还是那句：看到全是 0，先确认自己取对了地方。
     usage_recorded: bool = False
 
 
@@ -157,8 +161,22 @@ class RunAnalyzer:
             elif "permission.requested" in etype:
                 metrics.permission_requests += 1
 
-            # Token usage from model events
-            usage = data.get("usage", {})
+            # Token usage from model events.
+            #
+            # 两个位置都要看。真机上 node.completed 把用量挂在
+            # **outputs.usage** 下面，而这里原来只取顶层 `data["usage"]`——
+            # 取到的永远是 {}，于是每一次运行都报 0 token、$0。
+            # 我先前据此判断"平台从来没记过用量"，是错的：
+            # 951 条 node.completed 里 21 个运行带着真数
+            # （比如输入 617 / 输出 1307），只是没人去那个位置取。
+            #
+            # 还有一本更大的账在 platform_harness.usage.recorded（2.5 万条），
+            # 但它挂在**应用流**上、不在运行流上，靠 task.resource_id 才对得回来。
+            # 那需要跨流聚合，是另一件事，这次没做——所以这里的数是
+            # "节点级模型用量"，不是这次运行的全部花费。
+            outputs = data.get("outputs")
+            usage = data.get("usage") or (
+                outputs.get("usage") if isinstance(outputs, dict) else None) or {}
             if isinstance(usage, dict) and usage:
                 metrics.usage_recorded = True
                 it = int(usage.get("input_tokens", 0))

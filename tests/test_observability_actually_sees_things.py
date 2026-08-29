@@ -233,3 +233,61 @@ class TestTheClassifierKnowsThisPlatformsVocabulary:
         from agent_platform.observability import _classify_failure
 
         assert _classify_failure("某种以前没见过的怪事") == "unknown"
+
+
+class TestUsageIsReadFromWhereItActuallyLives:
+    """用量挂在 node.completed 的 **outputs.usage** 下面，不在顶层。
+
+    取错位置的后果是每次运行都报 0 token / $0——看着像算过了。
+    我据此判断过"平台从来没记过用量"，错的：真机 951 条 node.completed 里
+    21 个运行带着真数（输入 617 / 输出 1307 这种）。
+    **看到全是 0，先确认自己取对了地方。**
+
+    另一本更大的账在 platform_harness.usage.recorded（真机 2.5 万条），
+    挂在应用流上、不在运行流上，要靠 task.resource_id 才对得回来。
+    那是跨流聚合，没在这次做——所以这里的数是"节点级模型用量"，
+    不是这次运行的全部花费。写在这儿，免得日后把它当成完整账单。
+    """
+
+    def _run(self, storage, node_payload: dict) -> None:
+        async def write() -> None:
+            await storage.append_event("run-u", "workflow.started",
+                                       {"application_id": "app-1"})
+            await storage.append_event("run-u", "node.started",
+                                       {"node_id": "gen", "type": "model_call"})
+            await storage.append_event("run-u", "node.completed", node_payload)
+            await storage.append_event("run-u", "workflow.completed", {})
+        asyncio.run(write())
+
+    def test_usage_nested_under_outputs_is_counted(self, storage):
+        self._run(storage, {"node_id": "gen",
+                            "outputs": {"usage": {"input_tokens": 617,
+                                                  "output_tokens": 1307,
+                                                  "cost_usd": 0.12}}})
+        metrics = asyncio.run(RunAnalyzer(storage).analyze("run-u"))
+        assert metrics.usage_recorded is True
+        assert (metrics.total_input_tokens, metrics.total_output_tokens) == (617, 1307)
+
+    def test_it_is_attributed_to_the_node(self, storage):
+        """"哪个环节最费钱"是这个模块承诺回答的问题之一。"""
+        self._run(storage, {"node_id": "gen",
+                            "outputs": {"usage": {"input_tokens": 617,
+                                                  "output_tokens": 1307}}})
+        metrics = asyncio.run(RunAnalyzer(storage).analyze("run-u"))
+        gen = next(n for n in metrics.nodes if n.node_id == "gen")
+        assert (gen.input_tokens, gen.output_tokens) == (617, 1307)
+
+    def test_top_level_usage_still_works(self, storage):
+        """两个位置都要认——别把老的那条路修没了。"""
+        self._run(storage, {"node_id": "gen",
+                            "usage": {"input_tokens": 10, "output_tokens": 20}})
+        metrics = asyncio.run(RunAnalyzer(storage).analyze("run-u"))
+        assert (metrics.total_input_tokens, metrics.total_output_tokens) == (10, 20)
+
+    def test_outputs_without_usage_is_not_mistaken_for_usage(self, storage):
+        """outputs 里通常装的是节点产出，不是用量——别把它当成记过。"""
+        self._run(storage, {"node_id": "gen",
+                            "outputs": {"text": "报告正文", "rows": 12}})
+        metrics = asyncio.run(RunAnalyzer(storage).analyze("run-u"))
+        assert metrics.usage_recorded is False
+        assert metrics.total_input_tokens == 0
