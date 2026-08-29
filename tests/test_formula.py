@@ -220,3 +220,68 @@ def test_division_by_zero_still_says_so() -> None:
 def test_modulo_still_computes_when_the_divisor_is_fine() -> None:
     """别为了判零把功能判没了。"""
     assert evaluate_formula("7 % 3", {}) == 1
+
+
+# ── 输入规模的两道闸 ──
+#
+# 变异验证（2026-08-29，禁写字节码后重验）：把 MAX_EXPRESSION_CHARS 和
+# MAX_TOKENS 各自拉大 100 倍，**这套用例全绿**。只有 MAX_DEPTH 有人盯着。
+#
+# 公式是**模型生成的**——生成方写出一条几万字符的表达式并不稀奇，
+# 而这两道闸是唯一挡在解析器前面的东西。它们坏了不会立刻出事，
+# 只是某天一条畸形公式把一次运行拖死，而报错停在解析器深处。
+
+
+def test_the_caps_are_actually_small_enough_to_protect() -> None:
+    """光验"机制在"不够——还得验**数值本身是有保护力的**。
+
+    上面那些用例都从常量现算输入（`MAX_EXPRESSION_CHARS // 2`），
+    于是把常量拉大 100 倍它们照样绿：测的是机制，不是那个数。
+    变异验证当场逮住了这一点。
+    真正要保的是"畸形公式进不了解析器"，那就得对数值本身设个上界。
+    """
+    from agent_platform.formula import (MAX_DEPTH, MAX_EXPRESSION_CHARS,
+                                        MAX_TOKENS)
+
+    assert 0 < MAX_EXPRESSION_CHARS <= 5_000
+    assert 0 < MAX_TOKENS <= 2_000
+    assert 0 < MAX_DEPTH <= 100
+
+
+def test_a_very_long_expression_is_refused_before_parsing() -> None:
+    from agent_platform.formula import MAX_EXPRESSION_CHARS
+
+    with pytest.raises(FormulaError) as caught:
+        evaluate_formula("1 + " * (MAX_EXPRESSION_CHARS // 2) + "1", {})
+    assert "过长" in str(caught.value)
+
+
+def test_an_expression_just_under_the_length_cap_still_works() -> None:
+    """别把闸关死：贴着上限的合法公式要能算。"""
+    from agent_platform.formula import MAX_EXPRESSION_CHARS, MAX_TOKENS
+
+    # "1 + 1 + … + 1"。两道闸会同时管着这种公式，而且**记号数先到顶**：
+    # 每项 4 个字符却是 2 个记号，所以项数要同时满足两边。
+    # （第一版只按字符算，结果撞在记号闸上——闸之间会互相挡，
+    #   写"贴着上限"的用例时要把两边都算进去。）
+    terms = min((MAX_EXPRESSION_CHARS - 10) // 4, (MAX_TOKENS - 10) // 2)
+    assert evaluate_formula(" + ".join(["1"] * terms), {}) == terms
+
+
+def test_too_many_tokens_is_refused() -> None:
+    """字符数没超、记号数超了——两道闸挡的是不同的东西。
+
+    「1+1+1+…」每项只占 2 个字符却是 2 个记号，
+    只看长度的话这种公式能穿过去。
+    """
+    from agent_platform.formula import MAX_TOKENS
+
+    with pytest.raises(FormulaError) as caught:
+        evaluate_formula("+".join(["1"] * (MAX_TOKENS // 2 + 20)), {})
+    assert "复杂" in str(caught.value) or "过长" in str(caught.value)
+
+
+def test_an_ordinary_formula_is_nowhere_near_the_caps() -> None:
+    """确认这两道闸不会误伤真实用法——真机上的公式都很短。"""
+    assert evaluate_formula("max(ceil(avg(sales[-4:]) * 2 - stock), moq)",
+                            {"sales": [30, 35, 40, 38], "stock": 60, "moq": 100}) == 100
