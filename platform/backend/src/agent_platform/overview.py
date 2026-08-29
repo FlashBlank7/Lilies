@@ -165,6 +165,7 @@ async def build_overview(services: Any) -> dict[str, Any]:
                  for day in days]
 
     runs_today = data["runs_today"]
+    all_failures = _dedupe_failures(data["failures"])
     return {
         "date_utc": today,
         "runs_today": {
@@ -176,7 +177,11 @@ async def build_overview(services: Any) -> dict[str, Any]:
         "builds_active": data["builds_active"],
         "schedules": schedules,
         # 合并之后再截：截的是「不同的毛病」，不是「行数」
-        "recent_failures": _dedupe_failures(data["failures"])[:8],
+        "recent_failures": all_failures[:8],
+        # 一共有几种不同的毛病。截了就要说出来——不说的话，
+        # 面板上 5 行看着像"就这些"，而第 6 种可能才是要命的那个。
+        # （本周第四次同一个形状：给一页、不说这是一页。）
+        "recent_failures_total": len(all_failures),
         "published_workflows": len(data["apps"]),
         "week": week_list,
         # 每天的失败分别属于哪个工作流（近 7 天）。week 只有每天的总数，

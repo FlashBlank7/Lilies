@@ -129,3 +129,55 @@ class CountsAreNotCappedTest(unittest.TestCase):
             _fail("bbbbbbbb22", "统计", "2026-08-28T05:00", "boom"),
         ])
         self.assertEqual(rows[0]["count"], 2)
+
+
+class TotalKindsIsReportedTest(unittest.IsolatedAsyncioTestCase):
+    """面板只放得下 8 种毛病——一共有几种也要给出来。
+
+    不给的话，客户端 5 行看着像"就这些"，而第 6 种可能才是要命的那个。
+    这是本周第四次同一个形状：给一页、不说这是一页。
+    """
+
+    async def _overview(self, kinds: int):
+        import asyncio
+        from tempfile import TemporaryDirectory
+        from pathlib import Path
+
+        from agent_platform.overview import build_overview
+        from agent_platform.storage import Storage
+        from agent_platform.workflow_storage import WorkflowStorage
+        from types import SimpleNamespace
+
+        self._tmp = TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        storage = Storage(Path(self._tmp.name) / "d")
+        store = WorkflowStorage(storage)
+        await storage.initialize()
+        await store.initialize()
+        with storage._connect() as conn:
+            conn.execute(
+                "INSERT INTO applications(id,name,description,requirement,mode,"
+                "active_version,created_at,updated_at) VALUES('a','工作流','','',"
+                "'workflow',1,datetime('now'),datetime('now'))")
+            conn.execute(
+                "INSERT INTO application_versions(application_id,version,snapshot_json,"
+                "content_hash,validation_report_json,created_at) "
+                "VALUES('a',1,'{}','h','{}',datetime('now','-30 days'))")
+            conn.executemany(
+                "INSERT INTO workflow_runs(id,application_id,version,draft_revision,status,"
+                "state_json,outputs_json,error,created_at,updated_at) "
+                "VALUES(?,'a',1,NULL,'failed','{}','{}',?,datetime('now',?),datetime('now',?))",
+                [(f"r{i}", f"第 {i} 种毛病", f"-{i} seconds", f"-{i} seconds")
+                 for i in range(kinds)])
+        return await build_overview(SimpleNamespace(
+            workflow_store=SimpleNamespace(storage=storage)))
+
+    async def test_the_list_is_cut_but_the_total_is_not(self):
+        data = await self._overview(20)
+        self.assertEqual(len(data["recent_failures"]), 8)      # 屏幕放得下的
+        self.assertEqual(data["recent_failures_total"], 20)    # 真的有几种
+
+    async def test_the_total_matches_when_nothing_was_cut(self):
+        data = await self._overview(3)
+        self.assertEqual(len(data["recent_failures"]), 3)
+        self.assertEqual(data["recent_failures_total"], 3)
