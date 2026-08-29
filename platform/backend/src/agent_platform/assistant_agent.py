@@ -516,6 +516,27 @@ class WorkflowConcierge:
             from collections import Counter
 
             payload["按情况计数"] = dict(Counter(r["情况"] for r in payload["runs"]))
+
+            # 「最近一次失败是什么原因」是常问的一句，而默认只给 5 条——
+            # 真机实测：那 5 条恰好都成功，它就答"没有失败记录"，
+            # 而更早那天确实失败过。这个记录平台一句 SQL 就查得到，
+            # 不该靠它翻页碰运气。
+            def _last_failure() -> dict | None:
+                with services.workflow_store.storage._connect() as conn:
+                    row = conn.execute(
+                        "SELECT id, created_at, "
+                        "COALESCE(error, json_extract(state_json,'$.error'), '') AS error "
+                        "FROM workflow_runs WHERE application_id=? AND status='failed' "
+                        "AND version IS NOT NULL ORDER BY created_at DESC LIMIT 1",
+                        (app["id"],)).fetchone()
+                return dict(row) if row else None
+
+            last_bad = await asyncio.to_thread(_last_failure)
+            payload["最近一次没跑成"] = (
+                {"时间": str(last_bad["created_at"])[:19],
+                 "原因": _human_error(last_bad["error"] or ""),
+                 "run_id": last_bad["id"]}
+                if last_bad else "从来没失败过")
             if day:
                 payload["这一天的全部"] = (
                     f"{day}（UTC）这一天该工作流一共跑了 {len(runs)} 次，"
@@ -777,13 +798,17 @@ class WorkflowConcierge:
                 # 体检本来就不该报它）。工具用错了，而结果里没有任何东西
                 # 提醒它用错了。这句话贴在数据旁边，比写在系统提示词里可靠。
                 "这份数据不回答什么": (
-                    f"它只看「现在健不健康」——判据是最近 {days} 天的连败和"
-                    "定时有没有停摆。它**不回答**「某一天有没有失败过」："
-                    "一个工作流可以昨天失败 5 次、成功 26 次，"
-                    "在这里仍然显示正常。要查某天的失败，用 platform_overview 的"
-                    "最近失败清单，或 recent_runs 看那个工作流的逐次记录（带 day）。"
-                    "也**不回答**「哪个工作流失败最多」——那要看 list_workflows，"
-                    "它给出每个工作流至今跑了几次、其中成败各多少。"),
+                    f"它只回答一件事：**现在整体健不健康**"
+                    f"（判据是最近 {days} 天的连败、和定时有没有停摆）。"
+                    "凡是问「某一天」「某一次」「某个工作流具体怎么了」"
+                    "「哪个最多」这类**具体**问题，都不要拿这份数据答，"
+                    "改用 recent_runs（可带 day，每条都有「没成的原因」）、"
+                    "platform_overview 的最近失败清单、"
+                    "或 list_workflows（每个工作流至今跑了几次、成败各多少）。"
+                    "举例：一个工作流昨天失败 5 次、成功 26 次，"
+                    "在这里仍然显示正常——因为它确实没坏，"
+                    "但「昨天失败几次」的答案不在这里。"
+                    "**发现问的是具体问题，就再查一次，别就着这份数据答。**"),
                 "note": "problems 为空只表示已发布工作流本身没问题；"
                         "定时能不能按时开火要看「定时调度」那一项",
             }

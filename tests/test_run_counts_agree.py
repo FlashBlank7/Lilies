@@ -181,3 +181,55 @@ async def test_a_day_with_no_runs_says_zero(services):  # noqa: F811
     result = await agent._exec("recent_runs", {"name_or_id": "x", "day": "2020-01-01"}, {})
     assert result["runs"] == []
     assert "0 次" in result["这一天的全部"]
+
+
+@pytest.mark.asyncio
+async def test_the_last_failure_is_always_included(services):  # noqa: F811
+    """「最近一次失败是什么原因」不该靠翻页碰运气。
+
+    真机实测（2026-08-29）：默认只给 5 条，那 5 条恰好都成功，
+    它就答"没有失败记录"——而更早那天确实失败过。
+    这个记录一句 SQL 就查得到，平台算得出来的就直接给。
+    """
+    from datetime import datetime, timezone
+
+    storage = services.workflow_store.storage
+    with storage._connect() as conn:
+        conn.execute(
+            "INSERT INTO applications(id,name,description,requirement,mode,"
+            "active_version,created_at,updated_at) "
+            "VALUES('app-1','被测工作流','','','workflow',1,"
+            "datetime('now'),datetime('now'))")
+        # 先失败一次，再成功 5 次——默认窗口里看不到那次失败
+        conn.execute(
+            "INSERT INTO workflow_runs(id,application_id,version,draft_revision,status,"
+            "state_json,outputs_json,error,created_at,updated_at) "
+            "VALUES('bad','app-1',1,NULL,'failed',?,'{}',"
+            "'node start failed: missing required input: text',"
+            "datetime('now','-99 seconds'),datetime('now','-99 seconds'))",
+            (_state("bad", "app-1"),))
+        for index in range(5):
+            conn.execute(
+                "INSERT INTO workflow_runs(id,application_id,version,draft_revision,status,"
+                "state_json,outputs_json,error,created_at,updated_at) "
+                "VALUES(?,'app-1',1,NULL,'succeeded',?,'{}',NULL,"
+                "datetime('now',?),datetime('now',?))",
+                (f"ok{index}", _state(f"ok{index}", "app-1"),
+                 f"-{index} seconds", f"-{index} seconds"))
+
+    agent = _concierge(services)
+    result = await agent._exec("recent_runs", {"name_or_id": "x", "limit": 5}, {})
+    assert all(r["情况"] == "跑成了" for r in result["runs"]), "窗口里本来就该只有成功"
+    last_bad = result["最近一次没跑成"]
+    assert isinstance(last_bad, dict), "窗口外的那次失败没给出来"
+    assert "text" in last_bad["原因"], last_bad
+    assert last_bad["run_id"] == "bad"
+
+
+@pytest.mark.asyncio
+async def test_a_workflow_that_never_failed_says_so(services):  # noqa: F811
+    """从没失败过要明说，别给个 None 让它猜。"""
+    _seed(services, published=3, drafts=0)
+    agent = _concierge(services)
+    result = await agent._exec("recent_runs", {"name_or_id": "x"}, {})
+    assert result["最近一次没跑成"] == "从来没失败过"
