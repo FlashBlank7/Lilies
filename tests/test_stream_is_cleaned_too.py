@@ -122,3 +122,68 @@ class CleanStreamTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ApologisingForSomethingNobodySaidTest(unittest.TestCase):
+    """业主没说过话，别向他道歉。
+
+    「空手报数字就打回重查」带出来的：回炉提示是平台自动加的，
+    模型把它当成业主在挑错，于是回一句
+
+        您说得对，我上一轮没查工具就直接报了数，抱歉。我现在重新查一遍。…
+
+    而业主根本没说过话——他看到的是一段没头没尾的道歉。
+    （真机 REPL 上原样出现过。）
+
+    提示那一侧已经写清"这不是用户说的话、别道歉"，但那是请求不是保证；
+    出口这里再兜一道。
+    """
+
+    def test_the_apology_preamble_is_dropped(self):
+        got = _without_thinking_aloud(
+            "您说得对，我上一轮没查工具就直接报了数，抱歉。"
+            "我现在重新查一遍。三个里最不稳的是甲。")
+        self.assertEqual(got, "三个里最不稳的是甲。")
+
+    def test_the_short_form_is_dropped_too(self):
+        for said in ("我上一轮没查就报了数。今天跑了 1 次。",
+                     "抱歉，上一轮没查。今天跑了 1 次。",
+                     "我现在重新查一遍。今天跑了 1 次。"):
+            self.assertEqual(_without_thinking_aloud(said), "今天跑了 1 次。", said)
+
+    def test_agreeing_with_the_owner_about_something_real_survives(self):
+        """「您说得对」本身不是错——业主真说了什么、它同意，那是正常对话。
+
+        见了「您说得对」就删的话，一整类正常回答会被砍头。
+        """
+        said = "您说得对，这个工作流确实需要修一下。"
+        self.assertEqual(_without_thinking_aloud(said), said)
+
+    def test_a_plain_answer_is_untouched(self):
+        said = "今天跑了 1 次，全部成功。"
+        self.assertEqual(_without_thinking_aloud(said), said)
+
+
+class FutureTenseNarrationTest(unittest.TestCase):
+    """「我查一下…」是预告动作，「我查到…」是在报结果——只删前者。
+
+    真机 REPL 上「我查一下最新数据再答你。」原样出现过。
+    这一族此前只覆盖了「我来查/我去查/我这就查」，
+    最平常的那个说法反而漏着——挑着列就是给自己留缝，今天第 N 次。
+    """
+
+    def test_future_tense_narration_is_dropped(self):
+        for said in ("我查一下最新数据再答你。三个里最不稳的是甲。",
+                     "我看一遍记录。今天 1 次。",
+                     "我查查。今天 1 次。"):
+            got = _without_thinking_aloud(said)
+            self.assertNotIn("我查", got, said)
+            self.assertNotIn("我看", got, said)
+
+    def test_reporting_what_was_found_survives(self):
+        """报结果的那些一个字都不能动——删了就把答案本身删了。"""
+        for said in ("我查到了 3 个已发布工作流。",
+                     "我查了最近 7 天，一共 83 次。",
+                     "这个数我算过，是 81.4%。"):
+            self.assertEqual(_without_thinking_aloud(said), said, said)
+
