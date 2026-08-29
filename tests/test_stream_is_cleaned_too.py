@@ -29,6 +29,24 @@ class ThinkingAloudTest(unittest.TestCase):
             _without_thinking_aloud("有三个已发布工作流，我逐个查它们昨天的记录。跑了 3 次。"),
             "有三个已发布工作流，跑了 3 次。")
 
+    def test_the_whole_let_me_family_is_covered(self):
+        """只列「让我看看」的话，「让我查一下」照样出去。
+
+        2026-08-29 在 REPL 上撞到的：招牌路径第一句就是
+        「让我查一下平台今天的整体情况。」——模式里只有「让我看看」。
+        一族说法要整族覆盖，挑着列就是给自己留缝。
+        """
+        for narration in ("让我查一下平台情况。", "让我看看。", "让我读一下配置。",
+                          "让我试一下。", "让我捋一下。"):
+            self.assertEqual(
+                _without_thinking_aloud(narration + "今天跑了 3 次。"),
+                "今天跑了 3 次。", narration)
+
+    def test_let_me_is_not_over_matched(self):
+        """「这个结果让我意外」不是自言自语——别见「让我」就删。"""
+        text = "这个结果让我意外，但数字是对的。"
+        self.assertEqual(_without_thinking_aloud(text), text)
+
     def test_a_filler_is_removed_but_its_sentence_is_kept(self):
         """「实际上，」后面是真信息，整句删掉就把内容弄丢了。"""
         self.assertEqual(
