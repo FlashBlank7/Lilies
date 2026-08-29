@@ -149,3 +149,74 @@ def test_string_ops_errors_are_teachable() -> None:
             assert fragment in str(error), (expression, str(error))
         else:
             raise AssertionError(f"{expression} 应当报错")
+
+
+# ── 运算符逐个钉死 ──
+#
+# 变异验证（2026-08-29）在这套 33 条用例底下发现四个空档：
+#   · `<`  改成 `<=`      全绿
+#   · `>`  改成 `>=`      全绿
+#   · `==` 和 `!=` 不分   全绿
+#   · 取模的除数为零不判   全绿
+# 这个模块的存在理由是"业务算术要确定、可复算"（不交给模型算），
+# 而它的比较运算符边界、!= 的取反，一条都没被钉住。
+# 边界差一位，在补货、阈值告警这类公式里就是一次错误的进货或一次漏报。
+
+
+@pytest.mark.parametrize("expression,expected", [
+    # 小于：真、边界、假
+    ("1 < 2", True), ("2 < 2", False), ("3 < 2", False),
+    # 小于等于：边界必须为真——这一位是 `<` 和 `<=` 的唯一区别
+    ("1 <= 2", True), ("2 <= 2", True), ("3 <= 2", False),
+    # 大于
+    ("2 > 1", True), ("2 > 2", False), ("1 > 2", False),
+    # 大于等于：边界必须为真
+    ("2 >= 1", True), ("2 >= 2", True), ("1 >= 2", False),
+])
+def test_every_comparison_pins_its_boundary(expression, expected) -> None:
+    assert evaluate_formula(expression, {}) is expected
+
+
+@pytest.mark.parametrize("expression,expected", [
+    ("1 == 1", True), ("1 == 2", False),
+    ("1 != 2", True), ("1 != 1", False),
+    # 不等于必须真的取反，不能跟等于同一个结果
+    ("'a' == 'a'", True), ("'a' != 'a'", False),
+    ("'a' != 'b'", True),
+])
+def test_equality_and_inequality_are_opposites(expression, expected) -> None:
+    assert evaluate_formula(expression, {}) is expected
+
+
+def test_not_equal_is_not_a_copy_of_equal() -> None:
+    """性质断言：任意一对值，== 和 != 必须永远相反。
+
+    上面那些是点，这条是面——把实现改成 `return equal`（不取反）
+    时，点可能恰好都对，面一定错。
+    """
+    for left, right in ((1, 1), (1, 2), (0, 0), (-3, 3), (2.5, 2.5)):
+        vars_ = {"a": left, "b": right}
+        assert (evaluate_formula("a == b", vars_)
+                is not evaluate_formula("a != b", vars_)), (left, right)
+
+
+def test_modulo_by_zero_says_so_instead_of_crashing() -> None:
+    """除法那一支早就判了零，取模这一支同样判了——但没人测过。
+
+    不判的话抛的是 ZeroDivisionError，而不是这里能读懂的 FormulaError；
+    在运行时它会变成一句英文栈信息，而不是「取模的除数为零」。
+    """
+    with pytest.raises(FormulaError) as caught:
+        evaluate_formula("7 % 0", {})
+    assert "取模" in str(caught.value) and "零" in str(caught.value)
+
+
+def test_division_by_zero_still_says_so() -> None:
+    with pytest.raises(FormulaError) as caught:
+        evaluate_formula("7 / 0", {})
+    assert "除数为零" in str(caught.value)
+
+
+def test_modulo_still_computes_when_the_divisor_is_fine() -> None:
+    """别为了判零把功能判没了。"""
+    assert evaluate_formula("7 % 3", {}) == 1
