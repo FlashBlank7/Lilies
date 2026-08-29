@@ -10,7 +10,40 @@ import httpx
 
 
 BASE_URL = os.getenv("AGENT_PLATFORM_URL", "http://127.0.0.1:8000")
-API_TOKEN = os.environ["API_TOKEN"]
+def _api_token() -> str:
+    """读 API_TOKEN，没有就说人话。
+
+    原先是模块层 os.environ["API_TOKEN"]——导入时就炸，
+    连 `--help` 都看不了，报错还是裸的 KeyError: 'API_TOKEN'。
+    脚本是给人用的，第一次用的人不该靠猜。
+    """
+    token = os.environ.get("API_TOKEN", "").strip()
+    if not token:
+        raise SystemExit(
+            "要先给 API_TOKEN：\n"
+            "  API_TOKEN=<平台的令牌> python " + __file__.split("/")[-1] + " …\n"
+            "令牌就是平台启动时用的那个（默认在 .env 或启动命令里）。")
+    return token
+
+
+def _confirm_or_exit(what: str) -> None:
+    """这类脚本会**真的建应用、开构建、花模型的钱**，别让它被随手触发。
+
+    2026-08-29：我拿 `--help` 探这批脚本的可用性，结果它们不解析参数，
+    传什么都直接开跑（那次因为连不上目标地址才没造成后果）。
+    脚本名里带 live 不构成提醒——提醒要在它动手之前打出来。
+    """
+    import sys
+
+    if os.getenv("LIVE_ACCEPTANCE_YES") == "1" or "--yes" in sys.argv:
+        return
+    print(f"这个脚本会真的动线上平台：{what}")
+    print(f"  目标：{BASE_URL}")
+    print("  它会建新应用、开构建、调用付费模型，并留下运行记录。")
+    print("确认要跑就加 --yes（或 LIVE_ACCEPTANCE_YES=1）。")
+    raise SystemExit(2)
+
+
 
 
 def call(client: httpx.Client, method: str, path: str, **kwargs):
@@ -32,6 +65,8 @@ def wait_for(client: httpx.Client, path: str, terminal: set[str], timeout: float
 
 
 def main() -> None:
+    _confirm_or_exit("跑一次增量搭建 + 发布执行的付费验收")
+    API_TOKEN = _api_token()
     headers = {"Authorization": f"Bearer {API_TOKEN}"}
     requirement = """
 搭建并交付一个可编辑的技术支持分流智能体工作流：
