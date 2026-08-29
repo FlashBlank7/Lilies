@@ -68,6 +68,10 @@ def build_cases(db: sqlite3.Connection) -> list[tuple[str, object]]:
     """题目和真值一起生成——真值从库里算，不写死。
 
     写死真值的话，数据一变这套题就开始说谎，而它存在的理由正是"别说谎"。
+
+    真值只放**人话里能对上的东西**（数字、工作流名）。
+    出题时拿状态码当过真值（"最近一次搭建是成功还是失败"→ published），
+    它答"成功的，已经发布"——答对了却判成错。是题目错了，不是它错了。
     """
     one = lambda sql: db.execute(sql).fetchone()[0]
     return [
@@ -86,6 +90,20 @@ def build_cases(db: sqlite3.Connection) -> list[tuple[str, object]]:
              "JOIN applications a ON a.id=r.application_id "
              "WHERE a.archived_at IS NULL AND a.active_version IS NOT NULL "
              "AND r.version IS NOT NULL GROUP BY a.name "
+             "ORDER BY COUNT(*) DESC LIMIT 1")),
+        ("有几个工作流设了定时？",
+         one("SELECT COUNT(*) FROM applications a "
+             "JOIN application_versions v ON v.application_id=a.id "
+             "AND v.version=a.active_version "
+             "WHERE a.archived_at IS NULL "
+             "AND v.snapshot_json LIKE '%schedule_trigger%'")),
+        ("一共有多少个生成任务（构建）？",
+         one("SELECT COUNT(*) FROM builds")),
+        ("哪个工作流失败次数最多？只要名字",
+         one("SELECT a.name FROM workflow_runs r "
+             "JOIN applications a ON a.id=r.application_id "
+             "WHERE r.status='failed' AND r.version IS NOT NULL "
+             "AND a.archived_at IS NULL GROUP BY a.name "
              "ORDER BY COUNT(*) DESC LIMIT 1")),
         ("昨天一共有几次失败的运行？",
          one("SELECT COUNT(*) FROM workflow_runs r "

@@ -815,7 +815,26 @@ class WorkflowConcierge:
                 if question:
                     row["搭建方在问"] = question
                 rows.append(row)
-            return {"builds": rows}
+
+            # 总数和按情况的计数直接给。真机实测：问"一共有多少个生成任务"，
+            # 它数了自己看到的那几条，答 25——实际 75。
+            # 和 recent_runs 那次一样：给的是一页，它当成了全部。
+            def _build_counts() -> tuple[int, dict[str, int]]:
+                from collections import Counter
+
+                with services.workflow_store.storage._connect() as conn:
+                    got = conn.execute(
+                        "SELECT status, COUNT(*) AS n FROM builds GROUP BY status"
+                    ).fetchall()
+                tally = Counter()
+                for item in got:
+                    situation, _ = _build_situation(item["status"], None, "")
+                    tally[situation] += int(item["n"])
+                return sum(tally.values()), dict(tally)
+
+            total, by_situation = await asyncio.to_thread(_build_counts)
+            return {"builds": rows, "一共几个": total, "按情况计数": by_situation,
+                    "上面这几条": f"只是最近 {len(rows)} 个，不是全部"}
         if name == "resume_build":
             build_id = str(args.get("build_id") or "")
             build, failure = await self._get_build_or_error(build_id)
