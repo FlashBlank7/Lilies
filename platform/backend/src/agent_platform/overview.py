@@ -353,13 +353,16 @@ def _dedupe_failures(failures: list) -> list[dict[str, Any]]:
     return list(merged.values())
 
 
-def _human_error(error: str) -> str:
+def _human_error(error: str, limit: int | None = 110) -> str:
     """把一行运行报错换成业主看得懂的说法；认不出来的原样返回。
 
     认不出就原样返回是有意的：运行报错里常常带着节点自己抛的中文说明，
     硬套模板反而会把真正有用的话盖掉。
+
+    limit 传给 _brief_error：面板一行放不下，收口在 110；
+    告警发到手机上、没有别处能看全文，那条路传 None 再另行收口。
     """
-    text = _brief_error(error)
+    text = _brief_error(error, limit)
     if not text:
         return ""
     # 判据在**未截断**的原文上跑：_brief_error 砍到 110 字，
@@ -380,9 +383,17 @@ def _human_error(error: str) -> str:
     return text
 
 
-def _brief_error(error: str) -> str:
+def _brief_error(error: str, limit: int | None = 110) -> str:
     """错误文本 → 一行摘要：剥掉 "node X failed: " 前缀、砍到首个换行、限长。
-    体检要让人不点进去就知道大概是什么毛病。"""
+    体检要让人不点进去就知道大概是什么毛病。
+
+    **截了要说**：原来是干净的 `text[:110]`，一个记号都不留。
+    这条报错线上最有用的一句常常在末尾（「要么让节点 X 真正产出…要么把
+    引用改成…」），砍在 110 字的人只看到半句话，还以为那就是全部。
+    加个省略号不解决"看不到全文"，但至少让人知道**有全文**。
+
+    limit=None 表示不截——告警那条路要留住尾巴，见 _clip_for_alert。
+    """
     text = " ".join(str(error or "").split())
     if not text:
         return ""
@@ -390,7 +401,9 @@ def _brief_error(error: str) -> str:
     index = text.find(marker)
     if 0 <= index < 60:
         text = text[index + len(marker):]
-    return text[:110]
+    if limit is None or len(text) <= limit:
+        return text
+    return text[:limit] + "…"
 
 
 async def build_health(services: Any, days: int = 7) -> dict[str, Any]:

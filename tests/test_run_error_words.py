@@ -8,7 +8,7 @@
 import re
 import unittest
 
-from agent_platform.overview import _human_error
+from agent_platform.overview import _brief_error, _human_error
 
 ENGLISH_RUN = re.compile(r"[a-z]{3,}\s+[a-z]{3,}")
 
@@ -96,3 +96,34 @@ class ReferenceErrorIsNotReversedTest(unittest.TestCase):
                            "resolve node='n' path=['p']")
         self.assertIn("取不到", out)
         self.assertIn("n", out)
+
+
+class TruncationIsVisible(unittest.TestCase):
+    """截了要说：原来是干净的 text[:110]，一个记号都不留。
+
+    这条线上最有用的一句常常在末尾（「要么让节点 X 真正产出…要么把引用
+    改成…」）。砍在 110 字的人只看到半句话，还以为那就是全部。
+    省略号不解决"看不到全文"，但至少让人知道**有全文**。
+    """
+
+    LONG = "取不到「aggregator」的产出" + "补" * 300
+
+    def test_a_long_error_ends_with_an_ellipsis(self):
+        self.assertTrue(_brief_error(self.LONG).endswith("…"), _brief_error(self.LONG)[-20:])
+
+    def test_a_short_error_gets_no_ellipsis(self):
+        """反向：不能给每条报错都缀个省略号。"""
+        self.assertEqual(_brief_error("就这么短"), "就这么短")
+
+    def test_the_visible_part_is_still_the_agreed_width(self):
+        """省略号是加在 110 之外的，不许挤掉正文。"""
+        self.assertEqual(len(_brief_error(self.LONG)), 111)
+
+    def test_no_limit_keeps_everything(self):
+        """告警那条路要留住尾巴，所以要有一个"不截"的说法。"""
+        self.assertEqual(_brief_error(self.LONG, None), self.LONG)
+        self.assertNotIn("…", _brief_error(self.LONG, None))
+
+    def test_the_prefix_is_still_stripped_when_not_truncating(self):
+        """不截不等于不处理：node X failed: 那个前缀照样要剥掉。"""
+        self.assertEqual(_brief_error("node aggregator failed: 出事了", None), "出事了")

@@ -106,7 +106,9 @@ def test_brief_error_shapes() -> None:
 
     assert _brief_error("") == ""
     assert _brief_error("multi\nline\nerror") == "multi line error"
-    assert len(_brief_error("x" * 300)) == 110
+    # 截了要说（2026-08-30）：正文仍是 110，省略号加在它之外——
+    # 原来干净地截在 110，看的人分不出这是全文还是半截话。
+    assert _brief_error("x" * 300) == "x" * 110 + "…"
     # 前缀只在靠前出现时才剥，避免吃掉正文里的 " failed: "
     assert _brief_error("a" * 80 + " failed: tail").startswith("aaa")
 

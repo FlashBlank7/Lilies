@@ -141,6 +141,20 @@ class NestedWorkflowDepthExceeded(ValueError):
     """A nested workflow call exceeded the persisted application depth."""
 
 
+def _clip_for_alert(text: Any, limit: int) -> str:
+    """截断要说出来——不然收件人看到的是半截话，还以为那就是全部。
+
+    告警发到钉钉/飞书/手机上，收件人**不在终端前**，没有别的地方能看到全文。
+    真机量过：227 条失败里 4 条超过 500 字，最长 656 字，被砍掉的尾巴
+    恰好是「要么让节点 X 真正产出…要么把引用改成…」——整条报错里最能
+    照着做的一句。截在那儿，等于把最有用的部分单独扔了。
+    """
+    body = str(text or "")
+    if len(body) <= limit:
+        return body
+    return f"{body[:limit]}…（还有 {len(body) - limit} 字，完整原文在运行详情里）"
+
+
 def _missing_required_inputs(snapshot: Any, inputs: dict[str, Any]) -> list[str]:
     """按发布版快照里 start 节点的声明，列出没给的必填输入。
 
@@ -1440,8 +1454,14 @@ class WorkflowRuntime:
                 # 告警里出现用户在界面上找不到的名字比没有名字更误事。
                 "workflow": str(getattr(getattr(state, "snapshot", None), "name", "") or ""),
                 "run_id": str(getattr(state, "run_id", "") or ""),
-                "error": (_human_error(error) or error)[:500],
+                # 截了要说。真机量过：227 条失败里 4 条超过 500 字，被砍掉的
+                # 尾巴恰好是「该修哪一端」那句——整条报错里最能照着做的一句。
+                # 收件人在手机上，看到的是一句半截话，还不知道后面有东西。
+                "error": _clip_for_alert(_human_error(error, limit=None) or error, 500),
+                # error_raw 是给机器消费方的，不能往里塞中文说明；
+                # 截没截单开一个字段说，两边都能知道。
                 "error_raw": error[:500],
+                "error_truncated": len(str(error or "")) > 500,
                 "at": datetime.now(timezone.utc).isoformat(),
                 "application_id": "",
             }
