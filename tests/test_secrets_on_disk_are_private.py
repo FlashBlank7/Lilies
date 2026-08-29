@@ -113,6 +113,60 @@ class EnvWarningTest(unittest.TestCase):
     def test_a_private_env_is_not_reported(self):
         self.assertEqual(self._check(0o600), [])
 
+    def test_the_frontend_env_is_checked_too(self):
+        """密钥文件不止根目录那一个。
+
+        2026-08-29 扫下来：platform/frontend/.env.local 也是 0644，
+        里面同样写着 API_TOKEN。第一版只看 CWD 下的两个名字——
+        只查一处的检查，会让人以为"已经查过了"。
+        """
+        from agent_platform.cli import warn_if_secrets_are_readable
+
+        with TemporaryDirectory() as tmp:
+            here = Path.cwd()
+            try:
+                os.chdir(tmp)
+                target = Path("platform/frontend/.env.local")
+                target.parent.mkdir(parents=True)
+                target.write_text("API_TOKEN=x\n", encoding="utf-8")
+                target.chmod(0o644)
+                self.assertEqual(warn_if_secrets_are_readable(), [str(target)])
+                target.chmod(0o600)
+                self.assertEqual(warn_if_secrets_are_readable(), [])
+            finally:
+                os.chdir(here)
+
+    def test_an_example_template_is_not_flagged(self):
+        """.env.example 本来就该进版本库、本来就该人人可读——报它是噪音，
+        而噪音会让人开始无视这类提醒。
+        """
+        from agent_platform.cli import warn_if_secrets_are_readable
+
+        with TemporaryDirectory() as tmp:
+            here = Path.cwd()
+            try:
+                os.chdir(tmp)
+                Path(".env.example").write_text("API_TOKEN=change-me\n", encoding="utf-8")
+                Path(".env.example").chmod(0o644)
+                self.assertEqual(warn_if_secrets_are_readable(), [])
+            finally:
+                os.chdir(here)
+
+    def test_it_does_not_walk_into_node_modules(self):
+        """范围写死不递归：递归会走进 node_modules，启动时白等几秒。"""
+        from agent_platform.cli import _env_files
+
+        with TemporaryDirectory() as tmp:
+            here = Path.cwd()
+            try:
+                os.chdir(tmp)
+                deep = Path("node_modules/whatever/.env")
+                deep.parent.mkdir(parents=True)
+                deep.write_text("X=1\n", encoding="utf-8")
+                self.assertNotIn(deep, _env_files())
+            finally:
+                os.chdir(here)
+
     def test_a_missing_env_is_not_reported(self):
         from agent_platform.cli import warn_if_secrets_are_readable
 

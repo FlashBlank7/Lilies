@@ -88,22 +88,48 @@ def warn_if_secrets_are_readable() -> list[str]:
     库文件不一样，那是程序自己建的，所以在 Storage.initialize 里直接收。
 
     同组可读也算松——这台机器上好几个人在同一个组里。
+
+    **不止根目录那两个**：第一版只看 CWD 下的 .env / .env.local，
+    而 2026-08-29 扫下来，platform/frontend/.env.local 也是 0644，
+    里面同样写着 API_TOKEN。密钥文件不止一个地方，检查也得不止一个地方——
+    只查一处的检查，会让人以为"已经查过了"。
+
+    .env.example 是模板，本来就该进版本库、本来就该人人可读，不算。
     """
     loose: list[str] = []
-    for name in (".env", ".env.local"):
-        path = Path(name)
+    for path in _env_files():
         try:
-            if not path.exists():
-                continue
             mode = stat.S_IMODE(path.stat().st_mode)
         except OSError:
             continue
         if mode & 0o077:
+            name = str(path)
             loose.append(name)
             logging.getLogger("agent_platform").warning(
                 "%s 的权限是 %s，同机其他用户能读到里面的密钥。"
                 "建议：chmod 600 %s", name, oct(mode), name)
     return loose
+
+
+def _env_files() -> list[Path]:
+    """要检查的密钥文件。范围写死，不递归——
+
+    递归会走进 node_modules（几万个目录），启动时多花几秒；
+    而密钥文件真正会出现的地方就那么几处。
+    """
+    candidates = [
+        Path(".env"), Path(".env.local"),
+        Path("platform/frontend/.env.local"),
+        Path("platform/backend/.env"),
+    ]
+    seen: list[Path] = []
+    for path in candidates:
+        try:
+            if path.is_file() and not path.name.endswith(".example"):
+                seen.append(path)
+        except OSError:
+            continue
+    return seen
 
 
 def main() -> None:
