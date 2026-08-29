@@ -99,6 +99,36 @@ class BuildStatusQuestionTest(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(LEAK.search(payload.lower()), payload)
         self.assertIn("卡住", payload)
 
+    async def test_recent_builds_carries_a_time(self):
+        """真机上问「最近一次搭建什么时候完成的」，它如实答"工具返回里没带
+        具体日期"——答得对，但这个数库里就有（builds.updated_at），
+        没理由让业主查不到。"""
+        state = MagicMock()
+        state.pending_question = None
+        services = MagicMock()
+        services.workflow_store.list_recent_builds = AsyncMock(return_value=[
+            {"id": "b1", "status": "published", "requirement": "做个日报",
+             "error": "", "team_state": state,
+             "updated_at": "2026-08-28T09:36:12.345678+00:00"}])
+        agent = WorkflowConcierge(services, MagicMock())
+        row = (await agent._exec("recent_builds", {}, {}))["最近几个（不是全部）"][0]
+        when = row["最后动静是什么时候"]
+        assert when.startswith("2026-08-28"), when
+        assert "T" not in when, f"给人看的时间别留 T：{when}"
+        assert len(when) <= 16, f"精确到分就够，别甩一串微秒：{when}"
+
+    async def test_a_build_without_a_time_does_not_crash(self):
+        """老记录可能没有这个字段——缺了就给空串，别炸也别编。"""
+        state = MagicMock()
+        state.pending_question = None
+        services = MagicMock()
+        services.workflow_store.list_recent_builds = AsyncMock(return_value=[
+            {"id": "b1", "status": "published", "requirement": "x",
+             "error": "", "team_state": state}])
+        agent = WorkflowConcierge(services, MagicMock())
+        row = (await agent._exec("recent_builds", {}, {}))["最近几个（不是全部）"][0]
+        assert row["最后动静是什么时候"] == ""
+
     async def test_every_state_tells_the_user_what_to_do(self):
         for status in ("building", "published", "needs_attention", "failed",
                        "cancelled", "weird_new_status"):

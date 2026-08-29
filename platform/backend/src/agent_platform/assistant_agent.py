@@ -1199,8 +1199,12 @@ class WorkflowConcierge:
                 question = (b["team_state"].pending_question or "")[:120]
                 situation, _ = _build_situation(
                     b["status"], question or None, b.get("error") or "")
+                # 时间也给：真机上问「最近一次搭建什么时候完成的」，
+                # 它如实答"工具返回里没带具体日期"——答得对，但这个数库里就有
+                # （builds.updated_at），没理由让业主查不到。
                 row = {"build_id": b["id"], "情况": situation,
-                       "要做的事": (b.get("requirement") or "")[:60]}
+                       "要做的事": (b.get("requirement") or "")[:60],
+                       "最后动静是什么时候": str(b.get("updated_at") or "")[:16].replace("T", " ")}
                 if question:
                     row["搭建方在问"] = question
                 rows.append(row)
