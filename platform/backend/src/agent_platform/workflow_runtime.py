@@ -341,6 +341,25 @@ class WorkflowRuntime:
         else:
             published = await self.workflow_store.get_version(application_id, request.version)
             snapshot, version, draft_revision = published["snapshot"], int(published["version"]), None
+            # 收起来的工作流不该还能被触发。
+            #
+            # 这道闸 8-29 上午先装在 /use/{id}/runs（客户那条路）上，
+            # 可运营侧的 POST /applications/{id}/runs 是另一条路——
+            # guanjia run 走的正是它。同一个后果：运行照跑、照花钱，
+            # 而 today / 体检 / 失败告警全都带 archived_at IS NULL 过滤，
+            # 对这些运行完全是盲的。
+            #
+            # 所以挪到 create_run 这个共用路径上：一处覆盖所有入口
+            # （客户页、运营接口、guanjia、手动触发定时、将来新加的）。
+            # 只拦发布版；草稿自测照旧——搭建中途被归档不该让搭建方莫名失败。
+            try:
+                application = await self.workflow_store.get_application(application_id)
+            except KeyError:
+                application = {}
+            if application.get("archived_at"):
+                raise ValueError(f"「{application.get('name') or application_id}」"
+                                 "已经收起来了，先把它拿回列表再跑")
+
             # 必填输入在入口就查，不要等跑起来在 start 节点炸。
             #
             # 真机数据：发布版运行的 25 次失败里 18 次是输入问题

@@ -67,3 +67,62 @@ class ArchivedCannotRunTest(unittest.TestCase):
                 side_effect=KeyError("no such app"))
             response = client.post("/api/v1/use/nope/runs?code=x", json={"inputs": {}})
         self.assertEqual(response.status_code, 404)
+
+
+class EveryRunPathIsGuardedTest(unittest.IsolatedAsyncioTestCase):
+    """闸挪到了 create_run——所有入口共用一条路。
+
+    回归背景（2026-08-29 下午）：上午这道闸只装在 /use/{id}/runs 上。
+    可运营侧的 POST /applications/{id}/runs 是另一条路，guanjia run 走的正是它。
+    同一个后果：运行照跑、照花钱，而 today / 体检 / 失败告警全都过滤归档，
+    对这些运行完全是盲的。
+
+    31 个针对单个工作流的写入端点里，当时只有 1 个查了 archived_at。
+    """
+
+    def _runtime(self, archived: str | None, *, draft: bool = False):
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock
+
+        from agent_platform.workflow_runtime import WorkflowRuntime
+
+        snapshot = {"name": "退休了的", "workflow": {"nodes": [
+            {"id": "s", "type": "start", "config": {"inputs": []}}]}}
+        runtime = WorkflowRuntime.__new__(WorkflowRuntime)
+        runtime.workflow_store = SimpleNamespace(
+            get_application=AsyncMock(return_value={"id": "a1", "name": "退休了的",
+                                                    "archived_at": archived}),
+            get_version=AsyncMock(return_value={"snapshot": snapshot, "version": 1}),
+            get_draft=AsyncMock(return_value={"snapshot": snapshot, "revision": 1}))
+        return runtime
+
+    async def _run(self, archived, *, draft=False):
+        from agent_platform.workflow_models import WorkflowRunRequest
+
+        runtime = self._runtime(archived, draft=draft)
+        return await runtime.create_run(
+            "a1", WorkflowRunRequest(inputs={}, use_draft=draft))
+
+    async def test_a_published_run_on_an_archived_workflow_is_refused(self):
+        with self.assertRaises(ValueError) as caught:
+            await self._run("2026-08-28T00:00:00+00:00")
+        self.assertIn("收起来", str(caught.exception))
+        self.assertIn("拿回", str(caught.exception), "只说不行，没说怎么恢复")
+
+    async def test_a_live_workflow_is_not_refused_here(self):
+        """挡得太宽就是修出个新 bug。"""
+        try:
+            await self._run(None)
+        except ValueError as error:
+            self.assertNotIn("收起来", str(error))
+        except Exception:
+            pass      # 往下缺别的桩会报错，那不是这条关心的
+
+    async def test_a_draft_self_test_is_not_refused(self):
+        """搭建中途被归档，不该让搭建方的自测莫名其妙地失败。"""
+        try:
+            await self._run("2026-08-28T00:00:00+00:00", draft=True)
+        except ValueError as error:
+            self.assertNotIn("收起来", str(error))
+        except Exception:
+            pass

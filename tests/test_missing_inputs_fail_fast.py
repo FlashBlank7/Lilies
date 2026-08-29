@@ -79,8 +79,11 @@ class ItIsWiredIntoCreateRunTest(unittest.IsolatedAsyncioTestCase):
         from agent_platform.workflow_runtime import WorkflowRuntime
 
         runtime = WorkflowRuntime.__new__(WorkflowRuntime)
+        # create_run 现在还会查一次应用（拦已归档的），桩要跟上
         runtime.workflow_store = SimpleNamespace(
             get_version=AsyncMock(return_value={"snapshot": SNAPSHOT, "version": 1}),
+            get_application=AsyncMock(return_value={"id": "a1", "name": "门店日报",
+                                                    "archived_at": None}),
             get_draft=AsyncMock())
         with self.assertRaises(ValueError) as caught:
             await runtime.create_run("a1", WorkflowRunRequest(inputs={}))
@@ -98,6 +101,7 @@ class ItIsWiredIntoCreateRunTest(unittest.IsolatedAsyncioTestCase):
         runtime = WorkflowRuntime.__new__(WorkflowRuntime)
         runtime.workflow_store = SimpleNamespace(
             get_draft=AsyncMock(return_value={"snapshot": SNAPSHOT, "revision": 1}),
+            get_application=AsyncMock(return_value={"id": "a1", "archived_at": None}),
             get_version=AsyncMock())
         try:
             await runtime.create_run("a1", WorkflowRunRequest(inputs={}, use_draft=True))
