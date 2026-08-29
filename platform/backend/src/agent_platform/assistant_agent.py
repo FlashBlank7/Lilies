@@ -489,7 +489,28 @@ class WorkflowConcierge:
                     bucket[_RUN_WORDS.get(row["status"], row["status"])] = int(row["n"])
                 return out
 
+            def _last_runs() -> dict[str, str]:
+                """每个工作流最后一次跑是什么时候。
+
+                真机问出来的（2026-08-29）：问「哪个工作流最久没跑过了」，
+                它答「词频统计——最后一次跑是在 08-26」。
+                两处都错：那个工作流最后一次是 08-28 19:14，
+                而最久没动的是「文本行数与净字数统计」（08-28 13:51）。
+                原因是**手里没有这个数**——各工作流的次数有、按天的总数有，
+                就是没有"某个工作流最后一次是哪天"，于是它自己凑了一个。
+                一句 MAX 就有的东西，别留给它凑。
+                """
+                with services.workflow_store.storage._connect() as conn:
+                    return {
+                        row["application_id"]: str(row["last_run"])[:16].replace("T", " ")
+                        for row in conn.execute(
+                            "SELECT application_id, MAX(created_at) AS last_run "
+                            "FROM workflow_runs WHERE version IS NOT NULL "
+                            "GROUP BY application_id").fetchall()
+                    }
+
             counts = await asyncio.to_thread(_run_counts)
+            last_runs = await asyncio.to_thread(_last_runs)
             items = []
             for app in apps:
                 if args.get("only_published", True) and not app.get("active_version"):
@@ -498,6 +519,7 @@ class WorkflowConcierge:
                 item = {"name": app.get("name"), "id": app["id"],
                         "published_version": app.get("active_version"),
                         "至今跑过几次": sum(mine.values()),
+                        "最后一次是什么时候": last_runs.get(app["id"], "从没跑过"),
                         "其中": mine or "一次都没跑过"}
                 if app.get("active_version"):
                     # 工具说明一直写着「输入声明」，却从没真的给过——

@@ -80,3 +80,62 @@ async def test_an_empty_platform_does_not_divide_by_zero(services):  # noqa: F81
     result = await _list(services)
     assert result["一共几个"] == 0
     assert result["已发布占比"] == "还没有工作流"
+
+
+class TestEachWorkflowSaysWhenItLastRan:
+    """「哪个工作流最久没跑过」——手里没这个数，它就会自己凑一个。
+
+    真机问出来的（2026-08-29）：答「词频统计——最后一次跑是在 08-26」。
+    两处都错：那个工作流最后一次是 08-28 19:14，而最久没动的是
+    「文本行数与净字数统计」（08-28 13:51）。
+    原因是工具给了各工作流的**次数**、给了按天的**总数**，
+    唯独没有"某个工作流最后一次是哪天"。一句 MAX 就有的东西，别留给它凑。
+    """
+
+    @staticmethod
+    def _add_run(storage, app_id: str, when: str) -> None:
+        with storage._connect() as conn:
+            conn.execute(
+                "INSERT INTO workflow_runs(id,application_id,version,draft_revision,"
+                "status,state_json,outputs_json,error,created_at,updated_at) "
+                "VALUES(?,?,1,NULL,'succeeded','{}','{}',NULL,?,?)",
+                (f"{app_id}-{when}", app_id, when, when))
+
+    @pytest.mark.asyncio
+    async def test_the_last_run_time_is_given(self, services):  # noqa: F811
+        _add_app(services, "pub-0", "跑过的", published=True)
+        self._add_run(services.workflow_store.storage, "pub-0",
+                      "2026-08-28T19:14:40+00:00")
+        self._add_run(services.workflow_store.storage, "pub-0",
+                      "2026-08-27T01:00:00+00:00")
+        [row] = (await _list(services))["workflows"]
+        assert row["最后一次是什么时候"] == "2026-08-28 19:14", row
+
+    @pytest.mark.asyncio
+    async def test_a_workflow_that_never_ran_says_so(self, services):  # noqa: F811
+        """没跑过就说没跑过，别给一个空字符串让它猜。"""
+        _add_app(services, "pub-0", "没跑过的", published=True)
+        [row] = (await _list(services))["workflows"]
+        assert row["最后一次是什么时候"] == "从没跑过"
+
+    @pytest.mark.asyncio
+    async def test_the_time_is_readable_not_iso(self, services):  # noqa: F811
+        """给人看的时间别留 T、别甩一串微秒。"""
+        _add_app(services, "pub-0", "跑过的", published=True)
+        self._add_run(services.workflow_store.storage, "pub-0",
+                      "2026-08-28T19:14:40.942353+00:00")
+        when = (await _list(services))["workflows"][0]["最后一次是什么时候"]
+        assert "T" not in when and len(when) == 16, when
+
+    @pytest.mark.asyncio
+    async def test_draft_selftests_do_not_count(self, services):  # noqa: F811
+        """搭建期自测（version 为空）不算真实运行——口径要和别处一致。"""
+        _add_app(services, "pub-0", "跑过的", published=True)
+        with services.workflow_store.storage._connect() as conn:
+            conn.execute(
+                "INSERT INTO workflow_runs(id,application_id,version,draft_revision,"
+                "status,state_json,outputs_json,error,created_at,updated_at) "
+                "VALUES('draft-run','pub-0',NULL,3,'succeeded','{}','{}',NULL,"
+                "'2026-08-29T23:00:00+00:00','2026-08-29T23:00:00+00:00')")
+        [row] = (await _list(services))["workflows"]
+        assert row["最后一次是什么时候"] == "从没跑过", row
