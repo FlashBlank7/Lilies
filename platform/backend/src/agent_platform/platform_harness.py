@@ -1109,7 +1109,16 @@ class PlatformHarness:
         mac_input = self._stable_json(envelope).encode("utf-8")
         expected = hmac.new(mac_key, mac_input, hashlib.sha256).digest()
         if not hmac.compare_digest(tag, expected):
-            raise PlatformHarnessViolation("platform secret envelope authentication failed")
+            # 这句原来只有前半截。**认证失败的头号原因不是有人改了密文，
+            # 是钥匙换了**——信封密钥默认取 API 令牌，管理员轮换一次令牌，
+            # 所有存量密钥当场读不出来，而错误信息一个字都不提这件事。
+            # 带上 key_id 和最可能的原因，别让人从 HMAC 开始查起。
+            raise PlatformHarnessViolation(
+                "platform secret envelope authentication failed "
+                f"(key id {key_id!r}); the value was written with a different "
+                "envelope key — if the API token or envelope key was rotated, "
+                "put the old key back under its own key id in the previous keys"
+            )
         plaintext = self._xor_bytes(ciphertext, self._keystream(enc_key, nonce, len(ciphertext)))
         try:
             return plaintext.decode("utf-8")
@@ -1241,6 +1250,26 @@ class PlatformHarness:
             if key:
                 keyring[normalized_id] = str(key)
         if current_key:
+            # 同一个 key_id 既是当前密钥又是旧密钥——**当前的会把旧的顶掉**，
+            # 而旧密文只认旧密钥，于是那批密钥永远解不开了。
+            #
+            # 这不是假想：信封密钥默认取 API 令牌
+            # （agent_runtime_factory 里 `… or settings.api_token`），
+            # 而 key_id 默认是 "local" 不动。管理员轮换一次 API 令牌，
+            # 就正好走进这条路；他把旧令牌填进 previous_keys 想救，
+            # 因为 id 相同又被顶掉，救不回来——实测如此。
+            #
+            # 配置本身就是矛盾的（同一个 id 指两把不同的钥匙），
+            # 与其让它安静地丢数据，不如启动时就报出来。
+            previous = keyring.get(current_key_id)
+            if previous is not None and previous != current_key:
+                raise ValueError(
+                    f"secret envelope key id {current_key_id!r} is both the current "
+                    "key and a previous key with a different value; give the new key "
+                    "a new key id (e.g. append -v2) and keep the old id in "
+                    "previous keys, otherwise secrets written with the old key can "
+                    "never be read again"
+                )
             keyring[current_key_id] = current_key
         return keyring
 
