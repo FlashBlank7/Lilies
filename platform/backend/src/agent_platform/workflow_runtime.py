@@ -4900,15 +4900,8 @@ class WorkflowRuntime:
                             )
                         # 指明该修哪一端：实测协调者拿到"解析不了"后 61 次去改
                         # 引用方（模板节点），而真正缺的是被引用节点没产出该字段。
-                        wanted = ".".join(str(segment) for segment in path)
-                        detail += (
-                            f"；要么让节点 {node_id!r} 真正产出 {wanted}"
-                            f"（例如在它的 assignments/config 里补上），"
-                            "要么把这里的引用改成上面已有的路径之一——"
-                            "改引用方而不改产出方是修不好的。"
-                        )
-                        # 指明该修哪一端：实测协调者拿到"解析不了"后 61 次去改
-                        # 引用方（模板节点），而真正缺的是被引用节点没产出该字段。
+                        # （这一段原来**连着写了两遍**，于是每条解析失败的报错
+                        #   都把同一句话说两次——真机上这是第二大的失败族。）
                         wanted = ".".join(str(segment) for segment in path)
                         detail += (
                             f"；要么让节点 {node_id!r} 真正产出 {wanted}"
@@ -5110,6 +5103,24 @@ class WorkflowRuntime:
             path = list(operand.get("path", []))
             where = operand.get("where")
         else:
+            if isinstance(operand, dict) and not any(
+                isinstance(key, str) and key.startswith("$") for key in operand
+            ):
+                # 拒绝即教学，接着 4941 行那一条往下补：那次补的是**操作符**
+                # 名字写错（$sum_by），这次是**参数**键名写错。同一个毛病、
+                # 低一层，而"同一个判据没铺满所有出口"这周已经中过好几次。
+                #
+                # 真机 2026-08-23 最大的一族失败（66 次）写的就是
+                #   {"$sum": {"collection": {"$ref": …}, "path": "amount"}}
+                # 只认 items，于是整个字典被当成"一个值"去解析、必然不是数组，
+                # 报出 "collection expression requires an array"——
+                # **这句话里偏偏有个 collection**，读起来像是那个键被认下了，
+                # 写的人只会盯着自己那个确实是数组的 collection 发呆。
+                raise ValueError(
+                    f"集合参数不认识这些键：{sorted(operand)}。只认 "
+                    '"items"（数组本体，或 {"$ref": …} 指向上一步的产出）、'
+                    '"path"、"where"；最常见的写错是把 "items" 写成 "collection"'
+                )
             items = cls._resolve_assignment(operand, context)
             path = []
             where = None
