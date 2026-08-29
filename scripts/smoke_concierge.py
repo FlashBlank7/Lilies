@@ -24,6 +24,7 @@ import re
 import time
 import urllib.error
 import urllib.request
+from pathlib import Path
 
 GREEN, RED, DIM, RESET = "\x1b[32m", "\x1b[31m", "\x1b[2m", "\x1b[0m"
 
@@ -65,13 +66,35 @@ def call(server: str, token: str, path: str, body: dict | None = None) -> tuple[
 #   上下文标记   <上下文 上一轮做了="…" />（原样出现在回答第一行）
 # 前两类已在工具边界上机械堵住，第三类在出口剪掉；
 # 这把尺子留着是为了下次再漏能当场发现，而不是等我又碰巧撞见。
+def _tool_names() -> list[str]:
+    """工具名从**平台自己**那里取，不手抄。
+
+    原先这里是一份手写的 15 个名字的清单。2026-08-29 加了 run_counts，
+    清单没跟着改——于是新工具的名字漏进回答里，这把尺子量不出来。
+    检查表和被检查的东西各写一份，迟早会分家；分家之后
+    这里还会一路绿灯，比没有检查更让人放心。
+    （同一件事在服务端是有闸的：_TOOL_WORDS 缺一个名字，
+      tests/test_action_label_is_human.py 就红。冒烟脚本没沾上那个闸。）
+    """
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent
+                               / "platform" / "backend" / "src"))
+        from agent_platform.assistant_agent import TOOLS
+
+        return sorted({t.name for t in TOOLS if t.name}, key=len, reverse=True)
+    except Exception:  # noqa: BLE001 - 导不进来就退回手写清单，别让冒烟跑不起来
+        print("  （注意：读不到平台的工具清单，内部词检查退回到写死的那份）")
+        return ["list_workflows", "run_workflow", "recent_runs", "run_counts",
+                "generate_workflow", "platform_overview", "tidy_workflows",
+                "set_schedule", "acceptance_check", "repair_workflow",
+                "health_report", "recent_builds", "resume_build",
+                "abandon_build", "build_status", "explain_workflow"]
+
+
 INTERNAL_WORDS = re.compile(
     r"<上下文|needs_attention|published_version|"
     r"\b(?:queued|building|succeeded|failed|paused|cancelled|stale|broken)\b|"
-    r"\b(?:list_workflows|run_workflow|recent_runs|generate_workflow|"
-    r"platform_overview|tidy_workflows|set_schedule|acceptance_check|"
-    r"repair_workflow|health_report|recent_builds|resume_build|abandon_build|"
-    r"build_status|explain_workflow)\b")
+    r"\b(?:" + "|".join(_tool_names()) + r")\b")
 
 
 # 把推理过程写进回答——提示词里明令禁止，实测照样出现

@@ -120,3 +120,39 @@ class ActionSummaryIsForUsersTest(unittest.TestCase):
         from agent_platform.assistant_agent import _summarize
 
         self.assertEqual(_summarize({"workflows": [], "total": 3}), "3 个工作流")
+
+
+class SmokeChecksEveryToolNameTest(unittest.TestCase):
+    """冒烟脚本那把"内部词"的尺子，必须量得住**每一个**工具名。
+
+    2026-08-29：加了 run_counts，而脚本里是一份手抄的 15 个名字的清单，
+    没跟着改——新工具的名字漏进回答里，冒烟一路绿灯。
+    检查表和被检查的东西各写一份，迟早分家；分家之后它还报绿，
+    比没有这项检查更让人放心。
+
+    脚本已改成从 TOOLS 里取。这条测试盯着它别再退回手抄。
+    """
+
+    def test_every_tool_name_is_caught_by_the_smoke_regex(self):
+        import sys
+        from pathlib import Path
+
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+        import smoke_concierge
+
+        missed = [t.name for t in TOOLS
+                  if t.name and not smoke_concierge.INTERNAL_WORDS.search(
+                      f"我这就用 {t.name} 查一下")]
+        self.assertEqual(missed, [], f"这些工具名漏进回答里冒烟也看不出来：{missed}")
+
+    def test_it_does_not_flag_an_ordinary_answer(self):
+        import sys
+        from pathlib import Path
+
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+        import smoke_concierge
+
+        for ordinary in ("今天跑了 1 次，全部成功。",
+                         "词频统计昨天跑了 3 次，没有失败。",
+                         "已发布的工作流有 3 个。"):
+            self.assertIsNone(smoke_concierge.INTERNAL_WORDS.search(ordinary), ordinary)
