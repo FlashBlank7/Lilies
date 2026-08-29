@@ -18,7 +18,13 @@ ADAPTIVE_DEEP_BLOCK_HINTS = {
 ADAPTIVE_CONFIDENCE_FLOOR = 0.70
 
 
-_CJK_RUN = re.compile(r"[一-鿿]+")
+# 字符范围和 knowledge_rag._tokens 对齐（那个模块早就把中文切对了，
+# 这里却没有——同一个判据没铺满所有地方，今天第 N 次）。
+# 含扩展 A 区、日文假名、谚文：只写 一-鿿 的话，
+# 冷僻字和日韩文本会整段被当成分隔符，退回"整句一个词"那个老毛病。
+# 不同的是那边还加了单字（检索要召回），这里只要二字词——
+# 单字在模板名/描述里命中一切，是噪声不是信号。
+_CJK_RUN = re.compile(r"[㐀-䶿一-鿿぀-ヿ가-힯]+")
 
 
 def _query_terms(requirement: str) -> list[str]:

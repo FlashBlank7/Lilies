@@ -116,3 +116,32 @@ class TestEnglishBehaviourIsUnchanged:
     def test_an_empty_requirement_matches_nothing(self):
         assert score_template_matches("", [_meta()]) == []
         assert score_template_matches("   ", [_meta()]) == []
+
+
+class TestTheCharacterRangeMatchesTheOtherTokenizer:
+    """knowledge_rag._tokens 早就把中文切对了，这个模块却没有——
+    同一件事两处实现，字符范围也要对齐，不然冷僻字和日韩文本在这边
+    会整段退回"一句一个词"那个老毛病。
+
+    （不同的是那边还出单字：检索要召回。这里只要二字词，
+    单字在模板名/描述里命中一切，是噪声不是信号。）
+    """
+
+    @pytest.mark.parametrize("text, expected_first", [
+        ("统计文本次数", "统计"),          # 基本区
+        ("㐀㐁㐂㐃", "㐀㐁"),              # 扩展 A 区
+        ("売上を集計する", "売上"),         # 日文
+        ("데이터 분석", "데이"),            # 谚文
+    ])
+    def test_each_script_is_split_not_swallowed(self, text, expected_first):
+        terms = _query_terms(text)
+        assert terms[0] == expected_first, terms
+        assert all(len(t) == 2 for t in terms), terms
+
+    def test_it_covers_what_the_rag_tokenizer_covers(self):
+        """两边认得的字符集要一致——只比字符，不比切法。"""
+        from agent_platform.knowledge_rag import _tokens
+
+        for text in ("统计文本次数", "㐀㐁㐂㐃", "売上を集計する", "데이터 분석"):
+            assert _query_terms(text), f"模板侧认不出 {text}"
+            assert _tokens(text), f"RAG 侧认不出 {text}"
