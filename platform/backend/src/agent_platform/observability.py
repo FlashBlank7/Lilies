@@ -9,6 +9,7 @@ Provides answers to:
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -46,6 +47,14 @@ class RunMetrics:
     nodes: list[NodeMetrics] = field(default_factory=list)
     failure_pattern: str = ""
     compare_to_avg: dict[str, Any] = field(default_factory=dict)
+    # 这次运行到底有没有留下用量数据。
+    #
+    # 不加这一格的话，"没记过用量"和"确实一个 token 都没花"在结果里
+    # 长得一模一样，都是 0。真机上工作流运行**从来没有**记过用量
+    # （node.completed 事件里 usage 是 {}），于是这个接口对每一次运行
+    # 都报 0 token / $0——看起来像是算过了，其实什么都没有。
+    # 0 和"没有"要分得开，这是这个仓里反复出现的一条。
+    usage_recorded: bool = False
 
 
 @dataclass
@@ -149,7 +158,8 @@ class RunAnalyzer:
 
             # Token usage from model events
             usage = data.get("usage", {})
-            if isinstance(usage, dict):
+            if isinstance(usage, dict) and usage:
+                metrics.usage_recorded = True
                 it = int(usage.get("input_tokens", 0))
                 ot = int(usage.get("output_tokens", 0))
                 metrics.total_input_tokens += it
@@ -180,27 +190,51 @@ class RunAnalyzer:
     async def failure_patterns(
         self, application_id: str, limit: int = 20
     ) -> list[FailurePattern]:
-        """Cluster failure patterns for an application's recent runs."""
-        # Simplified: get recent failed runs and classify errors
+        """Cluster failure patterns for an application's recent runs.
+
+        原来是 `list_events(application_id)` ——**事件不挂在应用上，挂在运行上**
+        （stream_id 就是 run_id，循环里 `run_id = event.stream_id` 那句
+        正说明作者知道这一点）。于是这个查询永远返回空列表，
+        这个接口对任何应用都答"没有失败模式"。
+        真机验过：某个应用 70 次真实失败、66 次是同一句
+        「node aggregator failed: collection expression requires an array」，
+        它照样答 0 类。**找不到东西被当成了"没有东西"。**
+
+        改成直接读运行表。理由和别处一样：计数进 SQL，比扫事件流准也便宜
+        （真机上全库 29 万条事件，而失败的运行 227 条）。
+        """
         patterns: dict[str, FailurePattern] = {}
+
+        def _query() -> list[tuple[str, str]]:
+            with self._storage._connect() as conn:
+                return [
+                    (str(row["id"]), str(row["error"] or ""))
+                    for row in conn.execute(
+                        """SELECT id,
+                                  COALESCE(error, json_extract(state_json,'$.error'), '')
+                                    AS error
+                             FROM workflow_runs
+                            WHERE application_id=? AND status='failed'
+                            ORDER BY created_at DESC LIMIT 500""",
+                        (application_id,),
+                    ).fetchall()
+                ]
+
         try:
-            events = await self._storage.list_events(application_id)
+            rows = await asyncio.to_thread(_query)
         except Exception:
             return []
 
-        for event in events:
-            if event.type == "workflow.failed":
-                error = str(event.data.get("error", "")) if event.data else ""
-                run_id = event.stream_id
-                key = _classify_failure(error)
-                if key not in patterns:
-                    patterns[key] = FailurePattern(
-                        pattern_name=key,
-                        error_keywords=error.split()[:5] if error else [],
-                    )
-                patterns[key].count += 1
-                if len(patterns[key].example_run_ids) < 3:
-                    patterns[key].example_run_ids.append(run_id)
+        for run_id, error in rows:
+            key = _classify_failure(error)
+            if key not in patterns:
+                patterns[key] = FailurePattern(
+                    pattern_name=key,
+                    error_keywords=error.split()[:5] if error else [],
+                )
+            patterns[key].count += 1
+            if len(patterns[key].example_run_ids) < 3:
+                patterns[key].example_run_ids.append(run_id)
 
         return sorted(patterns.values(), key=lambda p: p.count, reverse=True)[:limit]
 

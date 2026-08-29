@@ -4049,7 +4049,18 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
                 "tool_call_count": metrics.tool_call_count,
                 "error_count": metrics.error_count,
                 "failure_pattern": metrics.failure_pattern,
+                # 0 和"没记过"要分得开：真机上工作流运行从来没记过用量，
+                # 于是上面两个 token 数和费用对每一次运行都是 0——
+                # 看着像算过了，其实什么都没有。
+                "usage_recorded": metrics.usage_recorded,
             },
+            # 明细只给前 20 个节点，**而且要说出来**。
+            # 给一页不说是一页，读的人就会当成全部——这个毛病在
+            # recent_runs、list_workflows、recent_builds、health_report
+            # 上各中过一次。
+            **({"node_breakdown 只列了前 20 个":
+                f"这次运行一共 {metrics.node_count} 个环节，上面是最慢的 20 个"}
+               if metrics.node_count > 20 else {}),
             "node_breakdown": [
                 {
                     "node_id": n.node_id,
