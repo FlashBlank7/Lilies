@@ -164,3 +164,72 @@ class TestZeroIsNotTheSameAsNotRecorded:
         metrics = asyncio.run(RunAnalyzer(storage).analyze("run-1"))
         assert metrics.usage_recorded is True
         assert metrics.total_input_tokens == 0
+
+
+class TestTheClassifierKnowsThisPlatformsVocabulary:
+    """查得到不等于查得对。
+
+    上面那批修好之后，真机 227 次失败里 **208 次（91%）** 归成 unknown——
+    一个把九成都答成"不知道"的聚类接口，等于没答。
+    照真机话术补了五类之后 unknown 归零。
+
+    这里用的都是**平台源码里写死的话术**（formula.py 的
+    "不支持的函数 X（可用：…）"、"变量 X 未绑定"，
+    引用解析器的 "workflow reference could not resolve node="），
+    不是从这台机器的数据里凑出来的巧合形状。
+    """
+
+    @pytest.mark.parametrize("error, expected", [
+        ("node aggregator failed: collection expression requires an array",
+         "data_shape_mismatch"),
+        ("node normalizer failed: record_collection_normalize value must resolve "
+         "to an array or object", "data_shape_mismatch"),
+        ('node sum_by_store failed: sum_by(记录数组, "分组字段", "数值字段") '
+         "需要一个对象数组和两个字符串字段名", "data_shape_mismatch"),
+        ("node aggregator failed: workflow reference could not resolve "
+         "node='aggregator' path=['by_store']", "workflow_reference_unresolved"),
+        ("node aggregator failed: 操作符 $formula 不能和其它键混在同一个对象里",
+         "formula_or_expression_error"),
+        ("node sum_by_store failed: 公式包含不支持的字符 '$'（位置 7）",
+         "formula_or_expression_error"),
+        ("node assigner failed: 不支持的函数 values（可用：abs、avg、ceil）",
+         "formula_or_expression_error"),
+        ("node assigner failed: 变量 amount 未绑定（vars 里没有它）",
+         "formula_or_expression_error"),
+        ("node render_report failed: 'g'", "template_variable_missing"),
+        ("出错的节点是 'render_report'（配置在这个节点上）：'g'",
+         "template_variable_missing"),
+        ("database is locked", "platform_contention"),
+    ])
+    def test_a_real_platform_error_gets_a_real_name(self, error, expected):
+        from agent_platform.observability import _classify_failure
+
+        assert _classify_failure(error) == expected
+
+    @pytest.mark.parametrize("error, expected", [
+        ("node start failed: missing required input: text", "missing_resource"),
+        ("request timed out after 60s", "api_timeout_or_rate_limit"),
+        ("permission denied", "permission_error"),
+    ])
+    def test_the_generic_rules_still_work(self, error, expected):
+        """平台自己的话术判在前面，别把原有那几类挤掉了。
+
+        "missing required input" 里带 missing，靠的正是下半批的通用规则。
+        """
+        from agent_platform.observability import _classify_failure
+
+        assert _classify_failure(error) == expected
+
+    def test_an_empty_error_is_unknown(self):
+        from agent_platform.observability import _classify_failure
+
+        assert _classify_failure("") == "unknown"
+
+    def test_it_does_not_label_everything(self):
+        """反向：认不出来就说 unknown，别硬塞一类。
+
+        少了这条，"一律返回 data_shape_mismatch" 能让上面十一条全绿。
+        """
+        from agent_platform.observability import _classify_failure
+
+        assert _classify_failure("某种以前没见过的怪事") == "unknown"

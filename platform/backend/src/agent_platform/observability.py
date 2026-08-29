@@ -10,6 +10,7 @@ Provides answers to:
 from __future__ import annotations
 
 import asyncio
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -263,10 +264,47 @@ def _parse_timestamp(ts_str: str | None) -> float:
 
 
 def _classify_failure(error_text: str) -> str:
-    """Classify a failure error into a pattern name."""
+    """Classify a failure error into a pattern name.
+
+    分两批。下半批是通用词（timeout / permission / json …），
+    上半批是**这个平台自己的失败话术**——照真机 227 次失败量出来加的。
+
+    加之前：208 次归不了类（91%）。一个把 91% 都答成 "unknown" 的
+    聚类接口，等于没答。查得到不等于查得对，接口通了要接着看结果对不对。
+
+    真机上排前面的几类（次数是当时的量）：
+      · 78 次 数据形状不对：collection expression requires an array、
+        value must resolve to an array or object、需要一个对象数组
+      · 21 次 引用解析不到：workflow reference could not resolve node=…
+      · 16 次 公式写错：$formula 不能和其它键混在同一个对象里、
+        公式包含不支持的字符
+      · 21 次 模板变量取不到：报错正文就是一个裸的 'g' / 'this' / ''
+        （模板引擎抛的 KeyError，str() 之后只剩引号里那个名字）
+
+    顺序有讲究：平台自己的话术先判。"missing required input" 里带
+    "missing"，通用规则会把它算成 missing_resource——那条是对的，
+    所以放在下半批、让它继续生效。
+    """
     if not error_text:
         return "unknown"
     text = error_text.casefold()
+    if any(kw in text for kw in (
+            "requires an array", "must resolve to an array",
+            "需要一个对象数组", "而不是数组本体", "不是数组")):
+        return "data_shape_mismatch"
+    if "could not resolve node" in text or "workflow reference" in text:
+        return "workflow_reference_unresolved"
+    # 后两句是 formula.py 里写死的错误话术（"不支持的函数 X（可用：…）"、
+    # "变量 X 未绑定（vars 里没有它）"），不是从这台机器的数据里凑出来的形状
+    if any(kw in text for kw in ("$formula", "公式", "不支持的函数", "未绑定")):
+        return "formula_or_expression_error"
+    if "database is locked" in text:
+        # 平台自己拥塞，不是工作流的错——面板那边也是这么分的
+        return "platform_contention"
+    # 模板变量取不到：整句就是 `node X failed: 'g'` 这种，引号里是变量名
+    if re.search(r"failed:\s*'[^']*'\s*$", error_text) or re.search(
+            r"（配置在这个节点上）：\s*'[^']*'\s*$", error_text):
+        return "template_variable_missing"
     if any(kw in text for kw in ("timeout", "timed out", "rate limit")):
         return "api_timeout_or_rate_limit"
     if any(kw in text for kw in ("permission denied", "unauthorized", "403")):
