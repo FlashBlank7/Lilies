@@ -105,6 +105,19 @@ def build_cases(db: sqlite3.Connection) -> list[tuple[str, object]]:
              "WHERE r.status='failed' AND r.version IS NOT NULL "
              "AND a.archived_at IS NULL GROUP BY a.name "
              "ORDER BY COUNT(*) DESC LIMIT 1")),
+        # 具体记录类的问题——最容易被"给一页当全部"绊倒：
+        # 真机上问「最近一次失败的原因」，它翻了 5 条全是成功就答"没有失败记录"。
+        ("失败次数最多的那个工作流，最近一次失败的原因是什么？",
+         one("SELECT COALESCE(r.error, json_extract(r.state_json,'$.error'), '') "
+             "FROM workflow_runs r JOIN applications a ON a.id=r.application_id "
+             "WHERE r.status='failed' AND r.version IS NOT NULL "
+             "AND a.archived_at IS NULL "
+             "AND a.name=(SELECT a2.name FROM workflow_runs r2 "
+             "            JOIN applications a2 ON a2.id=r2.application_id "
+             "            WHERE r2.status='failed' AND r2.version IS NOT NULL "
+             "            AND a2.archived_at IS NULL GROUP BY a2.name "
+             "            ORDER BY COUNT(*) DESC LIMIT 1) "
+             "ORDER BY r.created_at DESC LIMIT 1")),
         ("昨天一共有几次失败的运行？",
          one("SELECT COUNT(*) FROM workflow_runs r "
              "JOIN applications a ON a.id=r.application_id "
@@ -132,7 +145,12 @@ def main() -> int:
             return 1
         # 数字答案允许带千分位/空格/加粗
         flat = answer.replace(",", "").replace(" ", "").replace("*", "")
-        hit = str(truth) in flat
+        expected = str(truth)
+        # 报错类真值取的是库里的原文（英文），而管家答的是翻译过的人话——
+        # 拿关键词比，别拿整句比。
+        if "missing required input" in expected:
+            expected = expected.split(":")[-1].strip()
+        hit = expected in flat
         mark = OK if hit else BAD
         print(f"{mark} {question}")
         print(f"   {DIM}真值 {truth} · 工具 {tools}{NORM}")
