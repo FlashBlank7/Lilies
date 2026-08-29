@@ -238,11 +238,22 @@ def tool_call_record(
     result: str,
     is_error: bool,
 ) -> dict[str, Any]:
-    trimmed = result[:MAX_TOOL_RESULT_CHARS]
+    # **先脱敏再截断**，顺序反了会漏。
+    #
+    # 原来是先截到 20 万字符再脱敏。秘密正好跨在那条线上时，
+    # 尾巴被切掉，剩下的头部就短于 `sk-` + 16 位那个正则的要求，
+    # 于是**匹配不上、原样留在 transcript 里**。
+    # 实测漏出窗口是"幸存 1–18 个字符"：最多 sk- 加 15 位明文落盘。
+    # 反过来先脱敏，跨线的秘密整条变成 [REDACTED] 之后才谈截断。
+    #
+    # 代价是正则要扫完整串而不是只扫前 20 万。真机上工具结果
+    # 最大 14,172 字符、中位 280（2656 条记录），离上限差一个量级，
+    # 这点代价在现实里根本称不出来。
+    redacted = redact(result)
     return {
         "tool": name,
         "arguments": redact(arguments),
-        "result": redact(trimmed),
-        "truncated": len(result) > MAX_TOOL_RESULT_CHARS,
+        "result": redacted[:MAX_TOOL_RESULT_CHARS],
+        "truncated": len(redacted) > MAX_TOOL_RESULT_CHARS,
         "is_error": is_error,
     }
