@@ -21,20 +21,41 @@ RUFF="$ROOT/.venv/bin/ruff"
 
 if [ "$target" = "bench" ]; then
   SRC="$HOME/code/bench"
-  LINT_PATH="guanjia scripts tests"
+  LINT_PATHS=(guanjia scripts tests)
+  LINT_FLOOR=20
 else
   SRC="$ROOT"
   # scripts 也要扫：里面是冒烟、准确性核对、跨端点对账这些**用来验别人**的东西，
   # 它们自己坏了最没人发现。2026-08-29 加对账脚本时才注意到这一格一直空着。
   # tests 暂时不加：pytest 夹具的导入再同名接参会被 F811 大面积误报（97 处），
   # 真要加得先把那批 noqa 补齐，那是另一件事。
-  LINT_PATH="platform/backend/src scripts"
+  LINT_PATHS=(platform/backend/src scripts)
+  LINT_FLOOR=60
 fi
 
 cd "$SRC"
 
 echo "── ruff（F 类：算了没用的变量、没引用的导入、假 f-string）──"
-"$RUFF" check "$LINT_PATH" --select F
+# 先数一遍到底要扫几个文件，再真扫。
+#
+# 为什么多这一步：路径写错时 ruff **只是警告，退出码照样是 0**。
+# 2026-08-29 把路径从一个扩到两个时写成了 "$LINT_PATH" 一个带空格的整串，
+# 于是每次门链都印着
+#     warning: Failed to lint platform/backend/src scripts: No such file or directory
+#     All checks passed!
+# ——一个文件都没扫，却报"全部通过"，而且绿了好几次提交都没人看那行 warning。
+# 门链是最后一道闸，它自己空转是最不该发生的一种坏法。
+# 所以这里不信 ruff 的退出码，先要它把打算扫的文件列出来自己数：
+# 数目为零、或少得离谱（目录被移走、被 exclude 规则吞掉），当场退非零。
+lint_files="$("$RUFF" check "${LINT_PATHS[@]}" --select F --show-files | wc -l)"
+if [ "$lint_files" -lt "$LINT_FLOOR" ]; then
+  echo "✕ ruff 只打算扫 $lint_files 个文件（至少该有 $LINT_FLOOR 个）" >&2
+  echo "  多半是 ${LINT_PATHS[*]} 里有路径不存在或被 exclude 吞了。" >&2
+  echo "  注意 ruff 遇到不存在的路径只 warning、退出码仍是 0，别信那句 All checks passed。" >&2
+  exit 1
+fi
+"$RUFF" check "${LINT_PATHS[@]}" --select F
+echo "   （扫了 $lint_files 个文件）"
 
 echo "── pytest ──"
 # 不用字节码缓存。2026-08-29 被它骗过一次：改代码、跑测试、还原，
