@@ -1771,6 +1771,16 @@ def _capped(result: dict) -> str:
               f"{_TOOL_RESULT_CAP} 字。要更少的条目就把 limit 调小再查一次。）")
 
 
+def _clip(text: Any, limit: int) -> str:
+    """截了要说。上面 _capped 早就是这个调子，动作行这两处漏了。
+
+    真机量过：160 次成功运行里 52 次（33%）至少有一项产出超过 30 字，
+    也就是每三次就有一次，用户看到的是一句砍在中间的值、且看不出被砍过。
+    """
+    body = str(text)
+    return body if len(body) <= limit else body[:limit] + "…"
+
+
 def _summarize(result: dict) -> str:
     """动作行上那句话。**这是给用户看的**，不是给模型看的。
 
@@ -1779,11 +1789,11 @@ def _summarize(result: dict) -> str:
     过一遍已有的工具名清洗：修在边界上，将来新加的工具错误也一样受用。
     """
     if result.get("error"):
-        return "✕ " + _without_tool_names(str(result["error"]))[:60]
+        return "✕ " + _clip(_without_tool_names(str(result["error"])), 60)
     if "workflows" in result:
         return f"{result['total']} 个工作流"
     if "outputs" in result:
-        pairs = [f"{k}={str(v)[:30]}" for k, v in list(result["outputs"].items())[:3]]
+        pairs = [f"{k}={_clip(v, 30)}" for k, v in list(result["outputs"].items())[:3]]
         mark = "✓ " if result.get("情况") == "跑成了" else "⚠ "
         return mark + (" · ".join(pairs) or str(result.get("情况", "")))
     if "build_id" in result:

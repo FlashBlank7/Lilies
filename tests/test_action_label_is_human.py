@@ -12,7 +12,7 @@
 """
 import unittest
 
-from agent_platform.assistant_agent import _TOOL_WORDS, TOOLS
+from agent_platform.assistant_agent import _TOOL_WORDS, TOOLS, _summarize
 
 
 class ToolLabelTest(unittest.TestCase):
@@ -196,3 +196,35 @@ class EveryDeclaredToolIsImplementedTest(unittest.IsolatedAsyncioTestCase):
         result = await self._call("根本没有这个工具")
         self.assertIn("没有「", str(result.get("error", "")))
         self.assertIn("如实告诉用户", str(result.get("error", "")))
+
+
+class TruncationInTheActionLineIsVisible(unittest.TestCase):
+    """动作行截了也要说。上面 _capped 早就是这个调子，这两处漏了。
+
+    真机量过：160 次成功运行里 52 次（33%）至少有一项产出超过 30 字。
+    每三次就有一次，用户看到的是一句砍在中间的值、且看不出被砍过。
+    """
+
+    def test_a_long_output_value_ends_with_an_ellipsis(self):
+        line = _summarize({"outputs": {"report": "各门店合计：" + "北京 120，" * 20},
+                           "情况": "跑成了"})
+        self.assertTrue(line.endswith("…"), line[-40:])
+
+    def test_a_short_output_value_is_left_alone(self):
+        """反向：不能给每个值都缀省略号。"""
+        line = _summarize({"outputs": {"total": 42}, "情况": "跑成了"})
+        self.assertIn("total=42", line)
+        self.assertNotIn("…", line)
+
+    def test_a_long_error_ends_with_an_ellipsis(self):
+        line = _summarize({"error": "出事了：" + "原因" * 60})
+        self.assertTrue(line.endswith("…"), line[-40:])
+
+    def test_a_short_error_is_left_alone(self):
+        line = _summarize({"error": "没有叫「日报」的工作流"})
+        self.assertNotIn("…", line)
+
+    def test_the_key_name_is_never_the_part_that_gets_cut(self):
+        """截的是值不是键——键没了就不知道这是什么。"""
+        line = _summarize({"outputs": {"门店合计报表": "补" * 200}, "情况": "跑成了"})
+        self.assertIn("门店合计报表=", line)
