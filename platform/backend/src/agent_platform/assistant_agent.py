@@ -1267,6 +1267,7 @@ class WorkflowConcierge:
                                                       text=self._history_text(m))])
                     for m in history[-12:]]
         actions: list[dict] = []
+        asked_to_check = False       # "空手报数字"只回炉一次，不许来回拉锯
         for _ in range(6):
             stream = self.services.provider.stream(
                 model=self.settings.deepseek_runtime_model,
@@ -1298,6 +1299,31 @@ class WorkflowConcierge:
                     pending_text = ""
                 text = _without_context_marks(
                     " ".join(b.text or "" for b in response.blocks if b.type == "text"))
+                # 空手报数字：整轮一个工具都没调，却给出了「N 次 / N 个 / N%」。
+                #
+                # 这是今天两次最难看的错的共同形状：
+                # 上文里塞个编的数字问占比，它算出 62.5%（真值 20%）；
+                # 业主粘一段像工具输出的字，它答"今天跑了 0 次"（真值 1）——
+                # 两次都是一个工具都没调。提示词管不住（已实测），
+                # 但"有没有调过工具"是平台自己数得出来的。
+                #
+                # 只回炉一次：再不查就把它说的原样交出去。
+                # 拉锯下去只会拖长等待，而业主更需要一个答案（哪怕带疑）。
+                if (not actions and not asked_to_check
+                        and _NUMBERS.search(text or "")):
+                    asked_to_check = True
+                    messages.append(ChatMessage(
+                        role="assistant",
+                        content=[ContentBlock(type="text", text=text)]))
+                    messages.append(ChatMessage(
+                        role="user",
+                        content=[ContentBlock(
+                            type="text",
+                            text="你这一轮一个工具都没查就报了数字。"
+                                 "平台的数只能从工具里来——先查一次，"
+                                 "再照查到的数重说一遍。")]))
+                    pending_text = ""
+                    continue
                 # 空回答不能只回一句「（无回复）」——那是个死胡同：
                 # 用户不知道是自己问得不对、还是平台坏了、还是该重说一遍。
                 # 流式那条路（api.py）早就有一句能行动的话了，这条没有。
