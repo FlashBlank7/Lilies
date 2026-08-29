@@ -2052,7 +2052,21 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             )
 
     @app.get("/health")
-    async def health() -> dict[str, Any]:
+    async def health(request: Request) -> dict[str, Any]:
+        """存活探测公开，细节要令牌。
+
+        原先整份都是免鉴权的，里面有：精确的 git 提交、20 个路由的可用性图、
+        有没有配模型、Docker 可用不可用、以及**运行时工具清单（含 Bash）**。
+        绑在 127.0.0.1 上不算什么，可 Dockerfile 里默认 API_HOST=0.0.0.0——
+        那就是一个不用登录就能拿到的指纹面。
+
+        存活探测（k8s、反代、guanjia doctor 的匿名可达性检查）只需要
+        知道它答不答话，所以不带令牌照样 200，只是内容最小化。
+        """
+        supplied = (request.headers.get("authorization") or "")
+        supplied = supplied.removeprefix("Bearer ").strip()
+        if not (settings.api_token and hmac.compare_digest(supplied, settings.api_token)):
+            return {"status": "ok"}
         routes = route_availability(app)
         return {
             "status": "ok",

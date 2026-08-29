@@ -43,7 +43,11 @@ HOST=127.0.0.1 setsid nohup ~/.local/bin/uv run agent-platform > ~/platform-api.
 
 WANT=$(git rev-parse --short HEAD)
 for _ in $(seq 1 30); do
-  GOT=$(curl -s --max-time 3 http://127.0.0.1:$PORT/health 2>/dev/null \
+  # /health 的细节要令牌了（免鉴权那份只回 status:ok——
+  # 原先它把 git 提交、路由图、工具清单都免费发出去，而 Docker 默认绑 0.0.0.0）
+  TOKEN=$(grep -m1 '^API_TOKEN=' .env 2>/dev/null | cut -d= -f2- | tr -d '"' || true)
+  GOT=$(curl -s --max-time 3 -H "Authorization: Bearer $TOKEN" \
+        http://127.0.0.1:$PORT/health 2>/dev/null \
         | grep -oP '"commit":"\K[^"]+' || true)
   if [ -n "$GOT" ]; then
     if [ "$GOT" = "$WANT" ]; then
