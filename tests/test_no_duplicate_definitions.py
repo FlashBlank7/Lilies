@@ -24,13 +24,22 @@ from pathlib import Path
 
 import pytest
 
-SRC = Path(__file__).resolve().parent.parent / "platform/backend/src"
-MODULES = sorted(SRC.rglob("*.py"))
+ROOT = Path(__file__).resolve().parent.parent
+# tests/ 和 scripts/ 一起扫。**重复的测试比重复的生产代码更坏**：
+# 同名的第二个 def 会把第一个顶掉，第一份一次都不跑，
+# 而它看起来是有覆盖的。真机上就有三处
+# （test_builder_live_progress 一处、test_openai_chat_provider 两处，
+#  三处都是一字不差的复制）。
+MODULES = sorted(
+    [p for p in (ROOT / "platform/backend/src").rglob("*.py")]
+    + [p for p in (ROOT / "tests").rglob("*.py")]
+    + [p for p in (ROOT / "scripts").rglob("*.py")]
+)
 
 
 def test_there_are_modules_to_check():
     """先钉住有东西可扫——空列表会让下面那条一路全绿却什么都没查。"""
-    assert len(MODULES) > 30, len(MODULES)
+    assert len(MODULES) > 100, len(MODULES)
 
 
 @pytest.mark.parametrize("path", MODULES, ids=lambda p: p.name)
