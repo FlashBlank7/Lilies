@@ -156,3 +156,43 @@ class SmokeChecksEveryToolNameTest(unittest.TestCase):
                          "词频统计昨天跑了 3 次，没有失败。",
                          "已发布的工作流有 3 个。"):
             self.assertIsNone(smoke_concierge.INTERNAL_WORDS.search(ordinary), ordinary)
+
+
+class EveryDeclaredToolIsImplementedTest(unittest.IsolatedAsyncioTestCase):
+    """声明了的工具都得真能跑，跑得了的都得声明过。
+
+    工具清单（TOOLS）和实现（_exec 里那串 if）是两处分开写的。
+    只声明不实现的后果很温和：模型会去调它，每次都拿到
+    「没有这个工具」，然后换别的路子——业主看到的是"它就是不会做这件事"，
+    而不是"这里有个 bug"。反过来，实现了不声明就等于白写：
+    模型根本不知道有这个工具。
+
+    这条不去 grep 源码里的 `if name ==`，而是**真的调一遍**：
+    源码断言换个写法（比如改成字典分派）就骗过去了。
+    """
+
+    async def _call(self, name: str):
+        from types import SimpleNamespace
+        from unittest.mock import MagicMock
+
+        from agent_platform.assistant_agent import WorkflowConcierge
+
+        concierge = WorkflowConcierge(MagicMock(), SimpleNamespace())
+        try:
+            return await concierge._exec(name, {}, {})
+        except Exception:      # noqa: BLE001 - 抛异常也算"能走到"，不算没实现
+            return {"reached": True}
+
+    async def test_no_declared_tool_answers_no_such_tool(self):
+        missing = []
+        for tool in TOOLS:
+            result = await self._call(tool.name)
+            if isinstance(result, dict) and "没有「" in str(result.get("error", "")):
+                missing.append(tool.name)
+        self.assertEqual(missing, [], f"声明了却没实现的工具：{missing}")
+
+    async def test_an_undeclared_name_does_say_no_such_tool(self):
+        """兜底本身要在：模型填错名字时得到一句能读懂的话，而不是 500。"""
+        result = await self._call("根本没有这个工具")
+        self.assertIn("没有「", str(result.get("error", "")))
+        self.assertIn("如实告诉用户", str(result.get("error", "")))
