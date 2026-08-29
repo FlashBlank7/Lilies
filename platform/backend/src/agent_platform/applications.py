@@ -93,7 +93,7 @@ class ApplicationService:
         change_context_operation: str = "acceptance_repair",
     ) -> dict[str, Any]:
         if not operations:
-            raise ValueError("atomic draft update has no operations")
+            raise ValueError("这次原子改动一个操作都没有——operations 里至少要放一条。")
         idempotency_digest = self._atomic_idempotency_digest(
             application_id=application_id,
             expected_revision=expected_revision,
@@ -139,12 +139,12 @@ class ApplicationService:
             operation_name = str(raw.get("op", ""))
             data = raw.get("data")
             if not isinstance(data, dict):
-                raise ValueError("repair operation data must be an object")
+                raise ValueError("返修操作的 data 要是一个对象（{...}），不是数组或字符串。")
             self._apply_to_snapshot(snapshot, operation_name, data)
             operation_names.append(operation_name)
         snapshot = ApplicationSnapshot.model_validate(snapshot.model_dump(mode="json"))
         if snapshot.model_dump(mode="json") == original_snapshot:
-            raise ValueError("atomic draft update would not change the workflow")
+            raise ValueError("这一批操作合起来什么都没改动。先用 draft_inspect 看当前状态，再决定改哪里。")
         result = await self.store.save_draft(
             application_id,
             snapshot,
@@ -253,7 +253,7 @@ class ApplicationService:
             preview.model_dump(mode="json")
         )
         if validated.model_dump(mode="json") == original_snapshot:
-            raise ValueError("workflow edit preview would not change the workflow")
+            raise ValueError("这次改动预览下来什么都没变。先用 draft_inspect 看当前状态，再决定改哪里。")
         return validated
 
     # NodeSpec 认得的顶层字段。其余的但凡出现在顶层，
@@ -419,12 +419,12 @@ class ApplicationService:
             edge = EdgeSpec.model_validate(data["edge"])
             if any(item.id == edge.id for item in snapshot.workflow.edges):
                 raise ValueError(
-                    f"edge already exists: {edge.id}" + _wiring_hint(snapshot)
+                    f"「{edge.id}」这条连线已经有了" + _wiring_hint(snapshot)
                 )
             source = self._node(snapshot, edge.source)
             target = self._node(snapshot, edge.target)
             if source.id == target.id:
-                raise ValueError("workflow edge cannot connect a node to itself")
+                raise ValueError("一个节点不能连到它自己——换一个目标节点。")
             if any(
                 (
                     item.source,
@@ -443,12 +443,12 @@ class ApplicationService:
                 for item in snapshot.workflow.edges
             ):
                 raise ValueError(
-                    "workflow edge already connects the same ports"
+                    "这两个端口之间已经连过一条线了"
                     + _wiring_hint(snapshot)
                 )
             edge_errors = self.blocks.validate_edge(source, target, edge)
             if edge_errors:
-                raise ValueError("workflow edge is invalid: " + "; ".join(edge_errors))
+                raise ValueError("这条连线不成立：" + "; ".join(edge_errors))
             if self._edge_would_create_cycle(snapshot.workflow, edge):
                 raise ValueError(
                     "workflow edge would create a cycle; use an explicit loop block"
@@ -742,7 +742,7 @@ class ApplicationService:
             return next(node for node in snapshot.workflow.nodes if node.id == node_id)
         except StopIteration as error:
             raise KeyError(
-                f"node not found: {node_id}"
+                f"图里没有「{node_id}」这个节点"
                 + ApplicationService._node_id_hint(
                     [node.id for node in snapshot.workflow.nodes], node_id
                 )
@@ -777,12 +777,12 @@ class ApplicationService:
         paths = cls._node_paths(workflow, node_id)
         if not paths:
             raise KeyError(
-                f"node not found: {node_id}"
+                f"图里没有「{node_id}」这个节点"
                 + cls._node_id_hint([node.id for node in workflow.nodes], node_id)
             )
         if len(paths) != 1:
             raise ValueError(
-                f"node id is ambiguous across nested workflows: {node_id}"
+                f"「{node_id}」在嵌套子图里出现了不止一次，说不清指的是哪一个——先给它们改成不同的 id。"
             )
         return paths[0]
 
@@ -797,7 +797,7 @@ class ApplicationService:
             return node
         nested = node.config.get("workflow")
         if not isinstance(nested, dict):
-            raise ValueError("nested workflow node path is invalid")
+            raise ValueError("嵌套子图的节点路径不对：路径要一层层写到那个节点，先用 draft_inspect 看清结构。")
         return cls._node_at_path(
             WorkflowSpec.model_validate(nested),
             path[1:],
@@ -843,7 +843,7 @@ class ApplicationService:
 
         nested = node.config.get("workflow")
         if not isinstance(nested, dict):
-            raise ValueError("nested workflow node path is invalid")
+            raise ValueError("嵌套子图的节点路径不对：路径要一层层写到那个节点，先用 draft_inspect 看清结构。")
         nested_workflow = WorkflowSpec.model_validate(nested)
         self._update_node_at_path(
             nested_workflow,

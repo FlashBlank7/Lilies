@@ -694,7 +694,8 @@ def test_model_noop_preview_is_rejected_without_revision_bump(
         assert body["applied"] is False
         assert body["operations"] == []
         assert any(
-            "would not change the workflow" in warning
+            # 2026-08-29：这句拒绝改成中文并给出下一步
+            "什么都没变" in warning
             for warning in body["warnings"]
         )
         after = client.get(

@@ -283,7 +283,9 @@ def test_duplicate_edge_rejection_lists_what_is_wired_and_what_is_missing(tmp_pa
             "id": "e1", "source": "start", "target": "mid",
             "source_port": "output", "target_port": "input"}}})
         detail = duplicate.json().get("detail", "")
-        assert "edge already exists" in detail
+        # 2026-08-29：拒绝主干改成中文（真机上模型对同一条边连提 9 次，
+        # 拿到的却是一句英文）。断言跟着改成意思。
+        assert "这条连线已经有了" in detail
         assert "start→mid" in detail                 # 已接的
         assert "mid" in detail and "end" in detail   # 还缺的
         assert "还缺" in detail or "还没有" in detail
