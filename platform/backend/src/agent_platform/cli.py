@@ -3,6 +3,8 @@ from __future__ import annotations
 import logging
 import os
 import re
+import stat
+from pathlib import Path
 
 import uvicorn
 
@@ -75,9 +77,39 @@ def configure_logging(level: str | None = None) -> int:
     return numeric
 
 
+def warn_if_secrets_are_readable() -> list[str]:
+    """.env 里有密钥，权限松就提醒一句（回提醒过的文件，便于测试）。
+
+    2026-08-29 实测：.env 是 0644，里面有 DEEPSEEK_API_KEY（付费）、
+    API_TOKEN、LOCAL_MODEL_API_KEY——同机其他用户直接可读。
+
+    这个文件是用户自己建的，不该由程序替他改权限（那是越权，
+    而且他可能有意共享给同组）。提醒一句就够：他看得见、也知道怎么办。
+    库文件不一样，那是程序自己建的，所以在 Storage.initialize 里直接收。
+
+    同组可读也算松——这台机器上好几个人在同一个组里。
+    """
+    loose: list[str] = []
+    for name in (".env", ".env.local"):
+        path = Path(name)
+        try:
+            if not path.exists():
+                continue
+            mode = stat.S_IMODE(path.stat().st_mode)
+        except OSError:
+            continue
+        if mode & 0o077:
+            loose.append(name)
+            logging.getLogger("agent_platform").warning(
+                "%s 的权限是 %s，同机其他用户能读到里面的密钥。"
+                "建议：chmod 600 %s", name, oct(mode), name)
+    return loose
+
+
 def main() -> None:
     settings = get_settings()
     configure_logging()
+    warn_if_secrets_are_readable()
     uvicorn.run("agent_platform.api:app", host=settings.host, port=settings.port, reload=False)
 
 

@@ -27,6 +27,32 @@ class Storage:
 
     async def initialize(self) -> None:
         await asyncio.to_thread(self._initialize_sync)
+        await asyncio.to_thread(self._lock_down_files)
+
+    def _lock_down_files(self) -> None:
+        """库文件只给自己读写。
+
+        2026-08-29 实测：data/agent_platform.db 是 0644——
+        同机其他用户能直接读走整个库：业主码、客户使用码、
+        用户令牌哈希、全部业务数据。
+        sqlite 按 umask 建文件，默认 umask 022 就是 644；
+        不显式收就是松的（和 guanjia 的配置文件同一个病）。
+
+        WAL 和 SHM 是同一份数据的另外两块，一起收。
+        收不动就算了（不支持权限的文件系统）——起不来比权限松更糟。
+        """
+        base = Path(self.db_path)
+        try:
+            base.parent.chmod(0o700)
+        except OSError:
+            pass
+        for suffix in ("", "-wal", "-shm"):
+            candidate = Path(str(base) + suffix)
+            try:
+                if candidate.exists():
+                    candidate.chmod(0o600)
+            except OSError:
+                pass
 
     def _connect(self) -> sqlite3.Connection:
         from .db import connect
