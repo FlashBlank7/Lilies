@@ -342,6 +342,32 @@ class WorkflowConcierge:
                 return matches[0]
         return None
 
+    async def _still_in_use(self, app: dict) -> bool:
+        """这个工作流还在用吗——已发布，且有定时或最近成功跑过。
+
+        判据宽一点是有意的：误判成"还在用"只是多问业主一句，
+        误判成"废弃"会让一份日报无声地停掉。两种代价不对等。
+        """
+        if not app.get("active_version"):
+            return False        # 没发布过的草稿，本来就是这个工具的正主
+
+        def _query() -> bool:
+            with self.services.workflow_store.storage._connect() as conn:
+                recent = conn.execute(
+                    "SELECT 1 FROM workflow_runs WHERE application_id=? "
+                    "AND status='succeeded' AND version IS NOT NULL "
+                    "AND created_at >= date('now','-14 days') LIMIT 1",
+                    (app["id"],)).fetchone()
+                if recent:
+                    return True
+                snapshot = conn.execute(
+                    "SELECT snapshot_json FROM application_versions "
+                    "WHERE application_id=? AND version=?",
+                    (app["id"], app["active_version"])).fetchone()
+            return bool(snapshot and "schedule_trigger" in str(snapshot[0]))
+
+        return await asyncio.to_thread(_query)
+
     async def _declared_inputs(self, app_id: str) -> list[dict[str, Any]]:
         """发布版 start 节点声明的输入。取不到就回空——宁可不拦，不可误拦。"""
         try:
@@ -667,6 +693,27 @@ class WorkflowConcierge:
             if not app:
                 return {"error": "找不到该工作流"}
             archived = action == "archive"
+            # 还在用的工作流，不能凭一句话就收起来。
+            #
+            # 这个工具的说明写的是「收起废弃草稿（从没发布、从没成功跑过、
+            # 放了一阵子）」，但 archive 这一支对**任何**名字都照收。
+            # 2026-08-29 的一次探测里，一句「把词频统计删掉」就把一个
+            # 已发布、在跑的工作流收走了（事后用 restore 复原）。
+            # 收起来是可逆的，但它**同时会停掉定时**——
+            # 一份每天早上八点的日报会从此不再来，而没有人会收到通知。
+            #
+            # 闸不是"问模型确认"（它会自己替业主答应），
+            # 而是查**业主原话**里有没有明确的确认词。
+            # 和返修那道闸同一个思路：会造成损失的动作，
+            # 依据必须落在业主真说过的字上。
+            if archived and await self._still_in_use(app):
+                if not _OWNER_CONFIRMS.search(self._owner_words):
+                    return {"error": (
+                        f"「{app.get('name')}」还在用——它已发布，"
+                        "而且有定时或最近成功跑过。收起来之后它的定时会停，"
+                        "客户链接也打不开了。"
+                        "请把这一点告诉业主，等他明确说一句「确认收起」再来收。"),
+                        "需要业主确认": True}
             result = await services.workflow_store.set_archived(app["id"], archived)
             note = ("已从列表收起（数据都在，说「拿回 X」就能恢复）"
                     if archived else "已放回列表")
@@ -1255,6 +1302,12 @@ _HEALTH_WORDS = {
 # 版本号「v3」「版本 1」这类不算——它们不是会变的统计量，
 # 而且几乎每条回答都带，一律贴提醒就成了噪音。
 _NUMBERS = re.compile(r"(?<![vV版本])\d{1,}\s*(?:次|个|条|%|％|天|分钟|小时)")
+
+
+# 业主明确表示"就这么办"的说法。
+# 只认**确认类**的词：光有「收起来」不算——业主第一句往往就是
+# 「把 X 收起来」，认它等于这道闸从来没关过。
+_OWNER_CONFIRMS = re.compile(r"确认|确定|没错|就这么办|删吧|收吧|停了也行|我知道")
 
 
 _RUN_WORDS = {
