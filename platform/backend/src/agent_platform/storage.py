@@ -1289,6 +1289,35 @@ class Storage:
             after_count = conn.execute("SELECT COUNT(*) AS c FROM events").fetchone()["c"]
         return {"removed": before - after_count, "remaining": after_count}
 
+    async def database_space(self) -> dict[str, int]:
+        """库文件多大、其中有多少是删完之后空出来、但**没还给磁盘**的。
+
+        SQLite 的 DELETE 只把页标成空闲，文件不会变小（本仓 auto_vacuum=0，
+        代码里也没有任何 VACUUM）。归档任务一次清掉几十万行之后，
+        日志上写着"移除 N 行"，而 `ls -lh` 看到的还是原来那么大——
+        运维会以为归档没起作用。
+
+        真机 2026-08-29 的数字：库 978 MB，其中 845 MB 是
+        platform_harness.usage.recorded；那批是**一个已经修好的 bug**
+        留下的（当时每条事件都把任务至今的全部用量明细抄一份，平方级增长）。
+        修完不再长，但存量还在，而且要等它过了保留期才轮得到清。
+
+        只报数，不动手：VACUUM 要重写整个库、拿排他锁、临时占两倍磁盘，
+        那是运维该挑时间做的事，不是后台任务该偷偷做的。
+        见 scripts/compact_db.py。
+        """
+        def _read() -> dict[str, int]:
+            with self._connect() as conn:
+                page_size = conn.execute("PRAGMA page_size").fetchone()[0]
+                page_count = conn.execute("PRAGMA page_count").fetchone()[0]
+                free = conn.execute("PRAGMA freelist_count").fetchone()[0]
+            return {
+                "bytes": int(page_size) * int(page_count),
+                "reclaimable_bytes": int(page_size) * int(free),
+            }
+
+        return await asyncio.to_thread(_read)
+
     async def subscribe(self, stream_id: str, after: int = 0) -> AsyncIterator[EventRecord]:
         for event in await self.list_events(stream_id, after):
             yield event

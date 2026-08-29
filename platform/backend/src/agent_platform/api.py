@@ -1946,9 +1946,20 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
                 if compressed["compressed"]:
                     logger.info("冷文件压缩：%s 个，省 %.1f MB",
                                 compressed["compressed"], compressed["bytes_saved"] / 1e6)
-                logger.info("事件维护完成：耗时 %.1f 秒，归档 %s 行、压缩 %s 个文件",
-                            monotonic() - started, archived["removed"],
-                            compressed["compressed"])
+                # 删了行不等于腾了磁盘：SQLite 的 DELETE 只把页标成空闲，
+                # 文件一个字节都不会变小（本仓 auto_vacuum=0）。
+                # 不报这一句的话，日志说"移除 30 万行"而 ls -lh 纹丝不动，
+                # 运维只会以为归档没起作用。
+                # 报了也不动手——VACUUM 要重写整库、拿排他锁、临时占两倍磁盘，
+                # 那是人挑时间做的事（scripts/compact_db.py）。
+                space = await services.storage.database_space()
+                logger.info(
+                    "事件维护完成：耗时 %.1f 秒，归档 %s 行、压缩 %s 个文件；"
+                    "库 %.0f MB，其中 %.0f MB 已空闲但没还给磁盘"
+                    "（要收回来跑 scripts/compact_db.py）",
+                    monotonic() - started, archived["removed"],
+                    compressed["compressed"],
+                    space["bytes"] / 1e6, space["reclaimable_bytes"] / 1e6)
             except asyncio.CancelledError:
                 # 关服时取消是正常的，但"跑了多久被打断"要留痕：
                 # 每次重启都在同一处被砍，说明它根本没机会跑完。
