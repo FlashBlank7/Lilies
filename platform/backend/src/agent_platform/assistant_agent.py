@@ -1276,29 +1276,47 @@ class WorkflowConcierge:
                 tool_choice={"type": "auto"})
             pending_text = ""
 
+            # 这一轮有可能被打回重来（见下面"空手报数字"那段）：还没调过任何工具、
+            # 也还没回炉过。**打出去的字收不回来**，所以这一轮先攒着，
+            # 等确定不打回了再一次性发出去。
+            #
+            # 常见情形不受影响：第一轮通常是工具调用（没有正文），
+            # 第二轮 actions 已经非空，照旧逐句流式。
+            # 真正被延迟的只有"一句话都没查就直接答"的那一轮，
+            # 而那正是可能作废的一轮——先给业主看一个待会儿要被推翻的数字，
+            # 比让他多等半秒糟得多。
+            may_be_redone = not actions and not asked_to_check
+            held: list[str] = []
+
             async def forward(kind: str, data: dict) -> None:
                 nonlocal pending_text
                 if not kind.endswith(".text.delta"):
                     return
                 # 攒到句子边界再清洗再发：打出去的字收不回来
                 out, pending_text = clean_stream(pending_text, data.get("text", ""))
-                if out:
+                if not out:
+                    return
+                if may_be_redone:
+                    held.append(out)
+                else:
                     await _emit({"type": "delta", "text": out})
+
+            async def flush_held() -> None:
+                for piece in held:
+                    await _emit({"type": "delta", "text": piece})
+                held.clear()
 
             response = await collect_model_stream(
                 stream, model=self.settings.deepseek_runtime_model,
                 emit=forward if emit is not None else None)
             calls = [b for b in response.blocks if b.type == "tool_use"]
             if not calls:
-                # 最后半句（没有句号收尾的那截）也要清洗后发出去，
-                # 否则流式会缺尾巴，而客户端只在"没流过"时才用 final。
-                if pending_text.strip():
-                    tail = _without_context_marks(pending_text)
-                    if tail:
-                        await _emit({"type": "delta", "text": tail})
-                    pending_text = ""
                 text = _without_context_marks(
                     " ".join(b.text or "" for b in response.blocks if b.type == "text"))
+                # 注意顺序：**先判要不要打回，再往外发字**。
+                # 反过来写的话，被作废的那一轮已经流到业主屏幕上了，
+                # 他会先看到一个错数字、再看到订正——比多等半秒糟得多。
+                # （这个顺序我第一版就写反了，测试也是先绿后红才发现。）
                 # 空手报数字：整轮一个工具都没调，却给出了「N 次 / N 个 / N%」。
                 #
                 # 这是今天两次最难看的错的共同形状：
@@ -1312,6 +1330,10 @@ class WorkflowConcierge:
                 if (not actions and not asked_to_check
                         and _NUMBERS.search(text or "")):
                     asked_to_check = True
+                    # 攒着的那些字就此作废：held 是每轮新建的，
+                    # continue 之后下一轮会拿到一个空的，不用显式清
+                    # （写过一句 held.clear()，变异验证显示它是死代码——
+                    #   看着像在把关、实际什么也没做的代码比没有更糟）。
                     messages.append(ChatMessage(
                         role="assistant",
                         content=[ContentBlock(type="text", text=text)]))
@@ -1324,6 +1346,15 @@ class WorkflowConcierge:
                                  "再照查到的数重说一遍。")]))
                     pending_text = ""
                     continue
+                # 这一轮定了：攒着的补发出去，最后半句（没有句号收尾的那截）
+                # 也要清洗后发出去——否则流式会缺尾巴，
+                # 而客户端只在"没流过"时才用 final。
+                await flush_held()
+                if pending_text.strip():
+                    tail = _without_context_marks(pending_text)
+                    if tail:
+                        await _emit({"type": "delta", "text": tail})
+                    pending_text = ""
                 # 空回答不能只回一句「（无回复）」——那是个死胡同：
                 # 用户不知道是自己问得不对、还是平台坏了、还是该重说一遍。
                 # 流式那条路（api.py）早就有一句能行动的话了，这条没有。

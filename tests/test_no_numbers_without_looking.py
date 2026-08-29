@@ -110,3 +110,72 @@ async def test_a_version_number_alone_does_not_count_as_a_statistic():
     """「版本 1」不是统计量——为它打回一次是白费一轮。"""
     actions, text, rounds = await _run([_text("已发布的是「词频统计」（版本 1）。")])
     assert rounds == 1, "被版本号误伤了"
+
+
+# ── 被作废的那一轮，一个字都不能流到业主屏幕上 ──
+
+
+async def _run_streaming(replies: list):
+    """跟 _run 一样，但接上 emit，把发出去的事件都记下来。"""
+    concierge = _concierge()
+    rounds = {"n": 0}
+    events: list[dict] = []
+
+    async def fake(*args, **kwargs):
+        rounds["n"] += 1
+        reply = replies[min(rounds["n"] - 1, len(replies) - 1)]
+        # 模拟真流：把整段正文当成一次 delta 推给 forward
+        forward = kwargs.get("emit")
+        if forward is not None:
+            for block in reply.blocks:
+                if block.type == "text":
+                    await forward("content.text.delta", {"text": block.text})
+        return reply
+
+    async def collect(event: dict) -> None:
+        events.append(event)
+
+    with patch("agent_platform.assistant_agent.collect_model_stream", fake):
+        actions, text = await concierge.reply(
+            [{"role": "user", "text": "今天跑了几次"}], {}, emit=collect)
+    return events, text, rounds["n"]
+
+
+@pytest.mark.asyncio
+async def test_the_discarded_round_never_reaches_the_screen():
+    """打出去的字收不回来。
+
+    第一版把「补发攒着的字」写在了「判要不要打回」**前面**，
+    于是被作废的那一轮照样流了出去——业主先看到一个错数字、
+    再看到订正。这比让他多等半秒糟得多。
+    """
+    events, text, rounds = await _run_streaming(
+        [_text("今天跑了 12 次。"), _text("查过了，今天跑了 1 次。")])
+    assert rounds == 2
+    streamed = "".join(e["text"] for e in events if e["type"] == "delta")
+    assert "12 次" not in streamed, f"作废的那一轮流出去了：{streamed}"
+    assert "1 次" in streamed
+    assert "12 次" not in text
+
+
+@pytest.mark.asyncio
+async def test_the_kept_round_does_reach_the_screen():
+    """别为了保险把该发的也扣住——不打回时字要照常流出去。"""
+    events, text, _ = await _run_streaming([_text("好的，这就帮你看看。")])
+    streamed = "".join(e["text"] for e in events if e["type"] == "delta")
+    assert "这就帮你看看" in streamed
+
+
+@pytest.mark.asyncio
+async def test_the_final_event_matches_what_was_streamed():
+    """流出去的和 final 说的必须是同一件事。
+
+    客户端只在"一个字都没流过"时才用 final；两者不一致时，
+    用户看到的取决于他用的是哪个客户端——那是最难查的一类不一致。
+    """
+    events, text, _ = await _run_streaming(
+        [_text("今天跑了 12 次。"), _text("查过了，今天跑了 1 次。")])
+    streamed = "".join(e["text"] for e in events if e["type"] == "delta")
+    final = next(e["text"] for e in events if e["type"] == "final")
+    assert streamed.replace(" ", "") == final.replace(" ", "")
+    assert final == text
