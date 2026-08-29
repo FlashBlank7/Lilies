@@ -180,3 +180,27 @@ async def test_the_model_sees_it_in_plain_chinese(services):
     rows = result["week_failures"]
     assert rows and set(rows[0]) == {"日期", "工作流", "这天失败几次"}, rows
     assert rows[0]["这天失败几次"] == 5
+
+
+@pytest.mark.asyncio
+async def test_the_failure_count_is_not_capped_by_how_many_rows_we_fetch(services):
+    """整条链路验一次：600 次同因失败要显示 600，不是 500。
+
+    这个 bug 修过一次没修透——最早封顶在 8（真值 13 显示成 ×8），
+    改成 500 之后数量级换了、病没换。真机现在才 13 条，离 500 还远；
+    正因如此才要现在验：等撞上的时候，看到的是一个不响的错数。
+    """
+    _seed(services, real_runs=[])
+    storage = services.workflow_store.storage
+    with storage._connect() as conn:
+        conn.executemany(
+            "INSERT INTO workflow_runs(id,application_id,version,draft_revision,status,"
+            "state_json,outputs_json,error,created_at,updated_at) "
+            "VALUES(?,?,1,NULL,'failed','{}','{}','一直是这个毛病',"
+            "datetime('now',?),datetime('now',?))",
+            [(f"many-{i}", "app-1", f"-{i} seconds", f"-{i} seconds")
+             for i in range(600)])
+    data = await build_overview(services)
+    rows = [r for r in data["recent_failures"] if r["workflow"] == "被测工作流"]
+    assert rows, data["recent_failures"]
+    assert rows[0]["count"] == 600, rows[0]

@@ -84,3 +84,48 @@ class CountIsNotCappedBySqlLimitTest(unittest.TestCase):
         self.assertEqual(len(rows), 2)
         self.assertEqual({r["workflow"] for r in rows}, {"统计", "日报"})
         self.assertEqual(rows[0]["count"], 20)
+
+
+class CountsAreNotCappedTest(unittest.TestCase):
+    """次数不能被"取回来多少条"限死——这个 bug 修过一次没修透。
+
+    最早是 SQL LIMIT 8、合并在 Python 里做，于是次数封顶在 8
+    （线上真值 13 显示成 ×8，少报 38%）。那次改成 LIMIT 500：
+    数量级换了，病还是同一个——失败记录一超过 500 条，次数又开始少报，
+    而且是**静默**的，面板上还是个数，只是变小了。
+
+    现在聚合在 SQL 里做，每行自带 n；这里的合并必须**累加 n**。
+    写成 +1 的话，一句人话下面藏着的几十次会被压成"几种"。
+    """
+
+    def test_the_upstream_count_is_added_not_counted_as_one(self):
+        rows = _dedupe_failures([
+            {**_fail("aaaaaaaa11", "统计", "2026-08-28T06:00", "boom"), "n": 900},
+        ])
+        self.assertEqual(rows[0]["count"], 900)
+
+    def test_two_wordings_of_one_cause_add_up(self):
+        """翻译会把不同原文归到同一句人话——那时两行的 n 要相加。"""
+        rows = _dedupe_failures([
+            {**_fail("aaaaaaaa11", "统计", "2026-08-28T06:00", "boom"), "n": 7},
+            {**_fail("bbbbbbbb22", "统计", "2026-08-28T05:00", "boom"), "n": 5},
+        ])
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["count"], 12)
+
+    def test_the_newest_occurrence_wins_whatever_the_order(self):
+        """留的是最近那一次的时刻和编号，不能因为上游顺序变了就串。"""
+        rows = _dedupe_failures([
+            {**_fail("oldoldold1", "统计", "2026-08-20T01:00", "boom"), "n": 1},
+            {**_fail("newnewnew2", "统计", "2026-08-28T09:00", "boom"), "n": 1},
+        ])
+        self.assertEqual(rows[0]["at"], "2026-08-28T09:00")
+        self.assertEqual(rows[0]["run_id"], "newnewne")
+
+    def test_rows_without_a_count_still_mean_one(self):
+        """老调用方（和老测试）不带 n——不能因此算成 0。"""
+        rows = _dedupe_failures([
+            _fail("aaaaaaaa11", "统计", "2026-08-28T06:00", "boom"),
+            _fail("bbbbbbbb22", "统计", "2026-08-28T05:00", "boom"),
+        ])
+        self.assertEqual(rows[0]["count"], 2)

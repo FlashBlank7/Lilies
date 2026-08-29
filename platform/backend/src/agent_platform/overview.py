@@ -47,19 +47,31 @@ async def build_overview(services: Any) -> dict[str, Any]:
                 (f"{today}%",),
             ).fetchall())
             failures = [dict(r) for r in conn.execute(
-                "SELECT r.id, r.application_id, substr(r.created_at,1,19) AS at, "
+                # **在 SQL 里数，别取回来再数。**
+                #
+                # 这个 bug 修过一次没修透：最早是 LIMIT 8，合并在 Python 里做，
+                # 于是次数封顶在 8（线上真值 13 显示成 ×8，少报 38%）。
+                # 那次改成 LIMIT 500——数量级换了，病还是同一个：
+                # 一旦未归档工作流的失败记录超过 500 条，次数又开始少报，
+                # 而且是**静默**的：面板上还是个数，只是变小了。
+                # 真机现在 13 条，离 500 还远，正因如此才要现在改：
+                # 等撞上的时候，看到的是一个不响的错数。
+                #
+                # GROUP BY 之后再没有这个上限——每个原因的次数是全量真值。
+                # 一个聚合的 MIN/MAX 配裸列时，SQLite 保证裸列取自那一行，
+                # 所以 r.id 就是最近那次的编号（不是随便一行）。
+                "SELECT a.name, COUNT(*) AS n, "
+                "MAX(substr(r.created_at,1,19)) AS at, r.id, "
                 # 失败原因权威来源是顶层 error 列；state_json 里没有 error 字段
                 # （WorkflowRunState 模型压根没这个字段），只留作老数据兜底。
-                "COALESCE(r.error, json_extract(r.state_json,'$.error'), '') AS error, a.name "
+                "COALESCE(r.error, json_extract(r.state_json,'$.error'), '') AS error "
                 "FROM workflow_runs r JOIN applications a ON a.id=r.application_id "
                 # 退休工作流的旧失败没必要继续占着面板
                 f"WHERE r.status='failed' AND a.archived_at IS NULL AND r.{_REAL_RUN} "
-                # 取够再合并。原本是 LIMIT 8：合并在 Python 里做，
-                # 而 SQL 先砍到 8 行——于是 ×N 的次数**封顶在 8**
-                # （线上真值 13 显示成 ×8，少报 38%），
-                # 同因重复占满 8 行时别的工作流照样被挤出去，
-                # 也就是说昨天那次「合并同因」只修了一半。
-                "ORDER BY r.created_at DESC LIMIT 500"
+                "GROUP BY a.name, error "
+                # 这里的 300 截的是「有多少种不同的毛病」，不是「出现过几次」。
+                # 截掉的是最久没再犯的那些种类，每一种的次数都仍是全量。
+                "ORDER BY at DESC LIMIT 300"
             ).fetchall()]
             week_rows = conn.execute(
                 "SELECT substr(r.created_at,1,10) AS day, r.status, COUNT(*) AS n "
@@ -312,17 +324,27 @@ def _dedupe_failures(failures: list) -> list[dict[str, Any]]:
     客户端只显示前几条：同因重复会把别的工作流的问题挤出屏幕，
     真机上就发生过——5 条重复盖掉了另一个工作流的两个不同问题。
     保留最先出现的那条（上游按时间倒序给），次数累加。
+
+    上游已经按 (工作流, **原始**报错) 在 SQL 里聚合过了，每行自带 n。
+    这里还要再合一次，因为翻译会把不同的原文归到同一句人话
+    （比如同一族错误的不同措辞）。所以次数是 **累加 n**，不是 +1——
+    写成 +1 的话，一句人话下面藏着的几十次会被压成"几种"。
     """
     merged: dict[tuple[str, str], dict[str, Any]] = {}
     for item in failures:
         error = _human_error(item.get("error") or "")
         key = (item["name"], error)
+        times = int(item.get("n") or 1)
         existing = merged.get(key)
         if existing is None:
-            merged[key] = {"run_id": item["id"][:8], "workflow": item["name"],
-                           "at": item["at"], "error": error, "count": 1}
+            merged[key] = {"run_id": str(item["id"])[:8], "workflow": item["name"],
+                           "at": item["at"], "error": error, "count": times}
         else:
-            existing["count"] += 1
+            existing["count"] += times
+            # 上游按 at 倒序给，先来的那条更近；万一顺序变了也认时间
+            if str(item.get("at") or "") > str(existing["at"] or ""):
+                existing["at"] = item["at"]
+                existing["run_id"] = str(item["id"])[:8]
     return list(merged.values())
 
 
