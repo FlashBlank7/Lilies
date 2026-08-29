@@ -4726,7 +4726,9 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         try:
             run = await services.workflow_store.get_run(run_id)
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            # 这条是管理侧（要令牌），但 KeyError 的 str 一样是被引号包起来的
+            # 键名，印出来是 {"detail":"'record not found'"}——引号是噪音。
+            raise HTTPException(404, "找不到这个运行号") from error
         if str(run.get("application_id")) != application_id:
             raise HTTPException(404, "这个运行不属于该应用")
         builds = await services.workflow_store.list_builds(application_id)
@@ -4969,7 +4971,10 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         try:
             application = await services.workflow_store.get_application(application_id)
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            # KeyError 的 str 是被引号包起来的键名（"'application not found'"），
+            # 英文加上一对多余的引号，对业主没有任何意义。
+            raise HTTPException(404, "找不到这个工作流——链接可能已经失效，"
+                                     "联系服务方要一条新的") from error
         builds = await services.workflow_store.list_builds(application_id)
         latest = builds[0] if builds else None
         acceptance = acceptance_pm.load_report(services.settings.data_dir, application_id)
@@ -5134,7 +5139,8 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         try:
             application = await services.workflow_store.get_application(application_id)
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, "这个应用找不到了——"
+                                     "找给你链接的人确认一下") from error
 
         buffer = io.BytesIO()
         with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as bundle:
@@ -5293,7 +5299,8 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         try:
             definition = await customer_runtime_definition(application_id)
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, "这个应用还没准备好——"
+                                     "找给你链接的人确认一下") from error
         snapshot = definition.get("snapshot") or {}
         workflow = snapshot.get("workflow") or {}
         nodes = [
@@ -5377,7 +5384,8 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         try:
             definition = await customer_runtime_definition(application_id)
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, "这个应用还没准备好——"
+                                     "找给你链接的人确认一下") from error
         application = await services.workflow_store.get_application(application_id)
         definition["application_name"] = application.get("name", "")
         snapshot = definition.get("snapshot")
@@ -5434,15 +5442,23 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         try:
             application = await services.workflow_store.get_application(application_id)
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, "这个应用找不到了——"
+                                     "找给你链接的人确认一下") from error
         if application.get("archived_at"):
             raise HTTPException(409, f"「{application.get('name')}」已经收起来了，"
                                      "先把它拿回列表再跑")
+        # 还没发布的应用要单独说。走到下面 create_run 的话，它抛的也是 KeyError，
+        # 于是客户看到「这个应用找不到了」——而应用明明在，只是还没发布。
+        # 这句话会把人引到错误的方向（去找链接对不对），而真正该做的是等发布。
+        if not application.get("active_version"):
+            raise HTTPException(409, f"「{application.get('name')}」还没发布，"
+                                     "现在还不能用——等服务方发布后再试")
         try:
             body.use_draft = False
             return await services.workflow_runtime.create_run(application_id, body)
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, "这个应用找不到了——"
+                                     "找给你链接的人确认一下") from error
         except (ValueError, RuntimeError) as error:
             raise HTTPException(422, str(error)) from error
 
@@ -5450,7 +5466,10 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         try:
             run = await services.workflow_store.get_run(run_id)
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            # 原先客户看到的是 {"detail":"'record not found'"}：
+            # 英文、还带着 KeyError repr 出来的一对引号。
+            raise HTTPException(404, "找不到这次运行——"
+                                     "链接可能过期了，重新跑一次") from error
         if str(run.get("application_id")) != application_id:
             raise HTTPException(404, "这个运行不属于该应用")
         return run

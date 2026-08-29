@@ -80,11 +80,16 @@ def test_use_channel_access_and_table_parse(tmp_path: Path) -> None:
         assert parsed.status_code == 200
         assert parsed.json()["rows"] == [{"单号": "PO-1", "金额": 100}]
 
-        # 没发布版时开跑给可读的 422，而不是 500
+        # 没发布版时开跑要给可读的回应，而不是 500。
+        # 2026-08-29 起这一支单独回 409 并明说"还没发布"——
+        # 原先它落到 create_run 的 KeyError 上，客户看到"这个应用找不到了"，
+        # 于是去核对链接对不对，而应用明明在。
+        # 状态码跟着旁边的"已收起来"那支走（都是 409：东西在，只是现在不能用）。
         run = client.post(
             f"/api/v1/use/{application_id}/runs?code={newcode}", json={"inputs": {}}
         )
-        assert run.status_code in (404, 422)
+        assert run.status_code in (404, 409, 422), run.text
+        assert "还没发布" in run.json()["detail"], run.text
 
 
 def test_run_ledger_summary_flags_template_echo() -> None:

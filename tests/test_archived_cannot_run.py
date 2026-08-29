@@ -42,21 +42,42 @@ class ArchivedCannotRunTest(unittest.TestCase):
 
     def test_archived_workflow_is_refused(self):
         response, create_run = self._post(
-            {"id": "a1", "name": "退休了的", "archived_at": "2026-08-28T00:00:00+00:00"})
+            {"id": "a1", "name": "退休了的", "active_version": 1,
+             "archived_at": "2026-08-28T00:00:00+00:00"})
         self.assertEqual(response.status_code, 409)
         self.assertIn("收起来", response.json()["detail"])
         create_run.assert_not_awaited()      # 关键：钱一分没花
 
     def test_the_refusal_says_how_to_undo_it(self):
         response, _ = self._post(
-            {"id": "a1", "name": "退休了的", "archived_at": "2026-08-28T00:00:00+00:00"})
+            {"id": "a1", "name": "退休了的", "active_version": 1,
+             "archived_at": "2026-08-28T00:00:00+00:00"})
         self.assertIn("拿回", response.json()["detail"])
 
     def test_a_live_workflow_still_runs(self):
+        # active_version 不能省：真的 get_application 一定带这个字段，
+        # 而"能跑的工作流"按定义就是发布过的。省掉它的话，这个夹具描述的是
+        # 一个现实中不存在的状态——2026-08-29 加"未发布单独说一句"时它先红了，
+        # 红得对：夹具比真载荷少字段，测的就不是它声称要测的场景。
         response, create_run = self._post({"id": "a1", "name": "在用的",
-                                           "archived_at": None})
+                                           "archived_at": None,
+                                           "active_version": 1})
         self.assertEqual(response.status_code, 202)
         create_run.assert_awaited_once()
+
+    def test_an_unpublished_workflow_is_refused_with_its_own_reason(self):
+        """还没发布 ≠ 已收起来 ≠ 找不到——三种情况三句话。
+
+        原先未发布会落到 create_run 的 KeyError 上，客户看到
+        「这个应用找不到了」，于是去核对链接对不对——而应用明明在。
+        """
+        response, create_run = self._post({"id": "a1", "name": "还没发布的",
+                                           "archived_at": None,
+                                           "active_version": None})
+        self.assertEqual(response.status_code, 409)
+        self.assertIn("还没发布", response.json()["detail"])
+        self.assertNotIn("找不到", response.json()["detail"])
+        create_run.assert_not_awaited()      # 钱一分没花
 
     def test_missing_application_is_404_not_409(self):
         client = TestClient(self.app)
