@@ -67,6 +67,25 @@ async def build_overview(services: Any) -> dict[str, Any]:
                 "WHERE r.created_at >= date('now','-6 days') "
                 f"AND a.archived_at IS NULL AND r.{_REAL_RUN} GROUP BY day, r.status",
             ).fetchall()
+            # 每天的失败**分别属于谁**。
+            #
+            # 起因（2026-08-29 真机）：问「昨天一共有几次失败」，
+            # 答「5 次。其中「文本行数与净字数统计」有一次失败记录」——
+            # 5 是对的（从周视图读的），"一次"是错的（那 5 次全是它）。
+            # 周视图只有每天的总数，失败清单是**整窗合并**的（一个原因一行），
+            # 于是"某天的总数"和"哪个工作流"之间没有任何东西连着，
+            # 只能猜；而它把清单里的一**行**读成了一**次**。
+            #
+            # 这个数平台一句 SQL 就有。真机上近 7 天只有 2 行、108 字符——
+            # 便宜到没有理由让它去猜。
+            week_failures = [dict(r) for r in conn.execute(
+                "SELECT substr(r.created_at,1,10) AS day, a.name AS workflow, "
+                "COUNT(*) AS failed "
+                "FROM workflow_runs r JOIN applications a ON a.id=r.application_id "
+                "WHERE r.status='failed' AND r.created_at >= date('now','-6 days') "
+                f"AND a.archived_at IS NULL AND r.{_REAL_RUN} "
+                "GROUP BY day, a.name ORDER BY day DESC, failed DESC LIMIT 60"
+            ).fetchall()]
             builds_active = int(conn.execute(
                 "SELECT COUNT(*) FROM builds WHERE status IN ('queued','building')"
             ).fetchone()[0])
@@ -87,7 +106,8 @@ async def build_overview(services: Any) -> dict[str, Any]:
                 "JOIN applications a ON a.id=v.application_id AND a.active_version=v.version"
             ).fetchall()}
         return {"runs_today": runs_today, "failures": failures, "week_rows": week_rows,
-                "builds_active": builds_active, "apps": apps, "fires": fires, "drafts": drafts}
+                "week_failures": week_failures, "builds_active": builds_active,
+                "apps": apps, "fires": fires, "drafts": drafts}
 
     data = await asyncio.to_thread(query)
 
@@ -147,6 +167,9 @@ async def build_overview(services: Any) -> dict[str, Any]:
         "recent_failures": _dedupe_failures(data["failures"])[:8],
         "published_workflows": len(data["apps"]),
         "week": week_list,
+        # 每天的失败分别属于哪个工作流（近 7 天）。week 只有每天的总数，
+        # 这一份把总数拆到人头上——不然"昨天 5 次失败"是谁干的只能猜。
+        "week_failures": data["week_failures"],
     }
 
 

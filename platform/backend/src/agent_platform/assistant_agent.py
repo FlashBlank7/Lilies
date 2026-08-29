@@ -830,10 +830,20 @@ class WorkflowConcierge:
                     "原因": row.get("error"),
                     "run_id": row.get("run_id"),
                 })
+            # 「昨天失败 5 次」和「是谁失败的」之间原本没有东西连着：
+            # week 只有每天的总数，失败清单是整窗合并的。真机实测它就在这里
+            # 编了一句「其中某某有一次失败记录」——总数对、归属错
+            # （那 5 次全是同一个工作流的）。现在直接给到人头上。
+            week_failures = [{"日期": row.get("day"), "工作流": row.get("workflow"),
+                              "这天失败几次": row.get("failed")}
+                             for row in data.get("week_failures") or []]
             return {**data, "recent_failures": failures,
+                    "week_failures": week_failures,
                     "失败清单怎么读": "「一共出现过几次」是整个窗口的合计，"
                                       "不是「最近一次失败在」那天的次数。"
-                                      "要某一天的次数，用 recent_runs 逐次看。"}
+                                      "问某一天失败几次、分别是谁，"
+                                      "看 week_failures（近 7 天，已拆到工作流），"
+                                      "别拿失败清单的行数当次数。"}
         if name == "recent_builds":
             builds = await services.workflow_store.list_recent_builds(limit=int(args.get("limit") or 5))
             # 跟 build_status 走同一层翻译：状态码不能从这条路漏出去
