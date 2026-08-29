@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import json
+import logging
 import sqlite3
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta, timezone
@@ -16,6 +17,8 @@ from pydantic import BaseModel, Field, field_validator
 
 from .db import connect as _sqlite_connect
 from .platform_harness import PlatformHarness
+
+logger = logging.getLogger(__name__)
 
 
 def utc_now() -> str:
@@ -375,12 +378,28 @@ class EventAutomationService:
 
     async def _subscription_loop(self, subscription_id: str) -> None:
         while not self._stopping.is_set():
-            subscription = await self.get_subscription(subscription_id)
-            if not subscription["enabled"]:
-                return
-            config = EventSubscriptionCreateRequest.model_validate(
-                subscription["config"]
-            )
+            # 这两句原先在 try 外面：订阅被删了（KeyError）、
+            # 配置校验不过（ValidationError），任务就地静默死亡。
+            # 里面那圈保护挡不住外面这两句——和 tick() 那次一模一样。
+            try:
+                subscription = await self.get_subscription(subscription_id)
+                # 关掉的订阅先退出，再校验配置。
+                # 顺序反过来的话，一个"已关掉但配置也不合法"的订阅会卡在
+                # 校验异常上无限重试——本来它该安静地退出。
+                # （这行顺序是被自己的测试逼出来的：兜底加错地方，
+                #   把一条正常的退出路径变成了死循环。）
+                if not subscription["enabled"]:
+                    return
+                config = EventSubscriptionCreateRequest.model_validate(
+                    subscription["config"]
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001
+                logger.exception("订阅 %s 读不出来，%s 秒后重试",
+                                 subscription_id, self.timer_poll_seconds)
+                await asyncio.sleep(self.timer_poll_seconds)
+                continue
             try:
                 await self._consume_subscription(subscription_id, config)
             except asyncio.CancelledError:
@@ -767,10 +786,36 @@ class EventAutomationService:
         return [self._get_timer_sync(str(row[0])) for row in rows]
 
     async def _timer_loop(self) -> None:
+        """到点的定时器逐个派发。
+
+        这个循环**整段是裸的**：`_dispatch_timer` 里只包住了运行回调，
+        它前面的 json.loads（due_inputs_json 坏了就抛）和后面的记账
+        都在保护之外；`_claim_due_timers_sync` 撞锁也一样。
+        任何一处抛出，asyncio.create_task 起的这个任务就地死亡，
+        而且**不响**——异常要等到任务被回收时才作为
+        "Task exception was never retrieved" 印出来。
+        结果是所有事件定时器永久停摆，界面上什么也看不出来。
+
+        调度器那边为同一个形状写过 _supervise（"循环绝不能就这么没了"），
+        这里照做：一条定时器坏了跳过它，一整轮坏了歇一下重来。
+        """
         while not self._stopping.is_set():
-            due = await asyncio.to_thread(self._claim_due_timers_sync)
-            for timer in due:
-                await self._dispatch_timer(timer)
+            try:
+                due = await asyncio.to_thread(self._claim_due_timers_sync)
+                for timer in due:
+                    try:
+                        await self._dispatch_timer(timer)
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception:  # noqa: BLE001 - 一条坏的不能停掉全部
+                        logger.exception(
+                            "派发定时器 %s 失败（其余照常）",
+                            timer.get("timer_key"))
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001 - 循环绝不能就这么没了
+                logger.exception("事件定时器这一轮出错，%s 秒后重来",
+                                 self.timer_poll_seconds)
             await asyncio.sleep(self.timer_poll_seconds)
 
     def _claim_due_timers_sync(self) -> list[dict[str, Any]]:
