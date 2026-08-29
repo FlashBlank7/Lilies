@@ -104,3 +104,50 @@ def test_no_customer_facing_detail_is_a_bare_key_repr(channel):
         detail = _detail(response)
         assert not re.fullmatch(r"'[^']*'", detail), f"{response.url} → {detail}"
         assert CHINESE.search(detail), f"{response.url} → {detail}"
+
+
+# ── KeyError 的引号是纯噪音，哪条路上都不该出现 ──
+
+
+def test_the_helper_strips_the_quotes():
+    from agent_platform.api import _plain_key_error
+
+    assert _plain_key_error(KeyError("record not found")) == "找不到这条记录"
+    assert "'" not in _plain_key_error(KeyError("record not found"))
+
+
+def test_the_helper_keeps_the_useful_tail():
+    """`application has no published version: <id>` 里的 id 是有用的。
+
+    翻没了等于让人再查一次——所以是"换说法 + 保留细节"，
+    不是"一律换成通用句"。
+    """
+    from agent_platform.api import _plain_key_error
+
+    got = _plain_key_error(KeyError("application has no published version: a1"))
+    assert "还没发布" in got and "a1" in got
+
+
+def test_an_unmapped_key_error_at_least_loses_the_quotes():
+    """认不出的照旧原样给——但引号一定去掉。
+
+    引号是 KeyError repr 的产物，对任何人都没有意义。
+    """
+    from agent_platform.api import _plain_key_error
+
+    got = _plain_key_error(KeyError("从没见过的情况"))
+    assert got == "从没见过的情况"
+
+
+def test_running_an_unpublished_workflow_says_so(channel):
+    """运营侧那条路也要说人话——guanjia run 走的正是它。
+
+    原先回的是 {"detail":"'application has no published version: <id>'"}。
+    """
+    client, app_id, _, _ = channel
+    response = client.post(f"/api/v1/applications/{app_id}/runs",
+                           headers=headers(), json={"inputs": {}})
+    assert response.status_code == 404
+    detail = _detail(response)
+    assert "还没发布" in detail, detail
+    assert not detail.startswith("'"), detail

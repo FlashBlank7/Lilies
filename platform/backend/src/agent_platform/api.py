@@ -193,6 +193,33 @@ def _owner_safe_summary(summary: dict[str, Any] | None) -> dict[str, Any]:
 _OWNER_EVENT_KINDS = frozenset({"published", "needs_attention"})
 
 
+# KeyError 的 str 永远带一对引号（"'application not found: a1'"），
+# 而这些消息会经 HTTPException 原样送到客户端并被 guanjia 直接印出来。
+# 引号是纯噪音；常见的几句顺手翻成人话，其余至少去掉引号。
+#
+# 不做成"一律换成通用句"：`application has no published version: <id>` 里的
+# id 是有用的，翻没了等于让人再查一次。
+_KEY_ERROR_WORDS = (
+    ("application has no published version", "这个工作流还没发布"),
+    ("application draft not found", "找不到这个工作流的草稿"),
+    ("application not found", "找不到这个工作流"),
+    ("record not found", "找不到这条记录"),
+    ("active build not found", "没有正在进行的搭建"),
+    ("platform task not found", "找不到这个任务"),
+)
+
+
+def _plain_key_error(error: BaseException) -> str:
+    """把 KeyError 变成一句能给人看的话：去引号，认得出的换成中文。"""
+    text = error.args[0] if getattr(error, "args", None) else str(error)
+    text = str(text)
+    for marker, words in _KEY_ERROR_WORDS:
+        if text.startswith(marker):
+            tail = text[len(marker):].lstrip(": ").strip()
+            return f"{words}（{tail}）" if tail else words
+    return text
+
+
 def _owner_facing_event(record: dict[str, Any]) -> bool:
     """这条里程碑给不给业主看。
 
@@ -2137,7 +2164,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             task = await services.harness.get_task(task_id)
             return task.model_dump(mode="json")
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
 
     @app.get("/api/v1/platform/harness/policy-controls", dependencies=[Depends(require_token)])
     async def get_platform_harness_policy_controls() -> dict[str, Any]:
@@ -2196,7 +2223,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             )
             return task.model_dump(mode="json")
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
         except PlatformHarnessViolation as error:
             raise HTTPException(409, str(error)) from error
 
@@ -2215,7 +2242,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             )
             return task.model_dump(mode="json")
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
         except PlatformHarnessViolation as error:
             raise HTTPException(409, str(error)) from error
 
@@ -2234,7 +2261,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             )
             return task.model_dump(mode="json")
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
         except PlatformHarnessViolation as error:
             raise HTTPException(409, str(error)) from error
 
@@ -2491,7 +2518,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             manifest = await services.connectors.get_manifest(connector_id, version)
             return manifest.model_dump(mode="json")
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
 
     @app.get(
         "/api/v1/connectors/manifests/{connector_id}/{version}/contract",
@@ -2502,7 +2529,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             manifest = await services.connectors.get_manifest(connector_id, version)
             return manifest.contract_document()
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
 
     @app.get("/api/v1/connectors/bindings", dependencies=[Depends(require_token)])
     async def list_connector_bindings(
@@ -2528,7 +2555,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             )
             return saved.model_dump(mode="json")
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
         except ConnectorConflict as error:
             raise HTTPException(409, str(error)) from error
         except ValueError as error:
@@ -2552,7 +2579,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             )
             return saved.model_dump(mode="json")
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
         except ConnectorConflict as error:
             raise HTTPException(409, str(error)) from error
         except ValueError as error:
@@ -2581,7 +2608,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             )
             return saved.model_dump(mode="json")
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
         except ConnectorConflict as error:
             raise HTTPException(409, str(error)) from error
         except ValueError as error:
@@ -2613,7 +2640,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             )
             return authorization.model_dump(mode="json")
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
         except ConnectorDenied as error:
             raise HTTPException(403, str(error)) from error
         except ValueError as error:
@@ -2634,7 +2661,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
                 "response": record.response,
             }
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
         except ConnectorDenied as error:
             raise HTTPException(403, str(error)) from error
         except ConnectorConflict as error:
@@ -2694,7 +2721,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
                 "application_id": record.application_id,
             }
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
 
     @app.get(
         "/api/v1/connectors/executions/{execution_id}/events",
@@ -2729,7 +2756,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             )
             return record.public_receipt()
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
         except ConnectorDenied as error:
             raise HTTPException(403, str(error)) from error
         except ConnectorConflict as error:
@@ -2751,7 +2778,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             )
             return record.public_receipt()
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
         except ConnectorDenied as error:
             raise HTTPException(403, str(error)) from error
         except ConnectorConflict as error:
@@ -2775,7 +2802,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             )
             return exercise.model_dump(mode="json")
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
         except (ConnectorConflict, ValueError) as error:
             raise HTTPException(422, str(error)) from error
 
@@ -2830,7 +2857,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
                 ),
             }
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
         except ConnectorDenied as error:
             raise HTTPException(403, str(error)) from error
         except (ValueError, RuntimeError) as error:
@@ -2874,7 +2901,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
                 ),
             }
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
         except ConnectorDenied as error:
             raise HTTPException(403, str(error)) from error
         except ConnectorConflict as error:
@@ -3046,7 +3073,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
                 raise ValueError("event subscription workspace_path must exist")
             return await services.event_automation.create_subscription(body)
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
         except (ValueError, PlatformHarnessViolation) as error:
             raise HTTPException(422, str(error)) from error
 
@@ -3073,7 +3100,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
                 subscription_id
             )
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
 
     @app.post(
         "/api/v1/event-subscriptions/{subscription_id}/state",
@@ -3089,7 +3116,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
                 body.enabled,
             )
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
 
     @app.get(
         "/api/v1/event-timers",
@@ -3112,7 +3139,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         try:
             return await services.event_automation.get_timer(timer_key)
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
 
     def knowledge_http_exception(error: Exception) -> HTTPException:
         if isinstance(error, KeyError):
@@ -3458,14 +3485,14 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         try:
             return services.blocks.get(block_type).model_dump(mode="json")
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
 
     @app.get("/api/v1/blocks/{block_type}/manual", dependencies=[Depends(require_token)])
     async def get_block_manual(block_type: str) -> dict[str, Any]:
         try:
             return services.blocks.manual(block_type)
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
 
     # ── Templates ───────────────────────────────────────────
 
@@ -3514,7 +3541,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         try:
             versions = services.templates.versions(module_id)
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
         return [
             module_record_payload(services.templates.get_record(module_id, version))
             for version in versions
@@ -3534,7 +3561,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
                 include_workflow=True,
             )
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
 
     @app.post(
         "/api/v1/applications/{application_id}/capability-modules/{module_id}/versions/{version}/insert",
@@ -3549,7 +3576,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         try:
             record = services.templates.get_record(module_id, version)
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
         if record.state.status != "verified":
             raise HTTPException(
                 409,
@@ -3579,7 +3606,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
                 operations=operations,
             )
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
         except RevisionConflict as error:
             raise HTTPException(409, str(error)) from error
         except ValueError as error:
@@ -3613,7 +3640,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
                 body,
             ).model_dump(mode="json")
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
         except ValueError as error:
             raise HTTPException(422, str(error)) from error
 
@@ -3628,7 +3655,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         try:
             return module_record_payload(services.templates.verify(module_id, version))
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
         except ValueError as error:
             try:
                 record = services.templates.get_record(module_id, version)
@@ -3671,7 +3698,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         try:
             record = services.templates.evidence.get(record_id)
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
         return {
             **record.model_dump(mode="json"),
             "artifact_categories": record.artifact_categories,
@@ -3769,7 +3796,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
                 "registry": module_record_payload(record),
             }
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
 
     @app.post(
         "/api/v1/templates/{name}/expand",
@@ -3792,7 +3819,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             )
             return wf.model_dump(mode="json")
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
 
     @app.post(
         "/api/v1/applications/{application_id}/publish-template",
@@ -3803,7 +3830,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         try:
             draft = await services.workflow_store.get_draft(application_id)
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
         app = await services.workflow_store.get_application(application_id)
         name = app["name"].lower().replace(" ", "_").replace("-", "_")
         template = services.templates.register(
@@ -4141,7 +4168,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         try:
             return await services.scheduler.schedule_status(application_id)
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
 
     @app.get(
         "/api/v1/applications/{application_id}/durable-jobs",
@@ -4172,7 +4199,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
                 "attempts": [item.model_dump(mode="json") for item in attempts],
             }
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
 
     @app.get(
         "/api/v1/durable-jobs/{job_id}/events",
@@ -4186,7 +4213,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         try:
             await services.durable_jobs.get(job_id)
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
         return [
             item.model_dump(mode="json")
             for item in await services.durable_jobs.list_events(
@@ -4208,7 +4235,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         try:
             await services.durable_jobs.get(job_id)
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
         return [
             item.model_dump(mode="json")
             for item in await services.durable_jobs.list_receipts(
@@ -4233,7 +4260,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             )
             return record.model_dump(mode="json")
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
         except DurableJobConflict as error:
             raise HTTPException(409, str(error)) from error
 
@@ -4252,7 +4279,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             )
             return record.model_dump(mode="json")
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
         except DurableJobConflict as error:
             raise HTTPException(409, str(error)) from error
 
@@ -4271,7 +4298,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             )
             return record.model_dump(mode="json")
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
         except DurableJobConflict as error:
             raise HTTPException(409, str(error)) from error
 
@@ -4284,7 +4311,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         try:
             return services.scenarios.get(scenario_id).model_dump(mode="json")
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
 
     @app.post(
         "/api/v1/applications/{application_id}/scenarios/{scenario_id}/apply",
@@ -4335,7 +4362,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         except RevisionConflict as error:
             raise HTTPException(409, str(error)) from error
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
         except ValueError as error:
             raise HTTPException(422, str(error)) from error
 
@@ -4366,7 +4393,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         try:
             return await services.workflow_store.get_application(application_id)
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
 
     @app.post(
         "/api/v1/applications/{application_id}/smoke-cleanup", dependencies=[Depends(require_token)]
@@ -4416,7 +4443,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             result["cancelled_run_ids"] = cancelled_run_ids
             return result
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
         except ValueError as error:
             raise HTTPException(422, str(error)) from error
 
@@ -4427,7 +4454,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             draft["snapshot"] = draft["snapshot"].model_dump(mode="json")
             return draft
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
 
     @app.post("/api/v1/applications/{application_id}/draft", dependencies=[Depends(require_token)])
     async def mutate_application_draft(application_id: str, body: DraftOperation) -> dict[str, Any]:
@@ -4436,7 +4463,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         except RevisionConflict as error:
             raise HTTPException(409, str(error)) from error
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
         except ValueError as error:
             raise HTTPException(422, str(error)) from error
 
@@ -4476,7 +4503,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             return {"task_id": task_id, **response.model_dump(mode="json")}
         except KeyError as error:
             await services.harness.finish_task(task_id, status="failed", error=str(error))
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
         except ValueError as error:
             await services.harness.finish_task(task_id, status="failed", error=str(error))
             raise HTTPException(422, str(error)) from error
@@ -4613,7 +4640,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             raise HTTPException(409, str(error)) from error
         except KeyError as error:
             await services.harness.finish_task(task_id, status="failed", error=str(error))
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
         except ValueError as error:
             await services.harness.finish_task(task_id, status="failed", error=str(error))
             raise HTTPException(422, str(error)) from error
@@ -4626,7 +4653,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         try:
             return await services.applications.validate_draft(application_id)
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
 
     @app.post(
         "/api/v1/applications/{application_id}/builds",
@@ -4644,7 +4671,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             await services.workflow_store.get_application(application_id)
             await services.workflow_store.get_draft(application_id)
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
         build_id = str(uuid4())
         await services.workflow_store.create_build(
             build_id,
@@ -4695,7 +4722,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             build["team_state"] = build["team_state"].model_dump(mode="json")
             return annotate_build_deadline(build)
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
 
     @app.get("/api/v1/builds/{build_id}/transcript", dependencies=[Depends(require_token)])
     async def get_build_transcript(
@@ -4899,7 +4926,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         try:
             code = await services.workflow_store.rotate_access_code(application_id)
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
         return {
             "application_id": application_id,
             "code": code,
@@ -4916,7 +4943,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         try:
             code = await services.workflow_store.ensure_access_code(application_id)
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
         return {
             "application_id": application_id,
             "code": code,
@@ -4941,7 +4968,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         try:
             code = await services.workflow_store.ensure_owner_code(application_id)
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
         return {
             "application_id": application_id,
             "code": code,
@@ -4956,7 +4983,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         try:
             code = await services.workflow_store.rotate_owner_code(application_id)
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
         return {
             "application_id": application_id,
             "code": code,
@@ -5262,7 +5289,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
                 source = "draft"
                 version = None
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
         payload = {
             "application": {
                 "id": str(application.get("id") or application_id),
@@ -5351,7 +5378,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
                 hidden_nodes=body.hidden_nodes,
             )
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
 
     @app.delete(
         "/api/v1/applications/{application_id}/views/{view_id}",
@@ -5567,7 +5594,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         try:
             return await services.workflow_store.set_archived(application_id, archived)
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
 
     @app.get("/api/v1/applications-archived", dependencies=[Depends(require_token)])
     async def list_archived_applications() -> dict[str, Any]:
@@ -5598,7 +5625,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         try:
             await services.workflow_store.get_run(run_id)
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
         try:
             folder = await asyncio.to_thread(_use_artifact_dir, run_id)
         except Exception:  # noqa: BLE001 - 没有产物目录是常态
@@ -5616,7 +5643,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         try:
             await services.workflow_store.get_run(run_id)
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
         try:
             folder = await asyncio.to_thread(_use_artifact_dir, run_id)
         except Exception as error:  # noqa: BLE001
@@ -5682,7 +5709,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         try:
             application = await services.workflow_store.get_application(application_id)
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
         try:
             spec = await acceptance_pm.generate_spec(services, application, body.examples)
         except (ValueError, RuntimeError) as error:
@@ -5708,7 +5735,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         try:
             report = await acceptance_pm.run_acceptance(services, application_id)
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
         except RuntimeError as error:
             raise HTTPException(409, str(error)) from error
         report["markdown"] = acceptance_pm.render_report_markdown(report)
@@ -5747,7 +5774,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
                 services, application_id, body.question
             )
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
         return {"application_id": application_id, "explanation": text}
 
     @app.post(
@@ -5758,7 +5785,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         try:
             notes = await acceptance_pm.review_progress(services, application_id)
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
         return {"application_id": application_id, "notes": notes}
 
     def _hash_password(password: str, salt: bytes | None = None) -> str:
@@ -5962,7 +5989,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         try:
             build = await services.workflow_store.get_build(build_id)
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
         if build["status"] not in {"queued", "building"}:
             raise HTTPException(409, f"build is {build['status']} — use /resume to continue it")
         try:
@@ -5998,14 +6025,14 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             services.builders.for_build(build).start(build_id)
             return {"build_id": build_id, "status": "queued"}
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
 
     @app.post("/api/v1/builds/{build_id}/cancel", dependencies=[Depends(require_token)])
     async def cancel_build(build_id: str) -> dict[str, Any]:
         try:
             build = await services.workflow_store.get_build(build_id)
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
         try:
             services.builders.for_build(build).cancel(build_id)
             return {"build_id": build_id, "status": "cancelling"}
@@ -6035,7 +6062,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
                 workspace_path=request.workspace_path,
             )
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
 
     @app.get(
         "/api/v1/applications/{application_id}/versions",
@@ -6052,7 +6079,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         try:
             return await services.workflow_store.publication_decision(application_id)
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
 
     @app.post(
         "/api/v1/applications/{application_id}/versions",
@@ -6073,7 +6100,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
                 detail={"message": str(error), "publication_decision": error.decision},
             ) from error
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
 
     @app.post(
         "/api/v1/applications/{application_id}/versions/{version}/restore",
@@ -6083,7 +6110,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         try:
             return await services.workflow_store.restore_version(application_id, version)
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
 
     @app.get(
         "/api/v1/applications/{application_id}/runtime-definition",
@@ -6116,7 +6143,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
                 "snapshot": draft["snapshot"].model_dump(mode="json"),
             }
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
 
 
     async def customer_runtime_definition(application_id: str) -> dict[str, Any]:
@@ -6171,7 +6198,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
                 "latest_events": project_runtime_events(events),
             }
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
 
     @app.get(
         "/api/v1/customer-runtime/runs/{run_id}",
@@ -6188,7 +6215,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
                 "events": project_runtime_events(events),
             }
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
 
     @app.get(
         "/api/v1/applications/{application_id}/runs",
@@ -6206,7 +6233,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
                 run.setdefault("triggered_by", "")
             return runs
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
 
     @app.post(
         "/api/v1/applications/{application_id}/runs",
@@ -6222,7 +6249,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             return await services.workflow_runtime.create_run(
                 application_id, body, triggered_by=who)
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
         except (ValueError, RuntimeError) as error:
             raise HTTPException(422, str(error)) from error
 
@@ -6241,7 +6268,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
                 idempotency_key=body.idempotency_key,
             )
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
         except (ValueError, DurableJobConflict) as error:
             raise HTTPException(422, str(error)) from error
 
@@ -6253,14 +6280,14 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             run.setdefault("triggered_by", "")
             return run
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
 
     @app.post("/api/v1/runs/{run_id}/resume", dependencies=[Depends(require_token)])
     async def resume_workflow_run(run_id: str, body: ResumeRunRequest) -> dict[str, Any]:
         try:
             return await services.workflow_runtime.resume(run_id, body.values)
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
         except RuntimeError as error:
             raise HTTPException(409, str(error)) from error
 
@@ -6271,7 +6298,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             services.workflow_runtime.cancel(run_id)
             return {"run_id": run_id, "status": "cancelling"}
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
         except PlatformHarnessViolation as error:
             raise HTTPException(409, str(error)) from error
 
@@ -6293,7 +6320,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         try:
             return await services.storage.get_generation(generation_id)
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
 
     @app.get("/v1/agents", dependencies=[Depends(require_token)])
     async def list_agents() -> list[dict[str, Any]]:
@@ -6311,7 +6338,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
                 "spec": spec.model_dump(mode="json"),
             }
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
 
     @app.post(
         "/v1/agents/{agent_id}/versions/{version}/publish", dependencies=[Depends(require_token)]
@@ -6321,7 +6348,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             await services.storage.publish_agent(agent_id, version)
             return {"agent_id": agent_id, "version": version, "status": "published"}
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
 
     @app.post("/v1/sessions", status_code=201, dependencies=[Depends(require_token)])
     async def create_session(body: SessionCreateRequest) -> dict[str, Any]:
@@ -6335,7 +6362,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             session = await services.runtime.create_session(spec, version, body.workspace_path)
             return {"session_id": session.id, "status": "ready"}
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
 
     @app.get("/v1/sessions/{session_id}", dependencies=[Depends(require_token)])
     async def get_session(session_id: str) -> dict[str, Any]:
@@ -6344,7 +6371,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             record["messages"] = [item.model_dump(mode="json") for item in record["messages"]]
             return record
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
 
     @app.post(
         "/v1/sessions/{session_id}/messages", status_code=202, dependencies=[Depends(require_token)]
@@ -6354,7 +6381,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             turn_id = await services.runtime.start_turn(session_id, body.content)
             return {"session_id": session_id, "turn_id": turn_id, "status": "running"}
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
         except RuntimeError as error:
             raise HTTPException(409, str(error)) from error
 
@@ -6369,7 +6396,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             services.permissions.resolve(request_id, body, session_id)
             return {"request_id": request_id, "status": "resolved"}
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
 
     @app.post("/v1/sessions/{session_id}/cancel", dependencies=[Depends(require_token)])
     async def cancel(session_id: str) -> dict[str, str]:
@@ -6377,7 +6404,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             services.runtime.cancel(session_id)
             return {"session_id": session_id, "status": "cancelling"}
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
 
     async def sse_stream(stream_id: str, after: int) -> AsyncIterator[str]:
         iterator = services.storage.subscribe(stream_id, after).__aiter__()
@@ -6430,7 +6457,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         try:
             await services.workflow_store.get_run(run_id)
         except KeyError as error:
-            raise HTTPException(404, str(error)) from error
+            raise HTTPException(404, _plain_key_error(error)) from error
         # 尾窗下推到 SQL：原本全读进来再切片，18 万条的流照样要全量物化
         events = await services.storage.list_events(run_id, after,
                                                     limit=limit + 1, tail=True)
