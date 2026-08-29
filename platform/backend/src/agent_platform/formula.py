@@ -235,9 +235,6 @@ class _Parser:
         if token[0] == "str":
             self.take()
             return ("str", token[1])
-        if token[0] == "str":
-            self.take()
-            return ("str", token[1])
         if token[0] == "num":
             self.take()
             return ("num", token[1])

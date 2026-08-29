@@ -61,3 +61,80 @@ def test_no_method_is_defined_twice_in_a_class(path: Path):
                    if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
         repeated = {name: n for name, n in Counter(methods).items() if n > 1}
         assert not repeated, f"{path.name}::{node.name} 里重复定义：{repeated}"
+
+
+# —— 同一个毛病的另一种形状：**相邻语句**被复制粘贴 ——
+#
+# 2026-08-30 挖出四处，其中一处是真的坏了：拼引用解析报错的那段里，
+# "该修哪一端"整块连着写了两遍，于是每条这类报错都把同一句话说两遍
+# （真机上那是第二大的失败族）。上面两条只查 def 的名字，查不到这个。
+#
+# 但**不能一刀切**：相邻重复语句有正当用法——`await socket.send(x)`
+# 连发两遍是在测去重（本仓就有一条），`next(it)` 连叫两次是跳两项。
+# 所以只钉两种"重复了必定是错"的形状：
+#   · 相邻两个一模一样的 if，且体内以 raise/return 收尾 → 第二个永远到不了
+#   · 相邻两句一模一样的赋值，且右边是字面量 → 第二句纯属多余
+def _statement_blocks(tree: ast.AST):
+    for node in ast.walk(tree):
+        for field in ("body", "orelse", "finalbody"):
+            block = getattr(node, field, None)
+            if isinstance(block, list) and len(block) > 1:
+                yield block
+
+
+def _dead_if_repeat(first: ast.stmt, second: ast.stmt) -> bool:
+    if not (isinstance(first, ast.If) and isinstance(second, ast.If)):
+        return False
+    if ast.dump(first) != ast.dump(second):
+        return False
+    return isinstance(first.body[-1], (ast.Raise, ast.Return))
+
+
+def _redundant_literal_assignment(first: ast.stmt, second: ast.stmt) -> bool:
+    if not isinstance(first, (ast.Assign, ast.AnnAssign)):
+        return False
+    if ast.dump(first) != ast.dump(second):
+        return False
+    return isinstance(first.value, (ast.Constant, ast.Dict, ast.List, ast.Set, ast.Tuple))
+
+
+@pytest.mark.parametrize("path", MODULES, ids=lambda p: p.name)
+def test_no_adjacent_statement_is_copy_pasted(path: Path):
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    found = []
+    for block in _statement_blocks(tree):
+        for first, second in zip(block, block[1:]):
+            if _dead_if_repeat(first, second) or _redundant_literal_assignment(first, second):
+                found.append(f"第 {first.lineno} 行又抄了一遍到第 {second.lineno} 行")
+    assert not found, f"{path.name}：{found}"
+
+
+def test_the_check_can_actually_see_a_duplicate():
+    """扫描器自己得抓得住——上面那条对每个文件都断言"没有"，
+    扫描器写坏成"永远返回空"的话，全仓一路绿。"""
+    dead_if = ast.parse("def f(x):\n"
+                        "    if x:\n        raise ValueError('a')\n"
+                        "    if x:\n        raise ValueError('a')\n")
+    blocks = list(_statement_blocks(dead_if))
+    assert any(_dead_if_repeat(a, b)
+               for block in blocks for a, b in zip(block, block[1:]))
+
+    twice = ast.parse("def f():\n    x = {}\n    x = {}\n")
+    blocks = list(_statement_blocks(twice))
+    assert any(_redundant_literal_assignment(a, b)
+               for block in blocks for a, b in zip(block, block[1:]))
+
+
+def test_the_check_does_not_flag_the_legitimate_repeats():
+    """反向：正当的重复不能报——不然这条会逼着人把对的代码改坏。"""
+    sending = ast.parse("async def f(s, e):\n    await s.send(e)\n    await s.send(e)\n")
+    for block in _statement_blocks(sending):
+        for a, b in zip(block, block[1:]):
+            assert not _dead_if_repeat(a, b)
+            assert not _redundant_literal_assignment(a, b)
+
+    # 体内不收尾于 raise/return 的相同 if：可能是有意跑两遍
+    looping = ast.parse("def f(x):\n    if x:\n        x -= 1\n    if x:\n        x -= 1\n")
+    for block in _statement_blocks(looping):
+        for a, b in zip(block, block[1:]):
+            assert not _dead_if_repeat(a, b)

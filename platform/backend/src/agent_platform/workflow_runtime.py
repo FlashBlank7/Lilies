@@ -4956,26 +4956,6 @@ class WorkflowRuntime:
                     f"（多余的：{extra_keys}）——它会被静默忽略、公式根本不会执行。"
                     f'正确写法：{{"字段名": {{"{operator_keys[0]}": ...}}}}'
                 )
-            # 操作符与普通键混写会被静默忽略（长度不为 1 就当普通字典解析），
-            # 结果是字段里塞着一份未求值的公式——形状合法的垃圾。实测 32B 写出
-            # {"$formula": {...}, "output_type": "object"}，公式从未被执行。
-            if operator_keys and len(value) != 1:
-                extra_keys = [key for key in value if key not in operator_keys]
-                raise ValueError(
-                    f"操作符 {operator_keys[0]} 不能和其它键混在同一个对象里"
-                    f"（多余的：{extra_keys}）——它会被静默忽略、公式根本不会执行。"
-                    f'正确写法：{{"字段名": {{"{operator_keys[0]}": ...}}}}'
-                )
-            # 操作符与普通键混写会被静默忽略（长度不为 1 就当普通字典解析），
-            # 结果是字段里塞着一份未求值的公式——形状合法的垃圾。实测 32B 写出
-            # {"$formula": {...}, "output_type": "object"}，公式从未被执行。
-            if operator_keys and len(value) != 1:
-                extra_keys = [key for key in value if key not in operator_keys]
-                raise ValueError(
-                    f"操作符 {operator_keys[0]} 不能和其它键混在同一个对象里"
-                    f"（多余的：{extra_keys}）——它会被静默忽略、公式根本不会执行。"
-                    f'正确写法：{{"字段名": {{"{operator_keys[0]}": ...}}}}'
-                )
         if not isinstance(value, dict) or len(value) != 1:
             return cls._resolve(value, context)
         operator, operand = next(iter(value.items()))

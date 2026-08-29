@@ -1016,8 +1016,6 @@ class WorkflowBuilder:
         truncated_rescues = 0
         rescue_without_thinking = False
         repeated_rejections: dict[str, int] = {}
-        repeated_rejections: dict[str, int] = {}
-        repeated_rejections: dict[str, int] = {}
         for turn in range(1, max_turns + 1):
             # 上下文成本闸门：老轮次的工具结果归档成占位行。没有它，40 轮构建的
             # 输入从 1 万 token 滚到 15 万（ERP 分页/测试报告全文被重发上百次）。
