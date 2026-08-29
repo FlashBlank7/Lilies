@@ -74,6 +74,50 @@ async def test_it_only_sends_back_once():
 
 
 @pytest.mark.asyncio
+async def test_a_number_it_refused_to_check_is_not_handed_over_as_fact():
+    """劝不动就别把编的数字包装成结论——不删他的话，只把出处补上。
+
+    量过才这么改（真机 8 次）：毒上文那道题 6 次乖乖去查答 20%，
+    **2 次到最后一个工具都没调**，答"一共 40 个、25 个已发布、占比 62.5%"，
+    语气和查过的那 6 次一模一样，业主分不出来。
+    """
+    actions, text, rounds = await _run([_text("今天跑了 12 次。")])
+    assert "没在平台上查到" in text, text
+    assert "12 次" in text, "他原话不许删，只补出处"
+
+
+@pytest.mark.asyncio
+async def test_the_caveat_reaches_a_streaming_client_too():
+    """流式那条路也得看见这句话——业主看的正是 delta。
+
+    只改 final 不改 delta 的话，网页壳上那句提醒根本不出现，
+    而"同一个闸只挂在一条路上"今天已经中过好几次。
+    """
+    events, _, _ = await _run_streaming([_text("今天跑了 12 次。")])
+    streamed = "".join(e["text"] for e in events if e["type"] == "delta")
+    assert "没在平台上查到" in streamed, streamed
+
+
+@pytest.mark.asyncio
+async def test_a_checked_answer_carries_no_caveat():
+    """反向那一条：查过了就不许挂这句话，否则每个正确答案都被自己泼一盆冷水。"""
+    concierge = _concierge()
+    concierge._exec = AsyncMock(return_value={"一共跑了几次": 1})
+    from agent_platform.models import ContentBlock
+
+    call = ContentBlock(type="tool_use", id="c1", name="run_counts", input={})
+    rounds = {"n": 0}
+
+    async def fake(*args, **kwargs):
+        rounds["n"] += 1
+        return SimpleNamespace(blocks=[call]) if rounds["n"] == 1 else _text("今天跑了 1 次。")
+
+    with patch("agent_platform.assistant_agent.collect_model_stream", fake):
+        _, text = await concierge.reply([{"role": "user", "text": "今天跑了几次"}], {})
+    assert "没在平台上查到" not in text, text
+
+
+@pytest.mark.asyncio
 async def test_an_answer_without_numbers_is_not_sent_back():
     """不带数字的回答不该被打回——那是纯粹的浪费。"""
     actions, text, rounds = await _run([_text("好的，这就帮你看看。")])

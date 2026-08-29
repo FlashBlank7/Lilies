@@ -105,11 +105,19 @@ class BlankAnswerTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("日志", text)      # 一直这样时的下一步
 
     async def test_a_normal_answer_is_untouched(self):
+        """这条测的是"空回答兜底不许改写非空回答"，别夹带别的机制。
+
+        原来的夹具写的是「今天跑了 1 次。」——而这个夹具里模型是
+        **一个工具都不调**的，于是它同时撞上了"空手报数字"那道闸，
+        回答被合法地加了一句出处说明，这条就红了。
+        红得有道理：夹具描述的根本不是"正常回答"，是"没查就报数"。
+        换成不含统计量的一句话，测的才是它声称要测的东西。
+        """
         from types import SimpleNamespace
 
         text = await self._reply_with(
-            [SimpleNamespace(type="text", text="今天跑了 1 次。")])
-        self.assertEqual(text, "今天跑了 1 次。")
+            [SimpleNamespace(type="text", text="好的，这就帮你看看。")])
+        self.assertEqual(text, "好的，这就帮你看看。")
 
 
 if __name__ == "__main__":
