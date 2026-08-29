@@ -1441,7 +1441,11 @@ def _acceptance_summary(app: dict, report: dict) -> dict:
         # 实测它会脑补一个数字并反过来说「疑似验收方比对出了问题」
         "failed_cases": [
             {"name": c.get("name"),
-             "run_status": c.get("run_status"),
+             # 状态码在这条路上一直是原样给的（succeeded / failed），
+             # 而这份摘要是要念给业主听的。全文件别处都过 _RUN_WORDS，
+             # 只有这里漏了——同一个闸又少装了一个出口。
+             "这一条跑成了吗": _RUN_WORDS.get(str(c.get("run_status") or ""),
+                                              c.get("run_status")),
              "why": [{"检查": x.get("check"), "实际": x.get("actual")}
                      for x in (c.get("checks") or []) if not x.get("passed")][:4]}
             for c in failed[:5]],

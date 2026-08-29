@@ -123,5 +123,50 @@ class BuildStatusWordsTest(unittest.TestCase):
         self.assertTrue(todo)
 
 
+
+class AcceptanceSummaryTest(unittest.TestCase):
+    """验收摘要是要念给业主听的，里面不能留状态码。
+
+    2026-08-29 扫出来的最后一处直出：`"run_status": c.get("run_status")`
+    原样把 succeeded / failed 交给模型。全文件别处都过 _RUN_WORDS，
+    只有这里漏了——同一个闸又少装了一个出口。
+    （这条路也不在冒烟覆盖里：acceptance_check 会真跑工作流，
+      冒烟不碰有副作用的工具，所以漏了也没人会撞见。）
+    """
+
+    def _summary(self, run_status: str) -> dict:
+        from agent_platform.assistant_agent import _acceptance_summary
+
+        return _acceptance_summary(
+            {"name": "文本行数与净字数统计"},
+            {"accepted": False, "passed_cases": 0, "total_cases": 1,
+             "cases": [{"name": "三行文本统计", "run_status": run_status,
+                        "passed": False,
+                        "checks": [{"check": "line_count = 3", "passed": False,
+                                    "actual": "2"}]}]})
+
+    def test_the_case_status_is_in_plain_chinese(self):
+        case = self._summary("failed")["failed_cases"][0]
+        blob = str(case)
+        self.assertNotIn("failed", blob, case)
+        self.assertIn("没跑成", blob)
+
+    def test_a_succeeded_case_that_still_failed_checks_reads_right(self):
+        """跑是跑成了、但对数对不上——这两件事不能混成一句。"""
+        case = self._summary("succeeded")["failed_cases"][0]
+        self.assertNotIn("succeeded", str(case))
+        self.assertIn("跑成了", str(case))
+        # 检查项本身还是不合格的，不能因为"跑成了"就把它说成通过
+        self.assertTrue(case["why"], case)
+
+    def test_the_actual_value_is_kept(self):
+        """「实际是多少」必须留着——没有它，模型会脑补一个数字。"""
+        case = self._summary("succeeded")["failed_cases"][0]
+        self.assertEqual(case["why"][0]["实际"], "2")
+
+    def test_an_unknown_status_does_not_crash_or_vanish(self):
+        case = self._summary("这是个没见过的状态")["failed_cases"][0]
+        self.assertTrue(str(case))
+
 if __name__ == "__main__":
     unittest.main()
