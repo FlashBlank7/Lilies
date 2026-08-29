@@ -119,3 +119,65 @@ async def test_it_says_when_there_are_more(services):  # noqa: F811
     many = await agent._exec("recent_runs", {"name_or_id": "x", "limit": 50}, {})
     assert "还有更多" in few and len(few["runs"]) == 3
     assert "还有更多" not in many
+
+
+def _concierge(services):  # noqa: F811
+    """把管家接到这套真库夹具上（只替换它取运行记录的那条路）。"""
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from agent_platform.assistant_agent import WorkflowConcierge
+
+    agent = WorkflowConcierge.__new__(WorkflowConcierge)
+    agent.services = services
+    agent._resolve_app = AsyncMock(return_value={"id": "app-1", "name": "被测工作流"})
+    services.workflow_store = SimpleNamespace(
+        storage=services.workflow_store.storage, list_runs=services._store.list_runs)
+    return agent
+
+
+@pytest.mark.asyncio
+async def test_a_day_filter_returns_that_whole_day(services):  # noqa: F811
+    """问「某天跑了几次」不该靠翻最近 N 条去数。
+
+    真机实测（2026-08-29）：问「文本行数与净字数统计昨天失败了几次」，
+    它翻了最近 10 条、数出 2 次，并如实说"最近 10 条里"——
+    而当天实际失败 5 次。它没编，是**没有按天查的能力**。
+    """
+    from datetime import datetime, timezone
+
+    _seed(services, published=6, drafts=0)
+    agent = _concierge(services)
+    today = datetime.now(timezone.utc).date().isoformat()
+    result = await agent._exec("recent_runs", {"name_or_id": "x", "day": today}, {})
+    assert "这一天的全部" in result
+    assert "不是抽样" in result["这一天的全部"]
+    assert len(result["runs"]) == 6
+    assert all(str(r["created_at"]).startswith(today) for r in result["runs"])
+
+
+@pytest.mark.asyncio
+async def test_the_payload_counts_so_the_model_need_not(services):  # noqa: F811
+    """计数直接给，别让它数。
+
+    工具返回 31 条（26 成 5 败）且标注了"是全部不是抽样"，
+    它仍答成"失败 4 次"——逐条数 31 行本来就容易错，
+    而这个数平台算得出来。
+    """
+    _seed(services, published=4, drafts=0)
+    agent = _concierge(services)
+    result = await agent._exec("recent_runs", {"name_or_id": "x", "limit": 50}, {})
+    counts = result["按情况计数"]
+    assert sum(counts.values()) == len(result["runs"])
+    # 计数用的是翻译后的说法，不是状态码——状态码会被原样念出来
+    assert all("succeeded" not in k and "failed" not in k for k in counts)
+
+
+@pytest.mark.asyncio
+async def test_a_day_with_no_runs_says_zero(services):  # noqa: F811
+    """那天一次都没跑，要明确说 0，而不是给个空列表让它猜。"""
+    _seed(services, published=2, drafts=0)
+    agent = _concierge(services)
+    result = await agent._exec("recent_runs", {"name_or_id": "x", "day": "2020-01-01"}, {})
+    assert result["runs"] == []
+    assert "0 次" in result["这一天的全部"]

@@ -185,9 +185,14 @@ TOOLS = [
                                "'它到底干了啥'用这个。",
                    input_schema={"type": "object", "properties": {
                        "name_or_id": {"type": "string"}}, "required": ["name_or_id"]}),
-    ToolDefinition(name="recent_runs", description="查询某工作流最近运行历史",
+    ToolDefinition(name="recent_runs",
+                   description="查询某工作流的运行历史；问「某天跑了几次/失败几次」"
+                               "务必用 day 精确到那一天，别靠翻最近几条去数",
                    input_schema={"type": "object", "properties": {
-                       "name_or_id": {"type": "string"}, "limit": {"type": "integer"}},
+                       "name_or_id": {"type": "string"}, "limit": {"type": "integer"},
+                       "day": {"type": "string",
+                               "description": "只看这一天（UTC 日期，如 2026-08-28）。"
+                                              "问某天的次数时必须带上它。"}},
                        "required": ["name_or_id"]}),
     ToolDefinition(name="generate_workflow", description="用业务需求生成新工作流（远端构建，异步）",
                    input_schema={"type": "object", "properties": {
@@ -450,7 +455,12 @@ class WorkflowConcierge:
             app = await self._resolve_app(str(args.get("name_or_id") or ""))
             if not app:
                 return {"error": "找不到该工作流"}
-            asked = int(args.get("limit") or 5)
+            day = str(args.get("day") or "").strip()
+            # 问"某天跑了几次"时，翻最近 N 条去数是数不准的：
+            # 真机实测——问「昨天失败了几次」，它翻了最近 10 条，
+            # 数出 2 次并如实说"最近 10 条里"，而当天实际失败 5 次。
+            # 它没编，是没有按天查的能力。补上就不用靠翻页。
+            asked = int(args.get("limit") or (200 if day else 5))
             # 多取一条，用来判断"是不是还有更多"。
             # 起因是真机上一次问答：问"昨天各跑了几次"，模型只拿到 5 条，
             # 于是回了一句「记录在 08-27 处被截断了，我只能看到一部分」——
@@ -461,8 +471,12 @@ class WorkflowConcierge:
             # 不加这个的话，同一个工作流管家说 33 次、面板说 10 次（真机实测）。
             runs = await services.workflow_store.list_runs(
                 app["id"], limit=asked + 1, published_only=True)
-            more = len(runs) > asked
-            runs = runs[:asked]
+            if day:
+                runs = [r for r in runs if str(r.get("created_at") or "").startswith(day)]
+                more = False          # 那一天的都在这儿了
+            else:
+                more = len(runs) > asked
+                runs = runs[:asked]
             from .overview import _human_error
 
             # 状态与报错都翻成人话。这一处此前一直漏着：AST 那道门只扫
@@ -473,9 +487,19 @@ class WorkflowConcierge:
                                  "created_at": r.get("created_at"),
                                  "没成的原因": _human_error(r.get("error") or "")}
                                 for r in runs]}
-            if more:
+            # 计数直接给，别让它数。真机实测：工具返回 31 条（26 成 5 败）
+            # 且标注了"是全部不是抽样"，它仍答成"失败 4 次"——
+            # 逐条数 31 行本来就容易错，而这个数平台算得出来。
+            from collections import Counter
+
+            payload["按情况计数"] = dict(Counter(r["情况"] for r in payload["runs"]))
+            if day:
+                payload["这一天的全部"] = (
+                    f"{day}（UTC）这一天该工作流一共跑了 {len(runs)} 次，"
+                    f"上面是全部，不是抽样。")
+            elif more:
                 payload["还有更多"] = (f"这里只给了最近 {asked} 条。要数总数或看更早的，"
-                                       f"把 limit 调大再查一次。")
+                                       f"把 limit 调大再查一次；问某一天的次数请直接用 day。")
             return payload
         if name == "generate_workflow":
             requirement = str(args.get("requirement") or "").strip()
