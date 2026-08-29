@@ -256,6 +256,42 @@ class ApplicationService:
             raise ValueError("workflow edit preview would not change the workflow")
         return validated
 
+    # NodeSpec 认得的顶层字段。其余的但凡出现在顶层，
+    # 十有八九是本该写进 config 的东西。
+    _NODE_FIELDS = frozenset(NodeSpec.model_fields)
+
+    @classmethod
+    def _sink_config_keys(cls, node: Any) -> Any:
+        """把误放在节点顶层的配置字段收进 config。
+
+        真机测量（2026-08-29，76 份搭建 transcript）：
+        「Extra inputs are not permitted」被拒 53 次，绝大多数是模型把
+        outputs / inputs 写在了节点顶层，而它们属于 config。
+        模型从那句 pydantic 英文里看不出层级放错了，于是反复重提——
+        而"反复提同一个被拒的方案"正是搭建失败的头号原因。
+
+        意图无歧义就别judge：同一个文件里 update_node 早就这么干了
+        （merge_config 被嵌进 changes 时直接抬出来，注释写着
+        "the intent is unambiguous, so hoist it"）。这里是同一条道理，
+        方向相反——该往里放的就往里放。
+
+        只搬 NodeSpec 不认得的键；config 里已经有同名键的不动
+        （那说明模型两处都写了，谁覆盖谁没有唯一答案，交给校验去报）。
+        """
+        if not isinstance(node, dict):
+            return node
+        stray = {key: value for key, value in node.items()
+                 if key not in cls._NODE_FIELDS}
+        if not stray:
+            return node
+        config = dict(node.get("config") or {})
+        moved = {key: value for key, value in stray.items() if key not in config}
+        if not moved:
+            return node
+        cleaned = {key: value for key, value in node.items() if key not in moved}
+        cleaned["config"] = {**config, **moved}
+        return cleaned
+
     @staticmethod
     def _why_no_change(operation: str, data: dict[str, Any],
                        snapshot: ApplicationSnapshot) -> str:
@@ -308,7 +344,7 @@ class ApplicationService:
     ) -> None:
 
         if operation == "add_node":
-            node = NodeSpec.model_validate(data["node"])
+            node = NodeSpec.model_validate(self._sink_config_keys(data["node"]))
             if any(item.id == node.id for item in snapshot.workflow.nodes):
                 raise ValueError(f"node already exists: {node.id}")
             self.blocks.validate_node(node)

@@ -103,3 +103,73 @@ class ItIsWiredIntoApplyOperationTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MisplacedConfigKeysTest(unittest.TestCase):
+    """本该写进 config 的字段放在了节点顶层——意图无歧义，就别judge。
+
+    真机测量（2026-08-29）：「Extra inputs are not permitted」被拒 53 次，
+    绝大多数是模型把 outputs / inputs 写在了节点顶层。它从那句 pydantic
+    英文里看不出层级放错了，于是反复重提——而"反复提同一个被拒的方案"
+    正是搭建失败的头号原因（57 次失败里 23 次）。
+
+    同一个文件里 update_node 早就这么干了：merge_config 被嵌进 changes 时
+    直接抬出来，注释写着 "the intent is unambiguous, so hoist it"。
+    这里是同一条道理，方向相反——该往里放的就往里放。
+    """
+
+    @staticmethod
+    def _sink(node):
+        return ApplicationService._sink_config_keys(node)
+
+    def test_a_top_level_outputs_moves_into_config(self):
+        node = self._sink({"id": "end", "title": "结束", "type": "end",
+                           "outputs": {"r": 1}})
+        self.assertEqual(node["config"]["outputs"], {"r": 1})
+        self.assertNotIn("outputs", node)
+
+    def test_it_merges_with_an_existing_config(self):
+        node = self._sink({"id": "n", "type": "x", "config": {"a": 1}, "b": 2})
+        self.assertEqual(node["config"], {"a": 1, "b": 2})
+
+    def test_a_conflicting_key_is_left_alone(self):
+        """两处都写了，谁覆盖谁没有唯一答案——交给校验去报，别猜。"""
+        node = self._sink({"id": "n", "type": "x",
+                           "config": {"outputs": {"a": 1}}, "outputs": {"b": 2}})
+        self.assertEqual(node["config"]["outputs"], {"a": 1})
+        self.assertEqual(node["outputs"], {"b": 2})
+
+    def test_a_well_formed_node_is_untouched(self):
+        node = {"id": "s", "title": "开始", "type": "start", "config": {"inputs": []}}
+        self.assertEqual(self._sink(node), node)
+
+    def test_known_node_fields_stay_at_the_top(self):
+        """title / description / retry 这些是 NodeSpec 自己的字段，不能被搬走。"""
+        node = self._sink({"id": "n", "title": "标题", "description": "说明",
+                           "type": "x", "retry": {"max_attempts": 2}})
+        for key in ("title", "description", "retry"):
+            self.assertIn(key, node, key)
+
+    def test_a_non_dict_is_returned_as_is(self):
+        for odd in (None, "字符串", 42, ["列表"]):
+            self.assertEqual(self._sink(odd), odd)
+
+    def test_add_node_really_accepts_a_misplaced_outputs(self):
+        """接线：真走一遍 _apply_to_snapshot，看节点有没有落对地方。
+
+        初稿写的是 inspect.getsource + 查有没有 "_sink_config_keys" 这个串，
+        自己删了——那是断言源码长什么样。
+        """
+        from types import SimpleNamespace
+
+        service = ApplicationService.__new__(ApplicationService)
+        service.blocks = SimpleNamespace(validate_node=lambda node: None)
+        snapshot = SNAPSHOT.model_copy(deep=True)
+        service._apply_to_snapshot(snapshot, "add_node", {"node": {
+            "id": "汇总", "title": "汇总", "type": "variable_assigner",
+            # 本该写在 config 里，模型放到了顶层
+            "assignments": {"总额": 1},
+        }})
+        node = next(n for n in snapshot.workflow.nodes if n.id == "汇总")
+        self.assertEqual(node.config.get("assignments"), {"总额": 1},
+                         "顶层字段没被收进 config")
