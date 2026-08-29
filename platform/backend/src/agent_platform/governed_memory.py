@@ -276,7 +276,17 @@ class GovernedMemorySurface:
             raise GovernedMemoryViolation("governed memory expires_at must be in the future")
 
     def _default_expires_at(self, retention_class: RetentionClass) -> str:
-        days = {"session": 1, "project": 30, "user_renewable": 90}[retention_class]
+        # 认不出来的类别在这里就拦住，别让它变成一个裸 KeyError。
+        #
+        # 顺序问题：create 里是先算默认期限、再 _validate_retention，
+        # 于是"unsupported retention class"那句话**永远走不到**——
+        # 没给 expires_at 的调用会先在这个字典查找上炸出 KeyError('forever')。
+        # 一道够不着的闸比没有闸更坏：它看着像在把关。
+        # （HTTP 那条路有 Literal 挡着，所以这是内部调用方才踩得到的坑。）
+        days = {"session": 1, "project": 30, "user_renewable": 90}.get(retention_class)
+        if days is None:
+            raise GovernedMemoryViolation(
+                f"unsupported retention class: {retention_class}")
         return (datetime.now(timezone.utc) + timedelta(days=days)).isoformat()
 
     def _source_with_hash(self, source: GovernedMemorySource) -> GovernedMemorySource:
