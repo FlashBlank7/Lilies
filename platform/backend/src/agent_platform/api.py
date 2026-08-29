@@ -5903,7 +5903,17 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         from .assistant_agent import WorkflowConcierge
 
         concierge = WorkflowConcierge(services, settings)
-        actions, text = await concierge.reply(body.messages, _current_user(request))
+        try:
+            actions, text = await concierge.reply(body.messages, _current_user(request))
+        except Exception as error:  # noqa: BLE001 - 模型服务挂了不该变成裸 500
+            # 流式那条路早就兜住了（回一个 error 事件 + 中文），这条没有：
+            # 模型服务一连不上，客户端收到的是 `500 Internal Server Error`，
+            # 英文、而且没有下一步。同一道兜底只装了一个出口，第 N 次。
+            logger.exception("管家这一轮失败了")
+            raise HTTPException(
+                503, "管家这一轮没答上来（多半是模型服务不通）。"
+                     "过一会儿再试；一直这样就去看后端日志"
+                     "（agent_platform 的 WARNING 以上）。") from error
         return {"actions": actions, "text": text}
 
     @app.post("/api/v1/assistant/agent/stream", dependencies=[Depends(require_token)])
