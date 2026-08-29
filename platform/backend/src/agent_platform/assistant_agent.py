@@ -934,6 +934,11 @@ class WorkflowConcierge:
                 # 只列前 10 条，但要说出来。同一个病今天在 recent_runs、
                 # list_workflows、recent_builds 上各中过一次：
                 # **给一页数据、不说这是一页，模型就会把它当全部。**
+                # 发布了但一次都没跑过的，四个状态里落在"正常"那一格。
+                # 不把它挑出来的话，管家会照着 counts 答"都正常"——
+                # 而这几个是没有任何证据的正常。有就说，没有这一格就不出现。
+                **({"这几个还没跑过、好不好还看不出来":
+                    report.get("never_ran")} if report.get("never_ran") else {}),
                 **({"problems 只列了前 10 个":
                     f"实际有 {len(bad)} 个要看看，上面是其中 10 个；"
                     f"完整分布看「有几个」那一项"} if len(bad) > 10 else {}),

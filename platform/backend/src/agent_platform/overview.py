@@ -411,6 +411,16 @@ async def build_health(services: Any, days: int = 7) -> dict[str, Any]:
                 "SELECT id, name FROM applications "
                 "WHERE active_version IS NOT NULL AND archived_at IS NULL"
             ).fetchall()]
+            # 「这辈子跑过没有」——不带时间窗。
+            # 下面那份 stats 全是窗口内的数（连 last_run 也是），
+            # 于是"从没跑过"和"最近没跑"在报告里长得一模一样：
+            # 都是 runs=0、last_run=None。可这两件事差得远——
+            # 一个是安静，另一个是**压根没验过，第一次跑会怎样谁也不知道**。
+            # 真机上这句查询 2.1 ms、12 个应用，代价可以忽略。
+            ever = {r["application_id"]: dict(r) for r in conn.execute(
+                "SELECT application_id, COUNT(*) AS runs, MAX(created_at) AS last_run "
+                f"FROM workflow_runs WHERE {_REAL_RUN} GROUP BY application_id"
+            ).fetchall()}
             stats = {r["application_id"]: dict(r) for r in conn.execute(
                 "SELECT application_id, COUNT(*) AS runs, "
                 "SUM(CASE WHEN status='succeeded' THEN 1 ELSE 0 END) AS succeeded, "
@@ -477,7 +487,7 @@ async def build_health(services: Any, days: int = 7) -> dict[str, Any]:
                 "SELECT application_id, MAX(created_at) AS last_fired "
                 "FROM schedule_fires GROUP BY application_id"
             ).fetchall()}
-        return {"apps": apps, "stats": stats, "recent": recent,
+        return {"apps": apps, "stats": stats, "recent": recent, "ever": ever,
                 "drafts": drafts, "errors": errors, "fires": fires,
                 "published_at": published_at}
 
@@ -555,6 +565,9 @@ async def build_health(services: Any, days: int = 7) -> dict[str, Any]:
             "fail_streak": streak, "scheduled": scheduled,
             "last_fired": last_fired, "overdue": overdue,
             "last_success": stat.get("last_success"), "last_run": stat.get("last_run"),
+            # 上面两个是**窗口内**的（名字不像，别被骗）；这两个才是全历史
+            "ever_ran": bool((data["ever"].get(app["id"]) or {}).get("runs")),
+            "last_run_ever": (data["ever"].get(app["id"]) or {}).get("last_run"),
         })
 
     rank = {"broken": 0, "stale": 1, "waiting": 2, "ok": 3}
@@ -564,4 +577,13 @@ async def build_health(services: Any, days: int = 7) -> dict[str, Any]:
         "counts": {state: sum(1 for i in items if i["state"] == state)
                    for state in ("broken", "stale", "waiting", "ok")},
         "items": items,
+        # 单列一格，不进 counts、不新增状态、不动前端渲染。
+        #
+        # 为什么单列：发布了但一次都没跑过的工作流，在四个状态里会落到 ok
+        # （没定时 → 不 stale；没终态 → 不 broken；没在跑 → 不 waiting），
+        # 于是面板说"正常"、管家答"都正常"。可"正常"是个结论，
+        # 而这种工作流一条证据都没有——它可能第一次跑就炸。
+        # 不判成"有问题"也是对的：它确实没坏，刚发布的工作流都要经过这个阶段，
+        # 判成问题就是天天报警。所以既不说它好、也不说它坏，把事实摆出来。
+        "never_ran": [i["workflow"] for i in items if not i["ever_ran"]],
     }
