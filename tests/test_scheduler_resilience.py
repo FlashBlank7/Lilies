@@ -257,3 +257,43 @@ async def test_a_healthy_tick_leaves_no_stale_complaint():
     sched.last_error = "上一轮的旧抱怨"
     await sched.tick()
     assert sched.last_error == ""
+
+
+@pytest.mark.asyncio
+async def test_a_broken_reconcile_does_not_stop_every_schedule():
+    """对账排在逐个应用之前——它一炸，一个工作流都不会开火。
+
+    2026-08-29 第一版只给"逐个应用"那段加了保护，而这一段在循环**外面**：
+    保护装在里面，外面照样能把整轮带走。数出口的时候，
+    别忘了循环外面那两句也是出口。
+    """
+    apps = [{"id": "b", "name": "好的", "active_version": 1}]
+    versions = {"b": _version_with_schedule()}
+    fired: dict = {}
+    sched = _stub_scheduler_for_tick(apps, versions, fired=fired)
+
+    async def boom(*a, **k):
+        raise RuntimeError("对账时数据库锁住了")
+
+    sched.reconcile_durable_jobs = boom
+    await sched.tick()
+    assert fired.get("apps") == ["b"], "对账炸了就没人开火了"
+    assert "对账" in sched.last_error
+
+
+@pytest.mark.asyncio
+async def test_a_broken_durable_sweep_does_not_hide_what_already_fired():
+    """收尾那段炸了，前面已经开的火要照样报上来。"""
+    apps = [{"id": "b", "name": "好的", "active_version": 1}]
+    versions = {"b": _version_with_schedule()}
+    fired: dict = {}
+    sched = _stub_scheduler_for_tick(apps, versions, fired=fired)
+
+    async def boom(*a, **k):
+        raise RuntimeError("取后台任务失败")
+
+    sched.run_due_durable_jobs = boom
+    started = await sched.tick()
+    assert fired.get("apps") == ["b"]
+    assert len(started) == 1, started
+    assert "后台任务" in sched.last_error

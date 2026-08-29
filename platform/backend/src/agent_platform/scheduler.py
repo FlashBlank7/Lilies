@@ -131,8 +131,23 @@ class WorkflowScheduler:
 
     async def tick(self, now: datetime | None = None) -> list[dict[str, Any]]:
         now = now or datetime.now(timezone.utc)
-        await self.reconcile_durable_jobs(now)
         started: list[dict[str, Any]] = []
+        troubles: list[str] = []
+
+        async def guarded(what: str, coro) -> Any:
+            """这一段坏了不能带走整轮。坏了记一笔，接着往下走。"""
+            try:
+                return await coro
+            except asyncio.CancelledError:
+                raise
+            except Exception as error:  # noqa: BLE001
+                troubles.append(f"{what}：{type(error).__name__}: {error}")
+                logger.exception("调度这一轮的「%s」出错（其余照常）", what)
+                return None
+
+        # 对账排在最前面：它一炸，**一个工作流都不会开火**。
+        # 逐个应用的保护挡不住这里——它在循环外面。
+        await guarded("对账进行中的任务", self.reconcile_durable_jobs(now))
         # 一个工作流出问题，不能连累别的工作流开火。
         #
         # 原来整个循环体是**裸的**：get_version 查不到版本、时区名不认识
@@ -146,19 +161,15 @@ class WorkflowScheduler:
         # 照样 tick_count += 1，health() 于是报「调度器活着」。
         # 体检那条路早就防住了时区（「时区名不认识就按 UTC 算，别整个不判」），
         # 调度器这条路没防——闸只装在一个出口上。
-        troubles: list[str] = []
         for application in await self.workflow_store.list_applications():
             if application["active_version"] is None:
                 continue
-            try:
-                started.extend(await self._tick_application(application, now))
-            except asyncio.CancelledError:
-                raise
-            except Exception as error:  # noqa: BLE001 - 一个坏的不能停掉全部
-                who = application.get("name") or application.get("id") or "?"
-                troubles.append(f"「{who}」：{type(error).__name__}: {error}")
-                logger.exception("定时跳过「%s」（别的工作流照常）", who)
-        started.extend(await self.run_due_durable_jobs(now=now))
+            who = application.get("name") or application.get("id") or "?"
+            fired = await guarded(f"「{who}」的定时",
+                                  self._tick_application(application, now))
+            started.extend(fired or [])
+        started.extend(await guarded("跑到点的后台任务",
+                                     self.run_due_durable_jobs(now=now)) or [])
         # 跳过要留痕：静默跳过等于这个定时任务无声脱离监控。
         # last_error 由 tick 自己写（_loop 不再无条件清空），
         # 否则这句话会被下一行代码抹掉。
