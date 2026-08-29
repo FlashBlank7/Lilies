@@ -14,6 +14,7 @@
 都只需要知道它答不答话。所以不带令牌照样 200，只是内容最小化。
 """
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -72,3 +73,45 @@ class HealthDetailsTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class EveryRegisteredRouteActuallyExistsTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmp = TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        root = Path(self._tmp.name)
+        self.app = create_app(Settings(api_token=TOKEN, data_dir=root / "d",
+                                       workspace_root=root / "w",
+                                       scheduler_poll_seconds=3600))
+
+    """RUNTIME_ROUTE_CHECKS 里登记的 20 条路由，得真的还在。
+
+    这张表是手写的，路由是另写的——两边迟早分家。
+    分家之后的表现很温和：/health 的 route_availability 里
+    那一条永远是 false，而它只有拿对令牌去查 /health 才看得见，
+    没有任何东西会响。运维照着这个面板判断"哪些能力可用"，
+    看到的会是一个早就改名的接口一直"不可用"。
+
+    反过来也一样：真删了一个接口而表里还留着，等于把一个已经消失的
+    能力持续报成"我们查过了"。
+    """
+
+    def test_no_registered_route_is_stale(self):
+        from agent_platform.api import route_availability
+
+        gone = sorted(name for name, ok in route_availability(self.app).items() if not ok)
+        self.assertEqual(gone, [], f"表里登记了、实际不存在的路由：{gone}")
+
+    def test_the_table_is_not_empty(self):
+        """空表会让上一条永远绿——那是"检查存在但什么也没查"。"""
+        from agent_platform.api import RUNTIME_ROUTE_CHECKS
+
+        self.assertGreater(len(RUNTIME_ROUTE_CHECKS), 10)
+
+    def test_a_made_up_route_is_reported_missing(self):
+        """闸本身要能响：登记一个不存在的路由，必须报不可用。"""
+        from agent_platform.api import RUNTIME_ROUTE_CHECKS, route_availability
+
+        with patch.dict(RUNTIME_ROUTE_CHECKS,
+                        {"根本没有这个": ("GET", "/api/v1/根本没有这个")}):
+            self.assertFalse(route_availability(self.app)["根本没有这个"])
