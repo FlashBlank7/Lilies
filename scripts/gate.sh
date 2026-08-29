@@ -7,7 +7,7 @@
 # 而且屏幕上就摆着失败输出——看见了也没挡住。写过 memory 提醒自己，
 # 之后仍然犯了第三次。所以不再靠记性：跑这个脚本，红了它自己退非零。
 #
-#   bash scripts/gate.sh            平台：ruff F 类 + 全量 pytest
+#   bash scripts/gate.sh            平台：ruff F 类 + 前端 tsc/vitest + 全量 pytest
 #   bash scripts/gate.sh bench      客户端：ruff F 类 + pytest
 #
 # 用法上唯一的纪律：`bash scripts/gate.sh && git commit ...`。
@@ -57,6 +57,34 @@ fi
 "$RUFF" check "${LINT_PATHS[@]}" --select F
 echo "   （扫了 $lint_files 个文件）"
 
+# 前端：36 个 TS 文件此前**一条都没进过门链**。
+# vitest 的 9 条测试和 `tsc --noEmit` 的类型检查都在 package.json 里躺着，
+# 谁也没跑过——2026-08-30 第一次跑：全绿，加起来 3 秒。
+# 没进门链多半是因为 node 不在 PATH 上（这台机器装在 ~/.local/node）。
+#
+# 找不到 node 时**不静默放行**：这个门链自己栽过一次
+# "扫了 0 个文件还报全绿"，教训是"一个都没找到"在多数工具里默认算成功。
+# 所以跳过要写进最后那行结论里——只印一句 warning 是没用的，
+# 上次绿着提交了好几回也没人看那行。
+front_note=""
+FRONT="$ROOT/platform/frontend"
+if [ "$target" != "bench" ] && [ -d "$FRONT/node_modules" ]; then
+  echo "── 前端（tsc + vitest）──"
+  NODE_BIN="$(command -v node || true)"
+  [ -n "$NODE_BIN" ] || NODE_BIN="$HOME/.local/node/bin/node"
+  if [ -x "$NODE_BIN" ]; then
+    export PATH="$(dirname "$NODE_BIN"):$PATH"
+    ( cd "$FRONT" && ./node_modules/.bin/tsc --noEmit )
+    ( cd "$FRONT" && ./node_modules/.bin/vitest run --reporter=dot )
+  else
+    front_note="；前端跳过：找不到 node"
+    echo "！前端没跑：找不到 node（装上就会自动跑）" >&2
+  fi
+elif [ "$target" != "bench" ]; then
+  front_note="；前端跳过：没有 node_modules（先 npm install）"
+  echo "！前端没跑：$FRONT/node_modules 不在" >&2
+fi
+
 echo "── pytest ──"
 # 不用字节码缓存。2026-08-29 被它骗过一次：改代码、跑测试、还原，
 # 三步都在同一秒内完成时，__pycache__ 里那份 .pyc 会被当成有效的，
@@ -69,4 +97,4 @@ export PYTHONDONTWRITEBYTECODE=1
 # 不加 tail：截断输出正是那个错的温床。要看少一点就自己 > 文件再 grep。
 "$PY" -m pytest tests/ -q -p no:cacheprovider
 
-echo "✓ 门链全绿（$target）"
+echo "✓ 门链全绿（$target$front_note）"
