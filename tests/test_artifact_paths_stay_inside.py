@@ -153,3 +153,99 @@ def test_an_absolute_path_does_not_escape_either(setup):
     assert response.status_code == 404
     assert OURS in response.text, response.text[:80]
     assert bait.read_text(encoding="utf-8") not in response.text
+
+
+# ── 产物是按运行发的，不是按谁问的 ──
+
+
+def _second_app_with_a_run(setup):
+    """再建一个应用，给它一条带产物的运行。返回 (乙应用 id, 乙的运行 id)。"""
+    import json
+    import sqlite3
+
+    client, _, _, _, bait = setup
+    settings_dir = bait.parent            # workspace_root
+    other_id = client.post("/api/v1/applications", headers=headers(),
+                           json={"name": "另一家的应用", "requirement": "x"},
+                           ).json()["id"]
+    other_run = "run-of-the-other-customer"
+    folder = settings_dir / ".workflow-run-artifacts" / other_run
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "secret-report.txt").write_text("另一家的机密报表", encoding="utf-8")
+    state = {"run_id": other_run, "application_id": other_id,
+             "snapshot": {"name": "另一家", "workflow": {"nodes": [], "edges": []}},
+             "inputs": {}, "workspace_path": str(settings_dir)}
+    # 库路径从应用列表推不出来，直接找 data 目录下那个库
+    db = next((settings_dir.parent / "d").glob("agent_platform.db"))
+    conn = sqlite3.connect(db)
+    try:
+        conn.execute(
+            "INSERT INTO workflow_runs(id,application_id,version,draft_revision,status,"
+            "state_json,outputs_json,error,created_at,updated_at) "
+            "VALUES(?,?,1,NULL,'succeeded',?,'{}',NULL,"
+            "datetime('now'),datetime('now'))",
+            (other_run, other_id, json.dumps(state, ensure_ascii=False)))
+        conn.commit()
+    finally:
+        conn.close()
+    return other_id, other_run
+
+
+def test_one_customers_code_cannot_read_another_customers_artifacts(setup):
+    """甲的使用码不能取乙的产物——运行号是可以猜的，码才是凭据。
+
+    这条一旦失效，泄漏的是**别家客户的业务数据**，
+    而且泄漏方式很安静：链接看着完全正常。
+    """
+    client, app_id, _, code, _ = setup
+    _, other_run = _second_app_with_a_run(setup)
+    response = client.get(
+        f"/api/v1/use/{app_id}/runs/{other_run}/artifacts/secret-report.txt?code={code}")
+    assert response.status_code == 404, response.text
+    assert "另一家的机密报表" not in response.text
+
+
+def test_one_customers_code_cannot_even_list_another_customers_artifacts(setup):
+    """列目录同样要挡：文件名本身就能泄露不少东西。"""
+    client, app_id, _, code, _ = setup
+    _, other_run = _second_app_with_a_run(setup)
+    response = client.get(
+        f"/api/v1/use/{app_id}/runs/{other_run}/artifacts?code={code}")
+    assert response.status_code == 404, response.text
+    assert "secret-report" not in response.text
+
+
+def test_a_run_with_no_artifacts_says_so_instead_of_500(setup):
+    """没有产物目录是常态，不是故障。
+
+    客户侧原先在这里裸抛 FileNotFoundError，回的是
+    `500 Internal Server Error`——客户点一个旧链接只会以为平台坏了。
+    管理侧那条早就兜住了，客户这条没有：同一道兜底只装了一个出口，
+    而漏的这个是**客户面**。
+    """
+    import json
+    import sqlite3
+
+    client, app_id, _, code, bait = setup
+    settings_dir = bait.parent
+    bare_run = "run-without-artifacts"
+    state = {"run_id": bare_run, "application_id": app_id,
+             "snapshot": {"name": "x", "workflow": {"nodes": [], "edges": []}},
+             "inputs": {}, "workspace_path": str(settings_dir)}
+    db = next((settings_dir.parent / "d").glob("agent_platform.db"))
+    conn = sqlite3.connect(db)
+    try:
+        conn.execute(
+            "INSERT INTO workflow_runs(id,application_id,version,draft_revision,status,"
+            "state_json,outputs_json,error,created_at,updated_at) "
+            "VALUES(?,?,1,NULL,'succeeded',?,'{}',NULL,"
+            "datetime('now'),datetime('now'))",
+            (bare_run, app_id, json.dumps(state, ensure_ascii=False)))
+        conn.commit()
+    finally:
+        conn.close()
+    response = client.get(
+        f"/api/v1/use/{app_id}/runs/{bare_run}/artifacts/whatever.txt?code={code}")
+    assert response.status_code == 404, response.text
+    assert OURS in response.text
+    assert "Internal Server Error" not in response.text

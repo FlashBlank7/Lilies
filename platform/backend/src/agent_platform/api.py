@@ -5636,7 +5636,14 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
 
         await _require_use_access(application_id, code)
         await _use_run(application_id, run_id)
-        folder = await asyncio.to_thread(_use_artifact_dir, run_id)
+        try:
+            folder = await asyncio.to_thread(_use_artifact_dir, run_id)
+        except Exception as error:  # noqa: BLE001 - 没有产物目录是常态，不是故障
+            # 管理侧那条早就这么兜了，客户这条没有：一次没产出任何文件的运行，
+            # 客户点一个旧链接得到的是裸的 500 "Internal Server Error"。
+            # 客户看到 500 只会以为平台坏了，而实际上只是这次运行没有产物。
+            # 又是同一道兜底只装了一个出口，而漏的这个是**客户面**。
+            raise HTTPException(404, "文件不存在") from error
         target = (folder / artifact_path).resolve()
         if folder.resolve() not in target.parents and target != folder.resolve():
             raise HTTPException(404, "文件不存在")
