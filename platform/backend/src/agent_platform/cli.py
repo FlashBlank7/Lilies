@@ -138,10 +138,41 @@ def _env_files() -> list[Path]:
     return found
 
 
+def warn_if_the_token_is_still_the_default(settings) -> str:
+    """API_TOKEN 还是出厂那个 "change-me" 就提醒；对外开的话把话说重。
+
+    这是配置类问题里最典型的一种：不改也能跑，跑起来一切正常，
+    只是**门是虚掩的**。config.py 里 `api_token: str = "change-me"`
+    是为了让人能一条命令跑起来，这没错；错的是跑起来之后没人再提醒他。
+
+    对外开（host 不是回环）时另说一句：那时这个众所周知的口令
+    就是整个平台的钥匙——密钥、连接器凭据、所有工作流都在它后面。
+
+    **只提醒、不拒绝启动**，和上面查文件权限那条一个道理：
+    本地随手跑一个来试试是正当用法，程序不该替用户下这个判断。
+    回返回的等级（""/"warn"/"loud"），是为了能测。
+    """
+    if settings.api_token != "change-me":
+        return ""
+    logger = logging.getLogger("agent_platform")
+    exposed = str(settings.host) not in {"127.0.0.1", "localhost", "::1"}
+    if exposed:
+        logger.warning(
+            "API_TOKEN 还是出厂默认的 change-me，而服务绑在 %s（不是回环）——"
+            "任何人只要知道这个默认口令就能拿到平台里的全部密钥和工作流。"
+            "先设一个：在 .env 里写 API_TOKEN=<随机串>", settings.host)
+        return "loud"
+    logger.warning(
+        "API_TOKEN 还是出厂默认的 change-me。现在只绑在本机，"
+        "但同机其他用户照样连得上；正式用之前在 .env 里换掉。")
+    return "warn"
+
+
 def main() -> None:
     settings = get_settings()
     configure_logging()
     warn_if_secrets_are_readable()
+    warn_if_the_token_is_still_the_default(settings)
     uvicorn.run("agent_platform.api:app", host=settings.host, port=settings.port, reload=False)
 
 

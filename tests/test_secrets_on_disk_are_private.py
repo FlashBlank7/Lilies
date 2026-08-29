@@ -200,5 +200,57 @@ class EnvWarningTest(unittest.TestCase):
                 os.chdir(here)
 
 
+
+class DefaultTokenWarningTest(unittest.TestCase):
+    """API_TOKEN 还是出厂 change-me 时要提醒——不改也能跑，门却是虚掩的。
+
+    config.py 里 `api_token: str = "change-me"` 是为了让人一条命令跑起来，
+    这没错；错的是跑起来之后没人再提醒他。
+    """
+
+    @staticmethod
+    def _settings(token: str, host: str):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(api_token=token, host=host)
+
+    def test_a_real_token_says_nothing(self):
+        from agent_platform.cli import warn_if_the_token_is_still_the_default
+
+        self.assertEqual(
+            warn_if_the_token_is_still_the_default(
+                self._settings("smallmodel-lab", "0.0.0.0")), "")
+
+    def test_the_default_on_loopback_is_a_plain_warning(self):
+        from agent_platform.cli import warn_if_the_token_is_still_the_default
+
+        self.assertEqual(
+            warn_if_the_token_is_still_the_default(
+                self._settings("change-me", "127.0.0.1")), "warn")
+
+    def test_the_default_bound_outward_is_said_louder(self):
+        """对外开着默认口令是另一件事，别和本地随手跑用同一句话。"""
+        from agent_platform.cli import warn_if_the_token_is_still_the_default
+
+        self.assertEqual(
+            warn_if_the_token_is_still_the_default(
+                self._settings("change-me", "0.0.0.0")), "loud")
+
+    def test_the_message_says_where_to_fix_it(self):
+        from agent_platform.cli import warn_if_the_token_is_still_the_default
+
+        with self.assertLogs("agent_platform", level="WARNING") as caught:
+            warn_if_the_token_is_still_the_default(
+                self._settings("change-me", "0.0.0.0"))
+        text = "\n".join(caught.output)
+        self.assertIn("API_TOKEN", text)
+        self.assertIn(".env", text)
+
+    def test_it_does_not_stop_the_server(self):
+        """只提醒不拒绝：本地随手跑一个来试试是正当用法。"""
+        from agent_platform.cli import warn_if_the_token_is_still_the_default
+
+        warn_if_the_token_is_still_the_default(self._settings("change-me", "0.0.0.0"))
+
 if __name__ == "__main__":
     unittest.main()
