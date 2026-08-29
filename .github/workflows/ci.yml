@@ -10,12 +10,20 @@ on:
 jobs:
   backend:
     runs-on: ubuntu-latest
+    # 跑下限和实际开发版本各一遍。原先只测 3.13——
+    # 而 pyproject 写的是 requires-python >=3.12、本地开发用的是 3.14.7，
+    # 两头都没验过，">=3.12" 这句承诺等于没人担保。
+    # （2026-08-29 拿 3.12.14 实跑过一遍：949 条全过，所以这个下限是真的。）
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.14"]
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.13"
+          python-version: ${{ matrix.python-version }}
       - name: Install
         run: |
           python -m pip install --upgrade pip
@@ -28,7 +36,7 @@ jobs:
       # 格式类规则（E5xx 行宽之类）故意不开，那些是口味。
       - name: Ruff（只查真 bug 类）
         run: ruff check platform/backend/src --select F
-      - name: Pytest（800+ 回归）
+      - name: Pytest（全量回归）
         run: pytest tests/ -q
 
   frontend:
