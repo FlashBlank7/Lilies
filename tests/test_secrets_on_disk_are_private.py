@@ -139,6 +139,10 @@ class EnvWarningTest(unittest.TestCase):
     def test_an_example_template_is_not_flagged(self):
         """.env.example 本来就该进版本库、本来就该人人可读——报它是噪音，
         而噪音会让人开始无视这类提醒。
+
+        这条一开始是**空断言**：那时候 _env_files 写死四个完整路径，
+        .env.example 压根不在候选里，把排除逻辑整个删掉测试照样绿
+        （变异验的时候当场发现）。改成按目录 glob 之后它才真的在测东西。
         """
         from agent_platform.cli import warn_if_secrets_are_readable
 
@@ -146,9 +150,26 @@ class EnvWarningTest(unittest.TestCase):
             here = Path.cwd()
             try:
                 os.chdir(tmp)
-                Path(".env.example").write_text("API_TOKEN=change-me\n", encoding="utf-8")
-                Path(".env.example").chmod(0o644)
+                for name in (".env.example", ".env.sample"):
+                    Path(name).write_text("API_TOKEN=change-me\n", encoding="utf-8")
+                    Path(name).chmod(0o644)
+                # 先确认这些文件真在那儿，否则又是一条空断言
+                self.assertTrue(Path(".env.example").is_file())
                 self.assertEqual(warn_if_secrets_are_readable(), [])
+            finally:
+                os.chdir(here)
+
+    def test_any_env_flavour_is_checked_not_just_the_two_names(self):
+        """.env.production 这种名字也得查到——写死文件名就查不到它。"""
+        from agent_platform.cli import warn_if_secrets_are_readable
+
+        with TemporaryDirectory() as tmp:
+            here = Path.cwd()
+            try:
+                os.chdir(tmp)
+                Path(".env.production").write_text("API_TOKEN=x\n", encoding="utf-8")
+                Path(".env.production").chmod(0o644)
+                self.assertEqual(warn_if_secrets_are_readable(), [".env.production"])
             finally:
                 os.chdir(here)
 

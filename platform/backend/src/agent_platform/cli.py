@@ -112,24 +112,30 @@ def warn_if_secrets_are_readable() -> list[str]:
 
 
 def _env_files() -> list[Path]:
-    """要检查的密钥文件。范围写死，不递归——
+    """要检查的密钥文件：几个固定目录下的 .env*，不递归。
 
-    递归会走进 node_modules（几万个目录），启动时多花几秒；
-    而密钥文件真正会出现的地方就那么几处。
+    只在**目录**上写死，文件名用 glob。第一版把四个完整路径写死了，
+    于是 .env.production 这种名字一个也查不到；而且那样一来
+    「排除 .env.example」成了死代码——写死的清单里本来就没有它，
+    测试跟着变成空断言（把排除逻辑删掉，测试照样绿，实测过）。
+
+    不递归是有意的：递归会走进 node_modules 几万个目录，启动白等几秒，
+    而密钥文件真正会出现的地方就这么几处。
     """
-    candidates = [
-        Path(".env"), Path(".env.local"),
-        Path("platform/frontend/.env.local"),
-        Path("platform/backend/.env"),
-    ]
-    seen: list[Path] = []
-    for path in candidates:
+    places = [Path("."), Path("platform/frontend"), Path("platform/backend")]
+    found: list[Path] = []
+    for place in places:
         try:
-            if path.is_file() and not path.name.endswith(".example"):
-                seen.append(path)
+            if not place.is_dir():
+                continue
+            for path in sorted(place.glob(".env*")):
+                # 模板本来就该进版本库、本来就该人人可读，报它是噪音，
+                # 而噪音会让人开始无视这类提醒
+                if path.is_file() and not path.name.endswith((".example", ".sample")):
+                    found.append(path)
         except OSError:
             continue
-    return seen
+    return found
 
 
 def main() -> None:
