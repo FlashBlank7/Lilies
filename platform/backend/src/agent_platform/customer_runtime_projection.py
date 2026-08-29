@@ -118,8 +118,34 @@ _PRIVATE_ERROR_MARKERS = (
     "system_prompt",
     "thinking",
     "traceback",
+    # ── 凭据类（2026-08-29 补）──
+    # 上面那批防的是"内部思考漏出去"，一条凭据类的都没有。
+    # 实测 "DEEPSEEK_API_KEY invalid" 原样送到客户眼前。
+    # 工作流节点会去调外部接口，而那些接口的报错里最常见的就是
+    # 带凭据的 URL 和「api key 无效」这类原文。
+    # 日志那边早就有一份 _URL_SECRETS 在做同样的事（cli.py）——
+    # 又是同一类防护只装了一个出口。
+    #
+    # 只列**复合词**，不列光秃秃的 "token"：
+    # 「token 超限」是一句对客户有用的话，不该被一起藏掉。
+    "api_key",
+    "apikey",
+    "access_key",
+    "secret",
+    "password",
+    "passwd",
+    "authorization",
+    "bearer",
+    "credential",
+    "private_key",
+    "access_token",
+    "refresh_token",
+    "auth_token",
+    "api_token",
+    "sk_",          # sk-xxxx 这类前缀（normalized 把 - 换成了 _）
 )
-_HIDDEN_RUNTIME_ERROR = "Runtime failed; private diagnostic details were hidden."
+# 这句是**给客户看的**——他不懂英文，也不知道下一步该干什么。
+_HIDDEN_RUNTIME_ERROR = "这次没跑成，具体原因涉及内部信息不便显示。请联系给你链接的人。"
 
 
 def _mapping(value: Any) -> dict[str, Any]:
@@ -172,6 +198,21 @@ def project_public_value(value: Any, *, _depth: int = 0) -> Any:
 
 
 def _public_runtime_error(value: Any) -> str:
+    """给客户看的报错。**先脱敏，再翻成人话。**
+
+    脱敏这一层一直都在，翻译这一层没有——于是客户页上原样印着
+
+        没有跑成：node start failed: missing required input: text
+
+    （前端 use/[id]/page.tsx 就是 `{run.error}` 直出。）
+    这句话里有节点 id、有英文、有冒号堆叠，对使用者没有任何意义，
+    而平台早就有 _human_error 把它翻成「缺少必填输入「text」」——
+    管家答问、面板、体检都用它，唯独客户这条路没用。
+    又是同一个闸没装满出口，而这一次漏的是**最外面**那个出口。
+
+    顺序不能反：翻译要在脱敏之后，否则模板可能把一段该藏的原文
+    重新拼进人话里。
+    """
     raw = str(value or "")
     normalized = raw.casefold().replace("-", "_").replace(" ", "_")
     if any(marker in normalized for marker in _PRIVATE_ERROR_MARKERS):
@@ -179,7 +220,10 @@ def _public_runtime_error(value: Any) -> str:
     sanitized = project_public_value(raw)
     if not isinstance(sanitized, str) or sanitized != raw:
         return _HIDDEN_RUNTIME_ERROR
-    return sanitized[:2_000]
+    from .overview import _human_error
+
+    # 认不出来的报错 _human_error 原样返回——那比硬套模板强
+    return _human_error(sanitized[:2_000])[:2_000]
 
 
 def _public_input(value: Any) -> dict[str, Any] | None:
