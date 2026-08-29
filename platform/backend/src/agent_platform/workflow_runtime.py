@@ -5188,10 +5188,42 @@ class WorkflowRuntime:
 
     @staticmethod
     def _render(template: str, variables: dict[str, Any]) -> str:
+        """`{{ 变量 }}` 替换——**只有这一种语法**，没有 {% if %}/{% for %}。
+
+        真机 2026-08-30 查 227 次失败时撞出来的两桩，都是这个函数的：
+
+        1. **6 次失败，错误正文只有一个字符：`'g'`。** 模板写着
+           `{% for g in gpus %}…{{ g.index }}`，控制标签被原样留下、
+           `g` 从来没被定义，`variables["g"]` 抛 KeyError——而 KeyError
+           的 str() 就是键名。业主看到「node render_report failed: 'g'」
+           无从下手；更要紧的是**修工作流的是模型**，它读到 'g' 一样修不了。
+        2. **1 次「成功」的运行，交付正文里印着 `{% for gpu in gpus %}`。**
+           变量恰好都取得到时标签就留在报告里，平台照打 ✓。
+           业主拿到一份印着模板源码的 GPU 日报——**这比报错更糟**。
+
+        所以两件事都改成开口说话，照本文件 4941 行定下的调子：拒绝即教学。
+        查过全库：已发布的活工作流里带 `{%` 的有 0 个，拒绝不会弄坏在跑的东西。
+        """
+        if "{%" in template:
+            raise ValueError(
+                "模板块只做 {{ 变量 }} 替换，不支持 {% ... %} 这类控制语法"
+                "（循环、判断、赋值都不行，写了会原样印进正文）。"
+                "要按列表逐行拼字，请在上一步用数据处理块把文字拼好，"
+                "这里只引用拼好的结果。"
+            )
+
         def replace(match: re.Match[str]) -> str:
+            expression = match.group(1).strip()
             value: Any = variables
-            for key in match.group(1).strip().split("."):
-                value = value[key]
+            for key in expression.split("."):
+                try:
+                    value = value[key]
+                except (KeyError, IndexError, TypeError):
+                    available = "、".join(sorted(variables)) or "（一个都没配）"
+                    raise ValueError(
+                        f"模板里的 {{{{ {expression} }}}} 取不到值："
+                        f"「{key}」这一段没有。这个模板配了的变量：{available}"
+                    ) from None
             return str(value)
 
         return re.sub(r"{{\s*([\w.]+)\s*}}", replace, template)
