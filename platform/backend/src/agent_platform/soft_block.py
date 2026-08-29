@@ -157,8 +157,21 @@ def get_discrete_block_type(strategy: str) -> str | None:
 
 
 def list_strategies(family: str | None = None) -> list[str]:
-    """List available strategies, optionally filtered by family."""
-    if family and family in FAMILY_MAP:
+    """List available strategies, optionally filtered by family.
+
+    An unknown family name is an error, not a filter that matched nothing.
+    The old code fell through to "return everything", so a typo like
+    ``list_strategies("modl")`` handed back all 24 strategies as if they
+    were that family's — a flat list with nothing to say otherwise.
+    Silently widening a filter is worse than failing: the caller gets an
+    answer, and it is wrong.
+    """
+    if family is not None:
+        if family not in FAMILY_MAP:
+            raise KeyError(
+                f"unknown soft-block family {family!r}; "
+                f"valid families: {', '.join(sorted(FAMILY_MAP))}"
+            )
         return list(FAMILY_MAP[family].keys())
     result = []
     for strategies in FAMILY_MAP.values():

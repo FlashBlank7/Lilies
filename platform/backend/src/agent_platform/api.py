@@ -4102,7 +4102,17 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             get_discrete_block_type,
         )
 
-        if family and family in FAMILY_MAP:
+        # 家族名写错时不能当成"没过滤"。原来写的是
+        # `if family and family in FAMILY_MAP:`，于是 ?family=modl 这种笔误
+        # 会一路掉到下面，200 返回全部六个家族——调用方拿到的是答案，
+        # 而且是错的答案。"筛不着就返回全部"比返回空更坏。
+        if family:
+            if family not in FAMILY_MAP:
+                raise HTTPException(
+                    400,
+                    f"没有「{family}」这个积木家族，可选的是："
+                    f"{'、'.join(sorted(FAMILY_MAP))}",
+                )
             strategies = {
                 s: {
                     "help": strategy_help(s),
