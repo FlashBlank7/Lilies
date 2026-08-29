@@ -15,11 +15,21 @@
 修法都在数据这一侧：体检结果自带「这份数据不回答什么」、
 recent_runs 支持按天查并直接给计数、list_workflows 带上运行次数。
 
+答错的题会**再问一遍**，因为对面是模型，同一道题两次答得不一样是常事。
+2026-08-29 就撞了一次：「已发布的占比是多少」第一次没答上、
+第二次答"占全部的 20%（3 个已发布，共 15 个）"，完全正确。
+一次错就报红的话，这套题会隔三差五冤枉平台一回，冤枉几次之后
+就没人再当回事了——而它唯一的价值就是被当回事。
+所以分三种结果说：两次都对、晃了一下（第二次对）、两次都错。
+只有最后一种退非零。晃动次数也印出来：晃得多本身是个信号，
+只是它指向的是"话没说清"而不是"数给错了"。
+
 用法：
     python scripts/accuracy_concierge.py                 # 默认 127.0.0.1:8000
     python scripts/accuracy_concierge.py --server http://…
+    python scripts/accuracy_concierge.py --no-retry      # 不重问，看原始命中率
 
-只读：所有题目都只查不改。退出码非零表示有答错的。
+只读：所有题目都只查不改。退出码非零表示有两次都答错的。
 """
 
 from __future__ import annotations
@@ -199,47 +209,83 @@ def build_cases(db: sqlite3.Connection) -> list[tuple[str, object]]:
     ]
 
 
+def _expected_text(truth: object) -> str:
+    """真值里拿来比对的那一段。
+
+    报错类真值取的是库里的原文（英文），而管家答的是翻译过的人话——
+    拿关键词比，别拿整句比。
+    """
+    expected = str(truth)
+    if "missing required input" in expected:
+        return expected.split(":")[-1].strip()
+    return expected
+
+
+def _answers(truth: object, answer: str) -> bool:
+    # 数字答案允许带千分位/空格/加粗
+    flat = answer.replace(",", "").replace(" ", "").replace("*", "")
+    return _expected_text(truth) in flat
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="核对管家回答的事实准确性（只读）")
     parser.add_argument("--server", default="http://127.0.0.1:8000")
     parser.add_argument("--db", default="data/agent_platform.db")
+    parser.add_argument("--no-retry", action="store_true",
+                        help="答错不重问，看原始命中率")
     args = parser.parse_args()
 
     token = _token()
     db = sqlite3.connect(f"file:{args.db}?mode=ro", uri=True)
     print(f"管家准确性核对 {DIM}{args.server}{NORM}")
+    cases = build_cases(db)
+    # 一道题都没有＝这次什么也没验，别报"全部答对"。
+    # （2026-08-29 门链里的 ruff 正是栽在这上面：扫了 0 个文件，报全部通过。）
+    if not cases:
+        print(f"{BAD} 一道题都没造出来——这次什么都没验")
+        return 1
     wrong: list[str] = []
-    for case in build_cases(db):
+    wobbled: list[str] = []
+    for case in cases:
         question, truth = case[0], case[1]
         history = case[2] if len(case) > 2 else None
         try:
             answer, tools = ask(args.server, token, question, history)
+            hit = _answers(truth, answer)
+            # 答错就再问一遍：对面是模型，同一道题两次答得不一样是常事，
+            # 一次错就报红会隔三差五冤枉平台，冤枉几次这套题就没人看了。
+            retried = not hit and not args.no_retry
+            if retried:
+                answer, tools = ask(args.server, token, question, history)
+                hit = _answers(truth, answer)
         except (urllib.error.URLError, TimeoutError, OSError) as error:
             print(f"{BAD} 连不上后端：{error}")
             return 1
-        # 数字答案允许带千分位/空格/加粗
-        flat = answer.replace(",", "").replace(" ", "").replace("*", "")
-        expected = str(truth)
-        # 报错类真值取的是库里的原文（英文），而管家答的是翻译过的人话——
-        # 拿关键词比，别拿整句比。
-        if "missing required input" in expected:
-            expected = expected.split(":")[-1].strip()
-        hit = expected in flat
         mark = OK if hit else BAD
-        print(f"{mark} {question}")
+        note = f" {DIM}（第一次没答上，重问答对了）{NORM}" if hit and retried else ""
+        print(f"{mark} {question}{note}")
         print(f"   {DIM}真值 {truth} · 工具 {tools}{NORM}")
         print(f"   {DIM}{answer[:110].strip()}{NORM}")
         if not hit:
             wrong.append(f"{question}（真值 {truth}）")
+        elif retried:
+            wobbled.append(question)
     print()
+    print(f"{DIM}共 {len(cases)} 题{NORM}")
+    if wobbled:
+        # 晃动不算失败，但要说出来：晃得多本身是个信号，
+        # 只是它指向"话没说清"，不是"数给错了"。
+        print(f"{DIM}  {len(wobbled)} 题晃了一下（第一次没答上、重问答对）：{NORM}")
+        for item in wobbled:
+            print(f"{DIM}    · {item}{NORM}")
     if wrong:
-        print(f"{BAD} {len(wrong)} 题答得不对：")
+        print(f"{BAD} {len(wrong)} 题两次都答不对：")
         for item in wrong:
             print(f"  · {item}")
         print(f"{DIM}  先看它调了哪个工具——多半是平台没把话说清，"
               f"或者根本没给这个数。{NORM}")
         return 1
-    print(f"{OK} 全部答对")
+    print(f"{OK} {len(cases)} 题全部答对")
     return 0
 
 

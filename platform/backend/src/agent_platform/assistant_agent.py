@@ -486,6 +486,14 @@ class WorkflowConcierge:
                 "一共几个": len(apps),
                 "已发布几个": published_total,
                 "没发布的草稿有几个": len(apps) - published_total,
+                # 占比也直接给。除法是它自己能做，但"能做"和"每次都做对"是两回事：
+                # 准确性哨兵里「已发布的占比是多少」连着两轮都要重问一遍才答对，
+                # 而 3 和 15 这两个数明明就摆在上面。
+                # 这和「别让它数行数」是同一条：**平台算得出的，别留给模型算**。
+                # 写成带 % 的字符串，省得 0.2 和 20 两种写法之间再晃一次。
+                "已发布占比": (f"{published_total * 100 / len(apps):.1f}".rstrip("0")
+                               .rstrip(".") + "%") if apps else "还没有工作流",
+                "占比是拿什么算的": "已发布 ÷ 全部（含未发布草稿，不含收起来的）",
                 "workflows": items[:50], "total": len(items),
             }
             if hidden > 0 and args.get("only_published", True):
