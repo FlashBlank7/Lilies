@@ -126,6 +126,38 @@ def build_cases(db: sqlite3.Connection) -> list[tuple[str, object]]:
              "WHERE a.archived_at IS NULL AND r.version IS NOT NULL "
              "AND r.status='failed' "
              "AND r.created_at LIKE date('now','-1 day')||'%'")),
+        # 「某天失败几次」答对了，但**是谁失败的**答错过：
+        # 真机答「5 次，其中某某有一次失败记录」——那 5 次全是它。
+        # 周视图只有每天的总数，失败清单是整窗合并的，
+        # 两头之间原本没有数据连着，只能猜。
+        ("昨天失败的运行分别属于哪个工作流？只要名字",
+         one("SELECT a.name FROM workflow_runs r "
+             "JOIN applications a ON a.id=r.application_id "
+             "WHERE a.archived_at IS NULL AND r.version IS NOT NULL "
+             "AND r.status='failed' "
+             "AND r.created_at LIKE date('now','-1 day')||'%' "
+             "GROUP BY a.name ORDER BY COUNT(*) DESC LIMIT 1")),
+        # 跨天区间：面板只有 7 天，此前问「上上周有几次运行」它连打
+        # **25 次工具调用**一天一天地翻。答案对，代价是错的。
+        ("前天到昨天一共失败了几次？",
+         one("SELECT COUNT(*) FROM workflow_runs r "
+             "JOIN applications a ON a.id=r.application_id "
+             "WHERE a.archived_at IS NULL AND r.version IS NOT NULL "
+             "AND r.status='failed' "
+             "AND substr(r.created_at,1,10) >= date('now','-2 day') "
+             "AND substr(r.created_at,1,10) <= date('now','-1 day')")),
+        # 成功率问的是全量。此前它拿 7 天窗口里的两天算出 84%，
+        # 而全量是 81.4%——窗口里的数被当成了全量。
+        # 这里核成功次数（分子），比核百分比稳，也照样抓得住那个错。
+        ("跑得最多的那个工作流，至今一共成功了多少次？",
+         one("SELECT COUNT(*) FROM workflow_runs r "
+             "JOIN applications a ON a.id=r.application_id "
+             "WHERE r.status='succeeded' AND r.version IS NOT NULL "
+             "AND a.archived_at IS NULL "
+             "AND a.name=(SELECT a2.name FROM workflow_runs r2 "
+             "            JOIN applications a2 ON a2.id=r2.application_id "
+             "            WHERE r2.version IS NOT NULL AND a2.archived_at IS NULL "
+             "            GROUP BY a2.name ORDER BY COUNT(*) DESC LIMIT 1)")),
         # 多轮：前面聊过别的，再问一句事实题。
         # 今天两个最严重的发现都出在多轮里——单轮问同一句话都是对的：
         # 一次是凭上文编了个"建议收起来"（接口返回的是 0 个），

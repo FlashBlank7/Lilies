@@ -31,7 +31,8 @@ _CONTEXT_MARK = re.compile(r"<上下文[^>]*/>\s*")
 _TOOL_WORDS = {
     "list_workflows": "查工作流列表", "run_workflow": "跑工作流",
     "recent_runs": "查运行记录", "generate_workflow": "生成工作流",
-    "platform_overview": "看平台总览", "tidy_workflows": "收拾列表",
+    "platform_overview": "看平台总览", "run_counts": "数运行次数",
+    "tidy_workflows": "收拾列表",
     "set_schedule": "改定时", "acceptance_check": "请监理验收",
     "repair_workflow": "修工作流", "health_report": "做体检",
     "recent_builds": "查生成任务", "resume_build": "让它接着跑",
@@ -206,6 +207,19 @@ TOOLS = [
                    }, "required": ["requirement"]}),
     ToolDefinition(name="platform_overview", description="平台统筹总览：今日运行统计、定时任务、近期失败、进行中的构建",
                    input_schema={"type": "object", "properties": {}}),
+    ToolDefinition(name="run_counts",
+                   description="数运行次数：任意时间段的总数、成败分布、每天多少次、"
+                               "每个工作流多少次。凡是问「某段时间跑了/失败了多少次」"
+                               "「成功率多少」「哪个跑得最多」，用这一个就够，"
+                               "不要一个工作流一个工作流地翻记录。"
+                               "不给起止日期就是**全部历史**。",
+                   input_schema={"type": "object", "properties": {
+                       "since": {"type": "string",
+                                 "description": "起始日期（UTC，含当天，如 2026-08-17）。不给＝不限"},
+                       "until": {"type": "string",
+                                 "description": "结束日期（UTC，含当天，如 2026-08-23）。不给＝不限"},
+                       "name_or_id": {"type": "string",
+                                      "description": "只数某一个工作流。不给＝全部工作流"}}}),
     ToolDefinition(name="tidy_workflows",
                    description="收拾工作流列表。四种用法："
                                "suggest 列出可以收起来的废弃草稿（从没发布、"
@@ -812,6 +826,111 @@ class WorkflowConcierge:
                 "note": "problems 为空只表示已发布工作流本身没问题；"
                         "定时能不能按时开火要看「定时调度」那一项",
             }
+        if name == "run_counts":
+            # 起因（2026-08-29 真机）：问「上上周有几次运行」，它连打了
+            # **25 次工具调用**——先看面板（只有 7 天），发现覆盖不到，
+            # 就开始一个工作流一天一天地 recent_runs 翻，翻了 24 次。
+            # 答案是对的（0 次），但这个代价在工作流一多就必然崩：
+            # 要么超时，要么翻到一半自己下结论。
+            # 同一次探测里还有一问：「某工作流的成功率是多少」，
+            # 它拿 7 天窗口里的两天算出 84%，而全量真值是 81%
+            # （57 成 / 70 次）——窗口里的数被当成了全量。
+            # 两件事同一个缺口：**没有一个能按任意时间段数数的地方**。
+            # 一句 GROUP BY 就有的东西，不该让它去翻。
+            from collections import Counter
+
+            since = str(args.get("since") or "").strip()[:10]
+            until = str(args.get("until") or "").strip()[:10]
+            only = str(args.get("name_or_id") or "").strip()
+            app = None
+            if only:
+                app = await self._resolve_app(only)
+                if not app:
+                    return {"error": "找不到该工作流"}
+
+            def _count() -> dict:
+                where = ["a.archived_at IS NULL", "r.version IS NOT NULL"]
+                params: list[Any] = []
+                if since:
+                    where.append("substr(r.created_at,1,10) >= ?")
+                    params.append(since)
+                if until:
+                    where.append("substr(r.created_at,1,10) <= ?")
+                    params.append(until)
+                if app:
+                    where.append("r.application_id = ?")
+                    params.append(app["id"])
+                clause = " AND ".join(where)
+                with services.workflow_store.storage._connect() as conn:
+                    by_status = conn.execute(
+                        "SELECT r.status, COUNT(*) AS n FROM workflow_runs r "
+                        "JOIN applications a ON a.id=r.application_id "
+                        f"WHERE {clause} GROUP BY r.status", params).fetchall()
+                    by_day = conn.execute(
+                        "SELECT substr(r.created_at,1,10) AS day, r.status, COUNT(*) AS n "
+                        "FROM workflow_runs r JOIN applications a ON a.id=r.application_id "
+                        f"WHERE {clause} GROUP BY day, r.status ORDER BY day DESC",
+                        params).fetchall()
+                    by_flow = conn.execute(
+                        "SELECT a.name, r.status, COUNT(*) AS n FROM workflow_runs r "
+                        "JOIN applications a ON a.id=r.application_id "
+                        f"WHERE {clause} GROUP BY a.name, r.status", params).fetchall()
+                    span = conn.execute(
+                        "SELECT MIN(substr(r.created_at,1,10)), MAX(substr(r.created_at,1,10)) "
+                        "FROM workflow_runs r JOIN applications a ON a.id=r.application_id "
+                        f"WHERE {clause}", params).fetchone()
+                return {"by_status": [dict(r) for r in by_status],
+                        "by_day": [dict(r) for r in by_day],
+                        "by_flow": [dict(r) for r in by_flow],
+                        "span": tuple(span or (None, None))}
+
+            counted = await asyncio.to_thread(_count)
+            total = sum(row["n"] for row in counted["by_status"])
+            situations = {_RUN_WORDS.get(row["status"], row["status"]): row["n"]
+                          for row in counted["by_status"]}
+
+            def _fold(rows: list[dict], key: str) -> dict[str, dict[str, int]]:
+                folded: dict[str, dict[str, int]] = {}
+                for row in rows:
+                    slot = folded.setdefault(
+                        str(row[key]),
+                        # 用词跟「按情况计数」保持一致：同一份结果里
+                        # 一处叫「成功」一处叫「跑成了」，读的人得先想一下
+                        {"总次数": 0, _RUN_WORDS["succeeded"]: 0, _RUN_WORDS["failed"]: 0})
+                    slot["总次数"] += row["n"]
+                    if row["status"] in ("succeeded", "failed"):
+                        slot[_RUN_WORDS[row["status"]]] += row["n"]
+                return folded
+
+            days = _fold(counted["by_day"], "day")
+            flows = _fold(counted["by_flow"], "name")
+            # 汇总字段放前面：整份结果超过 4000 字会被截，
+            # 截掉的永远是后面那截，所以数字不能排在长列表后面。
+            payload: dict[str, Any] = {
+                "问的是哪一段": (f"{since or '最早'} 到 {until or '今天'}（UTC 日期）"
+                                 + (f"，只数「{app['name']}」" if app else "，全部工作流")),
+                "一共跑了几次": total,
+                "按情况计数": situations,
+                "口径": "只算已发布版本的真实运行（搭建期自测不算），"
+                        "已收起来的工作流也不算在内——和面板、体检同一个口径。",
+            }
+            if total:
+                payload["实际有记录的日期范围"] = f"{counted['span'][0]} 到 {counted['span'][1]}"
+            # 天数可能很长（问「今年」就是三百多行），截了要说出来。
+            ordered_days = sorted(days.items(), reverse=True)
+            payload["每个工作流各多少次"] = [{"工作流": nm, **vals} for nm, vals in
+                                              sorted(flows.items(),
+                                                     key=lambda kv: -kv[1]["总次数"])]
+            payload["按天"] = [{"日期": day, **vals} for day, vals in ordered_days[:62]]
+            if len(ordered_days) > 62:
+                payload["按天只列了最近 62 天"] = (
+                    f"这段时间里有记录的一共 {len(ordered_days)} 天，"
+                    f"上面的「按天」只列了最近 62 天；"
+                    f"总数和成败分布是整段的，没有被截。")
+            elif total == 0:
+                payload["这一段确实是零"] = ("这段时间一个运行记录都没有——"
+                                             "是真的没跑，不是没查到。")
+            return payload
         if name == "platform_overview":
             from .overview import build_overview
 
