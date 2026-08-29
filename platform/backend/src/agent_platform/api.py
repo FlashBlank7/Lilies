@@ -2000,8 +2000,13 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
     ) -> None:
         supplied = credentials.credentials if credentials else request.query_params.get("token")
+        # 这两句是**客户端会原样印给用户**的（guanjia 把 detail 取出来直接显示）。
+        # 之前是 "invalid API token"——用户看到的就是这句英文。
+        # 「没带令牌」和「令牌不对」分开说：前者是还没登录，后者是登录过但失效了，
+        # 下一步不一样。
         if not supplied:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid API token")
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
+                                detail="这个请求没带访问令牌——先登录再试")
         if supplied == settings.api_token:
             request.state.user = {"id": "root", "name": "管理员", "role": "admin"}
             return
@@ -2010,7 +2015,8 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             hashlib.sha256(supplied.encode("utf-8")).hexdigest()
         )
         if not user or user.get("status") != "active":
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid API token")
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
+                                detail="令牌不对或已失效——重新登录一次")
         request.state.user = user
 
     def _current_user(request: Request) -> dict[str, Any]:
@@ -2053,7 +2059,9 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         if supplied != settings.api_token:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail={"code": "invalid_api_token", "message": "invalid API token"},
+                # code 是给机器的，保持不变；message 是给人的，说人话
+                detail={"code": "invalid_api_token",
+                        "message": "令牌不对或已失效——重新登录一次"},
             )
 
     @app.get("/health")
