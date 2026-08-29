@@ -33,6 +33,7 @@ _TOOL_WORDS = {
     "list_workflows": "查工作流列表", "run_workflow": "跑工作流",
     "recent_runs": "查运行记录", "generate_workflow": "生成工作流",
     "platform_overview": "看平台总览", "run_counts": "数运行次数",
+    "failure_reasons": "按原因归类失败",
     "tidy_workflows": "收拾列表",
     "set_schedule": "改定时", "acceptance_check": "请监理验收",
     "repair_workflow": "修工作流", "health_report": "做体检",
@@ -270,6 +271,17 @@ TOOLS = [
                                  "description": "结束日期（UTC，含当天，如 2026-08-23）。不给＝不限"},
                        "name_or_id": {"type": "string",
                                       "description": "只数某一个工作流。不给＝全部工作流"}}}),
+    ToolDefinition(name="failure_reasons",
+                   description="把一个工作流的失败**按原因归类**，给出每类多少次和例子。"
+                               "凡是问「失败都是同一类原因吗」「失败原因归类看是什么」"
+                               "「主要是什么问题」，用这一个——"
+                               "别去翻 recent_runs 一条条数：那只是最近一页，"
+                               "数出来的次数会比真实少（真机上同一个问题，"
+                               "翻记录答「最近有两次失败」，实际 14 次）。",
+                   input_schema={"type": "object", "properties": {
+                       "name_or_id": {"type": "string",
+                                      "description": "哪个工作流（名字或 id）"}},
+                       "required": ["name_or_id"]}),
     ToolDefinition(name="tidy_workflows",
                    description="收拾工作流列表。四种用法："
                                "suggest 列出可以收起来的废弃草稿（从没发布、"
@@ -712,6 +724,33 @@ class WorkflowConcierge:
                     "工作流名": app_name, "要做的事": requirement,
                     "note": "已开始搭建（后台进行）。把「要做的事」原样念给业主听，"
                             "让他确认这就是他要的——不对就说一声，现在放弃重来最省事"}
+        if name == "failure_reasons":
+            app, problem = await self._named_app(args)
+            if problem:
+                return problem
+            from .observability import RunAnalyzer
+
+            patterns = await RunAnalyzer(self.services.storage).failure_patterns(
+                app["id"])
+            total = sum(p.count for p in patterns)
+            return {
+                "工作流": app.get("name"),
+                # 这个数来自 SQL 的全量分组，不是"最近一页"——
+                # 说清楚，免得它又拿页里的条数当总数
+                "一共失败了几次": total,
+                "按原因分": [{"原因": _FAILURE_REASON_WORDS.get(
+                                  p.pattern_name, p.pattern_name),
+                              "几次": p.count,
+                              "例子运行号": p.example_run_ids[:2]}
+                             for p in patterns],
+                "这些数是怎么来的": "全部失败运行按错误话术分组，不是最近几条",
+            } if patterns else {
+                "工作流": app.get("name"),
+                "一共失败了几次": 0,
+                "按原因分": [],
+                "这些数是怎么来的": "全部失败运行按错误话术分组，不是最近几条",
+            }
+
         if name == "tidy_workflows":
             action = str(args.get("action") or "suggest")
             if action == "suggest":
@@ -1493,6 +1532,26 @@ class WorkflowConcierge:
 
 
 # 运行状态 → 人话。跟构建状态那套并列：模型手里有什么词就说什么词。
+_FAILURE_REASON_WORDS = {
+    # 分类名是给机器看的英文 slug（observability._classify_failure 定的）。
+    # 直接递给模型，它会原样念给业主听——真机上出现过
+    # 「没有跑起来出错的（broken）」这种夹带，所以状态词一律先翻。
+    "data_shape_mismatch": "拿到的数据形状不对（该给数组的地方不是数组）",
+    "workflow_reference_unresolved": "引用的上游环节找不到",
+    "formula_or_expression_error": "公式或表达式写得不对",
+    "template_variable_missing": "模板里引用了一个不存在的变量",
+    "missing_resource": "调用时少给了必填的输入",
+    "platform_contention": "平台自己忙不过来（不是这个工作流的问题）",
+    "api_timeout_or_rate_limit": "外部接口超时或被限流",
+    "permission_error": "权限不够",
+    "code_execution_error": "执行过程中报错",
+    "resource_exhausted": "资源用尽（内存/磁盘/配额）",
+    "json_parse_error": "数据解析不了",
+    "governance_limit_reached": "到了预算或轮次上限",
+    "unknown": "没归到已知的类别里",
+}
+
+
 _HEALTH_WORDS = {
     "broken": "确实在反复失败",
     "stale": "有定时却一直没跑起来",
