@@ -405,13 +405,27 @@ class AgentRuntime:
                 surface=f"agent_tool:{tool_name}",
                 payload=tool_input,
             )
+            # 事件里报的是**注入之前**那份，也就是还写着 {"$secret": "api_token"}
+            # 的那份。密钥的真值一旦注进来，就不该再出现在任何事件里。
+            #
+            # 原来是先注入、再拿注入后的那份去脱敏。而那个脱敏器只看**键名**：
+            # {"api_key": …} 挡得住，{"url": …}、{"note": …} 挡不住。
+            # 真机复现过（2026-08-29）：
+            #     {"url": {"$secret": "api_token", "prefix": "https://x/?k="}}
+            #     → 事件里是 {"url": "https://x/?k=sk-REALSECRET0123456789"}
+            # 事件是要落盘、要展示的。
+            #
+            # 注入前那份留下的是"这儿引用了一个密钥"的形状（{"$secret": …}），
+            # 真值压根不进事件。密钥的名字也一并被盖掉——`$secret` 这个键
+            # 本身就带 "secret"，脱敏器照规则盖了；少露一点没坏处。
+            announced = tool_input
             tool_input = await self.harness.inject_secret_references(
                 owner_id=session.governance_application_id or session.agent.id,
                 payload=tool_input,
                 allow_secret_references=session.allow_secret_references,
             )
             await self.emit(session.id, "tool.started", {
-                "tool_use_id": block.id, "tool": tool_name, "input": self._redact(tool_input)
+                "tool_use_id": block.id, "tool": tool_name, "input": self._redact(announced)
             })
 
             async def spawn(task: str, role: str | None) -> str:

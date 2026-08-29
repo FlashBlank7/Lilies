@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from collections.abc import AsyncIterable, Awaitable, Callable, Mapping
 from typing import Any, TypeAlias
 
@@ -24,10 +25,25 @@ _SENSITIVE_FIELD_TOKENS = (
     "cookie",
     "credential",
 )
+# 和 build_transcript._SECRET_VALUE 保持一致：sk- / api_key / bearer 后面跟 16 位以上
+_SECRET_VALUE = re.compile(r"(?i)\b(?:sk|api[_-]?key|bearer)[-_ ]?[A-Za-z0-9]{16,}")
 
 
 def redact_sensitive_fields(value: Any) -> Any:
-    """Return a recursively redacted copy of JSON-like data."""
+    """Return a recursively redacted copy of JSON-like data.
+
+    键名和**值的形状**都要看。只看键名的话，
+    `{"url": "https://x/?k=sk-ABCDEFGHIJKLMNOP"}` 一路通过——
+    2026-08-29 拿同一批毒载荷横着比了平台里的几个脱敏器才发现：
+    build_transcript.redact 六条全挡，这个只挡住三条，
+    漏的正是"键名无辜、值是密钥"那一类。
+    两个脱敏器强弱不同没关系（用途不同），但弱的那个正好挂在
+    tool.started 事件上，而事件是要落盘、要展示的。
+
+    正则和 build_transcript 那份保持一致（sk- / api_key / bearer + 16 位以上）。
+    没有合并成一个函数：那份还管 thinking 文本的特殊处理，
+    合并会把不相干的行为带过来。
+    """
     if isinstance(value, dict):
         return {
             key: (
@@ -41,6 +57,8 @@ def redact_sensitive_fields(value: Any) -> Any:
         return [redact_sensitive_fields(item) for item in value]
     if isinstance(value, tuple):
         return tuple(redact_sensitive_fields(item) for item in value)
+    if isinstance(value, str):
+        return _SECRET_VALUE.sub("[REDACTED]", value)
     return value
 
 
