@@ -65,3 +65,48 @@ class HealthReportCarriesItTest(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TruncationIsDeclaredTest(unittest.IsolatedAsyncioTestCase):
+    """只列前 10 个就要说出来。
+
+    同一个病 2026-08-29 一天里在三个工具上各中一次：
+    recent_runs（翻 10 条数出 2 次，实际 5 次）、
+    list_workflows（比最近 5 条就断言"跑得最多"）、
+    recent_builds（数了看到的 25 个，实际 75 个）。
+    规律是：**给一页数据、不说这是一页，模型就会把它当全部。**
+    """
+
+    async def _report(self, problem_count: int) -> dict:
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock, patch
+
+        from agent_platform.assistant_agent import WorkflowConcierge
+
+        agent = WorkflowConcierge.__new__(WorkflowConcierge)
+        agent.services = SimpleNamespace(scheduler=SimpleNamespace(
+            health=lambda: {"alive": True, "seconds_since_tick": 1}))
+        items = [{"workflow": f"坏的{i}", "state": "broken", "reason": "全失败",
+                  "application_id": f"a{i}", "runs": 3, "succeeded": 0}
+                 for i in range(problem_count)]
+        with patch("agent_platform.overview.build_health",
+                   AsyncMock(return_value={"items": items,
+                                           "counts": {"ok": 0, "broken": problem_count}})):
+            return await agent._exec("health_report", {}, {})
+
+    async def test_a_long_list_says_how_many_were_left_out(self):
+        result = await self._report(25)
+        self.assertEqual(len(result["problems"]), 10)
+        key = "problems 只列了前 10 个"
+        self.assertIn(key, result)
+        self.assertIn("25", result[key], "没说实际有多少个")
+
+    async def test_a_short_list_says_nothing_extra(self):
+        """没截断就别加噪音——加了会让人以为还有更多。"""
+        result = await self._report(3)
+        self.assertEqual(len(result["problems"]), 3)
+        self.assertNotIn("problems 只列了前 10 个", result)
+
+    async def test_exactly_ten_is_not_flagged(self):
+        result = await self._report(10)
+        self.assertNotIn("problems 只列了前 10 个", result)

@@ -757,6 +757,12 @@ class WorkflowConcierge:
                               "reason": i["reason"], "application_id": i["application_id"],
                               "runs": i["runs"], "succeeded": i["succeeded"]}
                              for i in bad[:10]],
+                # 只列前 10 条，但要说出来。同一个病今天在 recent_runs、
+                # list_workflows、recent_builds 上各中过一次：
+                # **给一页数据、不说这是一页，模型就会把它当全部。**
+                **({"problems 只列了前 10 个":
+                    f"实际有 {len(bad)} 个要看看，上面是其中 10 个；"
+                    f"完整分布看「有几个」那一项"} if len(bad) > 10 else {}),
                 # 调度器活不活，是体检里最容易漏掉的一块：
                 # 它刚死、还没到任何定时点的时候，"有定时却没跑起来"仍然是 0，
                 # 于是这份报告看上去全绿，而所有定时任务其实都不会再开火了。
