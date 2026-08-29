@@ -179,3 +179,43 @@ async def test_the_final_event_matches_what_was_streamed():
     final = next(e["text"] for e in events if e["type"] == "final")
     assert streamed.replace(" ", "") == final.replace(" ", "")
     assert final == text
+
+
+@pytest.mark.asyncio
+async def test_text_said_alongside_a_tool_call_is_not_swallowed():
+    """「边说一句边去查」那种回答的前半截不能被吞掉。
+
+    加缓冲时漏的正是这一格：有工具调用的那一轮不走 `if not calls` 分支，
+    攒着的正文就永远没人补发。拿"正文 + 工具调用同轮"试了一次才发现。
+    （这一句在缓冲之前是会流出去的，所以是我自己造的回归。）
+    """
+    from agent_platform.models import ContentBlock
+
+    concierge = _concierge()
+    concierge._exec = AsyncMock(return_value={"一共跑了几次": 1})
+    rounds = {"n": 0}
+    events: list[dict] = []
+
+    async def fake(*args, **kwargs):
+        rounds["n"] += 1
+        forward = kwargs.get("emit")
+        if rounds["n"] == 1:
+            if forward:
+                await forward("content.text.delta", {"text": "先说一句有用的话。"})
+            return SimpleNamespace(blocks=[
+                ContentBlock(type="text", text="先说一句有用的话。"),
+                ContentBlock(type="tool_use", id="c1", name="run_counts", input={})])
+        if forward:
+            await forward("content.text.delta", {"text": "今天跑了 1 次。"})
+        return SimpleNamespace(blocks=[ContentBlock(type="text", text="今天跑了 1 次。")])
+
+    async def collect(event: dict) -> None:
+        events.append(event)
+
+    with patch("agent_platform.assistant_agent.collect_model_stream", fake):
+        await concierge.reply([{"role": "user", "text": "今天跑了几次"}], {},
+                              emit=collect)
+    streamed = "".join(e["text"] for e in events if e["type"] == "delta")
+    assert "先说一句有用的话" in streamed, streamed
+    assert "今天跑了 1 次" in streamed
+

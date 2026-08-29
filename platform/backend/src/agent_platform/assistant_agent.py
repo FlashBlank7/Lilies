@@ -1362,6 +1362,10 @@ class WorkflowConcierge:
                          "一直这样就去看后端日志（agent_platform 的 WARNING 以上）。")
                 await _emit({"type": "final", "text": text or blank})
                 return actions, text or blank
+            # 这一轮有工具调用 → 它不会被打回，攒着的正文要补发出去。
+            # 少了这一句的话，"边说一句边去查"那种回答的前半截会被吞掉：
+            # 我加缓冲时就是这么漏的，直到拿"正文 + 工具调用"同轮的情形试了一次。
+            await flush_held()
             messages.append(ChatMessage(role="assistant", content=response.blocks))
             result_blocks = []
             for call in calls:
