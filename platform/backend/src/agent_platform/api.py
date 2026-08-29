@@ -483,12 +483,17 @@ class ResumeBuildRequest(BaseModel):
 
 
 class OwnerMessageRequest(BaseModel):
-    code: str
+    # 默认空串，不是"必填"。少了业主码时，必填会让 FastAPI 直接回 422，
+    # 正文是英文的 pydantic 结构（"Field required"、loc: ["body","code"]）。
+    # 这是**免登录业主通道**——链接里少个参数是最常见的情形，
+    # 而屏幕上出现的是一段英文报文。给个默认值，让它落到
+    # _require_owner_access 那句中文 403 上：客户面的错误话术只该有一套。
+    code: str = ""
     message: str = Field(min_length=1, max_length=8_000)
 
 
 class OwnerRepairRequest(BaseModel):
-    code: str
+    code: str = ""      # 同上：少了就走中文 403，别吐 pydantic 的英文结构
 
 
 class BuildMessageRequest(BaseModel):
@@ -4864,6 +4869,11 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
     # ── 使用者通道：一应用一码，链接即交付（永不出示总钥匙） ──
 
     async def _require_use_access(application_id: str, code: str) -> None:
+        # 「链接里没带码」和「码不对」是两件事，用户的下一步也不一样：
+        # 前者要去要一条完整链接，后者要去要一条新链接。
+        # 说成同一句的话，一个把链接复制断了的人会以为码过期了。
+        if not code:
+            raise HTTPException(403, "这个链接少了访问码——找给你链接的人要完整链接")
         if not await services.workflow_store.verify_access_code(application_id, code):
             raise HTTPException(403, "访问码不对或已更换——找给你链接的人要新链接")
 
@@ -4902,6 +4912,10 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
     # ── 业主通道：一应用一业主码，免登录会话面（答问/插话/返修），永不出示总钥匙 ──
 
     async def _require_owner_access(application_id: str, code: str) -> None:
+        # 空码也走这里（各处的 code 都给了默认值）：链接里少个参数是
+        # 免登录通道最常见的情形，不该变成一段英文的 422 结构体。
+        if not code:
+            raise HTTPException(403, "这个链接少了业主码——找服务方要完整链接")
         if not await services.workflow_store.verify_owner_code(application_id, code):
             raise HTTPException(403, "业主码不对或已更换——联系服务方获取新链接")
 
@@ -4936,7 +4950,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         }
 
     @app.get("/api/v1/owner/{application_id}/state")
-    async def owner_state(application_id: str, code: str) -> dict[str, Any]:
+    async def owner_state(application_id: str, code: str = "") -> dict[str, Any]:
         """业主会话面的一站式状态：应用名、最新构建、待答问题、验收摘要。"""
 
         await _require_owner_access(application_id, code)
@@ -4978,7 +4992,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
     @app.get("/api/v1/owner/{application_id}/transcript")
     async def owner_transcript(
         application_id: str,
-        code: str,
+        code: str = "",
         after_turn: int = Query(default=0, ge=0),
     ) -> dict[str, Any]:
         await _require_owner_access(application_id, code)
