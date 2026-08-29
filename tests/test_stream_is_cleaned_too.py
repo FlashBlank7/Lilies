@@ -37,15 +37,19 @@ class ThinkingAloudTest(unittest.TestCase):
         一族说法要整族覆盖，挑着列就是给自己留缝。
         """
         for narration in ("让我查一下平台情况。", "让我看看。", "让我读一下配置。",
-                          "让我试一下。", "让我捋一下。"):
+                          "让我试一下。", "让我捋一下。", "让我确认一下分布。",
+                          "让我核对一下。", "让我算一下。", "让我数数。",
+                          "让我梳理一下。"):
             self.assertEqual(
                 _without_thinking_aloud(narration + "今天跑了 3 次。"),
                 "今天跑了 3 次。", narration)
 
     def test_let_me_is_not_over_matched(self):
         """「这个结果让我意外」不是自言自语——别见「让我」就删。"""
-        text = "这个结果让我意外，但数字是对的。"
-        self.assertEqual(_without_thinking_aloud(text), text)
+        for text in ("这个结果让我意外，但数字是对的。",
+                     "这让我想起上次那个问题。",
+                     "这个数字让我放心了。"):
+            self.assertEqual(_without_thinking_aloud(text), text, text)
 
     def test_a_filler_is_removed_but_its_sentence_is_kept(self):
         """「实际上，」后面是真信息，整句删掉就把内容弄丢了。"""

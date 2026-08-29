@@ -79,7 +79,10 @@ _NARRATION_SENTENCE = re.compile(
     # 跨过去就把内容一起删了。触发词后面则一路吃到句末，那整段就是旁白。
     # 「让我+查看类动词」要整族覆盖：只列「让我看看」的话，
     # 「让我查一下」「让我读一下」照样出去（2026-08-29 在 REPL 上撞到）。
-    r"[^。！？\n，]*?(?:我来整理|让我[^，。！？\n]{0,4}(?:看|查|读|试|理|捋)|"
+    # 动词表按「说话人接下来要做的动作」列。故意不含"意外/想起/难过"
+    # 这类——「这个结果让我意外」不是自言自语（有测试盯着）。
+    r"[^。！？\n，]*?(?:我来整理|"
+    r"让我[^，。！？\n]{0,4}(?:看|查|读|试|理|捋|确认|核对|算|数|梳理)|"
     r"首先我|我需要(?:先|查|把|确认)|"
     r"我先(?:去|来|查|看)|接下来我|我(?:逐个|挨个|依次)查|我(?:来|去|这就)查)"
     r"[^。！？\n]*[。！？]?"
@@ -346,12 +349,32 @@ class WorkflowConcierge:
         services = self.services
         if name == "list_workflows":
             apps = await services.workflow_store.list_applications()
+            # 每个工作流各跑了多少次。没有这个数，"哪个跑得最多"这类问题
+            # 就只能一个个 recent_runs 去翻——真机实测它翻了 5 次、
+            # 每次只看最近 5 条，答错了并如实说"只比了最近 5 条记录"。
+            # 数据很便宜（一句 GROUP BY），而它能一次回答一整类问题。
+            def _run_counts() -> dict[str, dict[str, int]]:
+                with services.workflow_store.storage._connect() as conn:
+                    rows = conn.execute(
+                        "SELECT application_id, status, COUNT(*) AS n FROM workflow_runs "
+                        "WHERE version IS NOT NULL GROUP BY application_id, status"
+                    ).fetchall()
+                out: dict[str, dict[str, int]] = {}
+                for row in rows:
+                    bucket = out.setdefault(row["application_id"], {})
+                    bucket[_RUN_WORDS.get(row["status"], row["status"])] = int(row["n"])
+                return out
+
+            counts = await asyncio.to_thread(_run_counts)
             items = []
             for app in apps:
                 if args.get("only_published", True) and not app.get("active_version"):
                     continue
+                mine = counts.get(app["id"], {})
                 item = {"name": app.get("name"), "id": app["id"],
-                        "published_version": app.get("active_version")}
+                        "published_version": app.get("active_version"),
+                        "至今跑过几次": sum(mine.values()),
+                        "其中": mine or "一次都没跑过"}
                 if app.get("active_version"):
                     # 工具说明一直写着「输入声明」，却从没真的给过——
                     # 模型于是不知道该问业主要什么，直接空跑，白造一条失败记录
