@@ -37,6 +37,14 @@ echo "── ruff（F 类：算了没用的变量、没引用的导入、假 f-s
 "$RUFF" check "$LINT_PATH" --select F
 
 echo "── pytest ──"
+# 不用字节码缓存。2026-08-29 被它骗过一次：改代码、跑测试、还原，
+# 三步都在同一秒内完成时，__pycache__ 里那份 .pyc 会被当成有效的，
+# 于是**跑的是磁盘上已经不存在的代码**——当时表现为
+# "边界检查明明在 mkdir 前面，目录却还是被建出来了"，
+# 查了半天才发现是缓存。
+# 门链是挡住坏提交的最后一道，它绝不能跑一份"曾经的代码"。
+# 实测代价：整套 1269 条，3m52 vs 3m54——在噪声里。
+export PYTHONDONTWRITEBYTECODE=1
 # 不加 tail：截断输出正是那个错的温床。要看少一点就自己 > 文件再 grep。
 "$PY" -m pytest tests/ -q -p no:cacheprovider
 
