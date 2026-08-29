@@ -18,10 +18,44 @@ ADAPTIVE_DEEP_BLOCK_HINTS = {
 ADAPTIVE_CONFIDENCE_FLOOR = 0.70
 
 
+_CJK_RUN = re.compile(r"[一-鿿]+")
+
+
 def _query_terms(requirement: str) -> list[str]:
-    terms = [term for term in re.split(r"[^0-9A-Za-z_]+", requirement.casefold()) if len(term) > 2]
+    """把需求切成用来比对模板的词。
+
+    中文要单独切。原来只按 `[^0-9A-Za-z_]+` 切——**中文字符全是分隔符**，
+    于是一句纯中文切完什么都不剩，掉进"按空格切"那条兜底，
+    整句变成**一个词**。量出来的后果（本仓真机需求全是中文）：
+
+      · 无 tags 的中文模板，只有当需求**一字不差等于模板名**时才配得上；
+        名字叫「词频统计」、描述写着"统计文本里每个词出现的次数"的模板，
+        遇到需求"统计文本中每个词出现次数"——**一个都配不上**。
+      · 有 tags 的中文模板能配上，但走的只有 tags 这一条路，
+        name/description 两条完全不出力，分数系统性偏低
+        （同等贴切时中文 0.63、英文 1.557）。
+
+    中文没有空格，正经分词要带词典。这里用**二字滑窗**：中文里
+    绝大多数有信息量的词是两个字，滑窗必然覆盖到它们，代价是多一些噪声词，
+    而噪声词配不上模板文本、不会加分。够用且没有新依赖。
+    """
+    latin = [term for term in re.split(r"[^0-9A-Za-z_]+", requirement.casefold())
+             if len(term) > 2]
+    cjk: list[str] = []
+    for run in _CJK_RUN.findall(requirement):
+        # 单字（「把」「的」这种夹在中间的）不会进来：滑窗本身就出不了单字，
+        # 长度 1 的串走到下面那句是 range(0)，什么都不产生。
+        # 这里**不加**一句 `if len(run) < 2: continue`——写过，变异验证显示
+        # 它是等价变异（删掉一条测试都不红）。看着像在把关、实际什么也没做
+        # 的代码比没有更糟。
+        if len(run) == 2:
+            cjk.append(run)
+            continue
+        cjk.extend(run[i:i + 2] for i in range(len(run) - 1))
+    terms = latin + cjk
     if terms:
-        return terms
+        # 去重但保序：滑窗会重复出词，重复的词会把 text_matches 的分母抬高
+        return list(dict.fromkeys(terms))
     return [term for term in requirement.casefold().split() if len(term) > 1]
 
 
