@@ -375,7 +375,16 @@ class ApplicationService:
         if operation == "add_node":
             node = NodeSpec.model_validate(self._sink_config_keys(data["node"]))
             if any(item.id == node.id for item in snapshot.workflow.nodes):
-                raise ValueError(f"node already exists: {node.id}")
+                # 拒绝即教学。真机上这句被拒 23 次，原文只有
+                # "node already exists: start"——模型不知道下一步该干什么，
+                # 于是反复重提。同一个文件里 node not found / edge already exists
+                # 都补过指路，这条漏了。
+                existing = next(item for item in snapshot.workflow.nodes
+                                if item.id == node.id)
+                raise ValueError(
+                    f"「{node.id}」已经在图里了（类型 {existing.type}）。"
+                    f"要改它用 draft_update_node；确实要另加一个，换个 id。"
+                )
             self.blocks.validate_node(node)
             snapshot.workflow.nodes.append(node)
         elif operation == "update_node":

@@ -219,3 +219,45 @@ class FlattenedTestPayloadTest(unittest.TestCase):
             {**self.TEST, "expected_revision": 7, "idempotency_key": "abc"})
         self.assertNotIn("expected_revision", payload)
         self.assertNotIn("idempotency_key", payload)
+
+
+class NodeAlreadyExistsTest(unittest.TestCase):
+    """「节点已存在」也要指路。
+
+    真机上这句被拒 23 次，原文只有 "node already exists: start"——
+    模型不知道下一步该干什么，于是反复重提。同一个文件里
+    node not found（列出现有 id）和 edge already exists（接线提示）
+    都补过指路，这条漏了。同一道理没铺满所有出口，今天第 N 次。
+    """
+
+    def _add_existing(self):
+        from types import SimpleNamespace
+
+        service = ApplicationService.__new__(ApplicationService)
+        service.blocks = SimpleNamespace(validate_node=lambda node: None)
+        snapshot = SNAPSHOT.model_copy(deep=True)
+        service._apply_to_snapshot(snapshot, "add_node", {"node": {
+            "id": "start", "title": "又一个开始", "type": "start",
+            "config": {"inputs": [{"name": "x", "type": "string"}]}}})
+
+    def test_it_says_what_to_do_instead(self):
+        with self.assertRaises(ValueError) as caught:
+            self._add_existing()
+        message = str(caught.exception)
+        self.assertIn("draft_update_node", message, "没告诉它改用哪个工具")
+        self.assertIn("换个 id", message, "没说另加一个该怎么办")
+
+    def test_it_names_the_existing_node_and_its_type(self):
+        with self.assertRaises(ValueError) as caught:
+            self._add_existing()
+        message = str(caught.exception)
+        self.assertIn("start", message)
+        self.assertIn("类型 start", message, "没说那个节点现在是什么类型")
+
+    def test_no_english_is_left(self):
+        import re
+
+        with self.assertRaises(ValueError) as caught:
+            self._add_existing()
+        prose = re.sub(r"\bdraft_[a-z_]+\b", "", str(caught.exception))
+        self.assertIsNone(re.search(r"[a-z]{4,}\s+[a-z]{4,}", prose), prose)
