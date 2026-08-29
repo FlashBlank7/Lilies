@@ -177,7 +177,14 @@ AGENT_SYSTEM = (
 
 TOOLS = [
     ToolDefinition(name="list_workflows", description="列出工作流（名称、是否发布、版本、输入声明）",
-                   input_schema={"type": "object", "properties": {"only_published": {"type": "boolean"}}}),
+                   input_schema={"type": "object", "properties": {"only_published": {
+                       "type": "boolean",
+                       # 「怎么看草稿」写在这里，不写进返回值里。
+                       # 写进返回值的话它会被当成答案念出去——真机实测，
+                       # 问「有多少个还没发布的草稿」，回答是
+                       # 「有 12 个未发布的草稿**没列出来**」：
+                       # 数是对的，可用户没在看任何列表，这句话没有着落。
+                       "description": "默认 true，只列已发布的。想连未发布的草稿一起列，传 false"}}}),
     ToolDefinition(name="run_workflow", description="运行已发布的工作流并等待结果。inputs 必须符合其输入声明。",
                    input_schema={"type": "object", "properties": {
                        "name_or_id": {"type": "string"}, "inputs": {"type": "object"}},
@@ -397,13 +404,35 @@ class WorkflowConcierge:
                         item["要给的输入"] = declared
                 items.append(item)
             hidden = len(apps) - len(items)
-            result = {"workflows": items[:50], "total": len(items)}
+            # 计数直接给，别让它数行数。
+            #
+            # 真机 2026-08-29：问「有多少个还没发布的草稿」，它传了
+            # only_published=false 把 15 条全拿到手——而那条路上一个计数都没有，
+            # 于是它逐行数 published_version，把 3 个已发布数成了 2 个，
+            # 答「13 个草稿」（真值 12）。
+            # 带过滤那条路早就把 hidden 给出去了，不带过滤这条路没有：
+            # **同一个数只在一个出口给了**，另一个出口就得靠数。
+            published_total = sum(1 for app in apps if app.get("active_version"))
+            result = {
+                "一共几个": len(apps),
+                "已发布几个": published_total,
+                "没发布的草稿有几个": len(apps) - published_total,
+                "workflows": items[:50], "total": len(items),
+            }
             if hidden > 0 and args.get("only_published", True):
-                # 不说的话模型会以为"总共就这些"，用户问起草稿时它只能说找不到
+                # 不说的话模型会以为"总共就这些"，用户问起草稿时它只能说找不到。
+                #
+                # 但话要说成**事实**，不能说成给工具调用者的指路。
+                # 原话是「另有 12 个未发布的草稿没列出来；要看它们传
+                # only_published=false」，于是真机上问「有多少个还没发布的草稿」，
+                # 回答就是「有 12 个未发布的草稿没列出来」——
+                # 数对了，可用户没在看任何列表，这半句没有着落。
+                # 指路挪进了 only_published 的参数说明里：那儿是给模型看的，
+                # 不在返回值里，也就没法被当成答案念出去。
                 result["unpublished_hidden"] = hidden
-                result["note"] = (f"另有 {hidden} 个未发布的草稿没列出来；"
-                                  "要看它们传 only_published=false，"
-                                  "要收拾用 tidy_workflows")
+                result["note"] = (f"上面这 {len(items)} 个是已发布的；"
+                                  f"平台上另外还有 {hidden} 个是没发布的草稿。"
+                                  "要收拾草稿用 tidy_workflows。")
             return result
         if name == "run_workflow":
             app = await self._resolve_app(str(args.get("name_or_id") or ""))
@@ -556,8 +585,12 @@ class WorkflowConcierge:
                     f"{day}（UTC）这一天该工作流一共跑了 {len(runs)} 次，"
                     f"上面是全部，不是抽样。")
             elif more:
-                payload["还有更多"] = (f"这里只给了最近 {asked} 条。要数总数或看更早的，"
-                                       f"把 limit 调大再查一次；问某一天的次数请直接用 day。")
+                # 说成事实（"这不是全部"），别说成指路（"把 limit 调大"）——
+                # 指路会被当成答案念出去。数数的活现在有 run_counts，
+                # 工具名在出口处会被换成人话，不会漏。
+                payload["还有更多"] = (f"这只是最近 {asked} 条，不是全部；"
+                                       f"更早的运行没在这里。"
+                                       f"要总数、成败分布或某段时间的次数，用 run_counts。")
             return payload
         if name == "generate_workflow":
             requirement = str(args.get("requirement") or "").strip()
