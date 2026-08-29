@@ -369,6 +369,12 @@ class WorkflowScheduler:
                 ),
                 parent_task_id=task_id,
                 origin="durable_scheduler",
+                # 定时开火没有"人"，但有**来源**。留空的话下游只能猜——
+                # 客户端网页壳就是把 by 为空的一律显示成「⏰ 定时」，
+                # 而空串里还混着管家代跑和测试跑的（真机 17 + 265 条），
+                # 那些被贴了错标签。**把"不知道"当成一个具体答案**。
+                # 记的是来源不是人名，所以和"别编一个用户名出来"不冲突。
+                triggered_by="schedule",
             )
             attached = await self.durable_jobs.attach_run(
                 job.id,
@@ -678,6 +684,7 @@ class WorkflowScheduler:
                 ),
                 parent_task_id=harness_task_id,
                 origin="scheduler",
+                triggered_by="schedule",
             )
             await self.workflow_store.complete_schedule_fire(
                 application_id, version, node_id, local_date, created["run_id"]
@@ -774,6 +781,7 @@ class WorkflowScheduler:
             ),
             parent_task_id=task_id,
             origin="scheduler_manual",
+            triggered_by="schedule_manual",
         )
         await self.storage.append_event(application_id, "scheduler.manual_triggered", {
             "application_id": application_id,
