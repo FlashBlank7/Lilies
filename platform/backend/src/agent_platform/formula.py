@@ -481,6 +481,22 @@ def _call(name: str, args: list[Any]) -> Any:
     raise FormulaError(f"不支持的函数 {name}")
 
 
+def check_formula(expression: str) -> None:
+    """只解析，不求值。语法有毛病就抛 FormulaError。
+
+    存在的理由：公式写在节点配置里，是**静态可查**的，
+    可发布校验从来不碰它——语法写错的公式能顺利发布，
+    第一次真跑才炸。真机上就有过一次：
+    「node assigner failed: 公式包含不支持的字符 '.'（位置 8）」。
+    业主眼里是"东西发布了、跑起来却坏了"，而这个错在发布那一刻就能看见。
+
+    只解析：变量的值要到运行时才有，求值必然失败，那不是语法问题。
+    """
+    if not isinstance(expression, str) or not expression.strip():
+        raise FormulaError("公式为空")
+    _Parser(_tokenize(expression)).parse()
+
+
 def evaluate_formula(expression: str, vars_: dict[str, Any] | None = None) -> Any:
     """解析并求值一条中缀公式。vars_ 里的值必须已解析为数字/数字列表/布尔。"""
 

@@ -2180,10 +2180,42 @@ class BlockRegistry:
         except ValidationError as error:
             raise self._human_config_error(node, error) from error
 
+    @staticmethod
+    def _formula_errors(node_id: str, config: Any) -> list[str]:
+        """把节点配置里所有 $formula 表达式过一遍语法。
+
+        公式在配置里，静态可查，可原先只在运行时解析——
+        写错的公式能发布出去，第一次真跑才炸（真机上发生过）。
+        """
+        from .formula import FormulaError, check_formula
+
+        found: list[str] = []
+
+        def walk(value: Any) -> None:
+            if isinstance(value, dict):
+                for key, item in value.items():
+                    if key == "$formula":
+                        expression = (item if isinstance(item, str)
+                                      else (item or {}).get("expression")
+                                      if isinstance(item, dict) else None)
+                        if isinstance(expression, str):
+                            try:
+                                check_formula(expression)
+                            except FormulaError as error:
+                                found.append(f"{node_id}: 公式写不通——{error}")
+                    walk(item)
+            elif isinstance(value, list):
+                for item in value:
+                    walk(item)
+
+        walk(config)
+        return found
+
     def validate_workflow(self, workflow: WorkflowSpec, *, nested: bool = False) -> list[str]:
         errors: list[str] = []
         node_map = {node.id: node for node in workflow.nodes}
         for node in workflow.nodes:
+            errors.extend(self._formula_errors(node.id, node.config))
             try:
                 config = self.validate_node(node)
                 if node.type in {"iteration", "loop"}:
