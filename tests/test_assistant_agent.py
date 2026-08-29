@@ -286,7 +286,11 @@ def test_repair_workflow_unknown_name(tmp_path) -> None:
         concierge = WorkflowConcierge(client.app.state.services, settings)
         result = client.portal.call(concierge._exec, "repair_workflow",
                                     {"name_or_id": "不存在的"}, {"name": "t"})
-        assert result["error"] == "找不到该工作流"
+        # 断言"把他说的名字念回去"，不是钉死那一句原话：
+        # 「没说是哪个」和「说了但没有这个」现在分开说了（_named_app），
+        # 而这一条给了名字，走的是后者。
+        assert "不存在的" in result["error"], result["error"]
+        assert "没说是哪个" not in result["error"], "他明明说了名字"
 
 
 def test_run_workflow_reads_top_level_fields(tmp_path) -> None:
@@ -458,7 +462,8 @@ def test_set_schedule_rejects_bad_input(tmp_path) -> None:
         assert "0-23" in call({"name_or_id": "没有定时的", "hour": 25})["error"]
         assert "0-59" in call({"name_or_id": "没有定时的", "hour": 8,
                                "minute": 90})["error"]
-        assert "找不到" in call({"name_or_id": "不存在的", "hour": 8})["error"]
+        problem = call({"name_or_id": "不存在的", "hour": 8})["error"]
+        assert "不存在的" in problem and "没有叫" in problem, problem
         # 没有定时节点：说清楚而不是默默失败
         assert "没有定时节点" in call({"name_or_id": "没有定时的", "hour": 8})["error"]
 

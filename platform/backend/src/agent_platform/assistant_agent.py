@@ -357,6 +357,28 @@ class WorkflowConcierge:
         # 都不能用模型转述的版本，否则等于自己跟自己对
         self._owner_words = ""
 
+    async def _named_app(self, args: dict, *, include_archived: bool = False):
+        """按参数里的名字找工作流，回 (工作流, 该说的错话)。
+
+        **「没说是哪个」和「说了但没有这个」是两件事。**
+        原来六处都写成
+            app = await self._resolve_app(str(args.get("name_or_id") or ""))
+            if not app: return {"error": "找不到该工作流"}
+        于是模型漏传参数时，得到的是"找不到该工作流"——它会照着这句
+        去告诉业主"你说的那个工作流不存在"，而业主什么都没说错。
+        平台在别处早就分开说了（「链接少了业主码」vs「业主码不对」），
+        这里跟上，六处共用一个helper，免得下次只修一处。
+        """
+        name = str(args.get("name_or_id") or "").strip()
+        if not name:
+            return None, {"error": "没说是哪个工作流——"
+                                   "先用 list_workflows 看有哪些，再带上名字来问"}
+        app = await self._resolve_app(name, include_archived=include_archived)
+        if not app:
+            return None, {"error": f"没有叫「{name}」的工作流——"
+                                   "用 list_workflows 看看准确的名字"}
+        return app, None
+
     async def _resolve_app(self, name_or_id: str,
                            *, include_archived: bool = False) -> dict | None:
         apps = await self.services.workflow_store.list_applications()
@@ -553,9 +575,9 @@ class WorkflowConcierge:
             return {"run_id": run_id, "情况": "还在跑",
                     "note": "超过等待时间了，可稍后用 recent_runs 看结果"}
         if name == "explain_workflow":
-            app = await self._resolve_app(str(args.get("name_or_id") or ""))
-            if not app:
-                return {"error": "找不到该工作流"}
+            app, problem = await self._named_app(args)
+            if problem:
+                return problem
             if app.get("active_version") is None:
                 return {"error": f"「{app.get('name')}」还没有发布版，"
                                  "现在只有草稿——搭完发布了才好讲它做什么"}
@@ -595,9 +617,9 @@ class WorkflowConcierge:
                     "定时": schedule or "没有定时，要手动跑",
                     "note": "用业主的话复述，别照抄节点名；他问细节再展开"}
         if name == "recent_runs":
-            app = await self._resolve_app(str(args.get("name_or_id") or ""))
-            if not app:
-                return {"error": "找不到该工作流"}
+            app, problem = await self._named_app(args)
+            if problem:
+                return problem
             day = str(args.get("day") or "").strip()
             # 问"某天跑了几次"时，翻最近 N 条去数是数不准的：
             # 真机实测——问「昨天失败了几次」，它翻了最近 10 条，
@@ -732,10 +754,9 @@ class WorkflowConcierge:
                                         "直接按名字 restore 即可，找不到会明确报错")
                 return payload
             # 拿回来时要能按名字找到已归档的——它们不在常规列表里
-            app = await self._resolve_app(
-                str(args.get("name_or_id") or ""), include_archived=True)
-            if not app:
-                return {"error": "找不到该工作流"}
+            app, problem = await self._named_app(args, include_archived=True)
+            if problem:
+                return problem
             archived = action == "archive"
             # 还在用的工作流，不能凭一句话就收起来。
             #
@@ -765,9 +786,9 @@ class WorkflowConcierge:
                 note += "；" + result["schedule_effect"]
             return {**result, "note": note}
         if name == "set_schedule":
-            app = await self._resolve_app(str(args.get("name_or_id") or ""))
-            if not app:
-                return {"error": "找不到该工作流"}
+            app, problem = await self._named_app(args)
+            if problem:
+                return problem
             hour = int(args.get("hour", -1))
             minute = int(args.get("minute") or 0)
             if hour != -1 and not (0 <= hour <= 23):
@@ -828,9 +849,9 @@ class WorkflowConcierge:
         if name == "acceptance_check":
             from . import acceptance_pm
 
-            app = await self._resolve_app(str(args.get("name_or_id") or ""))
-            if not app:
-                return {"error": "找不到该工作流"}
+            app, problem = await self._named_app(args)
+            if problem:
+                return problem
             if app.get("active_version") is None:
                 return {"error": f"「{app.get('name')}」还没有发布版——"
                                  "验收的对象是交付物，先把它搭完发布再验"}
@@ -863,9 +884,9 @@ class WorkflowConcierge:
             report = await acceptance_pm.run_acceptance(services, app["id"])
             return _acceptance_summary(app, report)
         if name == "repair_workflow":
-            app = await self._resolve_app(str(args.get("name_or_id") or ""))
-            if not app:
-                return {"error": "找不到该工作流"}
+            app, problem = await self._named_app(args)
+            if problem:
+                return problem
             from uuid import uuid4
 
             from .overview import build_health
@@ -996,9 +1017,13 @@ class WorkflowConcierge:
             only = str(args.get("name_or_id") or "").strip()
             app = None
             if only:
+                # 这一处 only 必然非空，所以确实是"没有这个"，
+                # 不是"没说是哪个"——但名字照样要报出来，
+                # 让模型能把话转述准确
                 app = await self._resolve_app(only)
                 if not app:
-                    return {"error": "找不到该工作流"}
+                    return {"error": f"没有叫「{only}」的工作流——"
+                                     "用 list_workflows 看看准确的名字"}
 
             def _count() -> dict:
                 where = ["a.archived_at IS NULL", "r.version IS NOT NULL"]

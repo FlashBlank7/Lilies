@@ -157,7 +157,8 @@ async def test_one_workflow_can_be_singled_out(services):
 async def test_an_unknown_workflow_says_so(services):
     _seed(services, real_runs=[])
     result = await _count(services, name_or_id="根本没有这个")
-    assert "找不到" in result.get("error", "")
+    problem = result.get("error", "")
+    assert "根本没有这个" in problem and "没有叫" in problem, problem
 
 
 @pytest.mark.asyncio
