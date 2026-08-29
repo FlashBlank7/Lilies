@@ -779,6 +779,22 @@ class WorkflowConcierge:
 
             from .overview import build_health
 
+            # 已经在修了就别再开一轮。
+            #
+            # 这条路是全系统唯一会自动花钱的路径，而它此前**没有**这道闸：
+            # 业主连说两句「修一下」，就是两个构建同时改同一份草稿——
+            # 钱花两份，而且后完成的那个把前一个的成果直接盖掉，
+            # 无声无息。
+            # 业主页那个「一键返修」早就挡住了（409「正在搭建中，
+            # 等这轮结束再返修」），管家这条没挡——同一个闸，只装了一个出口。
+            existing = await services.workflow_store.list_builds(app["id"])
+            in_flight = next((b for b in existing
+                              if b["status"] in ("queued", "building")), None)
+            if in_flight:
+                return {"error": "这个工作流正在搭建中，等这一轮结束再修。"
+                                 "想知道进展就问「搭到哪一步了」。",
+                        "build_id": in_flight["id"]}
+
             instruction = str(args.get("instruction") or "").strip()
             if instruction:
                 # 同 resume_build：修什么这件事被转述走样，就会修错东西。
