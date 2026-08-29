@@ -18,9 +18,14 @@ from unittest.mock import AsyncMock, patch
 
 from agent_platform.assistant_agent import WorkflowConcierge
 
+# 这份夹具要**长得像真载荷**。2026-08-29 它缺 date_utc（真 build_overview
+# 一定带），于是加"日期口径"那段时七条用例集体 KeyError——
+# 夹具与真值分家的老毛病，这次是夹具比真的少了字段。
 RAW = {
+    "date_utc": "2026-08-29",
     "runs_today": {"total": 3, "succeeded": 2, "failed": 1, "running": 0},
-    "published_workflows": 3, "builds_active": 0, "week": [], "schedules": [],
+    "published_workflows": 3, "builds_active": 0, "week": [],
+    "week_failures": [], "recent_failures_total": 1, "schedules": [],
     "recent_failures": [
         {"run_id": "abc12345", "workflow": "文本行数与净字数统计",
          "at": "2026-08-28T10:03:36", "count": 13,
@@ -94,3 +99,33 @@ class ApiContractIsUnchangedTest(unittest.TestCase):
         ])
         self.assertEqual(set(rows[0]), {"run_id", "workflow", "at", "count", "error"},
                          "接口字段变了，guanjia 和前端会读不到")
+
+
+class FixtureMatchesTheRealPayloadTest(unittest.IsolatedAsyncioTestCase):
+    """夹具的字段要跟真 build_overview 对得上。
+
+    2026-08-29：这份夹具缺 date_utc（真载荷一定带），加「日期口径」那段时
+    七条用例集体 KeyError。夹具比真的少字段，测试就会在"真载荷有、
+    夹具没有"的那些路径上装聋——直到某天一起塌。
+
+    这条盯着它别再走样：真跑一次 build_overview，比字段集合。
+    """
+
+    async def test_no_key_of_the_real_payload_is_missing_from_the_fixture(self):
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+        from types import SimpleNamespace
+
+        from agent_platform.overview import build_overview
+        from agent_platform.storage import Storage
+        from agent_platform.workflow_storage import WorkflowStorage
+
+        with TemporaryDirectory() as tmp:
+            storage = Storage(Path(tmp) / "d")
+            store = WorkflowStorage(storage)
+            await storage.initialize()
+            await store.initialize()
+            real = await build_overview(
+                SimpleNamespace(workflow_store=SimpleNamespace(storage=storage)))
+        missing = sorted(set(real) - set(RAW))
+        self.assertEqual(missing, [], f"夹具少了真载荷里的字段：{missing}")

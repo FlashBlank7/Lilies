@@ -11,6 +11,7 @@ import asyncio
 import json
 import logging
 import re
+from datetime import datetime
 from typing import Any
 
 from .agent_core import collect_model_stream
@@ -41,6 +42,31 @@ _TOOL_WORDS = {
 }
 _TOOL_NAMES = re.compile(r"\b(" + "|".join(sorted(_TOOL_WORDS, key=len, reverse=True))
                          + r")\b")
+
+
+def _day_scope_note(date_utc: str, local_now: datetime | None = None) -> dict[str, str]:
+    """告诉模型「今天」是按哪本日历算的。
+
+    面板所有按天的数都用 UTC 日期切，而服务器可能在别的时区
+    （这台机器 UTC+9）。每天 00:00–09:00 本地时段里，
+    「今天跑了几次」答的其实是昨天，而它会说得斩钉截铁。
+
+    切换口径要把面板上每一个按天的数字都挪一遍——那是产品决定，不顺手改。
+    这里只做一件能立刻做的事：**别再说得那么肯定**。
+
+    local_now 可注入：不然这段逻辑只有一天里的某几个小时能被测到。
+    """
+    now = local_now or datetime.now().astimezone()
+    note = {
+        "按天的数字是按哪个日期切的": f"UTC 日期（今天是 {date_utc}）",
+        "服务器本地现在是": now.strftime("%Y-%m-%d %H:%M %Z"),
+    }
+    local_day = now.strftime("%Y-%m-%d")
+    if local_day != date_utc:
+        note["注意"] = (
+            f"本地日期（{local_day}）和 UTC 日期（{date_utc}）不是同一天。"
+            "说「今天」时要讲清楚指的是哪一天，别让业主以为是他的今天。")
+    return note
 
 
 def _scheduler_words(health: dict | None) -> str:
@@ -1059,8 +1085,19 @@ class WorkflowConcierge:
             week_failures = [{"日期": row.get("day"), "工作流": row.get("workflow"),
                               "这天失败几次": row.get("failed")}
                              for row in data.get("week_failures") or []]
+            # 「今天」是**UTC 的今天**，不一定是业主的今天。
+            #
+            # 面板所有按天的数都用 UTC 日期切（date_utc / week / week_failures），
+            # 而这台服务器在 UTC+9：每天 00:00–09:00 本地时段里，
+            # 「今天跑了几次」答的其实是昨天。这九个小时里它会一句
+            # 「今天（8月29日）跑了 1 次」说得斩钉截铁，而业主的今天是 30 号。
+            #
+            # 切换口径会把面板上每一个按天的数字都挪一遍，那是产品决定，
+            # 不该顺手改。能立刻做的是**别再说得那么肯定**：
+            # 把两个日期都给它，差一天时自己说清楚。
+            day_note = _day_scope_note(data["date_utc"])
             return {**data, "recent_failures": failures,
-                    "week_failures": week_failures,
+                    "week_failures": week_failures, "日期口径": day_note,
                     "失败清单怎么读": "「一共出现过几次」是整个窗口的合计，"
                                       "不是「最近一次失败在」那天的次数。"
                                       "问某一天失败几次、分别是谁，"
