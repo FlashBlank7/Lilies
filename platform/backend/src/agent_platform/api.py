@@ -2025,7 +2025,11 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
     def _require_admin(request: Request) -> dict[str, Any]:
         user = _current_user(request)
         if user.get("role") != "admin":
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="admin only")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                # 客户端把 detail 原样印给用户，所以这句是给人看的。
+                # 只说"不许"没用，得说清是谁能做——否则他只会重试。
+                detail="这一步只有管理员能做——找这套平台的管理员帮忙")
         return user
 
     async def require_local_lilies_token(
@@ -3708,7 +3712,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         """Rate a template 1-5. Affects quality_score and ranking."""
         rating = int(body.get("rating", 3))
         if not 1 <= rating <= 5:
-            raise HTTPException(422, "rating must be 1-5")
+            raise HTTPException(422, "评分要给 1 到 5 之间的整数")
         try:
             template = services.templates.get(name)
         except KeyError:
@@ -6300,7 +6304,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
                 body.agent_id, body.agent_version
             )
             if version_status != "published" and body.agent_version is None:
-                raise HTTPException(409, "agent version is not published")
+                raise HTTPException(409, "这个版本还没发布——先发布，或者指定一个已发布的版本")
             services.sandboxes.resolve_workspace(body.workspace_path)
             session = await services.runtime.create_session(spec, version, body.workspace_path)
             return {"session_id": session.id, "status": "ready"}

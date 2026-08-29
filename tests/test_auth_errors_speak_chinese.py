@@ -79,3 +79,41 @@ def test_the_client_would_show_the_chinese_sentence(client):
     detail = client.get("/api/v1/overview").json()["detail"]
     assert isinstance(detail, str), "detail 不是字符串的话，客户端会印一坨 JSON"
     assert "令牌" in detail
+
+
+def _details(src_text: str) -> list[str]:
+    """api.py 里所有**字面量** detail。变量拼出来的这里管不着，
+    但字面量占绝大多数，而且新写的报错几乎都是字面量。"""
+    import re
+
+    pairs = re.findall(
+        r'HTTPException\(\s*(?:status_code\s*=\s*)?[^,]+,\s*(?:detail\s*=\s*)?(["\'])((?:(?!\1).)*)\1',
+        src_text, re.S)
+    return [text.strip() for _, text in pairs if text.strip()]
+
+
+# 这些确实只有开发/运维会撞到：接口参数写错、后台进程没起来。
+# 明确列出来，比"英文就行"松一刀要好——名单变长时人看得见。
+DEVELOPER_ONLY = {
+    "platform worker process manager unavailable",
+    "platform worker supervisor unavailable",
+    "policy controls update requires at least one mutable field",
+    "reuse_depth must be one of: adaptive, deep, none, shallow",
+}
+
+
+def test_no_new_english_error_reaches_a_person():
+    """客户端把 detail 原样显示，所以用户会撞到的那些必须是中文。
+
+    2026-08-29 扫出 7 条英文，其中 3 条是人会撞到的
+    （admin only / rating must be 1-5 / agent version is not published）。
+    这条测试盯着名单别再变长——新写的英文报错会直接在这里红。
+    """
+    import re
+    from pathlib import Path
+
+    src = (Path(__file__).resolve().parent.parent / "platform" / "backend" / "src"
+           / "agent_platform" / "api.py").read_text(encoding="utf-8")
+    english = [t for t in _details(src) if not re.search(r"[一-鿿]", t)]
+    unexpected = sorted(set(english) - DEVELOPER_ONLY)
+    assert unexpected == [], f"这些英文报错客户端会原样印给用户：{unexpected}"
