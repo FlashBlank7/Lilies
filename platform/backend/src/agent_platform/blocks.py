@@ -2211,11 +2211,70 @@ class BlockRegistry:
         walk(config)
         return found
 
+    @staticmethod
+    def _dangling_refs(node_id: str, config: Any, known: set[str]) -> list[str]:
+        """$ref 指向的节点在不在图里。
+
+        真机上最常见的失败族就是引用解析不了。其中"路径对不对"要看运行时
+        的产出形状，静态查不了；但"这个节点存不存在"是纯静态的，
+        而发布校验一直没查——引用一个根本不存在的节点也能顺利发布。
+
+        $inputs / $run 是运行时内置的两个名字，不是图里的节点。
+        标了 optional 的引用允许指不到（运行时会回 None），也不算错。
+
+        iteration/loop 这类节点的配置里挂着子图，而它自己的配置**可以**引用
+        子图里的节点（loop 的 break_value 取的就是子图输出节点的值）。
+        所以查它的引用时，把它自己子图里的 id 也算作已知。
+        """
+        found: list[str] = []
+
+        def nested_ids(value: Any, into: set[str]) -> None:
+            if isinstance(value, dict):
+                if isinstance(value.get("nodes"), list):
+                    for item in value["nodes"]:
+                        if isinstance(item, dict) and item.get("id"):
+                            into.add(str(item["id"]))
+                for item in value.values():
+                    nested_ids(item, into)
+            elif isinstance(value, list):
+                for item in value:
+                    nested_ids(item, into)
+
+        known = set(known)
+        nested_ids(config, known)
+
+        def walk(value: Any) -> None:
+            if isinstance(value, dict):
+                reference = value.get("$ref")
+                if isinstance(reference, dict) and not reference.get("optional"):
+                    target = str(reference.get("node_id") or "")
+                    if target and target not in ("$inputs", "$run") and target not in known:
+                        found.append(f"{node_id}: 引用了不存在的节点「{target}」")
+                for key, item in value.items():
+                    # 不进嵌套子图：iteration/loop 的 config.workflow 是另一张图，
+                    # 里面的引用要跟**它自己的**节点比。拿去和外层比就成了误报——
+                    # 第一版就是这么把 7 条正常测试判红的。
+                    # 那张图由 validate_workflow(config.workflow, nested=True) 单独校验。
+                    if key == "workflow" and isinstance(item, dict) and "nodes" in item:
+                        continue
+                    walk(item)
+            elif isinstance(value, list):
+                for item in value:
+                    walk(item)
+
+        walk(config)
+        return found
+
     def validate_workflow(self, workflow: WorkflowSpec, *, nested: bool = False) -> list[str]:
         errors: list[str] = []
         node_map = {node.id: node for node in workflow.nodes}
+        known_ids = set(node_map)
         for node in workflow.nodes:
             errors.extend(self._formula_errors(node.id, node.config))
+            # 嵌套（iteration/loop 里的子图）跳过：子图里引用外层节点是合法的，
+            # 在这一层查会把正常写法误判成错。
+            if not nested:
+                errors.extend(self._dangling_refs(node.id, node.config, known_ids))
             try:
                 config = self.validate_node(node)
                 if node.type in {"iteration", "loop"}:

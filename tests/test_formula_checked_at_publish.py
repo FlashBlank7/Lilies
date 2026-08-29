@@ -97,3 +97,77 @@ class ValidateWorkflowChecksFormulasTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DanglingReferenceTest(unittest.TestCase):
+    """$ref 指向的节点在不在图里——静态可查，而发布校验一直没查。
+
+    真机上最常见的失败族就是引用解析不了。其中"路径对不对"要看运行时的
+    产出形状，静态查不了；但"这个节点存不存在"是纯静态的。
+    引用一个根本不存在的节点，此前也能顺利发布。
+    """
+
+    @staticmethod
+    def _workflow(reference):
+        from agent_platform.workflow_models import WorkflowSpec
+
+        return WorkflowSpec.model_validate({"nodes": [
+            {"id": "start", "title": "开始", "type": "start", "config": {"inputs": []}},
+            {"id": "assigner", "title": "赋值", "type": "variable_assigner",
+             "config": {"assignments": {"x": {"$ref": reference}}}},
+            {"id": "end", "title": "结束", "type": "end", "config": {}},
+        ], "edges": [{"source": "start", "target": "assigner"},
+                     {"source": "assigner", "target": "end"}]})
+
+    def _errors(self, reference):
+        return [e for e in build_block_registry().validate_workflow(self._workflow(reference))
+                if "不存在的节点" in e]
+
+    def test_a_dangling_reference_is_caught(self):
+        self.assertTrue(self._errors({"node_id": "没有这个节点", "path": ["out"]}))
+
+    def test_the_error_names_both_nodes(self):
+        error = self._errors({"node_id": "没有这个节点", "path": ["out"]})[0]
+        self.assertIn("assigner", error, "没说是哪个节点写错了")
+        self.assertIn("没有这个节点", error, "没说它指向了谁")
+
+    def test_a_real_node_passes(self):
+        self.assertEqual(self._errors({"node_id": "start", "path": ["out"]}), [])
+
+    def test_the_runtime_builtins_pass(self):
+        """$inputs / $run 是运行时内置的名字，不是图里的节点。"""
+        for builtin in ("$inputs", "$run"):
+            self.assertEqual(self._errors({"node_id": builtin, "path": ["x"]}), [],
+                             builtin)
+
+    def test_an_optional_reference_may_dangle(self):
+        """标了 optional 的引用允许指不到——运行时会回 None，是设计好的。"""
+        self.assertEqual(
+            self._errors({"node_id": "没有这个", "path": ["out"], "optional": True}), [])
+
+    def test_a_node_may_reference_its_own_nested_workflow(self):
+        """loop 的 break_value 取的就是它自己子图里输出节点的值——合法。
+
+        第一版没考虑这个，把 7 条正常测试判红了。
+        """
+        from agent_platform.workflow_models import WorkflowSpec
+
+        nested = {"nodes": [
+            {"id": "loop-start", "title": "进", "type": "start",
+             "config": {"inputs": [{"name": "i", "type": "number"}]}},
+            {"id": "loop-end", "title": "出", "type": "end", "config": {"outputs": {
+                "current": {"$ref": {"node_id": "loop-start", "path": ["i"]}}}}},
+        ], "edges": [{"source": "loop-start", "target": "loop-end"}]}
+        workflow = WorkflowSpec.model_validate({"nodes": [
+            {"id": "start", "title": "开始", "type": "start", "config": {"inputs": []}},
+            {"id": "loop", "title": "循环", "type": "loop", "config": {
+                "workflow": nested, "variables": {},
+                "break_condition": {"value": 0, "operator": "gte", "expected": 2},
+                "break_value": {"$ref": {"node_id": "loop-end", "path": ["current"]}},
+                "max_iterations": 5, "output_node_id": "loop-end"}},
+            {"id": "end", "title": "结束", "type": "end", "config": {}},
+        ], "edges": [{"source": "start", "target": "loop"},
+                     {"source": "loop", "target": "end"}]})
+        errors = [e for e in build_block_registry().validate_workflow(workflow)
+                  if "不存在的节点" in e]
+        self.assertEqual(errors, [], f"把合法的子图引用判成错了：{errors}")

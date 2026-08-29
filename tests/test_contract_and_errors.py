@@ -111,12 +111,17 @@ def test_degraded_error_strategy():
         d = c.get(f"/api/v1/applications/{aid}/draft", headers=H).json()
         rev = d["revision"]
 
-        # Template node with bad $ref that fails at runtime → degraded handles it
+        # Template node with a $ref that fails at runtime → degraded handles it.
+        #
+        # 2026-08-29：引用不存在的**节点**现在在发布校验就被拦下了
+        # （真机上最常见的失败族，静态可查）。所以这里改成引用一个真节点的
+        # **不存在的路径**——同样在运行时解析失败，而工作流是可发布的。
+        # 这也更贴近真机：真实的失败几乎都是路径取不到，不是节点不存在。
         nodes = [
             ("s", "start", "S", {"inputs": []}),
             ("bad", "template_transform", "Bad",
              {"template": "{{ x }}",
-              "variables": {"x": {"$ref": {"node_id": "NONEXISTENT_NODE", "path": ["z"]}}}}),
+              "variables": {"x": {"$ref": {"node_id": "s", "path": ["这个路径不存在"]}}}}),
             ("e", "end", "E", {"outputs": {
                 "result": {"$ref": {"node_id": "bad", "path": ["output"]}},
                 "degraded": {"$ref": {"node_id": "bad", "path": ["degraded"]}},
@@ -168,7 +173,7 @@ def test_retry_with_fallback_strategy():
             ("s", "start", "S", {"inputs": []}),
             ("bad", "template_transform", "Bad",
              {"template": "{{ x }}",
-              "variables": {"x": {"$ref": {"node_id": "NONEXISTENT_NODE", "path": ["z"]}}}}),
+              "variables": {"x": {"$ref": {"node_id": "s", "path": ["这个路径不存在"]}}}}),
             ("e", "end", "E", {"outputs": {
                 "result": {"$ref": {"node_id": "bad", "path": ["output"]}},
                 "fallback": {"$ref": {"node_id": "bad", "path": ["fallback_used"]}},
