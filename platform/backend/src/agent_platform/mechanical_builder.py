@@ -54,54 +54,6 @@ def _accepts_temperature(stream_fn: Any) -> bool:
     return any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values())
 
 
-def _accepts_temperature(stream_fn: Any) -> bool:
-    """后端能否接收 temperature：具名参数或 **kwargs 都算。
-
-    只看具名参数会漏掉 `async def stream(self, **kwargs)` 这种转发式实现
-    （测试替身与 OpenAI/Anthropic 包装器都是这一类）。
-    """
-
-    try:
-        params = inspect.signature(stream_fn).parameters
-    except (TypeError, ValueError):
-        return False
-    if "temperature" in params:
-        return True
-    return any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values())
-
-
-def _accepts_temperature(stream_fn: Any) -> bool:
-    """后端能否接收 temperature：具名参数或 **kwargs 都算。
-
-    只看具名参数会漏掉 `async def stream(self, **kwargs)` 这种转发式实现
-    （测试替身与 OpenAI/Anthropic 包装器都是这一类）。
-    """
-
-    try:
-        params = inspect.signature(stream_fn).parameters
-    except (TypeError, ValueError):
-        return False
-    if "temperature" in params:
-        return True
-    return any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values())
-
-
-def _accepts_temperature(stream_fn: Any) -> bool:
-    """后端能否接收 temperature：具名参数或 **kwargs 都算。
-
-    只看具名参数会漏掉 `async def stream(self, **kwargs)` 这种转发式实现
-    （测试替身与 OpenAI/Anthropic 包装器都是这一类）。
-    """
-
-    try:
-        params = inspect.signature(stream_fn).parameters
-    except (TypeError, ValueError):
-        return False
-    if "temperature" in params:
-        return True
-    return any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values())
-
-
 ENGINE_NAME = "mechanical"
 
 PHASE_DONE_TOOL = ToolDefinition(
