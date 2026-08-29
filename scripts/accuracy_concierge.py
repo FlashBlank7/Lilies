@@ -35,6 +35,7 @@ recent_runs 支持按天查并直接给计数、list_workflows 带上运行次�
 from __future__ import annotations
 
 import argparse
+from datetime import datetime
 import json
 import sqlite3
 import sys
@@ -269,6 +270,31 @@ def _answers(truth: object, answer: str) -> bool:
     return expected in flat or expected in _with_chinese_numerals(flat)
 
 
+def _warn_if_today_is_ambiguous(db: sqlite3.Connection) -> bool:
+    """本机日期和 UTC 日期不是同一天时，先把这件事说在前面。
+
+    题目里的真值全部按 **UTC** 日期算（SQLite 的 date('now') 就是 UTC），
+    而管家把"昨天"解释成**本机**的昨天。本机是 UTC+9，
+    于是每天 00:00–09:00 之间这两者差一天——
+    「昨天失败的运行属于哪个工作流」这类题会稳定报红，
+    而管家答的其实是本机口径下正确的那一天。
+
+    2026-08-30 04:31 JST（＝ 08-29 19:31 UTC）实测撞上过一次：
+    真值按 UTC 是 08-28（失败 5 次），管家按本机答的是 08-29（0 次失败）。
+
+    **这是平台的时区口径问题，不是管家答错**，所以不能让它变成一条
+    莫名其妙的红。留着题、把歧义印出来——遮住比报错更糟。
+    """
+    utc_day = db.execute("SELECT date('now')").fetchone()[0]
+    local_day = datetime.now().astimezone().strftime("%Y-%m-%d")
+    if utc_day == local_day:
+        return False
+    print(f"{DIM}  注意：本机今天是 {local_day}，而题目真值按 UTC 算（{utc_day}）。"
+          f"「今天/昨天」这类题在这段时间里两边差一天——"
+          f"红了先看是不是这个，不是管家答错。{NORM}")
+    return True
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="核对管家回答的事实准确性（只读）")
     parser.add_argument("--server", default="http://127.0.0.1:8000")
@@ -280,6 +306,7 @@ def main() -> int:
     token = _token()
     db = sqlite3.connect(f"file:{args.db}?mode=ro", uri=True)
     print(f"管家准确性核对 {DIM}{args.server}{NORM}")
+    _warn_if_today_is_ambiguous(db)
     cases = build_cases(db)
     # 一道题都没有＝这次什么也没验，别报"全部答对"。
     # （2026-08-29 门链里的 ruff 正是栽在这上面：扫了 0 个文件，报全部通过。）
