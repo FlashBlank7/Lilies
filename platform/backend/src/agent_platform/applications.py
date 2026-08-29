@@ -66,7 +66,7 @@ class ApplicationService:
 
         snapshot = ApplicationSnapshot.model_validate(snapshot.model_dump(mode="json"))
         if snapshot.model_dump(mode="json") == original_snapshot:
-            raise ValueError("draft operation would not change the workflow")
+            raise ValueError(self._why_no_change(operation.op, data, snapshot))
         result = await self.store.save_draft(
             application_id,
             snapshot,
@@ -255,6 +255,50 @@ class ApplicationService:
         if validated.model_dump(mode="json") == original_snapshot:
             raise ValueError("workflow edit preview would not change the workflow")
         return validated
+
+    @staticmethod
+    def _why_no_change(operation: str, data: dict[str, Any],
+                       snapshot: ApplicationSnapshot) -> str:
+        """这次改动为什么什么都没变——说清楚，并给出下一步。
+
+        真机测量（2026-08-29，76 份搭建 transcript）：搭建过程中被拒的工具调用
+        1087 次，其中 **349 次（32%）** 就是这一条，原文是一句英文：
+
+            draft operation would not change the workflow
+
+        它说了"没变化"，没说**为什么**没变化，也没说**该怎么办**。
+        模型能做的只有再试一遍——于是"反复提同一个被拒的方案"成了
+        搭建失败的头号原因（57 次失败里 23 次，40%）。
+
+        本项目在别处写过一条原则：**拒绝即教学**。这条一直没照做。
+        """
+        nodes = {node.id: node for node in snapshot.workflow.nodes}
+        names = "、".join(list(nodes)[:8]) or "（图里还没有节点）"
+        if operation == "add_node":
+            node_id = str((data.get("node") or {}).get("id") or "")
+            return (f"「{node_id}」已经在图里了，而且配置和你提交的一模一样，所以什么都没变。"
+                    f"要改它用 draft_update_node；要加一个新的，换个 id。")
+        if operation == "update_node":
+            node_id = str(data.get("node_id") or (data.get("node") or {}).get("id") or "")
+            return (f"「{node_id}」现在的配置和你提交的完全一样，改不动。"
+                    f"先用 draft_inspect 看它当前长什么样，再决定改哪一处。")
+        if operation == "remove_node":
+            node_id = str(data.get("node_id") or "")
+            return (f"图里没有「{node_id}」，删不掉。现有节点：{names}——"
+                    f"你要删的是其中哪一个？名字拿不准就先 draft_inspect。")
+        if operation == "add_edge":
+            edge = data.get("edge") or data
+            return (f"「{edge.get('source')} → {edge.get('target')}」这条连线已经存在了。"
+                    f"要改走向先 draft_remove_edge 再连；要接别的节点换一对。")
+        if operation == "remove_edge":
+            edge = data.get("edge") or data
+            return (f"「{edge.get('source')} → {edge.get('target')}」这条连线本来就没有。"
+                    f"用 draft_inspect 看现有的连线。")
+        if operation in ("add_test", "remove_test", "replace_tests"):
+            return ("测试集合和你提交的一模一样，没有变化。"
+                    "要加新用例就换个名字/输入；要改已有的先看 test_list。")
+        return (f"这次 {operation} 提交的内容和现在完全一样，所以什么都没变。"
+                f"先用 draft_inspect 看当前状态，再决定改哪里。")
 
     def _apply_to_snapshot(
         self,

@@ -197,7 +197,10 @@ async def test_application_service_rejects_no_op_laundering_before_revision_chan
         ToolRegistry(),
     )
 
-    with pytest.raises(ValueError, match="would not change"):
+    # 2026-08-29：这句拒绝从一句英文改成了说人话 + 给下一步
+    # （真机上它占被拒调用的三成，而模型只能重试——见 test_rejection_teaches）。
+    # 断言跟着改成"意思"：什么都没变。
+    with pytest.raises(ValueError, match="什么都没变"):
         await service.apply_operation(
             application_id,
             DraftOperation(
