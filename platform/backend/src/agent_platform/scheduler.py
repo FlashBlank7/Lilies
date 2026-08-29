@@ -92,8 +92,9 @@ class WorkflowScheduler:
     async def _loop(self) -> None:
         while True:
             try:
+                # 不在这里清 last_error：tick 会把「这一轮跳过了谁」写进去，
+                # 清掉就等于把它刚说的话抹了。tick 自己负责干净时置空。
                 await self.tick()
-                self.last_error = ""
             except asyncio.CancelledError:
                 raise
             except Exception as error:
@@ -132,14 +133,46 @@ class WorkflowScheduler:
         now = now or datetime.now(timezone.utc)
         await self.reconcile_durable_jobs(now)
         started: list[dict[str, Any]] = []
+        # 一个工作流出问题，不能连累别的工作流开火。
+        #
+        # 原来整个循环体是**裸的**：get_version 查不到版本、时区名不认识
+        # （配置校验会抛）、建运行时炸了（execute_claimed_schedule_fire
+        # 释放认领之后照样再抛出去）——任何一个都直接掀翻整个 tick，
+        # 排在它后面的工作流这一轮全部不开火。
+        # 而 list_applications 的顺序是稳定的，于是下一轮它还是先炸：
+        # 后面那些**永远**不开火。
+        #
+        # 更要命的是这事不响：_loop 捕获后照样更新 last_tick_at、
+        # 照样 tick_count += 1，health() 于是报「调度器活着」。
+        # 体检那条路早就防住了时区（「时区名不认识就按 UTC 算，别整个不判」），
+        # 调度器这条路没防——闸只装在一个出口上。
+        troubles: list[str] = []
         for application in await self.workflow_store.list_applications():
             if application["active_version"] is None:
                 continue
-            version = int(application["active_version"])
-            published = await self.workflow_store.get_version(application["id"], version)
-            for node in published["snapshot"].workflow.nodes:
-                if node.type != "schedule_trigger":
-                    continue
+            try:
+                started.extend(await self._tick_application(application, now))
+            except asyncio.CancelledError:
+                raise
+            except Exception as error:  # noqa: BLE001 - 一个坏的不能停掉全部
+                who = application.get("name") or application.get("id") or "?"
+                troubles.append(f"「{who}」：{type(error).__name__}: {error}")
+                logger.exception("定时跳过「%s」（别的工作流照常）", who)
+        started.extend(await self.run_due_durable_jobs(now=now))
+        # 跳过要留痕：静默跳过等于这个定时任务无声脱离监控。
+        # last_error 由 tick 自己写（_loop 不再无条件清空），
+        # 否则这句话会被下一行代码抹掉。
+        self.last_error = ("这一轮跳过了 " + "；".join(troubles)[:280]) if troubles else ""
+        return started
+
+    async def _tick_application(
+        self, application: dict[str, Any], now: datetime
+    ) -> list[dict[str, Any]]:
+        started: list[dict[str, Any]] = []
+        version = int(application["active_version"])
+        published = await self.workflow_store.get_version(application["id"], version)
+        for node in published["snapshot"].workflow.nodes:
+            if node.type == "schedule_trigger":
                 config = ScheduleTriggerConfig.model_validate(node.config)
                 local = now.astimezone(ZoneInfo(config.timezone))
                 if (local.hour, local.minute) < (config.hour, config.minute):
@@ -196,7 +229,6 @@ class WorkflowScheduler:
                         manage_harness_task=True,
                     )
                 )
-        started.extend(await self.run_due_durable_jobs(now=now))
         return started
 
     async def enqueue_durable_schedule(

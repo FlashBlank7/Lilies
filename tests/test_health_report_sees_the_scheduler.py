@@ -110,3 +110,30 @@ class TruncationIsDeclaredTest(unittest.IsolatedAsyncioTestCase):
     async def test_exactly_ten_is_not_flagged(self):
         result = await self._report(10)
         self.assertNotIn("problems 只列了前 10 个", result)
+
+
+class AliveIsNotTheSameAsAllFiringTest(unittest.TestCase):
+    """「调度器活着」和「所有定时都开火了」是两回事。
+
+    2026-08-29 补上 per-application 保护之后，一个坏工作流不再拖垮全体——
+    但它自己每轮都被跳过，而调度器照样心跳、照样报活着。
+    光说"调度器正常"等于替那个定时任务瞒着：它在无声地不跑。
+    """
+
+    def test_a_skipped_workflow_shows_up_even_though_the_loop_is_alive(self):
+        words = _scheduler_words({
+            "alive": True, "seconds_since_tick": 3,
+            "last_error": "这一轮跳过了 「服务器GPU日报」：KeyError: 版本查不到"})
+        self.assertIn("没能开火", words)
+        self.assertIn("服务器GPU日报", words)
+
+    def test_a_clean_scheduler_does_not_cry_wolf(self):
+        words = _scheduler_words({"alive": True, "seconds_since_tick": 3, "last_error": ""})
+        self.assertNotIn("没能开火", words)
+        self.assertIn("正常", words)
+
+    def test_a_dead_scheduler_still_leads_with_being_dead(self):
+        """停了就是停了——别被"某某跳过"抢了头条，那是更小的问题。"""
+        words = _scheduler_words({
+            "alive": False, "seconds_since_tick": 900, "last_error": "这一轮跳过了 「甲」"})
+        self.assertIn("停了", words)

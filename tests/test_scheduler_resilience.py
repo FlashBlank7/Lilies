@@ -131,3 +131,129 @@ async def test_reclaim_keeps_created_at(services):
     assert row["created_at"] == original, "created_at 被重写了"
     assert row["attempts"] == 2
     assert row["run_id"] is None      # 重新可认领
+
+
+def _stub_scheduler_for_tick(apps, versions, *, fired):
+    """给 tick() 搭一副最小骨架：只保留"逐个应用看有没有定时"这条主干。"""
+    from types import SimpleNamespace
+
+    async def list_applications():
+        return apps
+
+    async def get_version(app_id, version=None):
+        got = versions[app_id]
+        if isinstance(got, Exception):
+            raise got
+        return got
+
+    async def claim_schedule_fire(*a, **k):
+        return True
+
+    sched = _sched()
+    sched.workflow_store = SimpleNamespace(
+        list_applications=list_applications, get_version=get_version,
+        claim_schedule_fire=claim_schedule_fire)
+
+    async def noop(*a, **k):
+        return []
+
+    sched.reconcile_durable_jobs = noop
+    sched.run_due_durable_jobs = noop
+
+    async def execute(app_id, **kwargs):
+        if isinstance(fired.get("boom"), Exception) and app_id == fired.get("boom_app"):
+            raise fired["boom"]
+        fired.setdefault("apps", []).append(app_id)
+        return {"application_id": app_id}
+
+    sched.execute_claimed_schedule_fire = execute
+    return sched
+
+
+def _version_with_schedule(hour=0, minute=0, timezone_name="UTC"):
+    from types import SimpleNamespace
+
+    node = SimpleNamespace(id="s1", type="schedule_trigger",
+                           config={"hour": hour, "minute": minute,
+                                   "timezone": timezone_name})
+    return {"snapshot": SimpleNamespace(
+        workflow=SimpleNamespace(nodes=[node]))}
+
+
+@pytest.mark.asyncio
+async def test_a_broken_workflow_does_not_block_the_others():
+    """一个工作流的定时配置坏了，别的照样要开火。
+
+    实测缺陷（2026-08-29 读代码发现）：tick() 里
+    `ScheduleTriggerConfig.model_validate(node.config)` 和
+    `get_version(...)` 都在**没有任何保护**的循环体里。
+    任何一个应用抛异常，异常直接掀翻整个 tick——
+    排在它后面的工作流这一轮全部不开火。
+    而 list_applications 的顺序是稳定的，所以下一轮它还是先炸，
+    后面那些**永远**不开火。
+
+    更要命的是这事没有响：_loop 捕获后照样更新 last_tick_at、
+    照样 tick_count += 1，health() 于是报「调度器活着」。
+    """
+    apps = [{"id": "a", "name": "坏的", "active_version": 1},
+            {"id": "b", "name": "好的", "active_version": 1}]
+    versions = {"a": KeyError("这个版本查不到了"),
+                "b": _version_with_schedule()}
+    fired: dict = {}
+    sched = _stub_scheduler_for_tick(apps, versions, fired=fired)
+    await sched.tick()
+    assert fired.get("apps") == ["b"], "坏的那个把好的一起拖下水了"
+
+
+@pytest.mark.asyncio
+async def test_a_bad_timezone_does_not_block_the_others():
+    """时区名不认识 → 配置校验抛错。同样不能连累别人。
+
+    体检那条路早就防住了（「时区名不认识就按 UTC 算，别整个不判」），
+    调度器这条路没有——闸只装在一个出口上。
+    """
+    apps = [{"id": "a", "name": "坏时区", "active_version": 1},
+            {"id": "b", "name": "好的", "active_version": 1}]
+    versions = {"a": _version_with_schedule(timezone_name="Mars/Olympus"),
+                "b": _version_with_schedule()}
+    fired: dict = {}
+    sched = _stub_scheduler_for_tick(apps, versions, fired=fired)
+    await sched.tick()
+    assert fired.get("apps") == ["b"]
+
+
+@pytest.mark.asyncio
+async def test_a_failing_run_does_not_block_the_others():
+    """开火本身失败（建运行时炸了）也不能连累后面的。
+
+    execute_claimed_schedule_fire 在异常时会释放认领然后**再抛出去**，
+    于是那个异常照样掀翻整个 tick。
+    """
+    apps = [{"id": "a", "name": "跑不起来", "active_version": 1},
+            {"id": "b", "name": "好的", "active_version": 1}]
+    versions = {"a": _version_with_schedule(), "b": _version_with_schedule()}
+    fired: dict = {"boom": RuntimeError("建运行失败"), "boom_app": "a"}
+    sched = _stub_scheduler_for_tick(apps, versions, fired=fired)
+    await sched.tick()
+    assert fired.get("apps") == ["b"]
+
+
+@pytest.mark.asyncio
+async def test_the_trouble_is_reported_not_swallowed():
+    """跳过要留痕：静默跳过等于这个定时任务无声脱离监控。"""
+    apps = [{"id": "a", "name": "坏的", "active_version": 1}]
+    versions = {"a": KeyError("这个版本查不到了")}
+    sched = _stub_scheduler_for_tick(apps, versions, fired={})
+    await sched.tick()
+    assert "坏的" in sched.last_error or "a" in sched.last_error, sched.last_error
+
+
+@pytest.mark.asyncio
+async def test_a_healthy_tick_leaves_no_stale_complaint():
+    """上一轮的抱怨不能赖在 last_error 上——那会让人去查一个已经没有的问题。"""
+    apps = [{"id": "b", "name": "好的", "active_version": 1}]
+    versions = {"b": _version_with_schedule()}
+    sched = _stub_scheduler_for_tick(apps, versions, fired={})
+    sched.last_error = "上一轮的旧抱怨"
+    await sched.tick()
+    assert sched.last_error == ""

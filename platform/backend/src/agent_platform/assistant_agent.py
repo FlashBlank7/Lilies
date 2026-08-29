@@ -52,9 +52,16 @@ def _scheduler_words(health: dict | None) -> str:
         when = f"上次轮询在 {int(since)} 秒前" if isinstance(since, (int, float)) else "从来没轮询过"
         return f"调度器停了（{when}）——所有定时任务都不会再开火，要重启平台服务"
     since = health.get("seconds_since_tick")
-    if isinstance(since, (int, float)):
-        return f"调度器正常，{int(since)} 秒前刚轮询过"
-    return "调度器正常"
+    words = (f"调度器正常，{int(since)} 秒前刚轮询过"
+             if isinstance(since, (int, float)) else "调度器正常")
+    # 「活着」和「所有定时都开火了」是两回事。
+    # 某个工作流每轮都被跳过（版本查不到、配置坏了、建运行失败）时，
+    # 调度器照样心跳、照样报活着，而那个定时任务在无声地不跑。
+    # 光说"正常"等于替它瞒着。
+    trouble = str(health.get("last_error") or "").strip()
+    if trouble:
+        words += f"；但有定时没能开火——{trouble[:160]}"
+    return words
 
 
 def _without_tool_names(text: str) -> str:
