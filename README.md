@@ -111,7 +111,8 @@ v0.5.0 完成标准（达成后移除 `-dev` 后缀）：
 ### Docker Compose
 
 ```bash
-cp .env.example .env      # 设置 DEEPSEEK_API_KEY；确认后再开 MODEL_EGRESS_ENABLED=true
+cp .env.example .env && chmod 600 .env   # 里面要放付费密钥，别让同机其他用户读到
+# 设置 DEEPSEEK_API_KEY；确认后再开 MODEL_EGRESS_ENABLED=true
 ./scripts/docker-up.sh
 # 打开 http://localhost:8000/debug
 ```
@@ -121,7 +122,7 @@ cp .env.example .env      # 设置 DEEPSEEK_API_KEY；确认后再开 MODEL_EGRE
 需要 Python 3.12+、Node.js 20+、Docker。
 
 ```bash
-cp .env.example .env
+cp .env.example .env && chmod 600 .env   # 同上：.env 里是密钥，0644 起不住
 docker build --build-arg SANDBOX_UID=$(id -u) --build-arg SANDBOX_GID=$(id -g) \
   -t agent-platform-sandbox:latest -f Dockerfile.sandbox .
 python3 -m venv .venv && source .venv/bin/activate

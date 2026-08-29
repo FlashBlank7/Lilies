@@ -43,7 +43,7 @@ check_prereqs() {
 
   if [[ ! -f .env ]]; then
     echo "❌ .env file is missing."
-    echo "   cp .env.example .env"
+    echo "   cp .env.example .env && chmod 600 .env"
     echo "   Then edit .env and set DEEPSEEK_API_KEY"
     missing+=("dotenv")
   else
