@@ -53,8 +53,10 @@ def _token() -> str:
     raise SystemExit("要先给 API_TOKEN（环境变量或 .env）")
 
 
-def ask(server: str, token: str, question: str) -> tuple[str, list[str]]:
-    body = json.dumps({"messages": [{"role": "user", "text": question}]}).encode()
+def ask(server: str, token: str, question: str,
+        history: list[dict] | None = None) -> tuple[str, list[str]]:
+    messages = list(history or []) + [{"role": "user", "text": question}]
+    body = json.dumps({"messages": messages}).encode()
     request = urllib.request.Request(
         f"{server}/api/v1/assistant/agent", data=body,
         headers={"Content-Type": "application/json",
@@ -124,6 +126,17 @@ def build_cases(db: sqlite3.Connection) -> list[tuple[str, object]]:
              "WHERE a.archived_at IS NULL AND r.version IS NOT NULL "
              "AND r.status='failed' "
              "AND r.created_at LIKE date('now','-1 day')||'%'")),
+        # 多轮：前面聊过别的，再问一句事实题。
+        # 今天两个最严重的发现都出在多轮里——单轮问同一句话都是对的：
+        # 一次是凭上文编了个"建议收起来"（接口返回的是 0 个），
+        # 一次是答"昨天没有失败"（当天失败 5 次）。
+        ("那一共有几个已发布的工作流？",
+         one("SELECT COUNT(*) FROM applications "
+             "WHERE archived_at IS NULL AND active_version IS NOT NULL"),
+         [{"role": "user", "text": "服务器GPU日报的定时是几点？"},
+          {"role": "assistant", "text": "每天 08:00（Asia/Shanghai）。"},
+          {"role": "user", "text": "它最近跑得怎么样？"},
+          {"role": "assistant", "text": "最近几次都成功了。"}]),
     ]
 
 
@@ -137,9 +150,11 @@ def main() -> int:
     db = sqlite3.connect(f"file:{args.db}?mode=ro", uri=True)
     print(f"管家准确性核对 {DIM}{args.server}{NORM}")
     wrong: list[str] = []
-    for question, truth in build_cases(db):
+    for case in build_cases(db):
+        question, truth = case[0], case[1]
+        history = case[2] if len(case) > 2 else None
         try:
-            answer, tools = ask(args.server, token, question)
+            answer, tools = ask(args.server, token, question, history)
         except (urllib.error.URLError, TimeoutError, OSError) as error:
             print(f"{BAD} 连不上后端：{error}")
             return 1
