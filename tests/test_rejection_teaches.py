@@ -173,3 +173,49 @@ class MisplacedConfigKeysTest(unittest.TestCase):
         node = next(n for n in snapshot.workflow.nodes if n.id == "汇总")
         self.assertEqual(node.config.get("assignments"), {"总额": 1},
                          "顶层字段没被收进 config")
+
+
+class FlattenedTestPayloadTest(unittest.TestCase):
+    """test_add 被摊平写时也认——不认就只回一句 KeyError: 'test'。
+
+    真机测量（2026-08-29）：test_add 被拒 27 次，全是这一句裸报错。
+    模型把 id / name / requirement / assertions 平铺在了顶层
+    （有几次还自己发明了一个 frame 包着）。schema 写的是嵌在 test 下，
+    但摊平的意图无歧义，而 KeyError 什么也没教，它只能重试。
+    """
+
+    TEST = {"id": "t1", "name": "门店合计", "requirement": "各门店求和",
+            "assertions": [], "mandatory": True}
+
+    def test_the_documented_shape_works(self):
+        self.assertEqual(
+            ApplicationService._test_payload({"test": self.TEST})["name"], "门店合计")
+
+    def test_a_flattened_payload_works(self):
+        self.assertEqual(
+            ApplicationService._test_payload(dict(self.TEST))["name"], "门店合计")
+
+    def test_a_frame_wrapper_works(self):
+        """模型爱用 frame 这个名字，schema 里根本没有。"""
+        self.assertEqual(
+            ApplicationService._test_payload({"frame": self.TEST})["name"], "门店合计")
+
+    def test_the_explicit_test_key_wins(self):
+        payload = ApplicationService._test_payload(
+            {"test": self.TEST, "name": "另一个", "requirement": "x"})
+        self.assertEqual(payload["name"], "门店合计")
+
+    def test_an_unrecognisable_payload_teaches_instead_of_keyerror(self):
+        with self.assertRaises(ValueError) as caught:
+            ApplicationService._test_payload({"随便": 1})
+        message = str(caught.exception)
+        self.assertIn("test", message)
+        self.assertIn("requirement", message, "没给出要填什么")
+        self.assertNotIn("KeyError", message)
+
+    def test_flattening_only_takes_known_fields(self):
+        """摊平时别把无关的键一起塞进测试用例。"""
+        payload = ApplicationService._test_payload(
+            {**self.TEST, "expected_revision": 7, "idempotency_key": "abc"})
+        self.assertNotIn("expected_revision", payload)
+        self.assertNotIn("idempotency_key", payload)

@@ -260,6 +260,35 @@ class ApplicationService:
     # 十有八九是本该写进 config 的东西。
     _NODE_FIELDS = frozenset(NodeSpec.model_fields)
 
+    @staticmethod
+    def _test_payload(data: dict[str, Any]) -> Any:
+        """从 test_add 的参数里把测试本体取出来，容忍模型摊平写。
+
+        真机测量（2026-08-29）：test_add 被拒 27 次，全是同一句裸报错
+        `KeyError: 'test'`——模型把 id / name / requirement / assertions
+        平铺在了顶层（有几次还自己发明了一个 frame 包着）。
+        schema 写的是嵌在 test 下面，但摊平的意图无歧义，
+        而 KeyError 什么也没教，模型只能重试。
+
+        取值顺序：显式的 test → frame（模型爱用这个名字）→ 顶层摊平的字段。
+        实在认不出就抛一句说得清的话，而不是 KeyError。
+        """
+        if isinstance(data.get("test"), dict):
+            return data["test"]
+        frame = data.get("frame")
+        if isinstance(frame, dict) and {"name", "requirement"} & set(frame):
+            return frame
+        flat = {key: value for key, value in data.items()
+                if key in WorkflowTestCase.model_fields}
+        if {"name", "requirement"} <= set(flat):
+            return flat
+        raise ValueError(
+            "test_add 要把测试放在 test 里："
+            '{"test": {"id": "...", "name": "...", "requirement": "...", '
+            '"inputs": {...}, "assertions": [...], "mandatory": true}}——'
+            "至少要有 name 和 requirement。"
+        )
+
     @classmethod
     def _sink_config_keys(cls, node: Any) -> Any:
         """把误放在节点顶层的配置字段收进 config。
@@ -432,7 +461,7 @@ class ApplicationService:
             agent = AgentSpec.model_validate(data["agent"])
             snapshot.agents[agent.id] = agent
         elif operation == "add_test":
-            test = WorkflowTestCase.model_validate(data["test"])
+            test = WorkflowTestCase.model_validate(self._test_payload(data))
             snapshot.tests = [item for item in snapshot.tests if item.id != test.id]
             snapshot.tests.append(test)
         elif operation == "remove_test":
