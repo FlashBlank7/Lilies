@@ -1272,10 +1272,27 @@ class WorkflowConcierge:
         self._owner_words = next(
             (str(m.get("text", ""))[:4_000] for m in reversed(history)
              if m.get("role") != "assistant" and str(m.get("text", "")).strip()), "")
+        # 只带最近 12 轮进模型。**截了要说出来**——这是今天反复出现的那个形状，
+        # 只是这次截的是对话本身。
+        #
+        # 真机实测：第 1 轮里业主约定了一个内部代号，聊满 17 轮后再问，
+        # 它答「工作流列表里并没有对应的……我不太明白你指的是什么」。
+        # 它没有编（这点是对的），但业主明明说过——他会以为管家在装傻。
+        # 正确的话是"更早的对话我这边看不到了，麻烦再说一次"，
+        # 而要说这句，它得先知道自己看的是一截。
+        kept = history[-12:]
         messages = [ChatMessage(role="assistant" if m.get("role") == "assistant" else "user",
                                 content=[ContentBlock(type="text",
                                                       text=self._history_text(m))])
-                    for m in history[-12:]]
+                    for m in kept]
+        if len(history) > len(kept):
+            messages.insert(0, ChatMessage(role="user", content=[ContentBlock(
+                type="text",
+                text=f"<上下文 注意=\"这次只带了最近 {len(kept)} 轮对话，"
+                     f"更早还有 {len(history) - len(kept)} 轮你看不到。"
+                     f"业主提到你没印象的约定或名字时，"
+                     f"如实说更早的对话看不到了、请他再说一次，"
+                     f"别说成「不明白你指的是什么」\" />")]))
         actions: list[dict] = []
         asked_to_check = False       # "空手报数字"只回炉一次，不许来回拉锯
         for _ in range(6):
