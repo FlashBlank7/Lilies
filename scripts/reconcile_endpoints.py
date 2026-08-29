@@ -63,7 +63,7 @@ def _get(server: str, token: str, path: str):
         return json.load(response)
 
 
-def _checks(overview: dict, apps: list, health: dict, one) -> list[tuple]:
+def _checks(overview: dict, apps: list, overview_health: dict, one) -> list[tuple]:
     """每条是 (这件事叫什么, 甲方的数, 甲方是谁, 乙方的数, 乙方是谁)。
 
     刻意让"同一个数"至少有两个独立来源：一个来自接口、一个来自库，
@@ -83,7 +83,7 @@ def _checks(overview: dict, apps: list, health: dict, one) -> list[tuple]:
          one("SELECT COUNT(*) FROM applications WHERE archived_at IS NULL "
              "AND active_version IS NOT NULL"), "数据库"),
         ("体检覆盖的工作流数",
-         len(health.get("items") or []), "health-report",
+         len(overview_health.get("items") or []), "health-report",
          overview["published_workflows"], "overview"),
         ("今日运行总数",
          runs_today["total"], "overview",
@@ -102,7 +102,46 @@ def _checks(overview: dict, apps: list, health: dict, one) -> list[tuple]:
          week_fail, "week", split_fail, "week_failures"),
         ("失败清单条数 = 种类总数截到 8",
          listed_kinds, "recent_failures", min(total_kinds, 8), "total 截到 8"),
+        # 「还没跑过」那一格：它是从 items 里挑出来的，两边必须自洽。
+        # 加这条是因为它**只在没人跑过工作流时才有值**——本机现在恒为空，
+        # 单测覆盖得了逻辑，覆盖不了"接口真返回了这个键"。
+        # 比的是 `is False`，不是"假值"。写成 `not i.get("ever_ran")` 的话，
+        # 老后端（没有这个键）每一项都算"没跑过"，而 never_ran 又是空的——
+        # 对账当场报一堆假警。检查自己误报，比不检查更消耗人。
+        ("还没跑过的个数 = items 里 ever_ran 为假的个数",
+         len(overview_health.get("never_ran") or []), "health-report.never_ran",
+         sum(1 for i in overview_health.get("items") or []
+             if i.get("ever_ran") is False), "items 里数出来的"),
+        ("还没跑过的都在体检名单里",
+         len(set(overview_health.get("never_ran") or [])
+             - {i.get("workflow") for i in overview_health.get("items") or []}),
+         "名单外的个数", 0, "应当为 0"),
     ]
+
+
+def _failure_pattern_checks(server: str, token: str, apps: list, one) -> list[tuple]:
+    """失败模式接口：分类之和必须等于库里这个应用的失败次数。
+
+    这一条对着 2026-08-29 修的那个 bug：那个接口查错了流，对每个应用
+    都返回空列表——**数字在库里，接口说没有**。当时全绿的对账没照出来，
+    因为压根没人拿它和库对过。
+    """
+    checks = []
+    for app in apps[:5]:
+        app_id, name = app["id"], app.get("name", app["id"][:8])
+        try:
+            patterns = _get(server, token,
+                            f"/api/v1/applications/{app_id}/failure-patterns")
+        except (urllib.error.URLError, TimeoutError, OSError):
+            continue
+        clustered = sum(int(p.get("count") or 0) for p in patterns)
+        actual = one("SELECT COUNT(*) FROM workflow_runs WHERE application_id="
+                     f"'{app_id}' AND status='failed'")
+        if not actual:
+            continue          # 没失败过的应用，这条没什么可对的
+        checks.append((f"「{name}」失败分类之和 = 库里失败次数",
+                       clustered, "failure-patterns", actual, "数据库"))
+    return checks
 
 
 def main() -> int:
@@ -124,8 +163,10 @@ def main() -> int:
 
     print(f"跨端点对账 {DIM}{args.server}{NORM}")
     wrong = []
-    for name, left, left_from, right, right_from in _checks(
-            overview, apps, health, lambda sql: db.execute(sql).fetchone()[0]):
+    one = lambda sql: db.execute(sql).fetchone()[0]  # noqa: E731
+    everything = (_checks(overview, apps, health, one)
+                  + _failure_pattern_checks(args.server, token, apps, one))
+    for name, left, left_from, right, right_from in everything:
         agree = left == right
         print(f"  {OK if agree else BAD} {name}"
               f"  {DIM}{left_from}={left} / {right_from}={right}{NORM}")

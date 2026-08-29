@@ -30,7 +30,12 @@ def _payload(**overrides):
     for key in overrides.pop("drop", ()):      # 真的删掉，而不是覆盖成别的值
         overview.pop(key, None)
     apps = overrides.pop("apps", [{"active_version": 1}] * 3)
-    health = overrides.pop("health", {"items": [{}, {}, {}]})
+    # items 里带上 ever_ran：夹具比真载荷瘦，测的就不是真载荷。
+    # （2026-08-29 加"还没跑过"那条检查时，空 dict 的夹具让它误报了一次。）
+    health = overrides.pop("health", {
+        "items": [{"workflow": f"w{i}", "ever_ran": True} for i in range(3)],
+        "never_ran": [],
+    })
     db = overrides.pop("db", {"published": 3, "runs_today": 5})
     def one(sql: str):
         return db["published"] if "FROM applications" in sql else db["runs_today"]
@@ -87,3 +92,46 @@ class ReconcileChecksTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NeverRanChecksTest(unittest.TestCase):
+    """「还没跑过」那两条：既要抓得住不一致，也不能对老后端误报。"""
+
+    def _health(self, **kwargs):
+        """只想动体检那部分，但工作流个数得跟着一起对齐——
+        否则「体检覆盖的工作流数」那条会先红，测的就不是我要测的东西了。"""
+        count = len(kwargs.get("items", []))
+        return _payload(health=kwargs,
+                        apps=[{"active_version": 1}] * count,
+                        overview={"published_workflows": count},
+                        db={"published": count, "runs_today": 5})
+
+    def test_it_notices_when_the_count_disagrees(self):
+        rows = self._health(
+            items=[{"workflow": "甲", "ever_ran": False},
+                   {"workflow": "乙", "ever_ran": True}],
+            never_ran=[])
+        self.assertIn("还没跑过的个数 = items 里 ever_ran 为假的个数",
+                      _mismatches(rows))
+
+    def test_it_notices_a_name_that_is_not_in_the_list(self):
+        rows = self._health(
+            items=[{"workflow": "甲", "ever_ran": False}],
+            never_ran=["甲", "查无此人"])
+        self.assertIn("还没跑过的都在体检名单里", _mismatches(rows))
+
+    def test_a_consistent_never_ran_payload_is_clean(self):
+        rows = self._health(
+            items=[{"workflow": "甲", "ever_ran": False},
+                   {"workflow": "乙", "ever_ran": True}],
+            never_ran=["甲"])
+        self.assertEqual(_mismatches(rows), [])
+
+    def test_an_old_backend_without_the_field_is_not_flagged(self):
+        """老后端没有 ever_ran / never_ran——不能因此报一堆假警。
+
+        写成 `not i.get("ever_ran")` 的话这条会红：每一项都被算成"没跑过"。
+        检查自己误报，比不检查更消耗人。
+        """
+        rows = self._health(items=[{"workflow": "甲"}, {"workflow": "乙"}])
+        self.assertEqual(_mismatches(rows), [])
