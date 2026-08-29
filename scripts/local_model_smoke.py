@@ -1,5 +1,5 @@
 """真线冒烟：OpenAIChatProvider 对本地 vLLM 端点的流翻译验证（文本 + 工具调用）。"""
-import asyncio, json, os, sys
+import asyncio, os, sys
 sys.path.insert(0, "platform/backend/src")
 from agent_platform.agent_core import collect_model_stream
 from agent_platform.models import ChatMessage, ContentBlock, ToolDefinition

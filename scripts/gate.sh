@@ -24,7 +24,11 @@ if [ "$target" = "bench" ]; then
   LINT_PATH="guanjia"
 else
   SRC="$ROOT"
-  LINT_PATH="platform/backend/src"
+  # scripts 也要扫：里面是冒烟、准确性核对、跨端点对账这些**用来验别人**的东西，
+  # 它们自己坏了最没人发现。2026-08-29 加对账脚本时才注意到这一格一直空着。
+  # tests 暂时不加：pytest 夹具的导入再同名接参会被 F811 大面积误报（97 处），
+  # 真要加得先把那批 noqa 补齐，那是另一件事。
+  LINT_PATH="platform/backend/src scripts"
 fi
 
 cd "$SRC"
