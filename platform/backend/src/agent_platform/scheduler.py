@@ -442,19 +442,40 @@ class WorkflowScheduler:
                 changed.append(reconciled)
                 continue
             if job.cancel_requested:
+                # 按了取消就一定要走到终态。原来这一段有两个口子会**什么都不做**：
+                #   · job.run_id 为空 → 整段跳过（还没挂上运行就被取消的那种）
+                #   · 运行时不认识它、而运行记录也查不到 → if run is not None 挡住
+                # 两个口子通向同一个结局：状态一点没变，下一轮对账再走同一条死路，
+                # 任务永远是"运行中"，业主看着界面一直转。
+                # 隔壁"租约过期"那一支就没有这个毛病：它 cancel 失败也照样
+                # recover_expired，任何情况下都推进状态。同一个操作两支不一样。
                 if job.run_id:
                     try:
                         self.runtime.cancel(job.run_id)
                     except KeyError:
-                        if run is not None:
-                            reconciled = await self.durable_jobs.reconcile_run(
-                                job.id,
-                                run_id=job.run_id,
-                                run_status="cancelled",
-                                error="cancelled after active process was unavailable",
-                            )
-                            await self._finish_durable_attempt_task(job, reconciled)
-                            changed.append(reconciled)
+                        pass
+                    else:
+                        # 运行时认下了，它自己会走到终态，下一轮对账收尾
+                        continue
+                # 到这儿说明喊不动：没人会再推进它，只能由我们收尾。
+                # 有运行记录的走 reconcile_run（能带上 run 的身份），
+                # 没有的走 cancel_terminal（那条不需要 run_id）。
+                if run is not None and job.run_id:
+                    reconciled = await self.durable_jobs.reconcile_run(
+                        job.id,
+                        run_id=job.run_id,
+                        run_status="cancelled",
+                        error="cancelled after active process was unavailable",
+                    )
+                else:
+                    reconciled = await self.durable_jobs.cancel_terminal(
+                        job.id,
+                        worker_id=str(job.lease_owner or self.durable_worker_id),
+                        lease_version=job.lease_version,
+                        reason="cancelled after active process was unavailable",
+                    )
+                await self._finish_durable_attempt_task(job, reconciled)
+                changed.append(reconciled)
                 continue
             lease_expired = bool(
                 job.lease_expires_at
