@@ -95,6 +95,17 @@ echo "── pytest ──"
 # 实测代价：整套 1269 条，3m52 vs 3m54——在噪声里。
 export PYTHONDONTWRITEBYTECODE=1
 # 不加 tail：截断输出正是那个错的温床。要看少一点就自己 > 文件再 grep。
-"$PY" -m pytest tests/ -q -p no:cacheprovider
+#
+# 条数记下来，最后那行一起报。**这是为了掐掉一个反复出现的诱因**：
+# 想在提交信息里写准"N 条绿"，就会忍不住写成
+#     bash scripts/gate.sh | tail -2 && git commit
+# 而 `&&` 判的是 tail 的退出码——正是本文件开头那个错。
+# 2026-08-30 我就这么闯了一次红灯（漏进去一条 ruff F401）。
+# 条数直接印在结论里，不接管道也看得见，就没有理由再接了。
+pytest_log="$(mktemp)"
+trap 'rm -f "$pytest_log"' EXIT
+"$PY" -m pytest tests/ -q -p no:cacheprovider 2>&1 | tee "$pytest_log"
+# pipefail 已经开着：pytest 红了这里就退非零，tee 顶不掉它
+count="$(grep -Eo '[0-9]+ passed' "$pytest_log" | tail -1 || true)"
 
-echo "✓ 门链全绿（$target$front_note）"
+echo "✓ 门链全绿（$target$front_note）${count:+ · $count}"
