@@ -385,32 +385,53 @@ class WorkflowConcierge:
         if not name:
             return None, {"error": "没说是哪个工作流——"
                                    "先用 list_workflows 看有哪些，再带上名字来问"}
+        # 先走 _resolve_app：八个测试文件把它当注入点（stub 掉它就不用起存储），
+        # 绕过去等于把别人赖以验证的那条路掐了。命中就直接回，
+        # **只有落空时**才多查一次候选，用来分辨"没有"和"好几个"。
         app = await self._resolve_app(name, include_archived=include_archived)
-        if not app:
-            return None, {"error": f"没有叫「{name}」的工作流——"
-                                   "用 list_workflows 看看准确的名字"}
-        return app, None
+        if app:
+            return app, None
+        matches = await self._match_apps(name, include_archived=include_archived)
+        if matches:
+            # 第三种情形。上面那段注释分开了「没说是哪个」和「说了但没有」，
+            # 漏了**「说了，但对得上好几个」**——它原来也走"没有叫 X 的工作流"，
+            # 于是业主明明在列表里见过「日报基准-一」「日报基准-二」，
+            # 说一句"跑下日报"却被告知这个工作流不存在。
+            # 客户端那边一直是对的（找不到就把候选列出来），平台这侧漏了。
+            names = "、".join(str(a.get("name") or a["id"]) for a in matches[:5])
+            more = f"（共 {len(matches)} 个）" if len(matches) > 5 else ""
+            return None, {"error": f"「{name}」对得上好几个：{names}{more}——"
+                                   "问清业主是哪一个，再带准确的名字来"}
+        return None, {"error": f"没有叫「{name}」的工作流——"
+                               "用 list_workflows 看看准确的名字"}
 
-    async def _resolve_app(self, name_or_id: str,
-                           *, include_archived: bool = False) -> dict | None:
+    async def _match_apps(self, name_or_id: str,
+                          *, include_archived: bool = False) -> list[dict]:
+        """按名字/ID 找工作流，回**所有**对得上的。
+
+        分开返回候选，是因为"一个都没有"和"对得上好几个"要说两句不同的话。
+        匹配顺序不变：精确（ID 或全名）→ 子串 → 宽松（去大小写空格的反向包含）。
+        """
         apps = await self.services.workflow_store.list_applications()
         if include_archived:
             # 已归档的不在常规列表里，但「拿回 X」必须能按名字找到它
             apps = list(apps) + list(await self.services.workflow_store.list_archived())
         for app in apps:
             if app["id"] == name_or_id or app.get("name") == name_or_id:
-                return app
+                return [app]
         matches = [a for a in apps if name_or_id in (a.get("name") or "")]
-        if len(matches) == 1:
-            return matches[0]
-        if not matches:
-            # 反向包含：用户说的名字更长（带了他记得的修饰），或大小写/空格有出入
-            loose = name_or_id.strip().lower().replace(" ", "")
-            matches = [a for a in apps
-                       if loose and loose in (a.get("name") or "").lower().replace(" ", "")]
-            if len(matches) == 1:
-                return matches[0]
-        return None
+        if matches:
+            return matches
+        # 反向包含：用户说的名字更长（带了他记得的修饰），或大小写/空格有出入
+        loose = name_or_id.strip().lower().replace(" ", "")
+        return [a for a in apps
+                if loose and loose in (a.get("name") or "").lower().replace(" ", "")]
+
+    async def _resolve_app(self, name_or_id: str,
+                           *, include_archived: bool = False) -> dict | None:
+        """对得上恰好一个才算找到——沿用原来的口径，别猜。"""
+        matches = await self._match_apps(name_or_id, include_archived=include_archived)
+        return matches[0] if len(matches) == 1 else None
 
     async def _still_in_use(self, app: dict) -> bool:
         """这个工作流还在用吗——已发布，且有定时或最近成功跑过。
@@ -579,9 +600,11 @@ class WorkflowConcierge:
                                   "要收拾草稿用 tidy_workflows。")
             return result
         if name == "run_workflow":
-            app = await self._resolve_app(str(args.get("name_or_id") or ""))
-            if not app:
-                return {"error": f"找不到唯一匹配的工作流: {args.get('name_or_id')}"}
+            # 走同一个 helper：这是**会花钱**的那个工具，
+            # "对得上好几个"时必须问清楚，不能挑一个跑。
+            app, problem = await self._named_app(args)
+            if problem:
+                return problem
             from .workflow_models import WorkflowRunRequest
             given = dict(args.get("inputs") or {})
             declared = await self._declared_inputs(app["id"])
@@ -1089,13 +1112,12 @@ class WorkflowConcierge:
             only = str(args.get("name_or_id") or "").strip()
             app = None
             if only:
-                # 这一处 only 必然非空，所以确实是"没有这个"，
-                # 不是"没说是哪个"——但名字照样要报出来，
-                # 让模型能把话转述准确
-                app = await self._resolve_app(only)
-                if not app:
-                    return {"error": f"没有叫「{only}」的工作流——"
-                                     "用 list_workflows 看看准确的名字"}
+                # only 非空，所以不会是"没说是哪个"。但**非空不等于唯一**：
+                # 原来这里的注释推到"确实是没有这个"就停了，于是
+                # "对得上好几个"也被说成"没有叫 X 的工作流"。走同一个 helper。
+                app, problem = await self._named_app({"name_or_id": only})
+                if problem:
+                    return problem
 
             def _count() -> dict:
                 where = ["a.archived_at IS NULL", "r.version IS NOT NULL"]
