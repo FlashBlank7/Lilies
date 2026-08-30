@@ -86,7 +86,17 @@ def build_cases(db: sqlite3.Connection) -> list[tuple[str, object]]:
     出题时拿状态码当过真值（"最近一次搭建是成功还是失败"→ published），
     它答"成功的，已经发布"——答对了却判成错。是题目错了，不是它错了。
     """
-    one = lambda sql: db.execute(sql).fetchone()[0]
+    def one(sql):
+        """真值取不到就回 None——**这道题今天没法问，不是崩溃的理由**。
+
+        2026-08-30 撞到：昨天一次失败都没有，于是「昨天失败的运行属于
+        哪个工作流」这道题的真值查询一行都没有，`fetchone()[0]` 抛
+        TypeError，整套哨兵一道题都没问就死了。
+        而平静的日子恰恰是该跑一跑的日子——哨兵只在忙的时候能跑，
+        等于在最需要它的时候没有它。
+        """
+        row = db.execute(sql).fetchone()
+        return row[0] if row else None
     return [
         ("现在有几个已发布的工作流？",
          one("SELECT COUNT(*) FROM applications "
@@ -120,8 +130,16 @@ def build_cases(db: sqlite3.Connection) -> list[tuple[str, object]]:
              "ORDER BY COUNT(*) DESC LIMIT 1")),
         # 具体记录类的问题——最容易被"给一页当全部"绊倒：
         # 真机上问「最近一次失败的原因」，它翻了 5 条全是成功就答"没有失败记录"。
-        ("失败次数最多的那个工作流，最近一次失败的原因是什么？",
-         one("SELECT COALESCE(r.error, json_extract(r.state_json,'$.error'), '') "
+        #
+        # 真值**不能直接拿库里那句英文原文**（2026-08-30 撞到）：
+        # 平台在出口把报错翻成人话是**有意的**（_human_error，面板/体检/
+        # 客户页/告警都走它），管家答的是「调用时少给了必填的输入」，
+        # 而真值是 `node start failed: missing required input: text`，
+        # 于是一道答对的题被判红。这正是本文件开头写过的那种错：
+        # 拿内部表示当真值，答对了却判成错——**是题目错了，不是它错了**。
+        # 所以真值取翻译后必然出现的那个词根，从库里的原文推出来。
+        (("失败次数最多的那个工作流，最近一次失败的原因是什么？"),
+         _reason_keyword(one("SELECT COALESCE(r.error, json_extract(r.state_json,'$.error'), '') "
              "FROM workflow_runs r JOIN applications a ON a.id=r.application_id "
              "WHERE r.status='failed' AND r.version IS NOT NULL "
              "AND a.archived_at IS NULL "
@@ -130,7 +148,7 @@ def build_cases(db: sqlite3.Connection) -> list[tuple[str, object]]:
              "            WHERE r2.status='failed' AND r2.version IS NOT NULL "
              "            AND a2.archived_at IS NULL GROUP BY a2.name "
              "            ORDER BY COUNT(*) DESC LIMIT 1) "
-             "ORDER BY r.created_at DESC LIMIT 1")),
+             "ORDER BY r.created_at DESC LIMIT 1"))),
         ("昨天一共有几次失败的运行？",
          one("SELECT COUNT(*) FROM workflow_runs r "
              "JOIN applications a ON a.id=r.application_id "
@@ -263,6 +281,25 @@ def _with_chinese_numerals(text: str) -> str:
     return pattern.sub(fold, text)
 
 
+def _reason_keyword(raw_error: object) -> object:
+    """库里的英文报错 → 人话答案里必然出现的那个词根。
+
+    平台在出口把报错翻成人话（_human_error）是有意的，所以真值必须落在
+    **人能读到的那一面**。取词根而不是整句，是因为对面是模型：
+    它会说"少给了必填的输入"也会说"缺少必填输入"，中间那个"的"会变。
+    认不出来的报错就原样返回——那时它本来就是中文，能直接对上。
+    """
+    text = str(raw_error or "")
+    for marker, keyword in (
+        ("missing required input", "必填"),
+        ("could not resolve", "取不到"),
+        ("collection expression requires an array", "数组"),
+    ):
+        if marker in text:
+            return keyword
+    return text
+
+
 def _answers(truth: object, answer: str) -> bool:
     # 数字答案允许带千分位/空格/加粗
     flat = answer.replace(",", "").replace(" ", "").replace("*", "")
@@ -308,6 +345,16 @@ def main() -> int:
     print(f"管家准确性核对 {DIM}{args.server}{NORM}")
     _warn_if_today_is_ambiguous(db)
     cases = build_cases(db)
+    # 真值取不到的题今天问不了（比如"昨天失败的属于谁"而昨天一次都没失败）。
+    # 丢掉可以，**但要说出来**：不说的话，一套 15 题的哨兵会悄悄变成 12 题，
+    # 而屏幕上还是"全部答对"。同一个道理下面那条空题守卫已经写过一遍。
+    unaskable = [case[0] for case in cases if case[1] is None]
+    cases = [case for case in cases if case[1] is not None]
+    if unaskable:
+        # 不打 ✕：这不是"答错了"，是"今天没法问"。两件事不能长得一样。
+        print(f"{DIM}今天问不了 {len(unaskable)} 道（库里没有对应的真值）：{NORM}")
+        for question in unaskable:
+            print(f"    {DIM}· {question}{NORM}")
     # 一道题都没有＝这次什么也没验，别报"全部答对"。
     # （2026-08-29 门链里的 ruff 正是栽在这上面：扫了 0 个文件，报全部通过。）
     if not cases:
