@@ -138,3 +138,53 @@ def test_the_check_does_not_flag_the_legitimate_repeats():
     for block in _statement_blocks(looping):
         for a, b in zip(block, block[1:]):
             assert not _dead_if_repeat(a, b)
+
+
+# —— 第三种形状：**成组**被复制 ——
+#
+# 2026-08-30 在 builder.py 抓到：反刍守卫那四句（算签名、取计数、写回、
+# 到 3 就警告）连着写了三遍，三遍都在同一个 except 里顺序跑。
+# 后果不是死代码，是**算错**：一次被拒计数加 3，于是第一次被拒就被告知
+# "第 3 次"，第二次起同一段警告连贴三遍——而模型正是靠这个数判断该不该换做法。
+#
+# 上面那条"相邻重复语句"抓不到它：重复的是四句一组，组与组之间隔着那个 if，
+# 任何两条**相邻**语句都不相同。所以这里按"连续若干句整组重复"再扫一遍。
+# 门槛定在 3 句：两句一组的重复偶尔是正当的（连发两次同样的事件），
+# 三句一组一字不差地紧挨着出现，基本只可能是复制粘贴。
+GROUP_MIN = 3
+
+
+def _repeated_group(block: list) -> tuple[int, int] | None:
+    dumped = [ast.dump(stmt) for stmt in block]
+    for size in range(GROUP_MIN, len(dumped) // 2 + 1):
+        for start in range(len(dumped) - 2 * size + 1):
+            first = dumped[start:start + size]
+            if first == dumped[start + size:start + 2 * size]:
+                return block[start].lineno, block[start + size].lineno
+    return None
+
+
+@pytest.mark.parametrize("path", MODULES, ids=lambda p: p.name)
+def test_no_group_of_statements_is_copy_pasted(path: Path):
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    found = []
+    for block in _statement_blocks(tree):
+        repeat = _repeated_group(block)
+        if repeat:
+            found.append(f"第 {repeat[0]} 行起的一组，在第 {repeat[1]} 行又来了一遍")
+    assert not found, f"{path.name}：{found}"
+
+
+def test_the_group_check_can_see_a_real_one():
+    """扫描器自己得抓得住——它对每个文件都断言"没有"，写坏成永远返回 None 就全绿。"""
+    body = "\n".join(["def f(x):"] + ["    a = 1", "    b = 2", "    c = 3"] * 2)
+    tree = ast.parse(body)
+    assert any(_repeated_group(block) for block in _statement_blocks(tree))
+
+
+def test_the_group_check_does_not_flag_two_line_repeats():
+    """两句一组的重复不报——连发两次同样的事件是正当写法，本仓就有一处。"""
+    body = "async def f(s, e):\n    await s.send(e)\n    await s.wait()\n" \
+           "    await s.send(e)\n    await s.wait()\n"
+    tree = ast.parse(body)
+    assert not any(_repeated_group(block) for block in _statement_blocks(tree))

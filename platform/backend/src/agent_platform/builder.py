@@ -1189,36 +1189,12 @@ class WorkflowBuilder:
                     # 对同一节点提交 61 次完全相同的被拒配置（"would not change
                     # the workflow"），60 轮预算就这么烧光。同一 (工具,参数)
                     # 被拒第 3 次起，反馈里追加强指令要求换动作。
-                    signature = f"{call.name}:" + json.dumps(
-                        call.input or {}, ensure_ascii=False, sort_keys=True, default=str
-                    )[:400]
-                    repeat_count = repeated_rejections.get(signature, 0) + 1
-                    repeated_rejections[signature] = repeat_count
-                    if repeat_count >= 3:
-                        full_content += (
-                            f"\n【第 {repeat_count} 次提交完全相同的被拒提案】"
-                            "它永远不会通过。禁止再发这个调用——换一个节点、"
-                            "换一种做法，或先用 draft_inspect 看清当前草稿。"
-                        )
-                    # 反刍守卫（自 mechanical 移植，2026-08-23）：实测协调者
-                    # 对同一节点提交 61 次完全相同的被拒配置（"would not change
-                    # the workflow"），60 轮预算就这么烧光。同一 (工具,参数)
-                    # 被拒第 3 次起，反馈里追加强指令要求换动作。
-                    signature = f"{call.name}:" + json.dumps(
-                        call.input or {}, ensure_ascii=False, sort_keys=True, default=str
-                    )[:400]
-                    repeat_count = repeated_rejections.get(signature, 0) + 1
-                    repeated_rejections[signature] = repeat_count
-                    if repeat_count >= 3:
-                        full_content += (
-                            f"\n【第 {repeat_count} 次提交完全相同的被拒提案】"
-                            "它永远不会通过。禁止再发这个调用——换一个节点、"
-                            "换一种做法，或先用 draft_inspect 看清当前草稿。"
-                        )
-                    # 反刍守卫（自 mechanical 移植，2026-08-23）：实测协调者
-                    # 对同一节点提交 61 次完全相同的被拒配置（"would not change
-                    # the workflow"），60 轮预算就这么烧光。同一 (工具,参数)
-                    # 被拒第 3 次起，反馈里追加强指令要求换动作。
+                    #
+                    # 这一段原来**连着写了三遍**（2026-08-30 修）。三遍都在同一个
+                    # except 里顺序跑，于是：一次被拒计数就加 3，
+                    # **第一次被拒就被告知"第 3 次"**；第二次被拒时
+                    # 计数走到 4/5/6，同一段警告连贴三遍。
+                    # 给模型的数字是假的，而它正是靠这个数判断该不该换做法。
                     signature = f"{call.name}:" + json.dumps(
                         call.input or {}, ensure_ascii=False, sort_keys=True, default=str
                     )[:400]
