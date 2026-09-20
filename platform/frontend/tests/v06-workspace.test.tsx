@@ -57,3 +57,30 @@ it.each(['direct','wrapped'])('shows %s prediction values while deduplicating th
  render(<ProjectTaskOutput projectId="p" task={task}/>);
  expect(screen.getByRole('cell',{name:'303.139'})).toBeInTheDocument();expect(screen.getByRole('cell',{name:'306.102'})).toBeInTheDocument();expect(screen.getAllByRole('link')).toHaveLength(1)
 })
+
+it('applies the visible canvas revision and sends selection or nested scope in one request',async()=>{
+ const nodes=[{id:'loop',type:'iteration',title:'处理每条数据',block_version:1,description:'',position:{x:0,y:0},retry:{enabled:false,max_attempts:1,delay_seconds:0},error_strategy:'fail' as const,config:{workflow:{nodes:[{id:'inner',type:'loop',title:'内循环',config:{workflow:{nodes:[],edges:[]}}}],edges:[]}}}]
+ vi.mocked(api).mockResolvedValue({workflow_id:'w',previous_workflow:{nodes:[],edges:[]},draft:{revision:6}} as never)
+ render(<WorkflowComposer projectId="p" workflowId="w" revision={5} nodes={nodes} selectedNodeIds={['loop']} onChanged={vi.fn()}/>);
+ fireEvent.change(screen.getByLabelText('工作流描述'),{target:{value:'修改结果'}})
+ fireEvent.change(screen.getByLabelText('修改范围'),{target:{value:'selection'}})
+ fireEvent.click(screen.getByText('应用修改'));await screen.findByText('已保存到画布，可继续编辑或运行。')
+ expect(vi.mocked(api)).toHaveBeenCalledTimes(1)
+ expect(JSON.parse(vi.mocked(api).mock.calls[0][1]!.body as string)).toMatchObject({expected_revision:5,node_ids:['loop'],workflow_path:[]})
+ fireEvent.change(screen.getByLabelText('修改范围'),{target:{value:JSON.stringify(['loop','inner'])}})
+ fireEvent.click(screen.getByText('应用修改'));await waitFor(()=>expect(vi.mocked(api)).toHaveBeenCalledTimes(2))
+ expect(JSON.parse(vi.mocked(api).mock.calls[1][1]!.body as string)).toMatchObject({expected_revision:5,node_ids:[],workflow_path:['loop','inner']})
+})
+
+it('opens the selected scope from the canvas action and blocks AI changes while form edits are unsaved',async()=>{
+ const onChanged=vi.fn()
+ const {rerender}=render(<WorkflowComposer projectId="p" workflowId="w" selectedNodeIds={['end']} editRequest={0} disabled onChanged={onChanged}/>);
+ // jsdom has no scrolling implementation; the actual browser path is also exercised.
+ const scroll=vi.fn(); HTMLElement.prototype.scrollIntoView=scroll
+ rerender(<WorkflowComposer projectId="p" workflowId="w" selectedNodeIds={['end']} editRequest={1} disabled onChanged={onChanged}/>);
+ expect(screen.getByLabelText('工作流描述')).toHaveFocus()
+ fireEvent.change(screen.getByLabelText('工作流描述'),{target:{value:'修改输出'}})
+ expect(screen.getByText('应用修改')).toBeDisabled()
+ expect(vi.mocked(api)).not.toHaveBeenCalled()
+ expect(scroll).toHaveBeenCalledOnce()
+})

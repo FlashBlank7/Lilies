@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import time
+from copy import deepcopy
 from uuid import uuid4
 from pydantic import BaseModel, ConfigDict, Field
 from fastapi.encoders import jsonable_encoder
@@ -19,6 +20,51 @@ class GenerateWorkflow(BaseModel):
     expected_revision: int | None = None
     name: str = Field(default='新工作流', min_length=1, max_length=100)
     advanced_blocks: bool = False
+    workflow_path: list[str] = Field(default_factory=list, max_length=20)
+    node_ids: list[str] = Field(default_factory=list, max_length=500)
+
+
+def scoped_workflow(workflow, path):
+    """Resolve an explicitly chosen loop/iteration body in the draft snapshot."""
+    current = workflow
+    for node_id in path:
+        node = next((n for n in current['nodes'] if n['id'] == node_id), None)
+        if not node or node['type'] not in {'loop', 'iteration'} or not isinstance(node['config'].get('workflow'), dict):
+            raise ValueError('未找到所选循环的内部流程，请刷新画布')
+        current = node['config']['workflow']
+    return current
+
+
+def editable_fragment(workflow, node_ids):
+    ids = set(node_ids)
+    if not ids <= {n['id'] for n in workflow['nodes']}:
+        raise ValueError('所选节点已不存在，请重新选择')
+    return {**workflow, 'nodes': [n for n in workflow['nodes'] if n['id'] in ids],
+            'edges': [e for e in workflow['edges'] if e['source'] in ids and e['target'] in ids]}
+
+
+def merge_generated_workflow(original, generated, path, node_ids):
+    result = deepcopy(original)
+    target = scoped_workflow(result, path)
+    originals = {n['id']: n for n in target['nodes']}
+    generated = {**generated, 'edges': generated.get('edges', []),
+                 'nodes': [{**originals.get(n['id'], {}), **n} for n in generated.get('nodes', [])]}
+    if node_ids:
+        selected = set(node_ids)
+        outside = {n['id'] for n in target['nodes']} - selected
+        if outside & {n['id'] for n in generated['nodes']}:
+            raise ValueError('生成结果包含选区外的节点；请扩大选区或只返回选中的节点')
+        # Keep all boundary edges and everything outside the selection exactly.
+        # Deleting a boundary endpoint needs an expanded selection, not a silent
+        # rewrite of a neighbor's configuration or references.
+        replacement = {**target,
+            'nodes': [n for n in target['nodes'] if n['id'] not in selected] + generated['nodes'],
+            'edges': [e for e in target['edges'] if not (e['source'] in selected and e['target'] in selected)] + generated['edges']}
+    else:
+        replacement = {**generated, 'viewport': target.get('viewport', {})}
+    target.clear()
+    target.update(replacement)
+    return WorkflowSpec.model_validate(result)
 
 
 class SaveWorkflow(BaseModel):
@@ -53,15 +99,22 @@ async def generate_workflow(services, project_id, body):
         existing = await services.workflow_store.get_draft(body.workflow_id)
         if body.expected_revision != existing['revision']:
             raise ProjectConflict('画布已更新，请刷新后重试生成')
-    provider = services.local_agents.connections.provider(project_id)
+    elif body.workflow_path or body.node_ids:
+        raise ValueError('请先选择已有工作流，再修改选区或循环内部')
+    original = existing['snapshot'].workflow.model_dump(mode='json') if existing else None
+    target = scoped_workflow(original, body.workflow_path) if original is not None else None
+    fragment = editable_fragment(target, body.node_ids) if body.node_ids else target
+    provider = services.local_agents.connections.provider(project_id, role='generation')
     blocks = await services.projects.blocks_for(project_id)
     from .blocks import DEFAULT_WORKFLOW_BLOCKS
-    existing_types = {n.type for n in existing['snapshot'].workflow.nodes} if existing else set()
+    existing_types = {n['type'] for n in target['nodes']} if target else set()
     catalog = [{'type': b.type, 'description': b.description, 'config_schema': b.config_schema,
                 'input_ports': jsonable_encoder(b.input_ports), 'output_ports': jsonable_encoder(b.output_ports)}
                for b in blocks.list() if body.advanced_blocks or b.type in DEFAULT_WORKFLOW_BLOCKS | existing_types]
     context = {'instruction': body.instruction, 'catalog': catalog,
-               'workflow': existing['snapshot'].workflow.model_dump(mode='json') if existing else None,
+               'workflow': fragment,
+               'scope': {'workflow_path': body.workflow_path, 'node_ids': body.node_ids},
+               'read_only_context': target if body.node_ids else None,
                'models': await services.projects.store.records(project_id, 'model_resources')}
     started = time.perf_counter()
     request_id = str(uuid4())
@@ -71,6 +124,9 @@ async def generate_workflow(services, project_id, body):
                '使用给定积木 schema；每个节点具有 id/type/title/config/position:{x,y}，边具有 id/source/target。'
                '无需运行或测试，资源可稍后绑定；model_predict 使用 model_ref 与 dataset_id，未配置用空字符串。'
                'LLM 密钥由项目提供，不写进图。保持已有图中未要求修改的配置及布局。'
+               'workflow 是需要返回的完整可编辑范围；read_only_context 仅供理解选区外节点。'
+               '选区编辑只返回选中节点和新增节点及它们之间的边，保留连接选区外节点的端点 id。'
+               '循环编辑只返回循环内部流程，平台会放回原位置，外层无需返回。'
                '变量引用为 {"$ref":{"node_id":"节点id或$inputs","path":["字段"]}}。'
                '模型及代码节点输出位于 output 字段。只生成图，不调用工具。',
         messages=[ChatMessage(role='user', content=[ContentBlock(type='text', text=json.dumps(context, ensure_ascii=False))])],
@@ -82,7 +138,12 @@ async def generate_workflow(services, project_id, body):
     if text.startswith('```'):
         text = text.split('\n', 1)[1].rsplit('```', 1)[0].strip()
     payload = json.loads(text)
-    workflow = WorkflowSpec.model_validate(payload.get('workflow', payload))
+    if not isinstance(payload, dict):
+        raise ValueError('生成结果必须是工作流对象，请重试或调整描述')
+    generated = payload.get('workflow', payload)
+    workflow = WorkflowSpec.model_validate(generated)
+    if original is not None:
+        workflow = merge_generated_workflow(original, generated, body.workflow_path, body.node_ids)
     blocks.validate_workflow(workflow)
     errors = services.blocks.validate_draft(workflow)
     if errors:

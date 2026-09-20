@@ -1,5 +1,6 @@
 'use client'
 
+import WorkflowComposer from '@/app/components/WorkflowComposer'
 import { useAccount } from '@/app/components/AuthBoundary'
 import '@xyflow/react/dist/style.css'
 import Link from 'next/link'
@@ -925,6 +926,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   const [capabilityModulesError, setCapabilityModulesError] = useState('')
   const [insertingModuleRef, setInsertingModuleRef] = useState('')
   const [patchInstruction, setPatchInstruction] = useState('')
+  const [projectEditRequest, setProjectEditRequest] = useState(0)
   const [workflowEditReferenceIds, setWorkflowEditReferenceIds] = useState<string[]>([])
   const [workflowEditReferenceEdgeIds, setWorkflowEditReferenceEdgeIds] = useState<string[]>([])
   const [workflowEditContextMenu, setWorkflowEditContextMenu] = useState<WorkflowEditContextMenu | null>(null)
@@ -1614,6 +1616,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   function openWorkflowEditPanel() {
     setWorkflowEditContextMenu(null)
     setStudioTab('edit')
+    if (projectContext) { setProjectEditRequest(value => value + 1); return }
     window.requestAnimationFrame(() => {
       window.requestAnimationFrame(() => {
         workflowEditInputRef.current?.focus({ preventScroll: true })
@@ -2352,7 +2355,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
             <p data-workflow-readable-purpose="true"><b>{t.workflowReadablePurpose}</b>{workflowPurposeSummary}</p>
             <div className="workflow-readable-steps">{workflowStepSummaryItems.length ? workflowStepSummaryItems.map(item => <article key={item.id}><strong>{item.title}</strong><small>{item.detail}</small></article>) : <p className="muted">{t.nodeInspectorNoConfig}</p>}</div>
           </section>}
-          {projectContext && <p><Link target="_top" href={`/projects/${projectContext.id}`}>返回项目，与 Lilies 协作</Link></p>}
+          {projectContext && <><p><Link target="_top" href={`/projects/${projectContext.id}`}>返回项目，与 Lilies 协作</Link></p><WorkflowComposer projectId={projectContext.id} workflowId={id} revision={draft?.revision} nodes={draft?.snapshot.workflow.nodes || []} selectedNodeIds={workflowEditReferenceIds} editRequest={projectEditRequest} disabled={configDirtyRef.current} onChanged={() => { void refresh() }} /></>}
           {!projectContext && <>          <section
             className="workflow-edit-dialog"
             data-application-id={id}

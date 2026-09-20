@@ -37,8 +37,8 @@ class NewMember(Body):
 
 class CopyModelConnection(Body):
     source_project_id: str
-    role: Literal['main', 'vision'] = 'main'
-    source_role: Literal['main', 'vision'] | None = None
+    role: Literal['main', 'vision', 'generation'] = 'main'
+    source_role: Literal['main', 'vision', 'generation'] | None = None
 
 
 class CopyMaterial(Body):
@@ -278,6 +278,22 @@ def project_router(services, require_token):
         except ValueError as error:
             raise HTTPException(422, str(error)) from error
 
+    @scoped.get('/generation-model')
+    async def generation_model(project_id: str):
+        return manager.connections.generation_settings(project_id)
+
+    @scoped.put('/generation-model')
+    async def save_generation_model(project_id: str, body: ModelConnection):
+        try:
+            manager.connections.save(project_id, body, role='generation')
+            return manager.connections.generation_settings(project_id)
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from error
+
+    @scoped.delete('/generation-model')
+    async def inherit_generation_model(project_id: str):
+        return manager.connections.inherit_generation(project_id)
+
     @scoped.post('/model-connection/copy')
     async def copy_model_connection(project_id: str, body: CopyModelConnection, request: Request):
         await require_project(body.source_project_id)
@@ -287,6 +303,8 @@ def project_router(services, require_token):
             raise HTTPException(422, '所选项目尚未配置此用途的 API 模型')
         if body.role == 'vision':
             return await save_vision_model(project_id, connection)
+        if body.role == 'generation':
+            return await save_generation_model(project_id, connection)
         return await invoke(manager.select, project_id, **connection.model_dump())
 
     @scoped.post('/agent-session/messages', status_code=202)

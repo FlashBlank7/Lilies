@@ -67,7 +67,7 @@ def authorization_dependency(services):
                            and request.method not in {'GET', 'HEAD'})
         if settings_change and any(role not in {'owner', 'admin'} for role in roles):
             raise HTTPException(403, '只有项目负责人可以修改模型连接')
-        if settings_change and request.headers.get('content-type', '').startswith('application/json'):
+        if settings_change and request.method in {'POST', 'PUT', 'PATCH'} and request.headers.get('content-type', '').startswith('application/json'):
             body = await request.json()
             if (path.endswith(('/agent-session', '/vision-model', '/generation-model')) and body.get('provider') != 'api') or body.get('executable'):
                 raise HTTPException(403, '本机智能体和执行程序需由平台管理员配置')

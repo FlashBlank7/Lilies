@@ -58,9 +58,9 @@ class ModelConnections:
         self.root = data_dir.resolve() / "model-connections"
 
     def path(self, project_id: str, role: str = 'main'):
-        if role not in {'main', 'vision'}:
+        if role not in {'main', 'vision', 'generation'}:
             raise ValueError('未知模型用途')
-        suffix = '' if role == 'main' else '.vision'
+        suffix = '' if role == 'main' else '.' + role
         return self.root / (str(UUID(project_id)) + suffix + ".json")
 
     def load(self, project_id: str, role: str = 'main') -> ModelConnection | None:
@@ -68,8 +68,8 @@ class ModelConnections:
         return ModelConnection.model_validate_json(path.read_text()) if path.is_file() else None
 
     def save(self, project_id: str, value: ModelConnection, role: str = 'main') -> dict:
-        if role == 'vision' and value.provider != 'api':
-            raise ValueError('视觉模型需要 API 连接')
+        if role in {'vision', 'generation'} and value.provider != 'api':
+            raise ValueError('视觉及生成模型需要原始 API 连接')
         previous = self.load(project_id, role)
         if value.provider == "api" and not value.api_key:
             if previous and previous.provider == "api" and previous.base_url == value.base_url and previous.protocol == value.protocol:
@@ -100,9 +100,25 @@ class ModelConnections:
     def workflow_enabled(self, project_id: str) -> bool:
         return self.enabled(project_id) or self.enabled(project_id, 'vision')
 
+    def generation_settings(self, project_id: str) -> dict:
+        own = self.load(project_id, 'generation')
+        value = own or self.load(project_id)
+        return {'mode': 'independent' if own else 'inherit',
+                **(self.public(value) if value else {'provider': None, 'has_api_key': False, 'runtime_enabled': False})}
+
+    def inherit_generation(self, project_id: str) -> dict:
+        self.path(project_id, 'generation').unlink(missing_ok=True)
+        return self.generation_settings(project_id)
+
     def provider(self, project_id: str, role: str = 'main'):
         from .connected_model import ConnectedModel
         value = self.load(project_id, role)
+        if role == 'generation':
+            # An explicit override is authoritative, including when disabled.
+            # Only the visible "inherit" mode follows the project's main model.
+            value = value or self.load(project_id)
+            if not value or value.provider != 'api' or not value.runtime_enabled:
+                raise ProviderError('请配置并启用工作流生成模型；也可在生成模型设置中沿用项目主模型')
         if not value:
             raise ProviderError("请先配置项目模型")
         return ConnectedModel(value, self.root / "sessions" / project_id, supports_images=role == 'vision')
