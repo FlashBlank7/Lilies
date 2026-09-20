@@ -1,0 +1,7 @@
+{
+  "format": "lilies-requirement-package",
+  "version": 1,
+  "name": "平台测试：申请校验与资源分配",
+  "description": "独立的平台协作测试，不属于硅材料工业项目验收。",
+  "requirement_file": "README.md"
+}

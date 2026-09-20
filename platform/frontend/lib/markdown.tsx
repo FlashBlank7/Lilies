@@ -16,6 +16,7 @@ export type MarkdownDocumentProps = {
   emptyLabel: string
   compact?: boolean
   className?: string
+  resolveLink?: (href: string) => string
 }
 
 export type MarkdownResultCardProps = MarkdownDocumentProps & {
@@ -168,7 +169,7 @@ function safeHref(value: string) {
   return ''
 }
 
-function renderInline(text: string, keyPrefix: string): ReactNode[] {
+function renderInline(text: string, keyPrefix: string, resolveLink?: (href: string) => string): ReactNode[] {
   const nodes: ReactNode[] = []
   let buffer = ''
   let index = 0
@@ -195,10 +196,11 @@ function renderInline(text: string, keyPrefix: string): ReactNode[] {
       const hrefStart = labelEnd >= 0 ? text.indexOf('(', labelEnd) : -1
       const hrefEnd = hrefStart === labelEnd + 1 ? text.indexOf(')', hrefStart + 1) : -1
       if (labelEnd > index && hrefEnd > hrefStart) {
-        const href = safeHref(text.slice(hrefStart + 1, hrefEnd))
+        const target = text.slice(hrefStart + 1, hrefEnd)
+        const href = safeHref(resolveLink ? resolveLink(target) : target)
         pushText()
         if (href) {
-          nodes.push(<a key={`${keyPrefix}-link-${index}`} href={href} rel="noreferrer" target={href.startsWith('http') ? '_blank' : undefined}>{renderInline(text.slice(index + 1, labelEnd), `${keyPrefix}-link-${index}`)}</a>)
+          nodes.push(<a key={`${keyPrefix}-link-${index}`} href={href} rel="noreferrer" target={href.startsWith('http') ? '_blank' : undefined}>{renderInline(text.slice(index + 1, labelEnd), `${keyPrefix}-link-${index}`, resolveLink)}</a>)
         } else {
           nodes.push(text.slice(index, hrefEnd + 1))
         }
@@ -212,7 +214,7 @@ function renderInline(text: string, keyPrefix: string): ReactNode[] {
       const end = text.indexOf(strongMarker, index + 2)
       if (end > index + 2) {
         pushText()
-        nodes.push(<strong key={`${keyPrefix}-strong-${index}`}>{renderInline(text.slice(index + 2, end), `${keyPrefix}-strong-${index}`)}</strong>)
+        nodes.push(<strong key={`${keyPrefix}-strong-${index}`}>{renderInline(text.slice(index + 2, end), `${keyPrefix}-strong-${index}`, resolveLink)}</strong>)
         index = end + 2
         continue
       }
@@ -230,7 +232,7 @@ function renderInline(text: string, keyPrefix: string): ReactNode[] {
       const end = text.indexOf(marker, index + 1)
       if (end > index + 1) {
         pushText()
-        nodes.push(<em key={`${keyPrefix}-em-${index}`}>{renderInline(text.slice(index + 1, end), `${keyPrefix}-em-${index}`)}</em>)
+        nodes.push(<em key={`${keyPrefix}-em-${index}`}>{renderInline(text.slice(index + 1, end), `${keyPrefix}-em-${index}`, resolveLink)}</em>)
         index = end + 1
         continue
       }
@@ -253,30 +255,30 @@ function headingElement(depth: number, children: ReactNode, key: string) {
   return <h6 key={key}>{children}</h6>
 }
 
-function renderBlock(block: MarkdownBlock, index: number) {
+function renderBlock(block: MarkdownBlock, index: number, resolveLink?: (href: string) => string) {
   const key = `markdown-block-${index}`
-  if (block.kind === 'heading') return headingElement(block.depth, renderInline(block.text, key), key)
-  if (block.kind === 'paragraph') return <p key={key}>{renderInline(block.text, key)}</p>
-  if (block.kind === 'blockquote') return <blockquote key={key}>{renderInline(block.text, key)}</blockquote>
+  if (block.kind === 'heading') return headingElement(block.depth, renderInline(block.text, key, resolveLink), key)
+  if (block.kind === 'paragraph') return <p key={key}>{renderInline(block.text, key, resolveLink)}</p>
+  if (block.kind === 'blockquote') return <blockquote key={key}>{renderInline(block.text, key, resolveLink)}</blockquote>
   if (block.kind === 'list') {
-    const items = block.items.map((item, itemIndex) => <li key={`${key}-${itemIndex}`}>{renderInline(item, `${key}-${itemIndex}`)}</li>)
+    const items = block.items.map((item, itemIndex) => <li key={`${key}-${itemIndex}`}>{renderInline(item, `${key}-${itemIndex}`, resolveLink)}</li>)
     return block.ordered ? <ol key={key}>{items}</ol> : <ul key={key}>{items}</ul>
   }
   if (block.kind === 'code') return <pre key={key} data-language={block.language || undefined}><code>{block.code}</code></pre>
   if (block.kind === 'table') {
     return <div className="markdown-table-wrap" key={key}><table>
-      <thead><tr>{block.header.map((cell, cellIndex) => <th key={`${key}-h-${cellIndex}`}>{renderInline(cell, `${key}-h-${cellIndex}`)}</th>)}</tr></thead>
-      <tbody>{block.rows.map((row, rowIndex) => <tr key={`${key}-r-${rowIndex}`}>{block.header.map((_, cellIndex) => <td key={`${key}-r-${rowIndex}-${cellIndex}`}>{renderInline(row[cellIndex] || '', `${key}-r-${rowIndex}-${cellIndex}`)}</td>)}</tr>)}</tbody>
+      <thead><tr>{block.header.map((cell, cellIndex) => <th key={`${key}-h-${cellIndex}`}>{renderInline(cell, `${key}-h-${cellIndex}`, resolveLink)}</th>)}</tr></thead>
+      <tbody>{block.rows.map((row, rowIndex) => <tr key={`${key}-r-${rowIndex}`}>{block.header.map((_, cellIndex) => <td key={`${key}-r-${rowIndex}-${cellIndex}`}>{renderInline(row[cellIndex] || '', `${key}-r-${rowIndex}-${cellIndex}`, resolveLink)}</td>)}</tr>)}</tbody>
     </table></div>
   }
   return <hr key={key} />
 }
 
-export function MarkdownDocument({ source, emptyLabel, compact = false, className = '' }: MarkdownDocumentProps) {
+export function MarkdownDocument({ source, emptyLabel, compact = false, className = '', resolveLink }: MarkdownDocumentProps) {
   const blocks = useMemo(() => parseMarkdownBlocks(source.trim()), [source])
   const classes = ['markdown-document', compact ? 'compact' : '', className].filter(Boolean).join(' ')
   if (!blocks.length) return <p className="markdown-empty">{emptyLabel}</p>
-  return <div className={classes}>{blocks.map(renderBlock)}</div>
+  return <div className={classes}>{blocks.map((block, index) => renderBlock(block, index, resolveLink))}</div>
 }
 
 export function MarkdownResultCard({

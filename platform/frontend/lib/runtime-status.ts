@@ -1,5 +1,5 @@
-export const expectedRuntimeProductPhase = 'v0.4.x'
-export const expectedRuntimeVersionPattern = /^v0\.4\.\d+$/
+export const expectedRuntimeProductPhase = 'v0.5.x'
+export const expectedRuntimeVersionPattern = /^v0\.5\.\d+(?:-[0-9A-Za-z.-]+)?$/
 
 export type RuntimeStatusState = 'checking' | 'connected' | 'auth_required' | 'stale' | 'unavailable'
 

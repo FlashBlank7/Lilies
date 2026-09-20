@@ -1,7 +1,7 @@
 .panel {
   display: grid;
   gap: 18px;
-  color: #dce3ea;
+  color: var(--ui-ink);
 }
 
 .heading,
@@ -27,7 +27,7 @@
 .contractResults {
   display: grid;
   gap: 1px;
-  background: #303942;
+  background: var(--ui-panel);
 }
 
 .operationMap > div,
@@ -40,7 +40,7 @@
   justify-content: space-between;
   gap: 10px;
   padding: 8px 9px;
-  background: #1b2127;
+  background: var(--ui-panel);
 }
 
 .operationMap span,
@@ -54,7 +54,7 @@
 .operationMap strong,
 .gapList strong,
 .contractResults strong {
-  color: #e9edf0;
+  color: var(--ui-ink);
   font-size: 11px;
 }
 
@@ -64,20 +64,20 @@
 .operationMap code,
 .contractResults header span {
   overflow-wrap: anywhere;
-  color: #929da7;
+  color: var(--ui-muted);
   font-size: 10px;
 }
 
 .gapList > div {
   justify-content: flex-start;
-  color: #efbd72;
+  color: var(--ui-warn);
 }
 
 .inlineCheck {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  color: #9ca7b1;
+  color: var(--ui-muted);
   font-size: 10px;
 }
 
@@ -87,19 +87,19 @@
 }
 
 .contractResults > div > b {
-  color: #91decf;
+  color: var(--ui-ok);
   font-size: 9px;
   text-transform: uppercase;
 }
 
 .contractResults > div[data-case-status='failed'] > b,
 .contractResults > div[data-case-status='unsupported'] > b {
-  color: #ffaaa3;
+  color: var(--ui-danger);
 }
 
 .contractResults > div[data-case-status='blocked_by_environment'] > b,
 .contractResults > div[data-case-status='skipped'] > b {
-  color: #efbd72;
+  color: var(--ui-warn);
 }
 
 .heading {
@@ -108,7 +108,7 @@
 
 .heading span,
 .section > header {
-  color: #82d7c6;
+  color: var(--ui-ok);
 }
 
 .heading span {
@@ -121,7 +121,7 @@
 
 .heading h2 {
   margin: 5px 0 0;
-  color: #f5f7f9;
+  color: var(--ui-ink);
   font-size: 18px;
   letter-spacing: 0;
 }
@@ -138,20 +138,20 @@
 .metrics {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  border-block: 1px solid #303842;
+  border-block: 1px solid var(--ui-line);
 }
 
 .metrics span {
   display: grid;
   gap: 2px;
   padding: 10px 6px;
-  color: #8f9aa5;
+  color: var(--ui-muted);
   font-size: 10px;
   text-align: center;
 }
 
 .metrics b {
-  color: #f4f6f8;
+  color: var(--ui-ink);
   font-size: 17px;
 }
 
@@ -161,14 +161,14 @@
   align-items: flex-start;
   gap: 8px;
   padding: 10px 0;
-  border-block: 1px solid #713c3c;
-  color: #ffb4ad;
+  border-block: 1px solid var(--ui-line);
+  color: var(--ui-danger);
   font-size: 12px;
 }
 
 .notice {
-  border-color: #2f665d;
-  color: #91decf;
+  border-color: var(--ui-line);
+  color: var(--ui-ok);
 }
 
 .emptyState {
@@ -176,14 +176,14 @@
   justify-items: start;
   gap: 6px;
   padding: 14px 0;
-  border-block: 1px solid #303842;
-  color: #8f9aa5;
+  border-block: 1px solid var(--ui-line);
+  color: var(--ui-muted);
   font-size: 11px;
   line-height: 1.5;
 }
 
 .emptyState strong {
-  color: #eef2f5;
+  color: var(--ui-ink);
   font-size: 13px;
 }
 
@@ -191,7 +191,7 @@
   display: grid;
   gap: 11px;
   padding-top: 14px;
-  border-top: 1px solid #303842;
+  border-top: 1px solid var(--ui-line);
 }
 
 .section > header {
@@ -205,13 +205,13 @@
 }
 
 .section > header strong {
-  color: #eef2f5;
+  color: var(--ui-ink);
   font-size: 13px;
 }
 
 .section > header small {
   overflow: hidden;
-  color: #89949f;
+  color: var(--ui-muted);
   font-size: 10px;
   text-overflow: ellipsis;
 }
@@ -225,26 +225,26 @@
   display: grid;
   gap: 2px;
   padding: 9px 10px;
-  border: 1px solid #39434d;
-  background: #20262c;
-  color: #e6ebef;
+  border: 1px solid var(--ui-line);
+  background: var(--ui-panel);
+  color: var(--ui-ink);
   text-align: left;
 }
 
 .contractList button.selected {
-  border-color: #48a999;
-  background: #1d302e;
+  border-color: var(--ui-line);
+  background: var(--ui-panel);
 }
 
 .contractList span,
 .contractList small {
-  color: #96a0aa;
+  color: var(--ui-muted);
   font-size: 10px;
 }
 
 .details summary {
   cursor: pointer;
-  color: #aab4bd;
+  color: var(--ui-muted);
   font-size: 11px;
 }
 
@@ -272,7 +272,7 @@
 }
 
 .formGrid label > span {
-  color: #9ca7b1;
+  color: var(--ui-muted);
   font-size: 10px;
 }
 
@@ -283,9 +283,9 @@
 .details textarea {
   width: 100%;
   min-width: 0;
-  border: 1px solid #3b4650;
-  background: #151a1f;
-  color: #edf1f4;
+  border: 1px solid var(--ui-line);
+  background: var(--ui-panel);
+  color: var(--ui-ink);
   font: inherit;
 }
 
@@ -337,9 +337,9 @@
 }
 
 .secondary {
-  border-color: #46515b !important;
-  background: #252c33 !important;
-  color: #d4dbe0 !important;
+  border-color: var(--ui-line) !important;
+  background: var(--ui-panel) !important;
+  color: var(--ui-ink) !important;
 }
 
 .stopRow input {
@@ -347,19 +347,19 @@
 }
 
 .stop {
-  border-color: #8d4545 !important;
-  background: #6f3434 !important;
+  border-color: var(--ui-line) !important;
+  background: var(--ui-panel) !important;
 }
 
 .resume {
-  border-color: #397466 !important;
-  background: #2a5e53 !important;
+  border-color: var(--ui-line) !important;
+  background: var(--ui-panel) !important;
 }
 
 .receipts {
   display: grid;
   gap: 1px;
-  background: #303942;
+  background: var(--ui-panel);
 }
 
 .receipts article {
@@ -367,7 +367,7 @@
   justify-content: space-between;
   gap: 6px;
   padding: 8px;
-  background: #1b2127;
+  background: var(--ui-panel);
 }
 
 .receiptMain {
@@ -379,13 +379,13 @@
   padding: 0;
   border: 0;
   background: transparent;
-  color: #e5eaee;
+  color: var(--ui-ink);
   text-align: left;
 }
 
 .receiptMain code,
 .receiptMain small {
-  color: #929da7;
+  color: var(--ui-muted);
   font-size: 10px;
 }
 
@@ -395,33 +395,33 @@
 
 .status {
   padding: 2px 5px;
-  border: 1px solid #59636d;
-  color: #cbd2d8;
+  border: 1px solid var(--ui-line);
+  color: var(--ui-ink);
   font-size: 9px;
   text-transform: uppercase;
 }
 
 .status.succeeded,
 .status.compensated {
-  border-color: #3f806f;
-  color: #8de0c9;
+  border-color: var(--ui-line);
+  color: var(--ui-ok);
 }
 
 .status.failed {
-  border-color: #8f4a4a;
-  color: #ffaaa3;
+  border-color: var(--ui-line);
+  color: var(--ui-danger);
 }
 
 .status.dry_run {
-  border-color: #90733b;
-  color: #f0ce81;
+  border-color: var(--ui-line);
+  color: var(--ui-warn);
 }
 
 .eventList {
   display: grid;
   gap: 5px;
   padding-top: 8px;
-  border-top: 1px solid #38414a;
+  border-top: 1px solid var(--ui-line);
 }
 
 .eventList > strong {
@@ -435,7 +435,7 @@
 }
 
 .eventList span {
-  color: #838f99;
+  color: var(--ui-muted);
 }
 
 .exerciseList {
@@ -447,16 +447,16 @@
   justify-content: space-between;
   gap: 7px;
   padding: 7px 0;
-  border-bottom: 1px solid #303842;
+  border-bottom: 1px solid var(--ui-line);
   font-size: 10px;
 }
 
 .exerciseList strong {
-  color: #92d8c9;
+  color: var(--ui-ok);
 }
 
 .empty {
-  color: #87929c;
+  color: var(--ui-muted);
   font-size: 11px;
 }
 

@@ -57,6 +57,7 @@ class Settings(BaseSettings):
     )
 
     sandbox_image: str = "agent-platform-sandbox:latest"
+    modeling_image: str = "lilies-modeling:20260914"
     sandbox_uid: int = 10001
     sandbox_gid: int = 10001
     sandbox_cpus: float = 2.0

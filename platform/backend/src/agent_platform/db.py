@@ -40,12 +40,14 @@ class _ClosingConnection(sqlite3.Connection):
 
 
 def connect(db_path: str | Path, *, timeout: float = 30.0,
-            row_factory=sqlite3.Row) -> sqlite3.Connection:
-    conn = sqlite3.connect(str(db_path), timeout=timeout,
+            row_factory=sqlite3.Row, readonly: bool = False) -> sqlite3.Connection:
+    target = Path(db_path).resolve().as_uri() + "?mode=ro" if readonly else str(db_path)
+    conn = sqlite3.connect(target, timeout=timeout, uri=readonly,
                            factory=_ClosingConnection)
     if row_factory is not None:
         conn.row_factory = row_factory
     conn.execute(f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS}")   # 必须在 WAL 之前
-    conn.execute("PRAGMA journal_mode=WAL")
+    if not readonly:
+        conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
     return conn

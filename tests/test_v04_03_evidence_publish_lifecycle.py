@@ -279,6 +279,6 @@ def test_frontend_exposes_evidence_state_revalidation_and_publish_confirmation()
     assert "void runTests()" in studio
     assert "export type PublicationDecision" in types
     assert "last_validation_report" in types
-    home = (root / "platform/frontend/app/page.tsx").read_text()
+    home = (root / "platform/frontend/app/applications/page.tsx").read_text()
     assert "item.evidence?.state === 'current'" in home
     assert "item.evidence?.state === 'stale'" in home

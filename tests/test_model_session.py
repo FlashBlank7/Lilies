@@ -1,0 +1,98 @@
+import asyncio
+import json
+from types import SimpleNamespace
+
+import pytest
+
+from agent_platform.connected_model import completion_events
+from agent_platform.model_session import ModelSession
+
+
+async def event(*args):
+    pass
+
+
+@pytest.mark.asyncio
+async def test_abrupt_tool_exit_preserves_completed_unknown_and_unstarted_results(tmp_path):
+    class ProcessExit(BaseException):
+        """Skip the normal cancellation/error cleanup, like process termination."""
+
+    requests = ['completed', 'unknown', 'unstarted']
+    writes = []
+
+    async def stream(**kwargs):
+        results = [b for m in kwargs['messages'] for b in m.content if b.type == 'tool_result']
+        if results:
+            assert [b.tool_use_id for b in results] == requests
+            assert json.loads(results[0].content) == {'written': 'completed'}
+            assert not results[0].is_error
+            assert results[1].is_error and '结果未确认' in results[1].content
+            assert results[2].is_error and '未执行' in results[2].content
+            blocks, reason = [{'type': 'text', 'text': '先核对中断的写入'}], 'end_turn'
+        else:
+            blocks = [{'type': 'tool_use', 'id': name, 'name': 'write', 'input': {'name': name}}
+                      for name in requests]
+            reason = 'tool_use'
+        for item in completion_events(blocks, stop_reason=reason):
+            yield item
+
+    async def tool(name, arguments):
+        writes.append(arguments['name'])
+        if arguments['name'] == 'unknown':
+            raise ProcessExit()
+        return {'written': arguments['name']}
+
+    specs = [{'name': 'write', 'description': 'write', 'inputSchema': {'type': 'object'}}]
+    provider = SimpleNamespace(stream=stream)
+    session = ModelSession(provider, tmp_path)
+    thread = await session.start(specs, 'test')
+    with pytest.raises(ProcessExit):
+        await session.turn('write', event, tool)
+
+    resumed = ModelSession(provider, tmp_path)
+    await resumed.start(specs, 'test', thread)
+    assert (await resumed.turn('continue', event, tool))['status'] == 'completed'
+    assert writes == ['completed', 'unknown']
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('fail_before_consuming', [True, False])
+async def test_supplement_survives_provider_failure_and_restart(tmp_path, fail_before_consuming):
+    entered, release = asyncio.Event(), asyncio.Event()
+    calls = 0
+
+    async def stream(**kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            entered.set()
+            await release.wait()
+            if not fail_before_consuming:
+                for item in completion_events([{'type': 'text', 'text': 'first response'}]):
+                    yield item
+                return
+        raise RuntimeError('provider disconnected')
+
+    async def tool(*args):
+        raise AssertionError('no tools requested')
+
+    session = ModelSession(SimpleNamespace(stream=stream), tmp_path)
+    thread = await session.start([], 'test')
+    task = asyncio.create_task(session.turn('original request', event, tool))
+    await entered.wait()
+    await session.steer('customer supplement')
+    assert json.loads((tmp_path / 'conversation.json').read_text())['pending'] == ['customer supplement']
+    release.set()
+    with pytest.raises(RuntimeError, match='provider disconnected'):
+        await task
+
+    async def resumed_stream(**kwargs):
+        texts = [b.text for m in kwargs['messages'] if m.role == 'user' for b in m.content]
+        assert texts == ['original request', 'customer supplement', 'continue']
+        for item in completion_events([{'type': 'text', 'text': 'supplement retained'}]):
+            yield item
+
+    resumed = ModelSession(SimpleNamespace(stream=resumed_stream), tmp_path)
+    await resumed.start([], 'test', thread)
+    assert (await resumed.turn('continue', event, tool))['status'] == 'completed'
+    assert json.loads((tmp_path / 'conversation.json').read_text())['pending'] == []

@@ -13,14 +13,14 @@
 .row textarea{min-height:96px;resize:vertical;line-height:1.6}
 .row button,.card>button{border:0;border-radius:10px;background:var(--lil-pm);color:var(--lil-panel);padding:10px 16px;font-size:13px;cursor:pointer;white-space:nowrap}
 .row button:hover:not(:disabled),.card>button:hover:not(:disabled){background:var(--lil-pm-strong)}
-.row button:disabled,.card>button:disabled{background:#c3cdd7;cursor:default}
+.row button:disabled,.card>button:disabled{background:var(--ui-hover);cursor:default}
 .answer{margin-top:12px;border-left:3px solid var(--lil-pm-line);background:var(--lil-pm-soft);border-radius:0 10px 10px 0;padding:12px 14px;font-size:13px;line-height:1.75;white-space:pre-wrap}
 .specBox{margin-top:12px;border:1px solid var(--lil-line-soft);border-radius:10px;padding:12px 14px;background:var(--lil-panel-soft)}
 .specBox b{font-size:13px}
-.specBox ul{margin:8px 0 0;padding-left:1.4em;font-size:12.5px;line-height:1.8;color:#475467}
+.specBox ul{margin:8px 0 0;padding-left:1.4em;font-size:12.5px;line-height:1.8;color:var(--ui-muted)}
 .verdict{border-radius:10px;padding:10px 14px;font-size:13.5px;font-weight:600;margin-top:12px}
 .verdictOk{background:var(--lil-ok-soft);color:var(--lil-accent-strong);border:1px solid var(--lil-accent-line)}
-.verdictBad{background:var(--lil-danger-soft);color:var(--lil-danger);border:1px solid #f6c6c2}
+.verdictBad{background:var(--lil-danger-soft);color:var(--lil-danger);border:1px solid #cad6e7}
 .caseBlock{margin-top:12px}
 .caseBlock h3{margin:0 0 6px;font-size:13px}
 .tableBox{overflow-x:auto}

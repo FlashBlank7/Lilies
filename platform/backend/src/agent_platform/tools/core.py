@@ -190,6 +190,7 @@ raise SystemExit(0 if completed.returncode in {0, 1} else completed.returncode)
 class BashInput(BaseModel):
     command: str
     timeout: float = Field(default=120, ge=1, le=1800)
+    stdin: Any = Field(default=None, description='Standard input: strings are passed verbatim; other JSON values are serialized as JSON. Data is never interpolated into the shell command.')
 
 
 class BashTool(Tool):
@@ -201,12 +202,24 @@ class BashTool(Tool):
 
     async def execute(self, data: dict[str, Any], context: ToolContext) -> ToolResult:
         args = BashInput.model_validate(data)
-        result = await context.sandbox.run(["bash", "-lc", args.command], timeout=args.timeout)
+        stdin = args.stdin if isinstance(args.stdin, str) or args.stdin is None else json.dumps(args.stdin, ensure_ascii=False)
+        options = {'timeout': args.timeout}
+        if stdin is not None:
+            options['stdin'] = stdin
+        result = await context.sandbox.run(["bash", "-lc", args.command], **options)
         content = result.stdout
         if result.stderr:
             content += ("\n" if content else "") + "[stderr]\n" + result.stderr
         content += f"\n[exit_code={result.exit_code}]"
-        return ToolResult(content, result.exit_code != 0)
+        structured = {'stdout': result.stdout, 'stderr': result.stderr, 'exit_code': result.exit_code}
+        if getattr(result, 'output_truncated', False):
+            message = '命令输出超过单次返回上限，已截断。请将完整结果保存到文件，并分批返回需要读取的内容；文件产物已保留。'
+            return ToolResult(message + '\n' + content, True, {**structured, 'output_truncated': True})
+        try:
+            structured['json'] = json.loads(result.stdout)
+        except ValueError:
+            pass
+        return ToolResult(content, result.exit_code != 0, structured)
 
 
 class WebSearchInput(BaseModel):

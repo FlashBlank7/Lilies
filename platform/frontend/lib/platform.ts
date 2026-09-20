@@ -1173,7 +1173,7 @@ export function withFrontendToken(path: string) {
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const token = getClientToken()
   const headers: HeadersInit = {
-    'Content-Type': 'application/json',
+    ...(!(init?.body instanceof FormData) ? { 'Content-Type': 'application/json' } : {}),
     ...(token ? { 'X-Agent-Platform-Token': token } : {}),
     ...(init?.headers || {}),
   }

@@ -10,7 +10,7 @@ import re
 import shutil
 import stat
 from collections import defaultdict, deque
-from collections.abc import Callable, Collection
+from collections.abc import Awaitable, Callable, Collection
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -21,55 +21,31 @@ from uuid import uuid4
 import httpx
 
 from .applications import ApplicationService
+from .workspace_copy import copy_workspace_file
 from .blocks import (
     AgentArchitectureConfig,
-    AnswerConfig,
     BlockRegistry,
     ClaudeAgentConfig,
     ClassifierConfig,
-    CollectionDigestConfig,
     ConnectorActionConfig,
     Condition,
-    DeployedModelInferenceConfig,
-    DeployedForecastConfig,
-    EndConfig,
-    EventSubscriptionTriggerConfig,
     HTTPConfig,
-    HumanInputConfig,
-    IfElseConfig,
     IterationConfig,
-    JsonSchemaValidateConfig,
     LLMConfig,
     LoopConfig,
-    ModelDriftMonitorConfig,
     ParameterExtractorConfig,
-    RecordCollectionNormalizeConfig,
-    RecordDeduplicateConfig,
-    RecordMatchConfig,
-    ReplenishmentPlannerConfig,
-    RegexExtractConfig,
     ScheduleTriggerConfig,
-    StartConfig,
-    TemplateConfig,
     ToolConfig,
-    TypedJsonArtifactConfig,
-    TypedWorkbookConfig,
-    VariableAggregatorConfig,
-    VariableAssignerConfig,
     WebCollectionConfig,
 )
 from .connector_sdk import ConnectorExecutionRequest, ConnectorService
 from .event_automation import (
-    DurableEventTimerConfig,
     DurableEventTimerRequest,
     EventAutomationService,
 )
 from .execution_policy import ExecutionPolicySnapshot
 from .knowledge_rag import (
-    GroundedAnswerConfig,
     KnowledgeIndexService,
-    KnowledgeIndexSyncConfig,
-    KnowledgeRetrievalConfig,
     KnowledgeRetrieveRequest,
     KnowledgeSyncRequest,
     grounded_answer,
@@ -78,6 +54,7 @@ from .models import AgentSpec, ChatMessage, ContentBlock, PermissionMode, Usage
 from .governed_memory import GovernedMemoryPermission, GovernedMemorySurface, GovernedMemoryViolation
 from .platform_harness import PlatformHarness
 from .providers import ModelProvider
+from .providers.base import ProviderError
 from .record_pipeline import (
     deduplicate_records,
     extract_regex_fields,
@@ -89,6 +66,7 @@ from .record_pipeline import (
 )
 from .runtime import AgentRuntime
 from .sandbox import SandboxManager
+from .soft_block import get_discrete_block_type
 from .storage import Storage
 from .tabular_models import (
     ModelObservation,
@@ -255,6 +233,48 @@ def _coerce_http_body(content_type: str, text: str) -> Any:
     return text
 
 
+NodeExecutor = Callable[["WorkflowRuntime", "NodeRun"], Awaitable[dict[str, Any]]]
+
+# 积木类型 → 执行器。这张表和 BlockRegistry 是同一份清单的两面，由
+# tests/test_block_executor_coverage.py 逐条对账。
+_NODE_EXECUTORS: dict[str, NodeExecutor] = {}
+
+
+@dataclass(frozen=True, slots=True)
+class NodeRun:
+    """一次节点执行的全部输入。"""
+
+    snapshot: ApplicationSnapshot
+    node: NodeSpec
+    config: Any
+    context: dict[str, Any]
+    inputs: dict[str, Any]
+    outputs: dict[str, dict[str, Any]]
+    workspace_path: str
+    run_id: str
+    scoped_id: str
+    state: WorkflowRunState | None
+
+
+def _node_executor(*block_types: str) -> Callable[[NodeExecutor], NodeExecutor]:
+    """把一个执行器登记到一个或多个积木类型上。
+
+    重复登记当场报错——同一个积木有两个执行器时，靠"谁先写"决定行为是查不出来的。
+    """
+
+    def register(fn: NodeExecutor) -> NodeExecutor:
+        for block_type in block_types:
+            if block_type in _NODE_EXECUTORS:
+                raise RuntimeError(
+                    f"积木 {block_type} 被登记了两个执行器："
+                    f"{_NODE_EXECUTORS[block_type].__name__} 与 {fn.__name__}"
+                )
+            _NODE_EXECUTORS[block_type] = fn
+        return fn
+
+    return register
+
+
 class WorkflowRuntime:
     def __init__(
         self,
@@ -336,6 +356,7 @@ class WorkflowRuntime:
         simulated_human_inputs: dict[str, dict[str, Any]] | None = None,
         allow_published_authority_rebind: bool = False,
         triggered_by: str = "",
+        project_context: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         ancestor_chain = [str(value) for value in (application_call_chain or ())]
         if application_id in ancestor_chain:
@@ -349,7 +370,23 @@ class WorkflowRuntime:
         current_call_chain = [*ancestor_chain, application_id]
         published_policy: ExecutionPolicySnapshot | None = None
         effective_policy: ExecutionPolicySnapshot | None = None
-        if request.use_draft:
+        if project_context is not None:
+            fixed = project_context['snapshots'].get(application_id)
+            if fixed is None:
+                raise ValueError('工作流不在当前项目任务中')
+            snapshot = ApplicationSnapshot.model_validate(fixed['snapshot'])
+            version, draft_revision = None, int(fixed['revision'])
+            for node in snapshot.workflow.nodes:
+                if node.type != 'start':
+                    continue
+                for field in self.blocks.validate_node(node).inputs:
+                    value = request.inputs.get(field.name, field.default)
+                    if field.required and value is None:
+                        raise ValueError(f'成员输入缺少必填字段：{field.name}')
+                    if value is not None and (not self._matches_type(value, field.type.value)
+                            or (field.type.value == 'number' and isinstance(value, bool))):
+                        raise ValueError(f'成员输入 {field.name} 类型不匹配，要求 {field.type.value}')
+        elif request.use_draft:
             draft = await self.workflow_store.get_draft(application_id)
             snapshot, version, draft_revision = draft["snapshot"], None, int(draft["revision"])
         else:
@@ -441,6 +478,11 @@ class WorkflowRuntime:
                 governed_host_actions = effective_policy.governed_host_actions
                 assignment_id = str(effective_policy.assignment_id)
                 session_id = str(effective_policy.session_id)
+        agent_modules_enabled = await self._project_agent_modules_enabled(application_id, project_context)
+        if getattr(self, 'projects', None) is not None:
+            for caller in current_call_chain:
+                await self.projects.validate_capabilities(caller, snapshot,
+                    project_id=project_context['project_id'] if project_context else None)
         restricted = any(
             value is not None
             for value in (
@@ -540,6 +582,7 @@ class WorkflowRuntime:
             allowed_connector_operations=connector_allowlist,
             governed_host_actions=governed_host_actions,
             agents=snapshot.agents,
+            agent_modules_enabled=agent_modules_enabled,
         )
         if governed_host_actions:
             if (
@@ -572,6 +615,7 @@ class WorkflowRuntime:
         state = WorkflowRunState(
             run_id=run_id,
             application_id=application_id,
+            project_context=project_context,
             snapshot=snapshot,
             inputs=inputs,
             workspace_path=str(resolved_workspace),
@@ -635,6 +679,8 @@ class WorkflowRuntime:
             state, version=version, draft_revision=draft_revision,
             triggered_by=triggered_by,
         )
+        if project_context is not None:
+            await self.projects.store.track_run(project_context['task_id'], project_context['step'], run_id)
         await self.harness.start_task(
             run_id,
             kind="workflow_run",
@@ -716,6 +762,13 @@ class WorkflowRuntime:
             raise ValueError("workflow run artifact directory escapes the workspace")
         return run_workspace
 
+    async def _project_agent_modules_enabled(self, application_id, project_context=None):
+        projects = getattr(self, 'projects', None)
+        if projects is None:
+            return False
+        owner = project_context['project_id'] if project_context else await projects.store.membership(application_id)
+        return bool(owner and (await projects.store.get(owner))['agent_modules_enabled'])
+
     def _validate_execution_policy(
         self,
         workflow: WorkflowSpec,
@@ -728,6 +781,7 @@ class WorkflowRuntime:
         allowed_connector_operations: frozenset[str] | None = None,
         governed_host_actions: bool = False,
         agents: dict[str, AgentSpec] | None = None,
+        agent_modules_enabled: bool = False,
     ) -> None:
         """Reject statically declared boundary escapes before a run is persisted."""
 
@@ -744,7 +798,9 @@ class WorkflowRuntime:
                 )
             ):
                 definition = self.blocks.get(node.type)
-                if definition.block_kind == "legacy_compatibility" or not definition.available:
+                if (definition.block_kind == "legacy_compatibility" and not (
+                    node.type == 'claude_agent' and agent_modules_enabled
+                )) or not definition.available:
                     raise WorkflowRuntimeToolScopeDenied(
                         "workflow block is outside the public assigned run policy"
                     )
@@ -856,6 +912,7 @@ class WorkflowRuntime:
                     allowed_connector_operations=allowed_connector_operations,
                     governed_host_actions=governed_host_actions,
                     agents=agents,
+                    agent_modules_enabled=agent_modules_enabled,
                 )
 
     @staticmethod
@@ -1619,6 +1676,8 @@ class WorkflowRuntime:
 
     @staticmethod
     def _retryable_execution_error(error: Exception) -> bool:
+        if isinstance(error, ProviderError):
+            return error.retryable
         if isinstance(error, WorkflowHTTPError):
             return (
                 error.status_code in {408, 429}
@@ -1637,787 +1696,987 @@ class WorkflowRuntime:
         scoped_id: str,
         state: WorkflowRunState | None,
     ) -> dict[str, Any]:
-        config = self.blocks.validate_node(node)
-        context = {"inputs": inputs, "nodes": outputs, "run": {"run_id": run_id}}
-        if isinstance(config, StartConfig):
-            result: dict[str, Any] = {}
-            for field in config.inputs:
-                value = inputs.get(field.name, field.default)
-                if field.required and value is None:
-                    raise ValueError(f"missing required input: {field.name}")
-                result[field.name] = value
-            return {"output": result, **result}
-        if isinstance(config, ScheduleTriggerConfig):
-            result = {**config.inputs, **inputs}
-            return {"output": result, **result}
-        if isinstance(config, EventSubscriptionTriggerConfig):
-            result = {}
-            for field in config.inputs:
-                value = inputs.get(field.name, field.default)
-                if field.required and value is None:
-                    raise ValueError(f"missing required input: {field.name}")
-                result[field.name] = value
-            return {"output": result, **result}
-        if isinstance(config, LLMConfig):
-            prompt = str(self._resolve(config.prompt, context))
-            system = config.system
-            if config.structured_output is not None:
-                schema = json.dumps(config.structured_output, ensure_ascii=False)
-                system = (
-                    f"{system.rstrip()}\n\n"
-                    "Runtime output contract: return exactly one valid JSON value that matches "
-                    f"this JSON Schema: {schema}\n"
-                    "Do not return Markdown, prose, XML, comments, or a fenced code block. "
-                    "This runtime instruction overrides any earlier output-format instruction."
-                )
-            text, usage = await self._model_text(
-                run_id, config.model or self.runtime_model, system, prompt, scoped_id
-            )
-            result = {"text": text, "usage": usage.model_dump(mode="json")}
-            if config.structured_output is not None:
-                result["structured"] = self._json_from_text(text)
-            return result
-        if isinstance(config, ClaudeAgentConfig):
-            agent = snapshot.agents.get(config.agent_id)
-            if agent:
-                version = await self.storage.save_agent_version(agent, "application")
-            else:
-                agent, version, _ = await self.storage.get_agent(config.agent_id, config.version)
-            self._validate_agent_execution_policy(
-                agent,
-                allowed_runtime_tools=self._runtime_tool_allowlists.get(run_id),
-                allowed_network_hosts=self._network_host_allowlists.get(run_id),
-            )
-            agent = self._restricted_agent(
-                agent,
-                self._runtime_tool_allowlists.get(run_id),
-            )
-            session = await self.agent_runtime.create_session(
-                agent,
-                version,
-                workspace_path,
-                parent_task_id=run_id,
-                governance_owner_id=state.application_id if state else None,
-                governance_application_id=state.application_id if state else None,
-                allow_secret_references=run_id not in self._runtime_tool_allowlists,
-            )
-            task = str(self._resolve(config.task, context))
-            await self._emit(run_id, "node.agent.session", {"node_id": scoped_id, "session_id": session.id})
+        """按积木类型派发到执行器。
 
-            async def relay_agent_event(kind: str, data: dict[str, Any]) -> None:
-                payload = {
-                    "node_id": scoped_id,
-                    "session_id": session.id,
-                    **data,
-                }
-                if kind in {
-                    "permission.requested",
-                    "permission.resolved",
-                    "tool.started",
-                    "tool.completed",
-                    "tool.failed",
-                    "turn.completed",
-                    "turn.failed",
-                    "turn.cancelled",
-                    "agent.iteration",
-                    "context.compaction.started",
-                    "context.compaction.completed",
-                } or kind.startswith("model."):
-                    await self._emit(run_id, f"node.agent.{kind}", payload)
-                if kind in {"permission.requested", "permission.resolved"}:
-                    await self._emit(run_id, kind, payload)
-                    if state:
-                        await self.workflow_store.update_run(run_id, status="running", state=state)
+        这里曾是一条 38 分支、908 行的 isinstance 链。链有两个结构性毛病：
 
-            self.agent_runtime.register_event_relay(session.id, relay_agent_event)
-            try:
-                text = await self.agent_runtime.run_turn_and_wait(session, task)
-            finally:
-                self.agent_runtime.unregister_event_relay(session.id)
-            tool_calls = [
-                block.name
-                for message in session.messages
-                for block in message.content
-                if block.type == "tool_use" and block.name
-            ]
-            return {
-                "text": text,
-                "session_id": session.id,
-                "tool_calls": tool_calls,
-                "usage": session.usage.model_dump(mode="json"),
-            }
-        if isinstance(config, ToolConfig):
-            return await self._execute_tool(
-                config,
-                snapshot,
-                context,
-                workspace_path,
-                run_id,
-                scoped_id,
-                owner_id=state.application_id if state else "",
-                state=state,
-            )
-        if isinstance(config, AgentArchitectureConfig):
-            return await self._execute_agent_architecture_block(
-                config, snapshot, node, context, workspace_path, run_id, scoped_id, state
-            )
-        if isinstance(config, IfElseConfig):
-            for case in config.cases:
-                values = [self._evaluate(condition, context) for condition in case.conditions]
-                if (case.logical_operator == "and" and all(values)) or (case.logical_operator == "or" and any(values)):
-                    return {"branch": case.id}
-            return {"branch": config.default_branch}
-        if isinstance(config, ClassifierConfig):
-            value = str(self._resolve(config.input, context))
-            prompt = (
-                f"{config.instruction}\nClasses: {json.dumps(config.classes, ensure_ascii=False)}\n"
-                f"Input: {value}\nReturn only one exact class name."
-            )
-            text, usage = await self._model_text(
-                run_id, config.model or self.runtime_model, "You are a precise text router.", prompt, scoped_id
-            )
-            branch = next((item for item in config.classes if item.casefold() in text.casefold()), None)
-            if branch is None:
-                raise ValueError(f"classifier returned no known class: {text[:200]}")
-            return {"branch": branch, "text": text, "usage": usage.model_dump(mode="json")}
-        if isinstance(config, ParameterExtractorConfig):
-            value = self._resolve(config.input, context)
-            schema = {
-                "type": "object",
-                "properties": {field.name: {"type": self._json_type(field.type.value)} for field in config.fields},
-                "required": [field.name for field in config.fields if field.required],
-            }
-            prompt = f"{config.instruction}\nSchema: {json.dumps(schema)}\nInput: {value}\nReturn JSON only."
-            text, usage = await self._model_text(
-                run_id, config.model or self.runtime_model, "Extract structured data exactly.", prompt, scoped_id
-            )
-            return {"structured": self._json_from_text(text), "usage": usage.model_dump(mode="json")}
-        if isinstance(config, TemplateConfig):
-            variables = {key: self._resolve(value, context) for key, value in config.variables.items()}
-            return {"text": self._render(config.template, variables)}
-        if isinstance(config, VariableAssignerConfig):
-            return {
-                "output": {
-                    key: self._resolve_assignment(value, context)
-                    for key, value in config.assignments.items()
-                }
-            }
-        if isinstance(config, VariableAggregatorConfig):
-            skipped_nodes = set(state.skipped if state else [])
-            values = []
-            for variable in config.variables:
-                try:
-                    values.append(self._resolve(variable, context))
-                except (KeyError, IndexError, TypeError, ValueError):
-                    if self._references_skipped_node(variable, skipped_nodes):
-                        values.append(None)
-                        continue
-                    raise
-            if config.mode == "array":
-                value: Any = values
-            elif config.mode == "merge":
-                value = {}
-                for item in values:
-                    if isinstance(item, dict):
-                        value.update(item)
-            else:
-                value = next((item for item in values if item is not None), None)
-            return {"output": value}
-        if isinstance(config, HTTPConfig):
-            if run_id in self._network_host_allowlists:
-                return await self._http(
-                    config,
-                    context,
-                    owner_id=state.application_id if state else "",
+        1. **与目录没有机械关联**——BlockRegistry 登记了积木、链上忘了加分支，
+           要等客户跑到那个节点才炸（soft_block 就是这么漏掉的：目录里有、
+           手册写着、莉莉丝会选，运行时却撞 "block executor missing"）。
+        2. **顺序敏感**——子类配置会被写在前面的父类分支永久遮蔽
+           （EventSubscriptionTriggerConfig 是 StartConfig 的子类，为它写的
+           那 8 行从来没被执行过）。
+
+        换成按积木类型键的注册表后，两类缺陷在结构上都不再可能：一个类型只有
+        一个执行器（重复登记当场报错），覆盖由测试对着目录逐条对账。
+        """
+        executor = _NODE_EXECUTORS.get(node.type)
+        if executor is None:
+            raise RuntimeError(f"block executor missing: {node.type}")
+        if state and getattr(self, 'projects', None) is not None:
+            from .project_capabilities import AGENT_BLOCK_TYPES, effective_block_type
+            if effective_block_type(node.model_dump(mode='json')) in AGENT_BLOCK_TYPES:
+                # Recheck after pause/resume and owner changes, before any session starts.
+                for caller in state.application_call_chain or [state.application_id]:
+                    blocks = await self.projects.blocks_for(caller,
+                        project_id=state.project_context['project_id'] if state.project_context else None)
+                    blocks.validate_workflow({'nodes': [node.model_dump(mode='json')]})
+        from .model_connections import project_model
+        owner = state.project_context['project_id'] if state and state.project_context else None
+        if owner is None and state and hasattr(self.provider, 'connections') and self.provider.connections.enabled(state.application_id):
+            owner = state.application_id
+        token = project_model.set(owner)
+        try:
+            return await executor(
+                self,
+                NodeRun(
+                    snapshot=snapshot,
+                    node=node,
+                    config=self.blocks.validate_node(node),
+                    context={"inputs": inputs, "nodes": outputs, "run": {
+                        "run_id": run_id,
+                        **({'project_id': state.project_context['project_id'],
+                            'project_task_id': state.project_context['task_id']}
+                           if state and state.project_context else {}),
+                    }},
+                    inputs=inputs,
+                    outputs=outputs,
+                    workspace_path=workspace_path,
                     run_id=run_id,
-                )
-            # Preserve the legacy override seam for unrestricted runs. Several
-            # integrations replace ``_http`` with the original three-argument
-            # callable; only policy-bound runs need the additional run key.
+                    scoped_id=scoped_id,
+                    state=state,
+                ),
+            )
+        finally:
+            project_model.reset(token)
+
+    @_node_executor("event_subscription_trigger", "start")
+    async def _exec_start(self, run: NodeRun) -> dict[str, Any]:
+        config, inputs = run.config, run.inputs
+        result: dict[str, Any] = {}
+        for field in config.inputs:
+            value = inputs.get(field.name, field.default)
+            if field.required and value is None:
+                raise ValueError(f"missing required input: {field.name}")
+            result[field.name] = value
+        return {"output": result, **result}
+
+    @_node_executor("schedule_trigger")
+    async def _exec_schedule_trigger(self, run: NodeRun) -> dict[str, Any]:
+        config, inputs = run.config, run.inputs
+        result = {**config.inputs, **inputs}
+        return {"output": result, **result}
+
+    @_node_executor("llm")
+    async def _exec_l_l_m(self, run: NodeRun) -> dict[str, Any]:
+        config, context, run_id, scoped_id = run.config, run.context, run.run_id, run.scoped_id
+        prompt = str(self._resolve(config.prompt, context))
+        system = config.system
+        output_validator = None
+        if config.structured_output is not None:
+            from jsonschema.validators import validator_for
+            from referencing import Registry
+
+            validator_class = validator_for(config.structured_output)
+            validator_class.check_schema(config.structured_output)
+            # Only local schema references: validation must not fetch network resources.
+            output_validator = validator_class(config.structured_output, registry=Registry())
+            schema = json.dumps(config.structured_output, ensure_ascii=False)
+            system = (
+                f"{system.rstrip()}\n\n"
+                "Runtime output contract: return exactly one valid JSON value that matches "
+                f"this JSON Schema: {schema}\n"
+                "Do not return Markdown, prose, XML, comments, or a fenced code block. "
+                "This runtime instruction overrides any earlier output-format instruction."
+            )
+        diagnostics: dict[str, Any] = {}
+        from .model_connections import project_model, project_model_role
+        from .model_images import image_blocks
+        images = self._resolve(config.images, context)
+        if not isinstance(images, list):
+            raise ValueError('图片输入须为 file_path 对象数组')
+        if (images or config.model_role == 'vision') and not project_model.get():
+            raise ValueError('视觉调用需要项目工作流和独立视觉 API 连接')
+        if images and config.model_role != 'vision':
+            raise ValueError('包含图片时请选择 vision 模型用途并配置视觉连接')
+        blocks = image_blocks(self.sandboxes.resolve_workspace(run.workspace_path), images) if images else []
+        role_token = project_model_role.set(config.model_role)
+        try:
+            text, usage = await self._model_text(
+                run_id, config.model or self.runtime_model, system, prompt, scoped_id,
+                diagnostics=diagnostics, max_output_tokens=config.max_output_tokens,
+                **({'images': blocks} if blocks else {}),
+            )
+        finally:
+            project_model_role.reset(role_token)
+        result = {"text": text, "usage": usage.model_dump(mode="json")}
+        if config.structured_output is not None:
+            result["structured"] = self._json_from_text(text, stop_reason=diagnostics.get("stop_reason"))
+            from jsonschema.exceptions import ValidationError
+
+            try:
+                output_validator.validate(result["structured"])
+            except ValidationError as error:
+                path = json.dumps(list(error.absolute_path), ensure_ascii=False)
+                raise ValueError(
+                    "model did not return valid JSON for structured output schema; "
+                    f"path={path}; {error.message[:500]}"
+                ) from error
+        return result
+
+    @_node_executor("claude_agent")
+    async def _exec_claude_agent(self, run: NodeRun) -> dict[str, Any]:
+        snapshot, config, context, workspace_path, run_id, scoped_id, state = run.snapshot, run.config, run.context, run.workspace_path, run.run_id, run.scoped_id, run.state
+        agent = snapshot.agents.get(config.agent_id)
+        if agent:
+            version = await self.storage.save_agent_version(agent, "application")
+        else:
+            agent, version, _ = await self.storage.get_agent(config.agent_id, config.version)
+        self._validate_agent_execution_policy(
+            agent,
+            allowed_runtime_tools=self._runtime_tool_allowlists.get(run_id),
+            allowed_network_hosts=self._network_host_allowlists.get(run_id),
+        )
+        agent = self._restricted_agent(
+            agent,
+            self._runtime_tool_allowlists.get(run_id),
+        )
+        if hasattr(self.provider, 'selected_model'):
+            agent = agent.model_copy(deep=True)
+            agent.provider_profile.model = self.provider.selected_model(agent.provider_profile.model)
+        session = await self.agent_runtime.create_session(
+            agent,
+            version,
+            workspace_path,
+            parent_task_id=run_id,
+            governance_owner_id=state.application_id if state else None,
+            governance_application_id=state.application_id if state else None,
+            allow_secret_references=run_id not in self._runtime_tool_allowlists,
+        )
+        task = str(self._resolve(config.task, context))
+        await self._emit(run_id, "node.agent.session", {"node_id": scoped_id, "session_id": session.id})
+
+        async def relay_agent_event(kind: str, data: dict[str, Any]) -> None:
+            payload = {
+                "node_id": scoped_id,
+                "session_id": session.id,
+                **data,
+            }
+            if kind in {
+                "permission.requested",
+                "permission.resolved",
+                "tool.started",
+                "tool.completed",
+                "tool.failed",
+                "turn.completed",
+                "turn.failed",
+                "turn.cancelled",
+                "agent.iteration",
+                "context.compaction.started",
+                "context.compaction.completed",
+            } or kind.startswith("model."):
+                await self._emit(run_id, f"node.agent.{kind}", payload)
+            if kind in {"permission.requested", "permission.resolved"}:
+                await self._emit(run_id, kind, payload)
+                if state:
+                    await self.workflow_store.update_run(run_id, status="running", state=state)
+
+        self.agent_runtime.register_event_relay(session.id, relay_agent_event)
+        try:
+            text = await self.agent_runtime.run_turn_and_wait(session, task)
+        finally:
+            self.agent_runtime.unregister_event_relay(session.id)
+        tool_calls = [
+            block.name
+            for message in session.messages
+            for block in message.content
+            if block.type == "tool_use" and block.name
+        ]
+        return {
+            "text": text,
+            "session_id": session.id,
+            "tool_calls": tool_calls,
+            "usage": session.usage.model_dump(mode="json"),
+        }
+
+    @_node_executor("tool")
+    async def _exec_tool(self, run: NodeRun) -> dict[str, Any]:
+        snapshot, config, context, workspace_path, run_id, scoped_id, state = run.snapshot, run.config, run.context, run.workspace_path, run.run_id, run.scoped_id, run.state
+        return await self._execute_tool(
+            config,
+            snapshot,
+            context,
+            workspace_path,
+            run_id,
+            scoped_id,
+            owner_id=state.application_id if state else "",
+            state=state,
+        )
+
+    @_node_executor('data_analysis', 'feature_extract', 'model_train', 'model_predict')
+    async def _exec_modeling(self, run: NodeRun) -> dict[str, Any]:
+        project = run.state.project_context if run.state else None
+        if not project:
+            raise ValueError('建模积木只能从项目任务运行')
+        args = self._resolve(run.config.model_dump(), run.context)
+        result = await self.modeling.run_block(project, run.node.type, args, run.run_id, run.scoped_id)
+        return {'output': result}
+
+    @_node_executor('project_record')
+    async def _exec_project_record(self, run: NodeRun) -> dict[str, Any]:
+        from .project_store import ProjectConflict
+        project = run.state.project_context if run.state else None
+        if not project:
+            raise ValueError('项目业务记录只能从项目任务访问')
+        args = self._resolve(run.config.model_dump(), run.context)
+        project_id = project['project_id']
+        collection, key = args['collection'], args['key']
+        if not isinstance(collection, str) or not isinstance(key, str):
+            raise ValueError('集合与记录键必须是字符串')
+        store = self.projects.store
+        record_scope = project.get('record_scope', '')
+        if args['action'] == 'list':
+            result = {'records': await store.records(project_id, collection, scope=record_scope)}
+        elif args['action'] == 'get':
+            result = await store.get_record(project_id, collection, key, scope=record_scope)
+        else:
+            revision = args['expected_revision']
+            if type(revision) is not int or revision < 0 or not isinstance(args['value'], dict):
+                raise ValueError('写入需提供对象 value 和非负整数 expected_revision')
+            # Retrying a node in the same run returns its first successful write.
+            try:
+                result = await store.put_record(project_id, collection, key, args['value'], revision,
+                                                operation_key=f'{run.run_id}:{run.scoped_id}', scope=record_scope)
+                result.update(written=True, conflict=False)
+            except ProjectConflict as e:
+                result = await store.get_record(project_id, collection, key, scope=record_scope)
+                result.update(written=False, conflict=True, error=str(e))
+        return {'output': result, **result}
+
+    @_node_executor("soft_block")
+    async def _exec_soft_block(self, run: NodeRun) -> dict[str, Any]:
+        snapshot, node, config, context, workspace_path, run_id, scoped_id, state = run.snapshot, run.node, run.config, run.context, run.workspace_path, run.run_id, run.scoped_id, run.state
+        discrete_type = get_discrete_block_type(config.strategy)
+        if discrete_type is None:
+            raise RuntimeError(
+                f"soft_block 的 strategy 无法映射到任何积木：{config.strategy!r}"
+            )
+        return await self._execute_agent_architecture_block(
+            AgentArchitectureConfig(input=None, settings=config.settings),
+            snapshot,
+            # 派发按 node.type 走，所以委派节点必须换成离散类型。
+            node.model_copy(update={"type": discrete_type}),
+            context,
+            workspace_path,
+            run_id,
+            scoped_id,
+            state,
+        )
+
+    @_node_executor("budget_gate", "cancellation_point", "capability_registry", "checkpoint_resume", "context_assembler", "context_compactor", "conversation_memory", "dependency_gate", "event_recorder", "workspace_context_injector", "hook_point", "mcp_gateway", "mailbox_wait_wake", "model_turn", "permission_gate", "retry_error_classifier", "round_limit", "sandbox_boundary", "skill_loader", "stop_continue_controller", "subagent_spawn", "task_dispatcher", "tool_call_router", "tool_executor", "tool_result_normalizer")
+    async def _exec_agent_architecture(self, run: NodeRun) -> dict[str, Any]:
+        snapshot, node, config, context, workspace_path, run_id, scoped_id, state = run.snapshot, run.node, run.config, run.context, run.workspace_path, run.run_id, run.scoped_id, run.state
+        return await self._execute_agent_architecture_block(
+            config, snapshot, node, context, workspace_path, run_id, scoped_id, state
+        )
+
+    @_node_executor("if_else")
+    async def _exec_if_else(self, run: NodeRun) -> dict[str, Any]:
+        config, context = run.config, run.context
+        for case in config.cases:
+            values = [self._evaluate(condition, context) for condition in case.conditions]
+            if (case.logical_operator == "and" and all(values)) or (case.logical_operator == "or" and any(values)):
+                return {"branch": case.id}
+        return {"branch": config.default_branch}
+
+    @_node_executor("question_classifier")
+    async def _exec_classifier(self, run: NodeRun) -> dict[str, Any]:
+        config, context, run_id, scoped_id = run.config, run.context, run.run_id, run.scoped_id
+        value = str(self._resolve(config.input, context))
+        prompt = (
+            f"{config.instruction}\nClasses: {json.dumps(config.classes, ensure_ascii=False)}\n"
+            f"Input: {value}\nReturn only one exact class name."
+        )
+        text, usage = await self._model_text(
+            run_id, config.model or self.runtime_model, "You are a precise text router.", prompt, scoped_id
+        )
+        branch = next((item for item in config.classes if item.casefold() in text.casefold()), None)
+        if branch is None:
+            raise ValueError(f"classifier returned no known class: {text[:200]}")
+        return {"branch": branch, "text": text, "usage": usage.model_dump(mode="json")}
+
+    @_node_executor("parameter_extractor")
+    async def _exec_parameter_extractor(self, run: NodeRun) -> dict[str, Any]:
+        config, context, run_id, scoped_id = run.config, run.context, run.run_id, run.scoped_id
+        value = self._resolve(config.input, context)
+        schema = {
+            "type": "object",
+            "properties": {field.name: {"type": self._json_type(field.type.value)} for field in config.fields},
+            "required": [field.name for field in config.fields if field.required],
+        }
+        prompt = f"{config.instruction}\nSchema: {json.dumps(schema)}\nInput: {value}\nReturn JSON only."
+        diagnostics: dict[str, Any] = {}
+        text, usage = await self._model_text(
+            run_id, config.model or self.runtime_model, "Extract structured data exactly.", prompt, scoped_id,
+            diagnostics=diagnostics,
+        )
+        return {"structured": self._json_from_text(text, stop_reason=diagnostics.get("stop_reason")),
+                "usage": usage.model_dump(mode="json")}
+
+    @_node_executor("template_transform")
+    async def _exec_template(self, run: NodeRun) -> dict[str, Any]:
+        config, context = run.config, run.context
+        variables = {key: self._resolve(value, context) for key, value in config.variables.items()}
+        return {"text": self._render(config.template, variables)}
+
+    @_node_executor("variable_assigner")
+    async def _exec_variable_assigner(self, run: NodeRun) -> dict[str, Any]:
+        config, context = run.config, run.context
+        return {
+            "output": {
+                key: self._resolve_assignment(value, context)
+                for key, value in config.assignments.items()
+            }
+        }
+
+    @_node_executor("variable_aggregator")
+    async def _exec_variable_aggregator(self, run: NodeRun) -> dict[str, Any]:
+        config, context, state = run.config, run.context, run.state
+        skipped_nodes = set(state.skipped if state else [])
+        values = []
+        for variable in config.variables:
+            try:
+                values.append(self._resolve(variable, context))
+            except (KeyError, IndexError, TypeError, ValueError):
+                if self._references_skipped_node(variable, skipped_nodes):
+                    values.append(None)
+                    continue
+                raise
+        if config.mode == "array":
+            value: Any = values
+        elif config.mode == "merge":
+            value = {}
+            for item in values:
+                if isinstance(item, dict):
+                    value.update(item)
+        else:
+            value = next((item for item in values if item is not None), None)
+        return {"output": value}
+
+    @_node_executor("http_request")
+    async def _exec_h_t_t_p(self, run: NodeRun) -> dict[str, Any]:
+        config, context, run_id, state = run.config, run.context, run.run_id, run.state
+        if run_id in self._network_host_allowlists:
             return await self._http(
                 config,
                 context,
                 owner_id=state.application_id if state else "",
+                run_id=run_id,
             )
-        if isinstance(config, DurableEventTimerConfig):
-            if self.event_automation is None:
-                raise RuntimeError("event automation service is not configured")
-            raw_operation = str(self._resolve(config.operation, context))
-            operation = {
-                "on": "schedule",
-                "open": "schedule",
-                "off": "cancel",
-                "closed": "cancel",
-            }.get(raw_operation, raw_operation)
-            request = DurableEventTimerRequest.model_validate(
+        # Preserve the legacy override seam for unrestricted runs. Several
+        # integrations replace ``_http`` with the original three-argument
+        # callable; only policy-bound runs need the additional run key.
+        return await self._http(
+            config,
+            context,
+            owner_id=state.application_id if state else "",
+        )
+
+    @_node_executor("durable_event_timer")
+    async def _exec_durable_event_timer(self, run: NodeRun) -> dict[str, Any]:
+        config, context, workspace_path, state = run.config, run.context, run.workspace_path, run.state
+        if self.event_automation is None:
+            raise RuntimeError("event automation service is not configured")
+        raw_operation = str(self._resolve(config.operation, context))
+        operation = {
+            "on": "schedule",
+            "open": "schedule",
+            "off": "cancel",
+            "closed": "cancel",
+        }.get(raw_operation, raw_operation)
+        request = DurableEventTimerRequest.model_validate(
+            {
+                "operation": operation,
+                "timer_key": self._resolve(config.timer_key, context),
+                "subject_id": self._resolve(config.subject_id, context),
+                "event_id": self._resolve(config.event_id, context),
+                "occurred_at": self._resolve(config.occurred_at, context),
+                "hold_for_seconds": self._resolve(
+                    config.hold_for_seconds,
+                    context,
+                ),
+                "due_inputs": self._resolve(config.due_inputs, context),
+            }
+        )
+        result = await self.event_automation.apply_timer(
+            state.application_id if state else "",
+            workspace_path,
+            request,
+        )
+        return {"output": result, **result}
+
+    @_node_executor("web_collection")
+    async def _exec_web_collection(self, run: NodeRun) -> dict[str, Any]:
+        config, context, inputs, run_id, state = run.config, run.context, run.inputs, run.run_id, run.state
+        if run_id in self._network_host_allowlists:
+            raise WorkflowRuntimeNetworkScopeDenied(
+                "network-backed workflow blocks are outside the assigned run policy"
+            )
+        if self.web_collector is None:
+            raise RuntimeError("controlled Web collection service is not configured")
+        job_context = inputs.get("__job__", {})
+        if not isinstance(job_context, dict):
+            raise ValueError("__job__ input must be an object")
+        result = await self.web_collector.collect(
+            config=config,
+            sources=self._resolve(config.sources, context),
+            application_id=state.application_id if state else "",
+            run_id=run_id,
+            job_context=job_context,
+        )
+        return {"output": result, **result}
+
+    @_node_executor("collection_digest")
+    async def _exec_collection_digest(self, run: NodeRun) -> dict[str, Any]:
+        config, context = run.config, run.context
+        return ControlledWebCollector.render_digest(
+            config,
+            self._resolve(config.collection, context),
+            self._resolve(config.topic, context),
+        )
+
+    @_node_executor("deployed_model_inference")
+    async def _exec_deployed_model_inference(self, run: NodeRun) -> dict[str, Any]:
+        config, context = run.config, run.context
+        if self.tabular_models is None:
+            raise RuntimeError("tabular model service is not configured")
+        resolved_units = (
+            self._resolve(config.units, context) if config.units is not None else {}
+        )
+        result = await self.tabular_models.predict(
+            config.deployment_name,
+            TabularInferenceRequest(
+                features=self._resolve(config.features, context),
+                units=resolved_units or {},
+            ),
+        )
+        return {"output": result, **result}
+
+    @_node_executor("model_drift_monitor")
+    async def _exec_model_drift_monitor(self, run: NodeRun) -> dict[str, Any]:
+        config, context = run.config, run.context
+        if self.tabular_models is None:
+            raise RuntimeError("tabular model service is not configured")
+        raw_observations = self._resolve(config.observations, context)
+        if not isinstance(raw_observations, list):
+            raise ValueError("model drift observations must resolve to an array")
+        result = await self.tabular_models.drift(
+            config.deployment_name,
+            TabularDriftRequest(
+                observations=[
+                    ModelObservation.model_validate(item) for item in raw_observations
+                ],
+                warning_threshold=config.warning_threshold,
+                critical_threshold=config.critical_threshold,
+            ),
+        )
+        return {"output": result, **result}
+
+    @_node_executor("deployed_forecast")
+    async def _exec_deployed_forecast(self, run: NodeRun) -> dict[str, Any]:
+        config, context = run.config, run.context
+        if self.forecast_models is None:
+            raise RuntimeError("forecast model service is not configured")
+        raw_series = self._resolve(config.series, context)
+        if not isinstance(raw_series, list):
+            raise ValueError("forecast series must resolve to an array")
+        result = await self.forecast_models.predict(
+            config.deployment_name,
+            ForecastInferenceRequest(
+                series=[ForecastSeries.model_validate(item) for item in raw_series],
+                unit=str(self._resolve(config.unit, context)),
+                horizon=int(self._resolve(config.horizon, context)),
+            ),
+        )
+        return {"output": result, **result}
+
+    @_node_executor("replenishment_planner")
+    async def _exec_replenishment_planner(self, run: NodeRun) -> dict[str, Any]:
+        config, context = run.config, run.context
+        result = solve_replenishment(
+            ReplenishmentPlanRequest(
+                forecasts=self._resolve(config.forecasts, context),
+                items=self._resolve(config.items, context),
+                capacity=float(self._resolve(config.capacity, context)),
+                budget=float(self._resolve(config.budget, context)),
+                solver_version=config.solver_version,
+                max_candidates_per_item=config.max_candidates_per_item,
+                max_states=config.max_states,
+            )
+        )
+        return {"output": result, **result}
+
+    @_node_executor("knowledge_index_sync")
+    async def _exec_knowledge_index_sync(self, run: NodeRun) -> dict[str, Any]:
+        config, context, state = run.config, run.context, run.state
+        if self.knowledge_indexes is None:
+            raise RuntimeError("knowledge index service is not configured")
+        documents = self._resolve(config.documents, context)
+        deleted_source_ids = self._resolve(config.deleted_source_ids, context)
+        event_id = self._resolve(config.event_id, context)
+        if config.replace:
+            incoming = {
+                str(item.get("source_id") or item.get("title") or "")
+                for item in (documents if isinstance(documents, list) else [])
+                if isinstance(item, dict)
+            }
+            existing = await self.knowledge_indexes.list_source_ids(config.index_name)
+            stale = sorted(set(existing) - incoming)
+            combined = {str(item) for item in (deleted_source_ids or [])} | set(stale)
+            deleted_source_ids = sorted(combined - incoming)
+        result = await self.knowledge_indexes.sync(
+            config.index_name,
+            KnowledgeSyncRequest.model_validate(
                 {
-                    "operation": operation,
-                    "timer_key": self._resolve(config.timer_key, context),
-                    "subject_id": self._resolve(config.subject_id, context),
-                    "event_id": self._resolve(config.event_id, context),
-                    "occurred_at": self._resolve(config.occurred_at, context),
-                    "hold_for_seconds": self._resolve(
-                        config.hold_for_seconds,
-                        context,
-                    ),
-                    "due_inputs": self._resolve(config.due_inputs, context),
+                    "documents": documents,
+                    "deleted_source_ids": deleted_source_ids,
+                    "event_id": event_id,
+                    # 写隔离：带上运行归属应用的身份；跨应用共享写入
+                    # 需要节点配置显式声明 shared
+                    "application_id": state.application_id if state else "",
+                    "shared": bool(config.shared),
                 }
-            )
-            result = await self.event_automation.apply_timer(
-                state.application_id if state else "",
-                workspace_path,
-                request,
-            )
-            return {"output": result, **result}
-        if isinstance(config, WebCollectionConfig):
-            if run_id in self._network_host_allowlists:
-                raise WorkflowRuntimeNetworkScopeDenied(
-                    "network-backed workflow blocks are outside the assigned run policy"
-                )
-            if self.web_collector is None:
-                raise RuntimeError("controlled Web collection service is not configured")
-            job_context = inputs.get("__job__", {})
-            if not isinstance(job_context, dict):
-                raise ValueError("__job__ input must be an object")
-            result = await self.web_collector.collect(
-                config=config,
-                sources=self._resolve(config.sources, context),
-                application_id=state.application_id if state else "",
-                run_id=run_id,
-                job_context=job_context,
-            )
-            return {"output": result, **result}
-        if isinstance(config, CollectionDigestConfig):
-            return ControlledWebCollector.render_digest(
-                config,
-                self._resolve(config.collection, context),
-                self._resolve(config.topic, context),
-            )
-        if isinstance(config, DeployedModelInferenceConfig):
-            if self.tabular_models is None:
-                raise RuntimeError("tabular model service is not configured")
-            resolved_units = (
-                self._resolve(config.units, context) if config.units is not None else {}
-            )
-            result = await self.tabular_models.predict(
-                config.deployment_name,
-                TabularInferenceRequest(
-                    features=self._resolve(config.features, context),
-                    units=resolved_units or {},
-                ),
-            )
-            return {"output": result, **result}
-        if isinstance(config, ModelDriftMonitorConfig):
-            if self.tabular_models is None:
-                raise RuntimeError("tabular model service is not configured")
-            raw_observations = self._resolve(config.observations, context)
-            if not isinstance(raw_observations, list):
-                raise ValueError("model drift observations must resolve to an array")
-            result = await self.tabular_models.drift(
-                config.deployment_name,
-                TabularDriftRequest(
-                    observations=[
-                        ModelObservation.model_validate(item) for item in raw_observations
-                    ],
-                    warning_threshold=config.warning_threshold,
-                    critical_threshold=config.critical_threshold,
-                ),
-            )
-            return {"output": result, **result}
-        if isinstance(config, DeployedForecastConfig):
-            if self.forecast_models is None:
-                raise RuntimeError("forecast model service is not configured")
-            raw_series = self._resolve(config.series, context)
-            if not isinstance(raw_series, list):
-                raise ValueError("forecast series must resolve to an array")
-            result = await self.forecast_models.predict(
-                config.deployment_name,
-                ForecastInferenceRequest(
-                    series=[ForecastSeries.model_validate(item) for item in raw_series],
-                    unit=str(self._resolve(config.unit, context)),
-                    horizon=int(self._resolve(config.horizon, context)),
-                ),
-            )
-            return {"output": result, **result}
-        if isinstance(config, ReplenishmentPlannerConfig):
-            result = solve_replenishment(
-                ReplenishmentPlanRequest(
-                    forecasts=self._resolve(config.forecasts, context),
-                    items=self._resolve(config.items, context),
-                    capacity=float(self._resolve(config.capacity, context)),
-                    budget=float(self._resolve(config.budget, context)),
-                    solver_version=config.solver_version,
-                    max_candidates_per_item=config.max_candidates_per_item,
-                    max_states=config.max_states,
-                )
-            )
-            return {"output": result, **result}
-        if isinstance(config, KnowledgeIndexSyncConfig):
-            if self.knowledge_indexes is None:
-                raise RuntimeError("knowledge index service is not configured")
-            documents = self._resolve(config.documents, context)
-            deleted_source_ids = self._resolve(config.deleted_source_ids, context)
-            event_id = self._resolve(config.event_id, context)
-            if config.replace:
-                incoming = {
-                    str(item.get("source_id") or item.get("title") or "")
-                    for item in (documents if isinstance(documents, list) else [])
-                    if isinstance(item, dict)
+            ),
+        )
+        return {"output": result, **result}
+
+    @_node_executor("knowledge_retrieval")
+    async def _exec_knowledge_retrieval(self, run: NodeRun) -> dict[str, Any]:
+        config, context = run.config, run.context
+        if self.knowledge_indexes is None:
+            raise RuntimeError("knowledge index service is not configured")
+        result = await self.knowledge_indexes.retrieve(
+            config.index_name,
+            KnowledgeRetrieveRequest.model_validate(
+                {
+                    "query": self._resolve(config.query, context),
+                    "principal_roles": self._resolve(config.principal_roles, context),
+                    "top_k": config.top_k,
+                    "minimum_score": config.minimum_score,
                 }
-                existing = await self.knowledge_indexes.list_source_ids(config.index_name)
-                stale = sorted(set(existing) - incoming)
-                combined = {str(item) for item in (deleted_source_ids or [])} | set(stale)
-                deleted_source_ids = sorted(combined - incoming)
-            result = await self.knowledge_indexes.sync(
-                config.index_name,
-                KnowledgeSyncRequest.model_validate(
-                    {
-                        "documents": documents,
-                        "deleted_source_ids": deleted_source_ids,
-                        "event_id": event_id,
-                        # 写隔离：带上运行归属应用的身份；跨应用共享写入
-                        # 需要节点配置显式声明 shared
-                        "application_id": state.application_id if state else "",
-                        "shared": bool(config.shared),
-                    }
-                ),
+            ),
+        )
+        return {"output": result, **result}
+
+    @_node_executor("grounded_answer")
+    async def _exec_grounded_answer(self, run: NodeRun) -> dict[str, Any]:
+        config, context = run.config, run.context
+        result = grounded_answer(
+            query=str(self._resolve(config.query, context)),
+            retrieval=self._resolve(config.retrieval, context),
+            refusal_message=config.refusal_message,
+        )
+        return {"output": result, **result}
+
+    @_node_executor("json_schema_validate")
+    async def _exec_json_schema_validate(self, run: NodeRun) -> dict[str, Any]:
+        config, context = run.config, run.context
+        serialized = config.model_dump(mode="python", by_alias=True)
+        result = validate_json_value(
+            self._resolve(serialized["value"], context),
+            serialized["schema"],
+            max_errors=config.max_errors,
+        )
+        return {"output": result, **result}
+
+    @_node_executor("regex_extract")
+    async def _exec_regex_extract(self, run: NodeRun) -> dict[str, Any]:
+        config, context = run.config, run.context
+        result = extract_regex_fields(
+            self._resolve(config.text, context),
+            config.fields,
+        )
+        return {"output": result, **result}
+
+    @_node_executor("record_collection_normalize")
+    async def _exec_record_collection_normalize(self, run: NodeRun) -> dict[str, Any]:
+        config, context = run.config, run.context
+        result = normalize_record_collection(
+            self._resolve(config.value, context),
+            config.record_paths,
+            single_object_policy=config.single_object_policy,
+            empty_policy=config.empty_policy,
+        )
+        return {"output": result, **result}
+
+    @_node_executor("record_deduplicate")
+    async def _exec_record_deduplicate(self, run: NodeRun) -> dict[str, Any]:
+        config, context = run.config, run.context
+        result = deduplicate_records(
+            self._resolve(config.records, context),
+            config.key_paths,
+            missing_key_policy=config.missing_key_policy,
+        )
+        return {"output": result, **result}
+
+    @_node_executor("record_match")
+    async def _exec_record_match(self, run: NodeRun) -> dict[str, Any]:
+        config, context = run.config, run.context
+        if config.sources is not None:
+            result = match_records(
+                self._resolve(config.sources, context),
+                self._resolve(config.candidates, context),
+                conditions=config.conditions,
+                conflict_checks=config.conflict_checks,
+                min_score=config.min_score,
+                ambiguity_threshold=config.ambiguity_threshold,
+                result_limit=config.result_limit,
+                consume_candidates=config.consume_candidates,
             )
-            return {"output": result, **result}
-        if isinstance(config, KnowledgeRetrievalConfig):
-            if self.knowledge_indexes is None:
-                raise RuntimeError("knowledge index service is not configured")
-            result = await self.knowledge_indexes.retrieve(
-                config.index_name,
-                KnowledgeRetrieveRequest.model_validate(
-                    {
-                        "query": self._resolve(config.query, context),
-                        "principal_roles": self._resolve(config.principal_roles, context),
-                        "top_k": config.top_k,
-                        "minimum_score": config.minimum_score,
-                    }
-                ),
+        else:
+            result = match_record(
+                self._resolve(config.source, context),
+                self._resolve(config.candidates, context),
+                conditions=config.conditions,
+                conflict_checks=config.conflict_checks,
+                min_score=config.min_score,
+                ambiguity_threshold=config.ambiguity_threshold,
+                result_limit=config.result_limit,
             )
-            return {"output": result, **result}
-        if isinstance(config, GroundedAnswerConfig):
-            result = grounded_answer(
-                query=str(self._resolve(config.query, context)),
-                retrieval=self._resolve(config.retrieval, context),
-                refusal_message=config.refusal_message,
+        return {"output": result, **result}
+
+    @_node_executor("typed_json_artifact")
+    async def _exec_typed_json_artifact(self, run: NodeRun) -> dict[str, Any]:
+        config, context, workspace_path, run_id, scoped_id, state = run.config, run.context, run.workspace_path, run.run_id, run.scoped_id, run.state
+        serialized = config.model_dump(mode="python", by_alias=True)
+        artifact_workspace = self._artifact_workspace_for_run(
+            run_id,
+            workspace_path,
+        )
+        artifact = write_typed_json_artifact(
+            workspace=artifact_workspace,
+            value=self._resolve(serialized["value"], context),
+            filename=config.filename,
+            lineage=self._resolve(serialized["lineage"], context),
+            run_id=run_id,
+            node_id=scoped_id,
+            application_id=state.application_id if state else "",
+        )
+        artifact["relative_path"] = (
+            f".workflow-run-artifacts/{run_id}/"
+            f"{artifact['relative_path']}"
+        )
+        await self._emit(
+            run_id,
+            "artifact.created",
+            {
+                "node_id": scoped_id,
+                "relative_path": artifact["relative_path"],
+                "media_type": artifact["media_type"],
+                "size_bytes": artifact["size_bytes"],
+                "sha256": artifact["sha256"],
+                "replayed": artifact["replayed"],
+            },
+        )
+        return {"output": artifact, "artifact": artifact}
+
+    @_node_executor("typed_workbook")
+    async def _exec_typed_workbook(self, run: NodeRun) -> dict[str, Any]:
+        config, context, workspace_path, run_id, scoped_id, state = run.config, run.context, run.workspace_path, run.run_id, run.scoped_id, run.state
+        serialized = config.model_dump(mode="python", by_alias=True)
+        artifact_workspace = self._artifact_workspace_for_run(
+            run_id,
+            workspace_path,
+        )
+        artifact = write_typed_workbook_artifact(
+            workspace=artifact_workspace,
+            spec=self._resolve(serialized["spec"], context),
+            filename=config.filename,
+            formula_policy=config.formula_policy,
+            lineage=self._resolve(serialized["lineage"], context),
+            run_id=run_id,
+            node_id=scoped_id,
+            application_id=state.application_id if state else "",
+        )
+        artifact["relative_path"] = (
+            f".workflow-run-artifacts/{run_id}/"
+            f"{artifact['relative_path']}"
+        )
+        await self._emit(
+            run_id,
+            "artifact.created",
+            {
+                "node_id": scoped_id,
+                "relative_path": artifact["relative_path"],
+                "media_type": artifact["media_type"],
+                "size_bytes": artifact["size_bytes"],
+                "sha256": artifact["sha256"],
+                "replayed": artifact["replayed"],
+            },
+        )
+        return {"output": artifact, "artifact": artifact}
+
+    @_node_executor("connector_action")
+    async def _exec_connector_action(self, run: NodeRun) -> dict[str, Any]:
+        config, context, run_id, scoped_id, state = run.config, run.context, run.run_id, run.scoped_id, run.state
+        if self.connector_service is None:
+            raise RuntimeError("Connector service is not configured")
+        operation = self._resolve_connector_operation(
+            config,
+            self._connector_operation_allowlists.get(run_id),
+        )
+        connector_manifest = await self.connector_service.get_manifest(
+            config.connector_id,
+            config.connector_version,
+        )
+        connector_operation = connector_manifest.operation(
+            config.operation_id
+        )
+        tenant_id = str(self._resolve(config.tenant_id, context))
+        actor_id = str(self._resolve(config.actor_id, context))
+        actor_roles = self._resolve(config.actor_roles, context)
+        profile_id = str(self._resolve(config.profile_id, context))
+        payload = self._resolve(config.payload, context)
+        idempotency_key = str(self._resolve(config.idempotency_key, context))
+        authorization_id = str(self._resolve(config.authorization_id, context) or "")
+        authorization_mode = str(
+            self._resolve(config.authorization_mode, context)
+        )
+        execution_mode = str(self._resolve(config.execution_mode, context))
+        if not isinstance(actor_roles, list) or not all(
+            isinstance(item, str) and item for item in actor_roles
+        ):
+            raise ValueError("connector actor_roles must resolve to a non-empty string array")
+        if not isinstance(payload, dict):
+            raise ValueError("connector payload must resolve to an object")
+        if execution_mode not in {"dry_run", "execute"}:
+            raise ValueError("connector execution_mode must be dry_run or execute")
+        if authorization_mode not in {"explicit", "runtime_exact"}:
+            raise ValueError(
+                "connector authorization_mode must be explicit or runtime_exact"
             )
-            return {"output": result, **result}
-        if isinstance(config, JsonSchemaValidateConfig):
-            serialized = config.model_dump(mode="python", by_alias=True)
-            result = validate_json_value(
-                self._resolve(serialized["value"], context),
-                serialized["schema"],
-                max_errors=config.max_errors,
+        if authorization_id and authorization_mode == "runtime_exact":
+            raise ValueError(
+                "connector runtime_exact authorization cannot also supply "
+                "authorization_id"
             )
-            return {"output": result, **result}
-        if isinstance(config, RegexExtractConfig):
-            result = extract_regex_fields(
-                self._resolve(config.text, context),
-                config.fields,
-            )
-            return {"output": result, **result}
-        if isinstance(config, RecordCollectionNormalizeConfig):
-            result = normalize_record_collection(
-                self._resolve(config.value, context),
-                config.record_paths,
-                single_object_policy=config.single_object_policy,
-                empty_policy=config.empty_policy,
-            )
-            return {"output": result, **result}
-        if isinstance(config, RecordDeduplicateConfig):
-            result = deduplicate_records(
-                self._resolve(config.records, context),
-                config.key_paths,
-                missing_key_policy=config.missing_key_policy,
-            )
-            return {"output": result, **result}
-        if isinstance(config, RecordMatchConfig):
-            if config.sources is not None:
-                result = match_records(
-                    self._resolve(config.sources, context),
-                    self._resolve(config.candidates, context),
-                    conditions=config.conditions,
-                    conflict_checks=config.conflict_checks,
-                    min_score=config.min_score,
-                    ambiguity_threshold=config.ambiguity_threshold,
-                    result_limit=config.result_limit,
-                    consume_candidates=config.consume_candidates,
+        if run_id in self._connector_operation_allowlists:
+            if state is None or state.max_connector_payload_bytes is None:
+                raise WorkflowRuntimePayloadLimitExceeded(
+                    "connector payload limit is absent from the assigned run policy"
                 )
-            else:
-                result = match_record(
-                    self._resolve(config.source, context),
-                    self._resolve(config.candidates, context),
-                    conditions=config.conditions,
-                    conflict_checks=config.conflict_checks,
-                    min_score=config.min_score,
-                    ambiguity_threshold=config.ambiguity_threshold,
-                    result_limit=config.result_limit,
+            try:
+                payload_bytes = len(
+                    json.dumps(
+                        payload,
+                        ensure_ascii=False,
+                        allow_nan=False,
+                        separators=(",", ":"),
+                        sort_keys=True,
+                    ).encode("utf-8")
                 )
-            return {"output": result, **result}
-        if isinstance(config, TypedJsonArtifactConfig):
-            serialized = config.model_dump(mode="python", by_alias=True)
-            artifact_workspace = self._artifact_workspace_for_run(
-                run_id,
-                workspace_path,
-            )
-            artifact = write_typed_json_artifact(
-                workspace=artifact_workspace,
-                value=self._resolve(serialized["value"], context),
-                filename=config.filename,
-                lineage=self._resolve(serialized["lineage"], context),
-                run_id=run_id,
-                node_id=scoped_id,
-                application_id=state.application_id if state else "",
-            )
-            artifact["relative_path"] = (
-                f".workflow-run-artifacts/{run_id}/"
-                f"{artifact['relative_path']}"
-            )
-            await self._emit(
-                run_id,
-                "artifact.created",
-                {
-                    "node_id": scoped_id,
-                    "relative_path": artifact["relative_path"],
-                    "media_type": artifact["media_type"],
-                    "size_bytes": artifact["size_bytes"],
-                    "sha256": artifact["sha256"],
-                    "replayed": artifact["replayed"],
-                },
-            )
-            return {"output": artifact, "artifact": artifact}
-        if isinstance(config, TypedWorkbookConfig):
-            serialized = config.model_dump(mode="python", by_alias=True)
-            artifact_workspace = self._artifact_workspace_for_run(
-                run_id,
-                workspace_path,
-            )
-            artifact = write_typed_workbook_artifact(
-                workspace=artifact_workspace,
-                spec=self._resolve(serialized["spec"], context),
-                filename=config.filename,
-                formula_policy=config.formula_policy,
-                lineage=self._resolve(serialized["lineage"], context),
-                run_id=run_id,
-                node_id=scoped_id,
-                application_id=state.application_id if state else "",
-            )
-            artifact["relative_path"] = (
-                f".workflow-run-artifacts/{run_id}/"
-                f"{artifact['relative_path']}"
-            )
-            await self._emit(
-                run_id,
-                "artifact.created",
-                {
-                    "node_id": scoped_id,
-                    "relative_path": artifact["relative_path"],
-                    "media_type": artifact["media_type"],
-                    "size_bytes": artifact["size_bytes"],
-                    "sha256": artifact["sha256"],
-                    "replayed": artifact["replayed"],
-                },
-            )
-            return {"output": artifact, "artifact": artifact}
-        if isinstance(config, ConnectorActionConfig):
-            if self.connector_service is None:
-                raise RuntimeError("Connector service is not configured")
-            operation = self._resolve_connector_operation(
-                config,
-                self._connector_operation_allowlists.get(run_id),
-            )
-            connector_manifest = await self.connector_service.get_manifest(
-                config.connector_id,
-                config.connector_version,
-            )
-            connector_operation = connector_manifest.operation(
-                config.operation_id
-            )
-            tenant_id = str(self._resolve(config.tenant_id, context))
-            actor_id = str(self._resolve(config.actor_id, context))
-            actor_roles = self._resolve(config.actor_roles, context)
-            profile_id = str(self._resolve(config.profile_id, context))
-            payload = self._resolve(config.payload, context)
-            idempotency_key = str(self._resolve(config.idempotency_key, context))
-            authorization_id = str(self._resolve(config.authorization_id, context) or "")
-            authorization_mode = str(
-                self._resolve(config.authorization_mode, context)
-            )
-            execution_mode = str(self._resolve(config.execution_mode, context))
-            if not isinstance(actor_roles, list) or not all(
-                isinstance(item, str) and item for item in actor_roles
-            ):
-                raise ValueError("connector actor_roles must resolve to a non-empty string array")
-            if not isinstance(payload, dict):
-                raise ValueError("connector payload must resolve to an object")
-            if execution_mode not in {"dry_run", "execute"}:
-                raise ValueError("connector execution_mode must be dry_run or execute")
-            if authorization_mode not in {"explicit", "runtime_exact"}:
+            except (TypeError, ValueError) as error:
                 raise ValueError(
-                    "connector authorization_mode must be explicit or runtime_exact"
+                    "connector payload must be finite canonical JSON"
+                ) from error
+            if payload_bytes > state.max_connector_payload_bytes:
+                raise WorkflowRuntimePayloadLimitExceeded(
+                    "connector payload exceeds the assigned byte limit"
                 )
-            if authorization_id and authorization_mode == "runtime_exact":
-                raise ValueError(
-                    "connector runtime_exact authorization cannot also supply "
-                    "authorization_id"
-                )
-            if run_id in self._connector_operation_allowlists:
-                if state is None or state.max_connector_payload_bytes is None:
-                    raise WorkflowRuntimePayloadLimitExceeded(
-                        "connector payload limit is absent from the assigned run policy"
-                    )
-                try:
-                    payload_bytes = len(
-                        json.dumps(
-                            payload,
-                            ensure_ascii=False,
-                            allow_nan=False,
-                            separators=(",", ":"),
-                            sort_keys=True,
-                        ).encode("utf-8")
-                    )
-                except (TypeError, ValueError) as error:
-                    raise ValueError(
-                        "connector payload must be finite canonical JSON"
-                    ) from error
-                if payload_bytes > state.max_connector_payload_bytes:
-                    raise WorkflowRuntimePayloadLimitExceeded(
-                        "connector payload exceeds the assigned byte limit"
-                    )
-                writable = self._writable_connector_operations.get(
-                    run_id,
-                    frozenset(),
-                )
-                compensations = self._compensation_connector_operations.get(
-                    run_id,
-                    frozenset(),
-                )
-                if execution_mode == "execute":
-                    if (
-                        connector_operation.kind == "read"
-                        and operation in {*writable, *compensations}
-                    ):
-                        raise WorkflowRuntimeConnectorScopeDenied(
-                            "connector read is assigned to a mutating operation lane"
-                        )
-                    if (
-                        connector_operation.kind == "write"
-                        and operation not in writable
-                    ):
-                        raise WorkflowRuntimeConnectorScopeDenied(
-                            "connector write is outside the assigned host operation policy"
-                        )
-                    if (
-                        connector_operation.kind == "compensate"
-                        and operation not in compensations
-                    ):
-                        raise WorkflowRuntimeConnectorScopeDenied(
-                            "connector compensation is outside the assigned host operation policy"
-                        )
+            writable = self._writable_connector_operations.get(
+                run_id,
+                frozenset(),
+            )
+            compensations = self._compensation_connector_operations.get(
+                run_id,
+                frozenset(),
+            )
+            if execution_mode == "execute":
                 if (
-                    execution_mode == "execute"
-                    and connector_operation.mutating
-                    and not authorization_id
+                    connector_operation.kind == "read"
+                    and operation in {*writable, *compensations}
                 ):
-                    if authorization_mode == "runtime_exact":
-                        authorization_id = (
-                            await self._issue_runtime_exact_connector_authorization(
-                                config=config,
-                                state=state,
-                                run_id=run_id,
-                                node_id=scoped_id,
-                                tenant_id=tenant_id,
-                                actor_id=actor_id,
-                                profile_id=profile_id,
-                                payload=payload,
-                                idempotency_key=idempotency_key,
-                            )
-                        )
-                    elif operation in self._permission_connector_operations.get(
-                        run_id,
-                        frozenset(),
-                    ):
-                        raise WorkflowRuntimePermissionScopeDenied(
-                            "connector write requires an authorization receipt"
-                        )
+                    raise WorkflowRuntimeConnectorScopeDenied(
+                        "connector read is assigned to a mutating operation lane"
+                    )
                 if (
-                    execution_mode == "execute"
-                    and connector_operation.mutating
-                    and state is not None
+                    connector_operation.kind == "write"
+                    and operation not in writable
                 ):
-                    limit = state.max_connector_write_count
-                    if idempotency_key not in state.connector_write_keys:
-                        if (
-                            limit is None
-                            or state.connector_write_count >= limit
-                        ):
-                            raise WorkflowRuntimeWriteLimitExceeded(
-                                "connector write limit is exhausted"
-                            )
-                        state.connector_write_count += 1
-                        state.connector_write_keys.append(idempotency_key)
+                    raise WorkflowRuntimeConnectorScopeDenied(
+                        "connector write is outside the assigned host operation policy"
+                    )
+                if (
+                    connector_operation.kind == "compensate"
+                    and operation not in compensations
+                ):
+                    raise WorkflowRuntimeConnectorScopeDenied(
+                        "connector compensation is outside the assigned host operation policy"
+                    )
             if (
-                run_id not in self._connector_operation_allowlists
-                and execution_mode == "execute"
+                execution_mode == "execute"
                 and connector_operation.mutating
                 and not authorization_id
-                and authorization_mode == "runtime_exact"
             ):
-                authorization_id = (
-                    await self._issue_runtime_exact_connector_authorization(
-                        config=config,
-                        state=state,
-                        run_id=run_id,
-                        node_id=scoped_id,
-                        tenant_id=tenant_id,
-                        actor_id=actor_id,
-                        profile_id=profile_id,
-                        payload=payload,
-                        idempotency_key=idempotency_key,
+                if authorization_mode == "runtime_exact":
+                    authorization_id = (
+                        await self._issue_runtime_exact_connector_authorization(
+                            config=config,
+                            state=state,
+                            run_id=run_id,
+                            node_id=scoped_id,
+                            tenant_id=tenant_id,
+                            actor_id=actor_id,
+                            profile_id=profile_id,
+                            payload=payload,
+                            idempotency_key=idempotency_key,
+                        )
                     )
-                )
-            execution = await self.connector_service.execute(
-                ConnectorExecutionRequest(
-                    connector_id=config.connector_id,
-                    connector_version=config.connector_version,
+                elif operation in self._permission_connector_operations.get(
+                    run_id,
+                    frozenset(),
+                ):
+                    raise WorkflowRuntimePermissionScopeDenied(
+                        "connector write requires an authorization receipt"
+                    )
+            if (
+                execution_mode == "execute"
+                and connector_operation.mutating
+                and state is not None
+            ):
+                limit = state.max_connector_write_count
+                if idempotency_key not in state.connector_write_keys:
+                    if (
+                        limit is None
+                        or state.connector_write_count >= limit
+                    ):
+                        raise WorkflowRuntimeWriteLimitExceeded(
+                            "connector write limit is exhausted"
+                        )
+                    state.connector_write_count += 1
+                    state.connector_write_keys.append(idempotency_key)
+        if (
+            run_id not in self._connector_operation_allowlists
+            and execution_mode == "execute"
+            and connector_operation.mutating
+            and not authorization_id
+            and authorization_mode == "runtime_exact"
+        ):
+            authorization_id = (
+                await self._issue_runtime_exact_connector_authorization(
+                    config=config,
+                    state=state,
+                    run_id=run_id,
+                    node_id=scoped_id,
                     tenant_id=tenant_id,
                     actor_id=actor_id,
-                    actor_roles=actor_roles,
                     profile_id=profile_id,
-                    operation_id=config.operation_id,
                     payload=payload,
                     idempotency_key=idempotency_key,
-                    authorization_id=authorization_id,
-                    dry_run=execution_mode == "dry_run",
-                    application_id=state.application_id if state else "",
-                    run_id=run_id,
-                    assignment_id=(
-                        state.assignment_id
-                        if state is not None
-                        and state.governed_host_actions
-                        and state.assignment_id is not None
-                        else ""
-                    ),
-                    session_id=(
-                        state.session_id
-                        if state is not None
-                        and state.governed_host_actions
-                        and state.session_id is not None
-                        else ""
-                    ),
-                    allowed_network_hosts=(
-                        list(state.allowed_network_hosts)
-                        if state is not None
-                        and state.governed_host_actions
-                        and state.allowed_network_hosts is not None
-                        else None
-                    ),
-                    allowed_compensation_operations=(
-                        list(state.compensation_connector_operations)
-                        if state is not None
-                        and state.governed_host_actions
-                        and state.compensation_connector_operations is not None
-                        else None
-                    ),
-                    permission_required=(
-                        execution_mode == "execute"
-                        and connector_operation.mutating
-                        and operation
-                        in self._permission_connector_operations.get(
-                            run_id,
-                            frozenset(),
-                        )
-                    ),
-                    assignment_max_write_count=(
-                        state.max_connector_write_count
-                        if state is not None and state.governed_host_actions
-                        else None
-                    ),
-                    assignment_max_payload_bytes=(
-                        state.max_connector_payload_bytes
-                        if state is not None and state.governed_host_actions
-                        else None
-                    ),
                 )
             )
-            receipt = execution.public_receipt()
-            await self._emit(
-                run_id,
-                "connector.execution.completed",
-                {
-                    "node_id": scoped_id,
-                    "execution_id": execution.id,
-                    "operation_id": execution.operation_id,
-                    "status": execution.status,
-                    "replayed": execution.replayed,
-                },
-            )
-            return {
-                "output": receipt,
-                "receipt": receipt,
-                "response": execution.response,
-            }
-        if isinstance(config, IterationConfig):
-            items = self._resolve(config.items, context)
-            if not isinstance(items, list):
-                raise TypeError("iteration items must resolve to an array")
-            variables = {
-                key: self._resolve(value, context)
-                for key, value in config.variables.items()
-            }
-            semaphore = asyncio.Semaphore(config.parallelism)
-
-            async def one(index: int, item: Any) -> Any:
-                async with semaphore:
-                    nested_inputs = {
-                        **inputs,
-                        **variables,
-                        config.item_name: item,
-                        "index": index,
-                    }
-                    nested = await self._run_graph(
-                        snapshot,
-                        config.workflow,
-                        nested_inputs,
-                        workspace_path,
+        execution = await self.connector_service.execute(
+            ConnectorExecutionRequest(
+                connector_id=config.connector_id,
+                connector_version=config.connector_version,
+                tenant_id=tenant_id,
+                actor_id=actor_id,
+                actor_roles=actor_roles,
+                profile_id=profile_id,
+                operation_id=config.operation_id,
+                payload=payload,
+                idempotency_key=idempotency_key,
+                authorization_id=authorization_id,
+                dry_run=execution_mode == "dry_run",
+                application_id=state.application_id if state else "",
+                run_id=run_id,
+                assignment_id=(
+                    state.assignment_id
+                    if state is not None
+                    and state.governed_host_actions
+                    and state.assignment_id is not None
+                    else ""
+                ),
+                session_id=(
+                    state.session_id
+                    if state is not None
+                    and state.governed_host_actions
+                    and state.session_id is not None
+                    else ""
+                ),
+                allowed_network_hosts=(
+                    list(state.allowed_network_hosts)
+                    if state is not None
+                    and state.governed_host_actions
+                    and state.allowed_network_hosts is not None
+                    else None
+                ),
+                allowed_compensation_operations=(
+                    list(state.compensation_connector_operations)
+                    if state is not None
+                    and state.governed_host_actions
+                    and state.compensation_connector_operations is not None
+                    else None
+                ),
+                permission_required=(
+                    execution_mode == "execute"
+                    and connector_operation.mutating
+                    and operation
+                    in self._permission_connector_operations.get(
                         run_id,
-                        prefix=f"{scoped_id}[{index}].",
-                        top_state=state,
+                        frozenset(),
                     )
-                    value: Any = nested.get(config.output_node_id)
-                    for key in config.output_path:
-                        value = value[key]
-                    return value
-
-            return {"items": await asyncio.gather(*(one(index, item) for index, item in enumerate(items)))}
-        if isinstance(config, LoopConfig):
-            variables = {key: self._resolve(value, context) for key, value in config.variables.items()}
-            loop_state = (
-                self._resolve(config.initial_state, context)
-                if config.initial_state is not None
-                else variables.get(config.state_input_name, {})
+                ),
+                assignment_max_write_count=(
+                    state.max_connector_write_count
+                    if state is not None and state.governed_host_actions
+                    else None
+                ),
+                assignment_max_payload_bytes=(
+                    state.max_connector_payload_bytes
+                    if state is not None and state.governed_host_actions
+                    else None
+                ),
             )
-            feedback = variables.get(config.feedback_input_name)
-            previous: Any = None
-            nested: dict[str, dict[str, Any]] = {}
-            for index in range(config.max_iterations):
+        )
+        receipt = execution.public_receipt()
+        await self._emit(
+            run_id,
+            "connector.execution.completed",
+            {
+                "node_id": scoped_id,
+                "execution_id": execution.id,
+                "operation_id": execution.operation_id,
+                "status": execution.status,
+                "replayed": execution.replayed,
+            },
+        )
+        return {
+            "output": receipt,
+            "receipt": receipt,
+            "response": execution.response,
+        }
+
+    @_node_executor("iteration")
+    async def _exec_iteration(self, run: NodeRun) -> dict[str, Any]:
+        snapshot, config, context, inputs, workspace_path, run_id, scoped_id, state = run.snapshot, run.config, run.context, run.inputs, run.workspace_path, run.run_id, run.scoped_id, run.state
+        items = self._resolve(config.items, context)
+        if not isinstance(items, list):
+            raise TypeError("iteration items must resolve to an array")
+        variables = {
+            key: self._resolve(value, context)
+            for key, value in config.variables.items()
+        }
+        semaphore = asyncio.Semaphore(config.parallelism)
+
+        async def one(index: int, item: Any) -> Any:
+            async with semaphore:
                 nested_inputs = {
                     **inputs,
                     **variables,
-                    "iteration": index,
-                    "previous": previous,
-                    config.state_input_name: loop_state,
-                    config.feedback_input_name: feedback,
+                    config.item_name: item,
+                    "index": index,
                 }
-                await self._emit(run_id, "loop.iteration.started", {
-                    "node_id": scoped_id,
-                    "iteration": index + 1,
-                    "state": self._redact(loop_state),
-                    "feedback": self._redact(feedback),
-                })
                 nested = await self._run_graph(
                     snapshot,
                     config.workflow,
@@ -2425,116 +2684,176 @@ class WorkflowRuntime:
                     workspace_path,
                     run_id,
                     prefix=f"{scoped_id}[{index}].",
-                    # 嵌套执行必须继承运行状态：丢了它，owner 身份随之丢失，
-                    # 循环体内的 $secret 凭证引用会以空 owner 被拒（盲测返修#1 的真凶）。
                     top_state=state,
                 )
-                loop_context = {"inputs": nested_inputs, "nodes": nested}
-                output = nested.get(config.output_node_id, {})
-                next_state = (
-                    self._resolve(config.state_update, loop_context)
-                    if config.state_update is not None
-                    else output.get("state", loop_state) if isinstance(output, dict) else loop_state
-                )
-                next_feedback = (
-                    self._resolve(config.feedback_value, loop_context)
-                    if config.feedback_value is not None
-                    else output.get("feedback", feedback) if isinstance(output, dict) else feedback
-                )
-                break_value = self._resolve(config.break_value, loop_context)
-                break_condition = config.break_condition.model_copy(update={"value": break_value})
-                should_break = self._evaluate(break_condition, loop_context)
-                cancel_value: Any = None
-                should_cancel = False
-                if config.cancel_condition is not None:
-                    cancel_value = self._resolve(config.cancel_value, loop_context)
-                    cancel_condition = config.cancel_condition.model_copy(update={"value": cancel_value})
-                    should_cancel = self._evaluate(cancel_condition, loop_context)
-                if config.checkpoint_each_iteration:
-                    checkpoint_id = f"{scoped_id}:iteration:{index + 1}"
-                    await self.storage.save_checkpoint(
-                        run_id,
-                        checkpoint_id,
-                        {
-                            "node_id": scoped_id,
-                            "iteration": index + 1,
-                            "variables": variables,
-                            "output_node_id": config.output_node_id,
-                            "output": output,
-                            "state": next_state,
-                            "feedback": next_feedback,
-                            "break_value": break_value,
-                            "cancel_value": cancel_value,
-                        },
-                    )
-                    await self._emit(run_id, "loop.checkpoint.saved", {
-                        "node_id": scoped_id,
-                        "checkpoint_id": checkpoint_id,
-                        "iteration": index + 1,
-                    })
-                stop_reason = "cancelled" if should_cancel else "break_condition" if should_break else "continue"
-                await self._emit(run_id, "loop.iteration.completed", {
-                    "node_id": scoped_id,
-                    "iteration": index + 1,
-                    "state": self._redact(next_state),
-                    "feedback": self._redact(next_feedback),
-                    "break_value": self._redact(break_value),
-                    "cancel_value": self._redact(cancel_value),
-                    "stop_reason": stop_reason,
-                })
-                result = {
-                    "output": output,
-                    "iterations": index + 1,
-                    "state": next_state,
-                    "feedback": next_feedback,
-                    "stop_reason": stop_reason,
-                    "cancelled": should_cancel,
-                }
-                if should_cancel or should_break:
-                    return result
-                previous = output
-                loop_state = next_state
-                feedback = next_feedback
-                variables[config.state_input_name] = loop_state
-                variables[config.feedback_input_name] = feedback
-            raise RuntimeError(f"loop did not meet break condition after {config.max_iterations} iterations")
-        if isinstance(config, HumanInputConfig):
-            preset = inputs.get("__human__", {}).get(node.id) if isinstance(inputs.get("__human__"), dict) else None
-            if preset is not None:
-                return {"output": preset, **preset}
-            if state and scoped_id in state.human_input_values:
-                values = state.human_input_values[scoped_id]
-                return {"output": values, **values}
-            if (
-                state
-                and state.waiting_node_id in {node.id, scoped_id}
-                and state.resumed_values is not None
-            ):
-                values = dict(state.resumed_values)
-                for field in config.fields:
-                    if field.required and values.get(field.name) is None:
-                        raise ValueError(f"missing required human input: {field.name}")
-                state.human_input_values[scoped_id] = values
-                state.waiting_node_id = None
-                state.resumed_values = None
-                await self.workflow_store.update_run(run_id, status="running", state=state)
-                return {"output": values, **values}
-            if not state:
-                raise RuntimeError("human input is only supported in persisted top-level runs")
-            state.waiting_node_id = scoped_id
-            await self._emit(run_id, "human_input.required", {
+                value: Any = nested.get(config.output_node_id)
+                for key in config.output_path:
+                    value = value[key]
+                return value
+
+        tasks = [asyncio.create_task(one(index, item)) for index, item in enumerate(items)]
+        try:
+            return {"items": await asyncio.gather(*tasks)}
+        finally:
+            # gather propagates the first failure without stopping its siblings.
+            # Join their cleanup before reporting failure/pause or retrying the map.
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+    @_node_executor("loop")
+    async def _exec_loop(self, run: NodeRun) -> dict[str, Any]:
+        snapshot, config, context, inputs, workspace_path, run_id, scoped_id, state = run.snapshot, run.config, run.context, run.inputs, run.workspace_path, run.run_id, run.scoped_id, run.state
+        variables = {key: self._resolve(value, context) for key, value in config.variables.items()}
+        loop_state = (
+            self._resolve(config.initial_state, context)
+            if config.initial_state is not None
+            else variables.get(config.state_input_name, {})
+        )
+        feedback = variables.get(config.feedback_input_name)
+        previous: Any = None
+        nested: dict[str, dict[str, Any]] = {}
+        for index in range(config.max_iterations):
+            nested_inputs = {
+                **inputs,
+                **variables,
+                "iteration": index,
+                "previous": previous,
+                config.state_input_name: loop_state,
+                config.feedback_input_name: feedback,
+            }
+            await self._emit(run_id, "loop.iteration.started", {
                 "node_id": scoped_id,
-                "block_node_id": node.id,
-                "title": config.title,
-                "description": config.description,
-                "fields": [field.model_dump(mode="json") for field in config.fields],
+                "iteration": index + 1,
+                "state": self._redact(loop_state),
+                "feedback": self._redact(feedback),
             })
-            raise HumanInputPause()
-        if isinstance(config, EndConfig):
-            return {key: self._resolve(value, context) for key, value in config.outputs.items()}
-        if isinstance(config, AnswerConfig):
-            return {"answer": self._resolve(config.answer, context)}
-        raise RuntimeError(f"block executor missing: {node.type}")
+            nested = await self._run_graph(
+                snapshot,
+                config.workflow,
+                nested_inputs,
+                workspace_path,
+                run_id,
+                prefix=f"{scoped_id}[{index}].",
+                # 嵌套执行必须继承运行状态：丢了它，owner 身份随之丢失，
+                # 循环体内的 $secret 凭证引用会以空 owner 被拒（盲测返修#1 的真凶）。
+                top_state=state,
+            )
+            loop_context = {"inputs": nested_inputs, "nodes": nested}
+            output = nested.get(config.output_node_id, {})
+            next_state = (
+                self._resolve(config.state_update, loop_context)
+                if config.state_update is not None
+                else output.get("state", loop_state) if isinstance(output, dict) else loop_state
+            )
+            next_feedback = (
+                self._resolve(config.feedback_value, loop_context)
+                if config.feedback_value is not None
+                else output.get("feedback", feedback) if isinstance(output, dict) else feedback
+            )
+            break_value = self._resolve(config.break_value, loop_context)
+            break_condition = config.break_condition.model_copy(update={"value": break_value})
+            should_break = self._evaluate(break_condition, loop_context)
+            cancel_value: Any = None
+            should_cancel = False
+            if config.cancel_condition is not None:
+                cancel_value = self._resolve(config.cancel_value, loop_context)
+                cancel_condition = config.cancel_condition.model_copy(update={"value": cancel_value})
+                should_cancel = self._evaluate(cancel_condition, loop_context)
+            if config.checkpoint_each_iteration:
+                checkpoint_id = f"{scoped_id}:iteration:{index + 1}"
+                await self.storage.save_checkpoint(
+                    run_id,
+                    checkpoint_id,
+                    {
+                        "node_id": scoped_id,
+                        "iteration": index + 1,
+                        "variables": variables,
+                        "output_node_id": config.output_node_id,
+                        "output": output,
+                        "state": next_state,
+                        "feedback": next_feedback,
+                        "break_value": break_value,
+                        "cancel_value": cancel_value,
+                    },
+                )
+                await self._emit(run_id, "loop.checkpoint.saved", {
+                    "node_id": scoped_id,
+                    "checkpoint_id": checkpoint_id,
+                    "iteration": index + 1,
+                })
+            stop_reason = "cancelled" if should_cancel else "break_condition" if should_break else "continue"
+            await self._emit(run_id, "loop.iteration.completed", {
+                "node_id": scoped_id,
+                "iteration": index + 1,
+                "state": self._redact(next_state),
+                "feedback": self._redact(next_feedback),
+                "break_value": self._redact(break_value),
+                "cancel_value": self._redact(cancel_value),
+                "stop_reason": stop_reason,
+            })
+            result = {
+                "output": output,
+                "iterations": index + 1,
+                "state": next_state,
+                "feedback": next_feedback,
+                "stop_reason": stop_reason,
+                "cancelled": should_cancel,
+            }
+            if should_cancel or should_break:
+                return result
+            previous = output
+            loop_state = next_state
+            feedback = next_feedback
+            variables[config.state_input_name] = loop_state
+            variables[config.feedback_input_name] = feedback
+        raise RuntimeError(f"loop did not meet break condition after {config.max_iterations} iterations")
+
+    @_node_executor("human_input")
+    async def _exec_human_input(self, run: NodeRun) -> dict[str, Any]:
+        node, config, inputs, run_id, scoped_id, state = run.node, run.config, run.inputs, run.run_id, run.scoped_id, run.state
+        preset = inputs.get("__human__", {}).get(node.id) if isinstance(inputs.get("__human__"), dict) else None
+        if preset is not None:
+            return {"output": preset, **preset}
+        if state and scoped_id in state.human_input_values:
+            values = state.human_input_values[scoped_id]
+            return {"output": values, **values}
+        if (
+            state
+            and state.waiting_node_id in {node.id, scoped_id}
+            and state.resumed_values is not None
+        ):
+            values = dict(state.resumed_values)
+            for field in config.fields:
+                if field.required and values.get(field.name) is None:
+                    raise ValueError(f"missing required human input: {field.name}")
+            state.human_input_values[scoped_id] = values
+            state.waiting_node_id = None
+            state.resumed_values = None
+            await self.workflow_store.update_run(run_id, status="running", state=state)
+            return {"output": values, **values}
+        if not state:
+            raise RuntimeError("human input is only supported in persisted top-level runs")
+        state.waiting_node_id = scoped_id
+        await self._emit(run_id, "human_input.required", {
+            "node_id": scoped_id,
+            "block_node_id": node.id,
+            "title": config.title,
+            "description": config.description,
+            "fields": [field.model_dump(mode="json") for field in config.fields],
+        })
+        raise HumanInputPause()
+
+    @_node_executor("end")
+    async def _exec_end(self, run: NodeRun) -> dict[str, Any]:
+        config, context = run.config, run.context
+        return {key: self._resolve(value, context) for key, value in config.outputs.items()}
+
+    @_node_executor("answer")
+    async def _exec_answer(self, run: NodeRun) -> dict[str, Any]:
+        config, context = run.config, run.context
+        return {"answer": self._resolve(config.answer, context)}
 
     async def _execute_agent_architecture_block(
         self,
@@ -3272,32 +3591,6 @@ class WorkflowRuntime:
                 "state": {"mechanism": node.type, "allowed": allowed, "current_round": current_round, "max_rounds": max_rounds},
             }
 
-        if node.type == "soft_block":
-            from .soft_block import get_discrete_block_type
-            strategy = str(settings.get("strategy", "context_assemble"))
-            discrete_type = get_discrete_block_type(strategy)
-            if discrete_type is None:
-                raise RuntimeError(f"soft_block: unknown strategy: {strategy}")
-
-            # SoftBlock is a design-time macro: at runtime it delegates directly
-            # to the equivalent discrete block. No runtime strategy selection.
-            return await self._execute_agent_architecture_block(
-                AgentArchitectureConfig(
-                    input=config.input,
-                    settings=settings,
-                ),
-                snapshot,
-                NodeSpec(
-                    id=node.id, type=discrete_type, title=node.title,
-                    config={"input": config.input, "settings": settings},
-                ),
-                context,
-                workspace_path,
-                run_id,
-                scoped_id,
-                state,
-            )
-
         if node.type == "hook_point":
             hook_name = str(settings.get("hook_name", node.title))
             direction = str(settings.get("direction", "before"))
@@ -3519,23 +3812,29 @@ class WorkflowRuntime:
         return next(reversed(context["nodes"].values()))
 
     async def _model_text(
-        self, run_id: str, model: str, system: str, prompt: str, node_id: str
+        self, run_id: str, model: str, system: str, prompt: str, node_id: str,
+        *, diagnostics: dict[str, Any] | None = None,
+        max_output_tokens: int = 16_384,
+        images: list[ContentBlock] | None = None,
     ) -> tuple[str, Usage]:
+        if hasattr(self.provider, 'selected_model'):
+            model = self.provider.selected_model(model)
         await self.harness.record_usage(
             run_id,
             "model_call",
-            metadata={"node_id": node_id, "model": model, "mode": "text"},
+            metadata={"node_id": node_id, "model": model, "mode": "vision" if images else "text"},
         )
-        # 工作流里的模型环节是执行者不是设计者：medium 思考 + 16k 预算。
+        # 工作流里的模型环节默认 medium 思考 + 16k 预算；LLM节点可配置输出上限。
         # 有些模型在逐条评分类任务上思考失控（idol 工作流：16k 预算全烧思考、正文为空），
         # 所以截断出空正文时自动关思考重试一次——自愈优先，还不行才诚实失败。
-        for thinking_enabled in (True, False):
+        from .model_connections import project_model
+        for thinking_enabled in ((True,) if project_model.get() else (True, False)):
             stream = self.provider.stream(
                 model=model,
                 system=system,
-                messages=[ChatMessage(role="user", content=[ContentBlock(type="text", text=prompt)])],
+                messages=[ChatMessage(role="user", content=[ContentBlock(type="text", text=prompt), *(images or [])])],
                 tools=[],
-                max_output_tokens=16_384,
+                max_output_tokens=max_output_tokens,
                 thinking_enabled=thinking_enabled,
                 effort="medium" if thinking_enabled else "low",
                 user_id=run_id,
@@ -3551,15 +3850,17 @@ class WorkflowRuntime:
                 metadata={"node_id": node_id, "phase": "workflow_model_text"},
             )
             text = "".join(block.text or "" for block in response.blocks if block.type == "text")
+            if diagnostics is not None:
+                diagnostics["stop_reason"] = response.stop_reason
             if text.strip() or response.stop_reason != "max_tokens":
                 return text, response.usage
-            if thinking_enabled:
+            if thinking_enabled and not project_model.get():
                 await self._emit(run_id, "node.model.retry_no_thinking", {
                     "node_id": node_id,
                     "reason": "思考消耗了全部输出预算，正文被截断为空；自动关闭思考重试一次",
                 })
         raise RuntimeError(
-            f"模型环节「{node_id}」两次尝试的输出预算都被耗尽，正文始终为空。"
+            f"模型环节「{node_id}」输出预算已耗尽，正文为空。"
             "请压缩这一环节的输入（例如只保留必要字段）或拆分任务后重试。"
         )
 
@@ -3578,6 +3879,8 @@ class WorkflowRuntime:
         downstream agent-architecture blocks can inspect and route tool calls.
         """
         from .models import ToolDefinition as TD
+        if hasattr(self.provider, 'selected_model'):
+            model = self.provider.selected_model(model)
         await self.harness.record_usage(
             run_id,
             "model_call",
@@ -3667,6 +3970,18 @@ class WorkflowRuntime:
     ) -> dict[str, Any]:
         if config.tool_name.startswith("workflow:"):
             application_id = config.tool_name.split(":", 1)[1]
+            if state is not None and state.project_context:
+                project = state.project_context
+                nested = await self.projects.execute(project['project_id'], project['task_id'], application_id,
+                    self._resolve(config.input, context), step=project['step'] + '/' + node_id,
+                    parent_run_id=run_id, reuse=True, call_chain=state.application_call_chain,
+                    workspace_path=state.workspace_path, record_scope=project.get('record_scope', ''))
+                if nested['status'] == 'paused':
+                    state.waiting_node_id = node_id
+                    raise HumanInputPause()
+                if nested['status'] != 'succeeded':
+                    raise RuntimeError(f"成员工作流执行失败：{nested.get('error') or nested['status']}")
+                return {'output': nested['outputs'], 'run_id': nested.get('id'), 'reused': nested.get('reused', False)}
             self._validate_nested_workflow_target(
                 config.tool_name,
                 self._nested_application_allowlists.get(run_id),
@@ -3832,7 +4147,7 @@ class WorkflowRuntime:
                 parsed = json.loads(result.content)
             except json.JSONDecodeError:
                 parsed = result.content
-            return {"output": parsed}
+            return {"output": parsed, **(result.structured_output or {})}
         except Exception as error:
             await self._emit(run_id, f"node.{node_id}.tool.failed", {
                 "tool": config.tool_name, "error": str(error)
@@ -3967,6 +4282,7 @@ class WorkflowRuntime:
         self,
         application_id: str,
         *,
+        project_context: dict[str, Any] | None = None,
         harness_task_id: str | None = None,
         manage_harness_task: bool = True,
         origin: str = "test_suite",
@@ -3993,6 +4309,10 @@ class WorkflowRuntime:
         task_deadline_at: str | None = None,
     ) -> dict[str, Any]:
         draft = await self.workflow_store.get_draft(application_id)
+        if project_context:
+            fixed = project_context['snapshots'][application_id]
+            draft = {**draft, 'revision': fixed['revision'], 'content_hash': fixed['content_hash'],
+                     'snapshot': ApplicationSnapshot.model_validate(fixed['snapshot'])}
         snapshot: ApplicationSnapshot = draft["snapshot"]
         nested_allowlist = (
             frozenset(str(value) for value in allowed_nested_application_ids)
@@ -4045,6 +4365,10 @@ class WorkflowRuntime:
         ):
             for test in snapshot.tests:
                 self._validate_restricted_inputs(test.inputs)
+        agent_modules_enabled = await self._project_agent_modules_enabled(application_id, project_context)
+        if getattr(self, 'projects', None) is not None:
+            await self.projects.validate_capabilities(application_id, snapshot,
+                project_id=project_context['project_id'] if project_context else None)
         case_workspaces: list[Path | None] = [None for _ in snapshot.tests]
         suite_instance = f"test-suite-{uuid4().hex}"
         if workspace_boundary is not None:
@@ -4074,6 +4398,7 @@ class WorkflowRuntime:
                 allowed_connector_operations=connector_allowlist,
                 governed_host_actions=governed_host_actions,
                 agents=snapshot.agents,
+                agent_modules_enabled=agent_modules_enabled,
             )
         validation = await self.applications.validate_draft(application_id)
         if validation["valid"]:
@@ -4085,8 +4410,14 @@ class WorkflowRuntime:
                     snapshot.workflow,
                     suite_base,
                     case_workspace,
+                    additional_paths=[
+                        name for name in ('requirement-package', 'requirements', 'solution', 'results')
+                        if (suite_base / name).exists() or (suite_base / name).is_symlink()
+                    ] if project_context else (),
                 )
                 self._stage_test_workspace_tools(suite_base, case_workspace)
+                if project_context:
+                    self.sandboxes.protect_inputs(case_workspace, ['requirement-package', 'requirements'])
                 self._validate_execution_policy(
                     snapshot.workflow,
                     workspace_boundary=case_workspace,
@@ -4096,6 +4427,7 @@ class WorkflowRuntime:
                     model_access=model_access,
                     allowed_connector_operations=connector_allowlist,
                     agents=snapshot.agents,
+                    agent_modules_enabled=agent_modules_enabled,
                 )
                 case_workspaces[index] = case_workspace
         test_task_id = harness_task_id or f"test-suite:{uuid4()}"
@@ -4284,6 +4616,8 @@ class WorkflowRuntime:
                     budget_digest=budget_digest,
                     task_deadline_at=task_deadline_at,
                     simulated_human_inputs=test.simulated_human_inputs,
+                    project_context=({**project_context, 'step': f'test/{index}',
+                                      'record_scope': f'{suite_instance}:{index}'} if project_context else None),
                 )
                 run_id = created["run_id"]
                 task = self.active_tasks[run_id]
@@ -4543,6 +4877,8 @@ class WorkflowRuntime:
         workflow: WorkflowSpec,
         suite_base: Path,
         case_workspace: Path,
+        *,
+        additional_paths: Collection[str] = (),
     ) -> None:
         """Copy declared writable project roots into one isolated test case."""
 
@@ -4553,7 +4889,7 @@ class WorkflowRuntime:
                 "test case workspace must stay inside its suite workspace"
             )
 
-        declared = cls._declared_test_workspace_paths(workflow)
+        declared = [*cls._declared_test_workspace_paths(workflow), *additional_paths]
         roots: list[Path] = []
         for value in declared:
             relative = cls._safe_test_workspace_relative(value)
@@ -4599,7 +4935,7 @@ class WorkflowRuntime:
             shutil.copytree(
                 resolved_source,
                 destination,
-                copy_function=shutil.copy2,
+                copy_function=copy_workspace_file,
                 dirs_exist_ok=relative == Path("."),
                 ignore=cls._test_workspace_copy_ignore(
                     suite_base=suite_base,
@@ -4752,6 +5088,7 @@ class WorkflowRuntime:
                 cache_source,
                 cache_destination,
                 symlinks=True,
+                copy_function=copy_workspace_file,
             )
 
     async def _validate_contract(
@@ -5295,20 +5632,28 @@ class WorkflowRuntime:
         return f"{rendered.rstrip()}\n\n<workflow_input>\n{input_text}\n</workflow_input>"
 
     @staticmethod
-    def _json_from_text(text: str) -> Any:
+    def _json_from_text(text: str, *, stop_reason: str | None = None) -> Any:
         stripped = text.strip()
         if stripped.startswith("```"):
             stripped = re.sub(r"^```(?:json)?\s*|\s*```$", "", stripped, flags=re.I)
         try:
             return json.loads(stripped)
         except json.JSONDecodeError as error:
+            parse_error = error
             match = re.search(r"(\{.*\}|\[.*\])", stripped, re.S)
-            if not match:
-                raise ValueError("model did not return valid JSON") from error
-            try:
-                return json.loads(match.group(1))
-            except json.JSONDecodeError as nested_error:
-                raise ValueError("model did not return valid JSON") from nested_error
+            if match:
+                try:
+                    return json.loads(match.group(1))
+                except json.JSONDecodeError as nested_error:
+                    parse_error = nested_error
+            preview = text if len(text) <= 600 else text[:300] + "\n...[omitted]...\n" + text[-300:]
+            nearby = parse_error.doc[max(0, parse_error.pos - 80):parse_error.pos + 80]
+            raise ValueError(
+                f"model did not return valid JSON; stop_reason={stop_reason or 'unknown'}; "
+                f"output_chars={len(text)}; JSON parser: {parse_error.msg} "
+                f"at line {parse_error.lineno} column {parse_error.colno} (char {parse_error.pos}); "
+                f"near={nearby!r}; output_preview={preview!r}"
+            ) from parse_error
 
     @staticmethod
     def _acceptance_failure_code(run_error: str) -> str:

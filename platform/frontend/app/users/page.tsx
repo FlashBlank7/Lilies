@@ -42,7 +42,7 @@ export default function UsersPage() {
         <input type="password" placeholder="管理员令牌" value={token} onChange={e => setToken(e.target.value)}
           style={{ flex: 1, border: '1px solid #e4e7ec', borderRadius: 8, padding: '7px 10px' }} />
         <button onClick={() => { saveClientToken(token); void refresh() }}
-          style={{ border: 0, borderRadius: 8, background: '#0e7a5f', color: '#fff', padding: '7px 16px', cursor: 'pointer' }}>使用</button>
+          style={{ border: 0, borderRadius: 8, background: 'var(--ui-accent)', color: '#fff', padding: '7px 16px', cursor: 'pointer' }}>使用</button>
       </div>
     </div>}
     <table style={{ width: '100%', borderCollapse: 'collapse', background: '#fff', border: '1px solid #e4e7ec', borderRadius: 12, overflow: 'hidden' }}>
@@ -53,14 +53,14 @@ export default function UsersPage() {
         <td style={{ padding: '9px 14px', fontWeight: 600 }}>{user.name}</td>
         <td>{user.role === 'admin' ? '管理员' : '成员'}</td>
         <td><span style={{ fontSize: 11, borderRadius: 99, padding: '2px 10px',
-          background: user.status === 'active' ? '#e7f4ef' : '#fff6e3',
-          color: user.status === 'active' ? '#0e7a5f' : '#8a5a00' }}>
+          background: user.status === 'active' ? 'var(--ui-ok-soft)' : 'var(--ui-warn-soft)',
+          color: user.status === 'active' ? 'var(--ui-accent)' : 'var(--ui-warn)' }}>
           {user.status === 'active' ? '正常' : '已禁用'}</span></td>
         <td style={{ color: '#98a1af', fontSize: 12 }}>{(user.created_at || '').slice(0, 10)}</td>
         <td style={{ textAlign: 'right', paddingRight: 14 }}>
           <button onClick={() => void toggle(user)} style={{ border: '1px solid #e4e7ec', background: '#fff',
             borderRadius: 8, padding: '4px 12px', fontSize: 12, cursor: 'pointer',
-            color: user.status === 'active' ? '#b42318' : '#0e7a5f' }}>
+            color: user.status === 'active' ? '#b42318' : 'var(--ui-accent)' }}>
             {user.status === 'active' ? '禁用' : '启用'}</button>
         </td>
       </tr>)}</tbody>

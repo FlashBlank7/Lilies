@@ -1,197 +1,77 @@
 # 智能体/工作流生成平台
 
-> **让企业和个人用自然语言得到能真正运行的 AI 工作流。莉莉丝是平台的 Builder 智能体。**
+通过项目内对话，将企业数据与目标转化为可编辑、可运行、可继续改进的工作流。当前项目入口由平台自己的智能体循环运行，连接模型 API 提供推理，并可调整思考模式。之前由本机 Codex 完成的业务试用保留为历史，不能据此认定平台自身智能体目标达成。
 
-平台对标 Dify 类可视化工作流产品，差异化在于：莉莉丝根据自然语言需求自动询问、搭建、测试和修复工作流。产出不是黑箱代码，而是一张**可编辑、可运行、可版本化**的工作流画布。
+## 当前能用什么
 
-产品意图见 [`docs/PRODUCT_NORTH_STAR.md`](docs/PRODUCT_NORTH_STAR.md)，业务设计见 [`docs/BUSINESS_LOGIC.md`](docs/BUSINESS_LOGIC.md)。
+- **打开项目**：导入需求包，沟通目标；导入不会自动执行。
+- **分析与建模**：数据分析、特征配置、标准库训练、Optuna 调参和模型比较；每次试验保留训练笔记、实际指标和产物。
+- **交付与继续**：下载模型、运行预测工作流、反馈修改，以及停止后继续。
+- **编辑业务流程**：主流程与成员工作流共用现有画布和运行器，共享项目记录。
 
-## 核心洞察
+通用链条已有真实运行，工业模型效果仍需逐项目验证。客户试验记录不随公开源码发布，平台可运行不等于模型精度达标。
 
-> *人和人工作能力的差距，往往不是智力或经验的差距，而是工作流的差距。好流程让普通人产出好结果，坏流程让聪明人也寸步难行。*
+## 本机原型启动
 
-平台把专家的做事方式变成**可执行、可复用、可迭代、可组合**的积木工作流。
+需要 Python 3.12+、Node.js 20+、Docker。项目使用模型 API，计算由 Docker 容器执行。配置、思考选项与验证范围见[项目模型连接](docs/project-model-connections.md)。
 
-### 三个设计原则
+以下是当前开发启动方式；完整备份恢复已实现并完成本机隔离验证，干净环境安装和生产启动仍待验证。
 
-1. **工作流是模块，模块是工作流** — 已发布的工作流可以通过 `$ref` + 版本锁定被其他工作流当积木调用，系统具备分形组合能力。
-2. **文本即智能** — 模块输出是 LLM 天然理解的结构化文本信封（`result` + `structured`），下游语义靠模型理解，结构靠 `$ref` 精确引用。
-3. **能跑起来的工作流 > 机制展示** — 平台价值由生成的工作流是否解决真实问题决定。验收手段（测试、冒烟、校验）服务于这个目标，而不是反过来。
+1. 首次创建配置；已有配置无需覆盖：
 
-## v0.5.0 开发线：小模型智能体原型（进行中，2026-08 下旬启动）
+   ```sh
+   cp .env.example .env
+   chmod 600 .env
+   ```
 
-> 研究命题：**可信构建来自边界执法的 harness，而非模型体量**——小模型集群在同一套
-> harness 下应能交付可验收的工作流。设计全文见
-> [`docs/small-model-builder-design.md`](docs/small-model-builder-design.md)，
-> 防线消融开关清单见 [`docs/harness-config-ablation.md`](docs/harness-config-ablation.md)。
+   将 `API_TOKEN` 换为自己的随机令牌。保持 `MODEL_EGRESS_ENABLED=false`，在项目模型设置中明确配置 API 连接；不会自动启用全局模型或调用上传材料中的密钥。
 
-已落地的实验基座（2026-08-18 起）：
+2. 安装平台依赖：
 
-- **Builder 可插拔注册表**：多套 builder 实现按名注册、按构建选择（`builds.builder`
-  列随记录落库进配置指纹）；经典单模型实现注册为 `classic`，新引擎并排注册即可
-  做同任务对照实验（`builder_registry.py`）
-- **per-actor 异构模型**：`BuildRequest.coordinator_model` / `teammate_models`
-  指定协调者模型与队友模型池（enum 白名单 + 越界硬门）；`spawn_teammate` 按角色
-  派模型、追问不漂移；每轮 turn 记录、计费、transcripts 均按 actor 实际模型记血缘
-- **本地小模型接入**：原生 chat-completions 适配器（`providers/openai_chat.py`），
-  `local/` 前缀由 `LOCAL_MODEL_BASE_URL` 注册，vLLM/SGLang/Ollama 即插即用；
-  回环地址豁免模型出网断路器
-- **现场信息回流**：`python -m agent_platform.field_report` 只读导出脱敏现场报告
-  （构建结局、**边界拒绝率**、守卫事件、per-actor 模型分布）——线上冻结版与本地
-  开发线之间的改进闭环；真实数据首测：1921 次工具调用、边界拒绝率 8.2%
-- **构建高级配置面板**：三个构建入口统一暴露回合/修复/时限/规划参数，折叠态常驻
-  配置摘要（`BuildAdvancedConfig`）
+   ```sh
+   python3 -m venv .venv
+   .venv/bin/python -m pip install -e '.[dev]'
+   npm --prefix platform/frontend ci
+   ```
 
-v0.5.0 完成标准（达成后移除 `-dev` 后缀）：
+3. 准备两个计算镜像：
 
-1. **形态 A（异构队友）跑通真实任务**：小模型配置手 + 大模型协调者，边界拒绝率与
-   一次通过率拿到实测数字；
-2. **形态 B（机械协调者状态机）**作为新引擎注册，通过同一套验收；
-3. **首个纯小模型构建**（协调者也是小模型）通过盲测级验收。
+   ```sh
+   docker build --build-arg SANDBOX_UID=$(id -u) --build-arg SANDBOX_GID=$(id -g) -f Dockerfile.sandbox -t agent-platform-sandbox:latest .
+   docker build -f Dockerfile.modeling -t lilies-modeling:20260914 .
+   ```
 
-研究环境：4×48G GPU 实验机（vLLM 多档并行，Qwen3 系起步）。调研归档：
-[`docs/research/`](docs/research/)（小模型选型 / Sakana 多模型协作 / DeepSeek dsh）。
-商业方向：[`docs/business-model-phase1.md`](docs/business-model-phase1.md)
-（按结果收费的交付服务）；企业侧开源播放器原型（deck）在独立仓库推进。
+   本机运行时，将 `.env` 中 `SANDBOX_UID`、`SANDBOX_GID` 设置为构建所用的用户与组编号。已有研究绑定固定镜像，升级时保留这些镜像。建模环境及已知安装边界见[建模说明](docs/modeling.md)。
 
-## 2026-08 lean-core 重构
+4. 检查配置并启动：
 
-平台曾经积累了大量治理、正式实验、协作开发和证据审计机器，验收压过了构建，简单工作流也难以生成。`refactor/lean-core` 分支做了一次大刀阔斧的裁撤：
+   ```sh
+   ./scripts/dev_platform.sh --check-env
+   ./scripts/dev_platform.sh
+   ```
 
-- 删除 77 个后端治理/协作/桥模块（约 11 万行）与 190+ 战役脚本、审计测试
-- Builder 去门禁：失败的构建**保留半成品草稿**供检查续作，不再回滚；交付缺口降级为警告
-- 修复端口默认值缺陷：普通连线不再要求记住每种积木的端口名
-- 历史战役文档全部归档至 [`docs/archive/`](docs/archive/)
-- 测试全绿：456 passed / 0 failed（持续增长）
+   打开 **http://127.0.0.1:3000/projects**。API 默认 http://127.0.0.1:8001。`--check-env` 仅显示配置和程序发现情况，实际登录、镜像及计算需要在项目中验证。
 
-**重构后的成果三报告**：[阶段总结](docs/lean-core-stage-report.md)（砍了什么、建了什么）· [图文使用报告](docs/feature-usage-report.md)（八张真实截图）· [已知缺陷病历单](docs/known-defects.md)（九项全处置）。
+旧 `compose.yaml` 保留兼容用途，但尚未包含建模镜像和宿主 Codex 的完整部署路径，不能将其作为当前原型的一键交付方案。不要为了启动旧入口而打开平台模型出口。
 
-### 重构后的新能力（2026-08）
+## 本轮开发重点
 
-- **会话式交付闭环**：会话页为默认入口——莉莉丝中文叙述、发布有系统徽章、纯工具轮自动翻译成人话动作行、长构建按工作段折叠；随时插话改单
-- **监理**（第二智能体）：出卷（业主例子→验收规格）、监考（零模型成本机械验收+执行审计+血缘回溯）、陪看（业主语言解释）；验收不过一键"按验收单返修"
-- **WaaS 使用界面**：每个工作流自动生成管理/极简/对话三件套界面，一条链接+访问码即交付；标注环节显隐可派生定制界面（服务端投影，零泄漏）
-- **一键交付包**：客户交互包（README+链接+定义+产出）与专家材料包（素颜产出）两切面 zip
-- **构建期动手能力**：Bash/Read/Write/Glob（Docker 沙盒、网络关闭）+ 平台内模型训练三工具（train/evaluate/promote，强制 held-out 评估与数据规模对账）
-- **诚实失败纪律**：静默垃圾九防线（模板回声检测、思考耗尽自愈、$sum 全灭哨兵、未知配置键报错、数值锚定测试、玩具规模警告……）
-- **成本工程**：构建历史滚动瘦身 + 前缀缓存纪律，单构建成本降至此前约 15%；缓存折扣入账
-- **真实项目战绩**：珠宝报告 1 轮过、法律审查 6 轮过、电梯诊断（自训模型 0.883）、ERP 日报（盲测两头验收全绿）、电梯原题盲测（零辅导 628 数据点 / 96.36%）
+优先交付能独立试用的原型：精简旧入口和配置、减少统筹往返、准备完整数据备份恢复，并在干净环境完成发布候选试用。部署位置与模型付款、报销方式仍待确认；当前不据此扩建计费或多租户系统。
 
-保留的核心保证：端口/图结构校验、强制冒烟测试、发布前测试套件、修复循环与轮次预算、Docker 沙盒、revision 乐观锁、幂等键。
+- [每周开发计划](docs/DEVELOPMENT_PLAN.md)：单人开发，暂按每周3个投入日，推进原型落地与工业项目验证。
+- [原型试用说明](docs/PROTOTYPE_QUICKSTART.md)：从上传数据到结果、反馈与预测。
+- [产品方向](docs/PRODUCT_NORTH_STAR.md)、[业务结构](docs/BUSINESS_LOGIC.md)。
+- [数据与建模](docs/modeling.md)、逐模型笔记及实际试用（本地试验记录）。
+- [项目协作](docs/project-cooperation.md)、[统一对话与接续](docs/project-conversation.md)。
 
-## 已实现的核心能力
+当前业务文件分布在 `data/` 与 `workspaces/`。`scripts/backup.sh` 已覆盖两者及配置，停止平台后备份；恢复只写入新目录。操作和边界见[完整备份与恢复](docs/backup-restore.md)。只备份 SQLite 不能恢复整个项目。
 
-### 积木系统
+## 开发验证
 
-46 个积木分三类：**业务积木**（LLM、If/Else、Iteration、Loop、Human Input、HTTP、Connector、受控网页采集、知识检索、typed workbook、记录管线……）、**Agent 架构积木**（Context Assembler、Model Turn、Tool Executor、Permission Gate、Subagent Spawn、Budget Gate、Checkpoint/Resume……）以及 soft block 元积木。Agent 的内部循环被拆解为画布上可编排、可审计的一等节点。
-
-### 莉莉丝自动搭建
-
-自然语言需求 → 分析拆解 → 搜索积木目录 → 逐节点增量搭建（不允许直接输出整图 JSON，每条边实时按端口契约校验）→ 生成验收测试 → 运行、失败自修 → 通过后发布。
-
-### 场景快速启动
-
-`GET /api/v1/scenarios` 提供可一键应用的场景包（每日受控采集摘要、Codex 式工作区智能体、客户系统嵌入），应用后立即可编辑、可运行。
-
-### 运行时
-
-- DAG 拓扑执行、迭代/循环子图、Human Input 持久暂停与表单恢复
-- Checkpoint/Resume（SQLite）、崩溃恢复、5/10 并发运行零交叉污染
-- 定时触发 + 持久任务队列（租约、重试、审计事件、幂等回执）
-- SSE 事件流全程可观测
-
-### 安全
-
-- API 默认绑定 `127.0.0.1` + Bearer Token；密钥仅存于 API 进程环境
-- 每个会话独立非特权 Docker 容器，CPU/内存/PID 受限
-- `MODEL_EGRESS_ENABLED=false` 默认阻断真实模型 HTTP，杜绝意外扣费
-
-## 快速开始
-
-### Docker Compose
-
-```bash
-cp .env.example .env && chmod 600 .env   # 里面要放付费密钥，别让同机其他用户读到
-# 设置 DEEPSEEK_API_KEY；确认后再开 MODEL_EGRESS_ENABLED=true
-./scripts/docker-up.sh
-# 打开 http://localhost:8000/debug
+```sh
+MODEL_EGRESS_ENABLED=false .venv/bin/python -m pytest tests -q
+npm --prefix platform/frontend test -- --run
+npm --prefix platform/frontend run build
 ```
 
-### 本地开发
-
-需要 Python 3.12+、Node.js 20+、Docker。
-
-```bash
-cp .env.example .env && chmod 600 .env   # 同上：.env 里是密钥，0644 起不住
-docker build --build-arg SANDBOX_UID=$(id -u) --build-arg SANDBOX_GID=$(id -g) \
-  -t agent-platform-sandbox:latest -f Dockerfile.sandbox .
-python3 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
-./scripts/dev_platform.sh
-# API: http://127.0.0.1:8001  Studio: 随脚本启动  OpenAPI: /docs
-```
-
-### 测试
-
-```bash
-python -m pytest tests -q
-```
-
-## 目录结构
-
-```text
-Lilies/
-├── platform/
-│   ├── backend/src/agent_platform/
-│   │   ├── api.py                FastAPI、SSE、全部路由
-│   │   ├── blocks.py             积木定义、端口契约、图校验
-│   │   ├── builder.py            莉莉丝 Builder（协调者+队友+任务）
-│   │   ├── workflow_runtime.py   DAG 执行、架构积木、checkpoint
-│   │   ├── workflow_storage.py   草稿/版本/Build/Run、乐观锁
-│   │   ├── scenarios.py          场景快速启动包
-│   │   ├── template_store.py     模块注册表（workflow-as-module）
-│   │   ├── knowledge_rag.py      SQLite RAG（ACL 前置、确定性）
-│   │   ├── typed_workbook.py     确定性 XLSX 工件（sha256 + 血缘）
-│   │   ├── record_pipeline.py    记录去重/归一/匹配
-│   │   ├── durable_jobs.py       持久任务队列（租约/重试/审计）
-│   │   ├── scheduler.py          定时触发
-│   │   ├── connector_sdk.py      企业连接器 + OpenAPI 生成
-│   │   ├── runtime.py            Agent 多轮循环
-│   │   ├── sandbox.py            Docker 沙盒
-│   │   └── providers/            ModelProvider 抽象 + DeepSeek
-│   └── frontend/                 Next.js + React Flow Studio
-├── templates/                    历史工作流样例
-├── tests/                        行为测试（401 项，全绿）
-├── docs/                         北极星、业务逻辑；archive/ 存历史
-└── compose.yaml                  Docker Compose
-```
-
-## API 速览
-
-```bash
-# 工作流
-POST /api/v1/applications                  # 创建应用
-POST /api/v1/applications/{id}/draft       # 编辑草稿（乐观锁 + 幂等键）
-POST /api/v1/applications/{id}/builds      # 莉莉丝自动搭建
-POST /api/v1/applications/{id}/tests/run   # 运行验收测试
-POST /api/v1/applications/{id}/versions    # 发布版本
-POST /api/v1/applications/{id}/runs        # 运行工作流
-
-# 场景与模板
-GET  /api/v1/scenarios                     # 场景快速启动包
-GET  /api/v1/templates                     # 模板列表
-POST /api/v1/templates/{name}/expand       # 展开为可编辑工作流
-
-# 需求补全与 Agent
-POST /api/v1/requirements/complete         # 需求澄清
-POST /v1/agent-generations                 # Agent Factory
-POST /v1/sessions                          # Agent 会话
-```
-
-## 已知边界（诚实清单）
-
-- 生成工作流的验收测试由莉莉丝自己生成，与客户真实需求可能存在偏移
-- RAG 使用确定性哈希 embedding（零网络、可精确断言），语义召回有限，真实企业语料需要接入真模型 embedding
-- typed workbook 只写不读，2MB 上限，无公式
-- 本地莉莉丝（`../LiliesAgent/`）的平台桥已在重构中移除，待按更薄的 HTTP 合同重新接入
-- Builder 会话 transcript 尚未落盘，构建失败的归因仍依赖事件流
+旧单应用入口位于 `/applications`，现有工作流及接口保留兼容。历史研究和版本记录见原 README 归档（本地试验记录），不作为当前开发顺序或产品完成声明。

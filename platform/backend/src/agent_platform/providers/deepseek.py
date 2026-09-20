@@ -141,6 +141,8 @@ class DeepSeekProvider(ModelProvider):
             value = block.model_dump(mode="json", exclude_none=True)
             if block.type == "text":
                 value = {"type": "text", "text": block.text or ""}
+            elif block.type == "image":
+                value = {"type": "image", "source": block.source or {}}
             elif block.type == "thinking":
                 value = {
                     "type": "thinking",

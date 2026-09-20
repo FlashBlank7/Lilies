@@ -210,7 +210,9 @@ async def collect_model_stream(
                 if block_type == "text":
                     blocks[index] = ContentBlock(type="text", text=raw.get("text", ""))
                 elif block_type == "thinking" and expose_thinking:
-                    blocks[index] = ContentBlock(type="thinking", thinking=raw.get("thinking", ""))
+                    blocks[index] = ContentBlock(type="thinking", thinking=raw.get("thinking", ""), signature=raw.get('signature'))
+                elif block_type == "redacted_thinking" and expose_thinking:
+                    blocks[index] = ContentBlock(type="redacted_thinking", data=raw.get('data', ''))
                 elif block_type == "tool_use":
                     blocks[index] = ContentBlock(
                         type="tool_use",

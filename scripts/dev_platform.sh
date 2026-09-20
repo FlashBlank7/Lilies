@@ -44,12 +44,13 @@ if [[ "$API_CONNECT_AUTHORITY" == *:* && "$API_CONNECT_AUTHORITY" != \[*\] ]]; t
   API_CONNECT_AUTHORITY="[$API_CONNECT_AUTHORITY]"
 fi
 API_CONNECT_URL="http://$API_CONNECT_AUTHORITY:$API_PORT"
-export LILIES_PLATFORM_BASE_URL="${LILIES_PLATFORM_BASE_URL:-$API_CONNECT_URL}"
 STUDIO_PLATFORM_URL="${STUDIO_PLATFORM_URL:-$API_CONNECT_URL}"
 
 if [[ "${1:-}" == "--check-env" ]]; then
-  [[ -n "${DEEPSEEK_API_KEY:-}" ]] && echo "DEEPSEEK_API_KEY ok" || echo "DEEPSEEK_API_KEY missing"
   [[ -n "${API_TOKEN:-}" ]] && echo "API_TOKEN ok" || echo "API_TOKEN missing"
+  echo "Studio proxy target: $STUDIO_PLATFORM_URL"
+  command -v codex >/dev/null 2>&1 && echo "Local Codex found (login checked when connecting)" || echo "Local Codex not found on PATH; select its executable in the project"
+  echo "MODELING_IMAGE ${MODELING_IMAGE:-lilies-modeling:20260914} (configured; build separately if missing)"
   case "${MODEL_EGRESS_ENABLED:-false}" in
     1|true|TRUE|True|yes|YES|Yes|on|ON|On)
       echo "MODEL_EGRESS_ENABLED enabled (real provider calls allowed)"
@@ -58,71 +59,13 @@ if [[ "${1:-}" == "--check-env" ]]; then
       echo "MODEL_EGRESS_ENABLED disabled (provider calls blocked)"
       ;;
   esac
-  if [[ "${LILIES_LOCAL_AGENT_ENABLED:-false}" == "true" ]]; then
-    echo "Local Lilies callback $LILIES_PLATFORM_BASE_URL"
-  fi
-  if [[ "${LILIES_COLLABORATION_ENABLED:-false}" == "true" ]]; then
-    collaboration_developer_token="${LILIES_COLLABORATION_DEVELOPER_TOKEN:-}"
-    collaboration_verifier_token="${LILIES_COLLABORATION_VERIFIER_TOKEN:-}"
-    [[ ${#collaboration_developer_token} -ge 32 ]] \
-      && echo "LILIES_COLLABORATION_DEVELOPER_TOKEN ok" \
-      || echo "LILIES_COLLABORATION_DEVELOPER_TOKEN missing/short"
-    [[ ${#collaboration_verifier_token} -ge 32 ]] \
-      && echo "LILIES_COLLABORATION_VERIFIER_TOKEN ok" \
-      || echo "LILIES_COLLABORATION_VERIFIER_TOKEN missing/short"
-  fi
-  if [[ "${LILIES_COLLABORATIVE_DEVELOPMENT_ENABLED:-false}" == "true" ]]; then
-    development_signing_key="${LILIES_COLLABORATIVE_DEVELOPMENT_SIGNING_KEY:-}"
-    [[ ${#development_signing_key} -ge 32 ]] \
-      && echo "LILIES_COLLABORATIVE_DEVELOPMENT_SIGNING_KEY ok" \
-      || echo "LILIES_COLLABORATIVE_DEVELOPMENT_SIGNING_KEY missing/short"
-  fi
   exit 0
-fi
-
-if [[ -z "${DEEPSEEK_API_KEY:-}" ]]; then
-  echo "DEEPSEEK_API_KEY is missing. Edit $ROOT/.env before starting." >&2
-  echo "Run ./scripts/dev_platform.sh --check-env to verify dotenv loading." >&2
-  exit 1
 fi
 
 if [[ -z "${API_TOKEN:-}" ]]; then
   echo "API_TOKEN is missing. Edit $ROOT/.env before starting." >&2
   echo "Run ./scripts/dev_platform.sh --check-env to verify dotenv loading." >&2
   exit 1
-fi
-
-if [[ "${LILIES_COLLABORATION_ENABLED:-false}" == "true" ]]; then
-  collaboration_developer_token="${LILIES_COLLABORATION_DEVELOPER_TOKEN:-}"
-  collaboration_verifier_token="${LILIES_COLLABORATION_VERIFIER_TOKEN:-}"
-  if [[ ${#collaboration_developer_token} -lt 32 ]]; then
-    echo "LILIES_COLLABORATION_DEVELOPER_TOKEN must be at least 32 characters." >&2
-    exit 1
-  fi
-  if [[ ${#collaboration_verifier_token} -lt 32 ]]; then
-    echo "LILIES_COLLABORATION_VERIFIER_TOKEN must be at least 32 characters." >&2
-    exit 1
-  fi
-  if [[ "$collaboration_developer_token" == "$API_TOKEN" \
-     || "$collaboration_verifier_token" == "$API_TOKEN" \
-     || "$collaboration_developer_token" == "$collaboration_verifier_token" ]]; then
-    echo "Collaboration user, developer, and verifier credentials must be distinct." >&2
-    exit 1
-  fi
-fi
-
-if [[ "${LILIES_COLLABORATIVE_DEVELOPMENT_ENABLED:-false}" == "true" ]]; then
-  development_signing_key="${LILIES_COLLABORATIVE_DEVELOPMENT_SIGNING_KEY:-}"
-  if [[ ${#development_signing_key} -lt 32 ]]; then
-    echo "LILIES_COLLABORATIVE_DEVELOPMENT_SIGNING_KEY must be at least 32 characters." >&2
-    exit 1
-  fi
-  if [[ "$development_signing_key" == "$API_TOKEN" \
-     || "$development_signing_key" == "${LILIES_COLLABORATION_DEVELOPER_TOKEN:-}" \
-     || "$development_signing_key" == "${LILIES_COLLABORATION_VERIFIER_TOKEN:-}" ]]; then
-    echo "Collaborative-development signing key must be distinct from access tokens." >&2
-    exit 1
-  fi
 fi
 
 ensure_node_tools() {
@@ -242,9 +185,6 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 echo "Starting API on http://$API_HOST:$API_PORT"
-if [[ "${LILIES_LOCAL_AGENT_ENABLED:-false}" == "true" ]]; then
-  echo "Local Lilies callback: $LILIES_PLATFORM_BASE_URL"
-fi
 .venv/bin/uvicorn agent_platform.api:app --host "$API_HOST" --port "$API_PORT" &
 
 echo "Starting Studio on http://$WEB_HOST:$WEB_PORT"

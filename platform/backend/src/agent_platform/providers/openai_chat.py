@@ -494,6 +494,7 @@ class OpenAIChatProvider(ModelProvider):
                 result.append(entry)
                 continue
             text_parts = []
+            image_parts = []
             for block in message.content:
                 if block.type == "tool_result":
                     result.append(
@@ -505,7 +506,12 @@ class OpenAIChatProvider(ModelProvider):
                     )
                 elif block.type == "text" and block.text:
                     text_parts.append(block.text)
-            if text_parts:
+                elif block.type == "image" and block.source:
+                    source = block.source
+                    image_parts.append({"type": "image_url", "image_url": {"url": f"data:{source['media_type']};base64,{source['data']}"}})
+            if image_parts:
+                result.append({"role": "user", "content": [{"type": "text", "text": "\n".join(text_parts)}, *image_parts]})
+            elif text_parts:
                 result.append({"role": "user", "content": "\n".join(text_parts)})
         return result
 

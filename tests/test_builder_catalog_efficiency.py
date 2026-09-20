@@ -102,7 +102,11 @@ def test_every_block_has_a_chinese_one_liner() -> None:
     补齐前 replenishment_planner / deployed_forecast 两个都没有——恰好是工业
     任务包 T6（补货规划）和 T4（预测）的关键积木。
     """
-    from agent_platform.blocks import _ZH_BLOCKS, build_block_registry
+    import re
+    from agent_platform.blocks import build_block_registry
 
-    missing = [item.type for item in build_block_registry().list() if item.type not in _ZH_BLOCKS]
+    # Extension blocks register their own localized descriptions. Verify the
+    # actual catalog output, not membership in one internal source dictionary.
+    missing = [item.type for item in build_block_registry().list()
+               if not re.search(r'[\u4e00-\u9fff]', item.editor.get('i18n', {}).get('zh', {}).get('description', ''))]
     assert missing == [], missing

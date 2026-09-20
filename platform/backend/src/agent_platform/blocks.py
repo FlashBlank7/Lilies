@@ -113,7 +113,11 @@ class LLMConfig(BaseModel):
     system: str = "You are a helpful assistant."
     prompt: Any
     model: str | None = None
+    model_role: Literal['main', 'vision'] = 'main'
+    images: Any = Field(default_factory=list, description='Project-relative PNG/JPEG file references [{file_path: ...}], or a workflow value reference resolving to that list. Use model_role=vision for image input.')
     structured_output: dict[str, Any] | None = None
+    max_output_tokens: int = Field(default=16_384, ge=1, strict=True,
+        description="Maximum output tokens sent to the model API; defaults to 16384. The model service enforces its own limit. A response stopped at this limit may contain incomplete JSON.")
     temperature: float | None = Field(default=None, ge=0, le=2)
     seed: int | None = Field(default=None, ge=0)
 
@@ -503,6 +507,9 @@ _EDITOR_FIELDS: dict[str, list[dict[str, Any]]] = {
         {"path": "system", "label": "System instruction", "label_zh": "系统指令", "control": "textarea", "description": "Persistent instruction for this model call.", "required": True},
         {"path": "prompt", "label": "Prompt", "label_zh": "用户提示", "control": "reference_or_text", "description": "Text or a workflow value reference.", "required": True},
         {"path": "model", "label": "Model override", "label_zh": "模型覆盖", "control": "text", "description": "Leave empty to use the runtime default."},
+        {"path": "model_role", "label": "Model role", "label_zh": "模型用途", "control": "enum", "options": ["main", "vision"], "description": "main uses the project main connection; vision uses the separately configured visual API."},
+        {"path": "images", "label": "Images", "label_zh": "图片文件", "control": "json", "description": "Array of {file_path: project-relative PNG/JPEG path}; workflow references are supported."},
+        {"path": "max_output_tokens", "label": "Maximum output tokens", "label_zh": "输出长度上限（tokens）", "control": "number", "minimum": 1, "step": 1, "description": "Default: 16384. Sent to the model API; the service enforces its own limit."},
         {"path": "temperature", "label": "Temperature", "label_zh": "温度", "control": "number", "minimum": 0, "maximum": 2, "step": 0.1},
         {"path": "seed", "label": "Seed", "label_zh": "随机种子", "control": "number", "minimum": 0, "step": 1},
         {"path": "structured_output", "label": "Structured output schema", "label_zh": "结构化输出 Schema", "control": "json", "description": "Optional JSON schema for structured output."},
@@ -2520,7 +2527,7 @@ def _input_ref(*path: str) -> dict[str, Any]:
 _DEFAULT_CONFIG_OVERRIDES: dict[str, dict[str, Any]] = {
     "start": {"inputs": []},
     "schedule_trigger": {"timezone": "Asia/Tokyo", "hour": 8, "minute": 0, "inputs": {}},
-    "llm": {"system": "You are a helpful assistant.", "prompt": _input_ref("query")},
+    "llm": {"system": "You are a helpful assistant.", "prompt": _input_ref("query"), "max_output_tokens": 16_384},
     "claude_agent": {"agent_id": "", "task": _input_ref("query")},
     "tool": {"tool_name": "Read", "input": {}},
     "if_else": {
@@ -3204,6 +3211,10 @@ def build_block_registry() -> BlockRegistry:
         ))
     for definition, model in blocks:
         registry.register(definition, model)
+    from .project_blocks import register_project_blocks
+    register_project_blocks(registry)
+    from .modeling_models import register_modeling_blocks
+    register_modeling_blocks(registry)
     return registry
 
 

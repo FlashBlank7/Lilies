@@ -287,9 +287,7 @@ class PublishApplicationRequest(BaseModel):
     acknowledge_warnings: bool = False
 
 
-class DraftOperation(BaseModel):
-    expected_revision: int = Field(ge=0)
-    idempotency_key: str = Field(min_length=1, max_length=200)
+class DraftEdit(BaseModel):
     op: Literal[
         "add_node",
         "update_node",
@@ -304,6 +302,11 @@ class DraftOperation(BaseModel):
         "replace_tests",
     ]
     data: dict[str, Any] = Field(default_factory=dict)
+
+
+class DraftOperation(DraftEdit):
+    expected_revision: int = Field(ge=0)
+    idempotency_key: str = Field(min_length=1, max_length=200)
 
 
 class BuildRequest(BaseModel):
@@ -348,6 +351,8 @@ class ManualScheduleTriggerRequest(BaseModel):
 class WorkflowRunState(BaseModel):
     run_id: str
     application_id: str
+    # Supplied only by the host's project task service, never from workflow inputs.
+    project_context: dict[str, Any] | None = None
     snapshot: ApplicationSnapshot
     inputs: dict[str, Any]
     workspace_path: str

@@ -30,12 +30,21 @@ function. If a governance-shaped feature seems necessary, ask the user first.
 
 ## Ground rules
 
+- Whole-agent blocks are optional project capabilities, disabled by default.
+  When forbidden, omit them from Builder manuals/catalogs and enforce the same
+  restriction in draft saves and execution, including nested and resumed runs.
+  Raw LLM blocks must never route through Codex/Claude Code/Kimi agent sessions.
+  Retain explicitly permitted agent capabilities as a separate integration.
 - `pytest` must stay green; run the affected test files before claiming done.
   Tests are behavior tests — do not add source-marker or evidence-audit tests.
 - `MODEL_EGRESS_ENABLED=false` is the default; never enable real provider
   HTTP or spend tokens without explicit user authorization in this session.
 - Preserve unrelated user changes in the dirty worktree. Never use
   destructive git commands to simplify a task.
+- Keep the current week in `docs/WEEKLY_LOG.md` updated when development
+  makes progress: briefly record actual changes, validation, and the next
+  unfinished action. Preserve earlier weeks; keep proposals separate from
+  implemented or verified work.
 - Frontend work targets a clean, product-style UI in plain user language —
   no internal jargon (claim ceilings, carriers, evidence levels) in copy.
 - The local Lilies agent lives in `../LiliesAgent/` as a separate project.

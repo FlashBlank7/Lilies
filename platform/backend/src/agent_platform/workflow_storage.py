@@ -116,6 +116,7 @@ class WorkflowStorage:
     def __init__(self, storage: Storage) -> None:
         self.storage = storage
         self._lock = asyncio.Lock()
+        self.validate_draft_capabilities: Callable[[str, ApplicationSnapshot], Awaitable[None]] | None = None
         self.on_draft_changed: Callable[[str, dict[str, Any]], Awaitable[None]] | None = None
         self.on_draft_changed_in_transaction: (
             Callable[[sqlite3.Connection, str, dict[str, Any]], None] | None
@@ -369,8 +370,10 @@ class WorkflowStorage:
                     "validation_contract_digest TEXT NOT NULL DEFAULT ''"
                 )
 
-    async def create_application(self, request: ApplicationCreateRequest) -> dict[str, Any]:
-        application_id = str(uuid4())
+    async def create_application(
+        self, request: ApplicationCreateRequest, *, application_id: str | None = None
+    ) -> dict[str, Any]:
+        application_id = application_id or str(uuid4())
         name = request.name.strip()
         if _is_placeholder_name(name):
             name = _derive_application_name(request.requirement)
@@ -639,6 +642,8 @@ class WorkflowStorage:
         idempotency_digest: str | None = None,
         formal_mutation_context: dict[str, str] | None = None,
     ) -> dict[str, Any]:
+        if self.validate_draft_capabilities is not None:
+            await self.validate_draft_capabilities(application_id, snapshot)
         async with self._lock:
             result = await asyncio.to_thread(
                 self._save_draft_sync,

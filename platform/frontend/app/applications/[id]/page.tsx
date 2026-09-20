@@ -155,7 +155,7 @@ function isStudioTab(value: string | null): value is StudioTab {
 
 const accents: Record<string, string> = {
   start: '#8b5cf6', llm: '#3b82f6', claude_agent: '#f97316', tool: '#10b981',
-  if_else: '#eab308', question_classifier: '#eab308', end: '#ec4899', answer: '#ec4899',
+  if_else: '#9b833f', question_classifier: '#9b833f', end: '#ec4899', answer: '#ec4899',
   human_input: '#ef4444', iteration: '#14b8a6', loop: '#14b8a6', http_request: '#06b6d4',
   schedule_trigger: '#a855f7', web_collection: '#0891b2', collection_digest: '#16a34a',
   connector_action: '#d97745',
@@ -461,7 +461,7 @@ function schemaFieldControl(path: string, schema: Record<string, unknown>): Bloc
   if (Array.isArray(schema.enum)) return 'enum'
   if (schema.type === 'boolean') return 'boolean'
   if (schema.type === 'integer' || schema.type === 'number') return 'number'
-  if (schema.type === 'object' || schema.type === 'array' || schema.$ref || schema.anyOf) return 'json'
+  if (!schema.type || schema.type === 'object' || schema.type === 'array' || schema.$ref || schema.anyOf) return 'json'
   return /(prompt|system|template|description|instruction)/i.test(path) ? 'textarea' : 'text'
 }
 
@@ -882,12 +882,26 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   const [locale, setLocale] = useState<Locale>(defaultLocale)
   const t = messages[locale]
   const [draft, setDraft] = useState<Draft | null>(null)
+  const [projectContext, setProjectContext] = useState<{ id: string; name: string; members: { id: string; name: string }[] } | null>(null)
+  useEffect(() => {
+    let active = true
+    void api<{ project_id: string | null }>(`/api/v1/applications/${id}/project`).then(async value => {
+      if (value.project_id) {
+        const project = await api<{ id: string; name: string; members: { id: string; name: string }[] }>(`/api/v1/projects/${value.project_id}`)
+        if (active) setProjectContext(project)
+      }
+    }).catch(() => {})
+    return () => { active = false }
+  }, [id])
+
   const [blocks, setBlocks] = useState<Block[]>([])
   const [versions, setVersions] = useState<Version[]>([])
   const [nodes, setNodes, onNodesChange] = useNodesState<StudioNode>([])
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([])
   const [selected, setSelected] = useState<WorkflowNode | null>(null)
   const [selectedEdge, setSelectedEdge] = useState<Edge | null>(null)
+  const [embedded, setEmbedded] = useState(false)
+  useEffect(() => { setEmbedded(new URLSearchParams(window.location.search).get('embedded') === '1') }, [])
   const [configText, setConfigText] = useState('{}')
   const [configEditorMode, setConfigEditorMode] = useState<ConfigEditorMode>('json')
   const [configFieldValues, setConfigFieldValues] = useState<ConfigEditorValues>({})
@@ -932,6 +946,8 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   const eventSource = useRef<EventSource | null>(null)
   const draftRef = useRef<Draft | null>(null)
   const selectedId = useRef<string | null>(null)
+  const configDirtyRef = useRef(false)
+  const configEditVersionRef = useRef(0)
   // 容器子画布：非空时，画布投影/图操作全部作用于该容器的内部子流程
   const [containerScope, setContainerScope] = useState<string | null>(null)
   const containerScopeRef = useRef<string | null>(null)
@@ -1003,6 +1019,8 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   }, [studioChrome, studioChromeLoaded])
 
   function setSelectedNode(value: WorkflowNode | null) {
+    configDirtyRef.current = false
+    configEditVersionRef.current += 1
     selectedId.current = value?.id || null
     selectedEdgeId.current = null
     setSelected(value)
@@ -1020,7 +1038,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     setEdges(current => current.map(edge => ({
       ...edge,
       selected: edge.id === value?.id,
-      style: { ...(edge.style || {}), stroke: edge.id === value?.id ? '#ff8a50' : (edge.label ? '#eab308' : '#465166'), strokeWidth: edge.id === value?.id ? 3 : 1 },
+      style: { ...(edge.style || {}), stroke: edge.id === value?.id ? '#3f639f' : (edge.label ? '#9b833f' : '#a3b2c7'), strokeWidth: edge.id === value?.id ? 3 : 1 },
     })))
   }
 
@@ -1090,18 +1108,23 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
         targetHandle: item.target_port,
         selected,
         animated: Boolean(item.branch),
-        style: { stroke: selected ? '#ff8a50' : (item.branch ? '#eab308' : '#465166'), strokeWidth: selected ? 3 : 1 },
+        style: { stroke: selected ? '#3f639f' : (item.branch ? '#9b833f' : '#a3b2c7'), strokeWidth: selected ? 3 : 1 },
       }
     }))
     if (selectedId.current) {
       const updated = activeNodes.find(item => item.id === selectedId.current) || null
       if (updated) {
         setSelected(updated)
-        setConfigText(JSON.stringify(updated.config || {}, null, 2))
-        setConfigEditorBase(cloneConfig(updated.config || {}))
-        const fields = editorFieldsForBlock(blocksByType.get(updated.type))
-        setConfigFieldValues(configEditorValues(fields, updated.config || {}))
+        // A previous save/edge update can finish after editing has already resumed.
+        if (!configDirtyRef.current) {
+          setConfigText(JSON.stringify(updated.config || {}, null, 2))
+          setConfigEditorBase(cloneConfig(updated.config || {}))
+          const fields = editorFieldsForBlock(blocksByType.get(updated.type))
+          setConfigFieldValues(configEditorValues(fields, updated.config || {}))
+        }
       } else {
+        configDirtyRef.current = false
+        configEditVersionRef.current += 1
         selectedId.current = null
         setSelected(null)
         setConfigText('{}')
@@ -1125,7 +1148,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     try {
       const [next, nextBlocks, nextVersions] = await Promise.all([
         api<Draft>(`/api/v1/applications/${id}/draft`),
-        api<Block[]>('/api/v1/blocks'),
+        api<Block[]>(`/api/v1/blocks?application_id=${encodeURIComponent(id)}`),
         api<Version[]>(`/api/v1/applications/${id}/versions`),
       ])
       setBlocks(nextBlocks)
@@ -1156,7 +1179,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     setCapabilityModulesLoading(true)
     setCapabilityModulesError('')
     try {
-      const modules = await api<CapabilityModule[]>('/api/v1/capability-modules?all_versions=true')
+      const modules = await api<CapabilityModule[]>(`/api/v1/capability-modules?all_versions=true&application_id=${encodeURIComponent(id)}`)
       setCapabilityModules(modules)
       setAuthRequired(false)
       return modules
@@ -1167,7 +1190,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     } finally {
       setCapabilityModulesLoading(false)
     }
-  }, [])
+  }, [id])
 
   useEffect(() => {
     if (initialLoadStartedRef.current) return
@@ -1526,7 +1549,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
           selected,
           style: {
             ...(edge.style || {}),
-            stroke: highlighted ? '#ff8a50' : (edge.label ? '#eab308' : '#465166'),
+            stroke: highlighted ? '#3f639f' : (edge.label ? '#9b833f' : '#a3b2c7'),
             strokeWidth: highlighted ? 3 : 1,
           },
         }
@@ -1724,6 +1747,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
 
   async function saveConfig() {
     if (!selected) return
+    const editVersion = configEditVersionRef.current
     try {
       const fields = editorFieldsForBlock(blocks.find(block => block.type === selected.type))
       const config = configEditorMode === 'form' && fields.length
@@ -1733,6 +1757,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
       setConfigEditorBase(config)
       const next = await mutation('update_node', { node_id: selected.id, changes: { config }, merge_config: false })
       await reconcileIncomingEdges(selected.id, config, next)
+      if (next && selectedId.current === selected.id && configEditVersionRef.current === editVersion) configDirtyRef.current = false
     } catch (error) {
       setNotice(configEditorMode === 'form' ? t.configFieldInvalid(String(error)) : t.invalidJson(String(error)))
     }
@@ -1969,7 +1994,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     buildPoll.current = null
     if (buildRefreshTimer.current) window.clearTimeout(buildRefreshTimer.current)
     buildRefreshTimer.current = null
-    setStudioTab('build', { replace: true })
+    if (new URLSearchParams(window.location.search).get('tab') !== 'edit') setStudioTab('build', { replace: true })
     const source = new EventSource(withFrontendToken(`/api/platform/api/v1/builds/${buildId}/events`))
     eventSource.current = source
     source.onerror = () => {
@@ -2021,7 +2046,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     setTestReport(null)
     setTestsRunning(true)
     try {
-      const result = await api<{ passed: boolean } & Record<string, unknown>>(`/api/v1/applications/${id}/tests/run`, { method: 'POST' })
+      const result = await api<{ passed: boolean } & Record<string, unknown>>(projectContext ? `/api/v1/projects/${projectContext.id}/members/${id}/tests/run` : `/api/v1/applications/${id}/tests/run`, { method: 'POST' })
       setTestReport(result)
       setPublicationDecision(null)
       setNotice(result.passed ? t.testsPassed : t.testsFailed)
@@ -2169,16 +2194,16 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     { label: t.nodeInspectorConfig, value: t.nodeConfigSummary(selectedConfigKeys.length), detail: selectedConfigKeys.length ? selectedConfigKeys.slice(0, 4).join(', ') : t.nodeInspectorNoConfig },
     { label: t.nodeInspectorSafeNext, value: t.nodeInspectorSafeNextValue, detail: t.nodeInspectorSafeNextDetail },
   ] : []
-  const businessDefinitionMissing = Boolean(draft && !draft.snapshot.requirement.trim())
+  const businessDefinitionMissing = Boolean(draft && !draft.snapshot.requirement.trim() && !projectContext)
 
-  return <main className="studio-shell" data-studio-chrome="collapsible">
+  return <main className="studio-shell" data-studio-chrome="collapsible" data-embedded={embedded}>
     <header className="studio-header" data-collapsed={studioChrome.headerExpanded ? 'false' : 'true'} id="studio-header">
-      <Link href="/" className="back">←</Link>
+      <Link href={projectContext ? `/projects/${projectContext.id}` : "/"} target={projectContext ? "_top" : undefined} className="back">←</Link>
       <div className="studio-title"><b className={surfaceStyles.studioLabel}>Engineer Studio</b><strong>{draft?.snapshot.name || t.loading}</strong><span>{draft?.snapshot.mode === 'chat' ? t.modeChat : t.modeWorkflow} · {t.draft} r{draft?.revision ?? 0}</span></div>
       <div className="header-center"><span className={`evidence-state ${evidenceState}`} data-evidence-state={evidenceState}>{evidenceStateLabel}</span>{activeVersion && <span>{t.activeVersion(activeVersion)}</span>}<span className={`runtime-chip ${runtimeStatus}`} data-runtime-status={runtimeStatus} title={runtimeStatusDetail}>{runtimeStatusText}</span></div>
       <div className={`header-actions ${surfaceStyles.studioActions}`}>
         <button className="lang-toggle" onClick={toggleLocale}>{t.switchLabel}</button>
-        <Link className={surfaceStyles.surfaceLink} href={`/runtime/${id}`}><Play size={14} /><span>{t.debugDraft}</span></Link>
+        <Link className={surfaceStyles.surfaceLink} href={projectContext ? `/projects/${projectContext.id}?run=${id}` : `/runtime/${id}`} target={projectContext ? "_top" : undefined}><Play size={14} /><span>{t.debugDraft}</span></Link>
         <button data-publication-action="open" onClick={() => void publish()} disabled={publicationBusy}>{publicationBusy ? t.publicationChecking : t.publishVersion}</button>
         <button
           aria-controls="studio-header"
@@ -2223,7 +2248,8 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
           type="button"
         ><span aria-hidden="true">{studioChrome.leftPanelExpanded ? '‹' : '›'}</span><b>{locale === 'zh' ? '工作区' : 'Workspace'}</b></button>
         <div className={`panel-tabs ${surfaceStyles.threeTabs}`} data-detail-tab-url-state="synced">{VISIBLE_STUDIO_TABS.map(item => <button aria-pressed={tab === item} className={tab === item ? 'active' : ''} data-studio-tab={item} onClick={() => setStudioTab(item)} key={item} type="button">{item === 'build' ? t.buildTab : item === 'edit' ? t.editTab : item === 'test' ? t.testTab : item === 'automation' ? locale === 'zh' ? '自动化' : 'Automation' : locale === 'zh' ? '集成' : 'Integrations'}</button>)}</div>
-        {tab === 'build' && <div className="panel-body">
+        {tab === 'build' && projectContext && <div className="panel-body"><h2>项目工作流</h2><p>在画布中添加节点、配置输入和代码，再直接试运行。也可以在项目会话中与 Lilies 协作。</p><Link target="_top" href={`/projects/${projectContext.id}?run=${id}`}>运行这条工作流</Link></div>}
+        {tab === 'build' && !projectContext && <div className="panel-body">
           <div className="panel-kicker">{locale === 'zh' ? '莉莉丝 Builder' : 'Lilies Builder'}</div><h2>{t.continueBuild}</h2>
           <textarea ref={detailBuildRequirementRef} className="requirement-input" value={requirement} onChange={event => { setRequirement(event.target.value); }} />
           <BuildAdvancedConfig locale={locale} onChange={setBuildOptions} tone="dark" value={buildOptions} />
@@ -2322,7 +2348,8 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
             <p data-workflow-readable-purpose="true"><b>{t.workflowReadablePurpose}</b>{workflowPurposeSummary}</p>
             <div className="workflow-readable-steps">{workflowStepSummaryItems.length ? workflowStepSummaryItems.map(item => <article key={item.id}><strong>{item.title}</strong><small>{item.detail}</small></article>) : <p className="muted">{t.nodeInspectorNoConfig}</p>}</div>
           </section>
-          <section
+          {projectContext && <p><Link target="_top" href={`/projects/${projectContext.id}`}>返回项目，与 Lilies 协作</Link></p>}
+          {!projectContext && <>          <section
             className="workflow-edit-dialog"
             data-application-id={id}
             data-workflow-edit-dialog="selection-aware"
@@ -2360,6 +2387,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
               {patchPreview.operations.length > 0 && <details open><summary>{t.patchOperations}</summary><pre>{JSON.stringify(patchPreview.operations, null, 2)}</pre></details>}
             </div>}
           </section>
+</>}
           <h3>{t.nodeInspector}</h3>
           <section className="node-inspector-guide" data-node-inspector={selected ? 'selection-summary' : selectedEdge ? 'edge-summary' : 'empty-selection'}>
             <div className="node-inspector-guide-head"><strong>{selected ? t.nodeInspectorSummaryTitle : selectedEdge ? t.nodeInspectorEdgeTitle : t.nodeInspectorNoSelectionTitle}</strong><small>{selected ? t.nodeInspectorSummaryHelp : selectedEdge ? t.nodeInspectorEdgeHelp : t.nodeInspectorNoSelectionHelp}</small></div>
@@ -2375,12 +2403,32 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
               <button type="button" role="tab" aria-selected={configEditorMode === 'json'} data-config-editor-mode="json" onClick={() => switchConfigEditorMode('json')}>{t.configJsonTab}</button>
             </div></div>
             {selectedEditorNotices.length > 0 && <div className="config-editor-notices">{selectedEditorNotices.map((item, index) => <p key={`${item.kind}-${index}`} data-config-editor-notice={item.kind}>{locale === 'zh' ? item.text_zh || item.text : item.text}</p>)}</div>}
+            {projectContext && selected.type === 'tool' && <label className="config-form-field">
+              <b>调用项目成员</b>
+              <select aria-label="调用项目成员" value={String(configEditorMode === 'form' ? configFieldValues.tool_name || '' : (() => { try { return JSON.parse(configText).tool_name || '' } catch { return '' } })())}
+                onChange={event => {
+                  const config = configEditorMode === 'form' ? configFromEditorValues(configEditorBase, selectedEditorFields, configFieldValues) : JSON.parse(configText)
+                  configDirtyRef.current = true
+                  configEditVersionRef.current += 1
+                  setConfigText(JSON.stringify({ ...config, tool_name: event.target.value, input: config.input || {} }, null, 2))
+                  setConfigEditorMode('json')
+                }}>
+                <option value="">选择成员工作流</option>
+                {projectContext.members.filter(m => m.id !== id).map(m => <option key={m.id} value={'workflow:' + m.id}>{m.name}</option>)}
+              </select>
+              <small>在下方 input 中配置字段或上游引用，然后保存。</small>
+              {String(selected.config.tool_name || '').startsWith('workflow:') && <Link target="_top" href={`/applications/${String(selected.config.tool_name).slice(9)}?tab=edit`}>进入成员画布编辑 ↗</Link>}
+            </label>}
             {configEditorMode === 'form' ? <div className="config-form" data-config-editor="schema-form">
               {selectedEditorFields.length ? selectedEditorFields.map(field => {
                 const label = locale === 'zh' ? field.label_zh || field.label : field.label
                 const description = locale === 'zh' ? field.description_zh || field.description : field.description
                 const value = configFieldValues[field.path]
-                const update = (next: ConfigEditorValue) => setConfigFieldValues(current => ({ ...current, [field.path]: next }))
+                const update = (next: ConfigEditorValue) => {
+                  configDirtyRef.current = true
+                  configEditVersionRef.current += 1
+                  setConfigFieldValues(current => ({ ...current, [field.path]: next }))
+                }
                 return <label className={`config-form-field ${field.control === 'boolean' ? 'boolean' : ''}`} data-config-field={field.path} key={field.path}>
                   <span className="config-form-label"><b>{label}</b>{field.required && <em>{t.configRequired}</em>}</span>
                   {description && <small>{description}</small>}
@@ -2390,7 +2438,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
                         : <input type={field.control === 'number' ? 'number' : 'text'} readOnly={field.control === 'readonly'} min={field.minimum} max={field.maximum} step={field.step} value={String(value ?? '')} onChange={event => update(event.target.value)} />}
                 </label>
               }) : <p className="muted">{t.configFormNoFields}</p>}
-            </div> : <div className="config-expert" data-config-editor="expert-json"><p className="muted">{t.configExpertHelp}</p><textarea className="json-editor" value={configText} onChange={event => setConfigText(event.target.value)} /></div>}
+            </div> : <div className="config-expert" data-config-editor="expert-json"><p className="muted">{t.configExpertHelp}</p><textarea className="json-editor" value={configText} onChange={event => { configDirtyRef.current = true; configEditVersionRef.current += 1; setConfigText(event.target.value) }} /></div>}
             <button className="wide" data-config-editor-action="save" onClick={saveConfig}>{t.saveConfig}</button><button className="danger-link" onClick={deleteSelectedNode}>{t.deleteNode}</button>
           </> : <p className="muted">{selectedEdge ? t.edgeSelectedHint : t.nodeHelp}</p>}
         </div>}
@@ -2581,7 +2629,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
           >{studioChrome.toolbarExpanded ? '×' : (locale === 'zh' ? '工具' : 'Tools')}</button>
         </div>
         <ReactFlow
-          colorMode="dark"
+          colorMode="light"
           deleteKeyCode={['Backspace', 'Delete']}
           edges={edges}
           fitView
@@ -2615,7 +2663,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
           selectionMode={SelectionMode.Partial}
           selectionOnDrag
         >
-          <Background color="#283142" gap={24} size={1}/><MiniMap pannable zoomable nodeColor={node => accents[(node.data as { blockType?: string } | undefined)?.blockType || ''] || '#64748b'}/><Controls/>
+          <Background color="#d9e1eb" gap={24} size={1}/><MiniMap pannable zoomable nodeColor={node => accents[(node.data as { blockType?: string } | undefined)?.blockType || ''] || '#64748b'}/><Controls/>
         </ReactFlow>
         {canvasSelectionBox && <div
           aria-hidden="true"

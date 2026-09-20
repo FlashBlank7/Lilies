@@ -16,7 +16,7 @@ import {
   Square,
   Workflow,
 } from 'lucide-react'
-import { MarkdownResultCard } from '@/lib/markdown'
+import { MarkdownDocument, MarkdownResultCard } from '@/lib/markdown'
 import { api, isAuthError, saveClientToken, type Draft } from '@/lib/platform'
 import { ScheduleOperationsPanel } from '@/app/schedule-operations-panel'
 import styles from './runtime.module.css'
@@ -805,7 +805,7 @@ export default function CustomerRuntimePage() {
       <section className={styles.mainColumn}>
         <div className={styles.introBand}>
           <div className={styles.introIcon}><Workflow size={24} /></div>
-          <div className={responsive.introContent}><span>工作流用途</span><h1>{displaySnapshot?.name || application?.name}</h1><p data-runtime-purpose="true">{purposeDescription}</p>{connectorWorkflow && <b className={connectorStyles.boundary} data-customer-connector-view="bounded">受控测试租户 · 仅预演</b>}</div>
+          <div className={responsive.introContent}><span>工作流用途</span><h1>{displaySnapshot?.name || application?.name}</h1>{purposeDescription && (purposeDescription.length > 220 ? <details data-runtime-purpose="true"><summary>查看工作流说明</summary><MarkdownDocument source={purposeDescription} emptyLabel="" /></details> : <p data-runtime-purpose="true">{purposeDescription}</p>)}{connectorWorkflow && <b className={connectorStyles.boundary} data-customer-connector-view="bounded">受控测试租户 · 仅预演</b>}</div>
           <div className={styles.runState} data-run-status={run?.status || 'ready'}><i />{runStatusLabel(run?.status)}</div>
         </div>
 
@@ -900,7 +900,7 @@ export default function CustomerRuntimePage() {
                         .catch(error => setRepairNotice(String(error)))
                         .finally(() => setRepairBusy(false))
                     }}
-                    style={{ border: 0, borderRadius: 8, padding: '9px 16px', fontSize: 13, cursor: 'pointer', background: '#0e7a5f', color: '#fff' }}
+                    style={{ border: 0, borderRadius: 8, padding: '9px 16px', fontSize: 13, cursor: 'pointer', background: 'var(--ui-accent)', color: '#fff' }}
                     type="button"
                   >{repairBusy ? '提交中…' : '不满意？让莉莉丝自己查'}</button>
                 </div>}

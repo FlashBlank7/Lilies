@@ -3,7 +3,7 @@
 }
 
 .studioLabel {
-  color: #78a4ff;
+  color: var(--ui-accent);
   font-size: 8px;
   font-weight: 800;
   letter-spacing: 0;
@@ -18,10 +18,10 @@
   justify-content: center;
   gap: 6px;
   min-height: 34px;
-  border: 1px solid #2b3547;
+  border: 1px solid var(--ui-line);
   border-radius: 6px;
-  background: #151c28;
-  color: #dfe7f3;
+  background: var(--ui-panel);
+  color: var(--ui-ink);
   padding: 0 11px;
   text-decoration: none;
   font-size: 11px;
@@ -31,9 +31,9 @@
 
 .surfaceLink:hover,
 .governanceLink:hover {
-  border-color: #536180;
-  background: #1b2432;
-  color: #fff;
+  border-color: var(--ui-line);
+  background: var(--ui-panel);
+  color: var(--ui-ink);
 }
 
 .governanceLink {
@@ -65,7 +65,7 @@
 
   .governanceLink svg {
     flex: 0 0 auto;
-    color: #dfe7f3;
+    color: var(--ui-ink);
   }
 
   .studioActions .studioGovernance,

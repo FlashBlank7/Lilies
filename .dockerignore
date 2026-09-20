@@ -8,3 +8,10 @@ platform/frontend/.next
 **/__pycache__
 *.pyc
 .DS_Store
+.git
+.codex
+**/.env
+**/.env.*
+!**/.env.example
+backups
+outputs

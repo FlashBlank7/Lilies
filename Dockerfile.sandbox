@@ -9,8 +9,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     bash ca-certificates curl git jq ripgrep && \
     rm -rf /var/lib/apt/lists/* && \
     groupadd --gid ${SANDBOX_GID} agent 2>/dev/null || true && \
-    useradd --create-home --uid ${SANDBOX_UID} --gid ${SANDBOX_GID} agent && \
-    pip install --no-cache-dir pytest pandas openpyxl numpy scipy matplotlib
+    useradd --create-home --uid ${SANDBOX_UID} --gid ${SANDBOX_GID} agent
+COPY requirements-sandbox.txt /opt/platform/requirements-sandbox.txt
+RUN pip install --no-cache-dir --only-binary=:all: -r /opt/platform/requirements-sandbox.txt && pip check
+COPY scripts/check_sandbox_ml.py /opt/platform/check_sandbox_ml.py
 COPY --from=node_runtime /usr/local/bin/node /usr/local/bin/node
 USER agent
 WORKDIR /workspace

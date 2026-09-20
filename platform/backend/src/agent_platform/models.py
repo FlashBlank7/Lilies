@@ -105,10 +105,12 @@ class AgentSpec(BaseModel):
 
 
 class ContentBlock(BaseModel):
-    type: Literal["text", "thinking", "tool_use", "tool_result"]
+    type: Literal["text", "thinking", "redacted_thinking", "tool_use", "tool_result", "image"]
+    source: dict[str, str] | None = None
     text: str | None = None
     thinking: str | None = None
     signature: str | None = None
+    data: str | None = None
     id: str | None = None
     name: str | None = None
     input: dict[str, Any] | None = None

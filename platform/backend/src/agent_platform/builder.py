@@ -149,12 +149,11 @@ Core rules:
 - Once the draft is valid and has a mandatory acceptance test, preserve that deliverable. Add and connect a
   replacement path before removing the old path. Never dismantle a working graph or delete its acceptance tests
   as a debugging experiment.
-- Prefer explicit workflow bricks and agent architecture bricks over hiding behavior inside one Claude Agent. Use Tool bricks for registered
+- Use the project's available workflow and agent architecture bricks. Use Tool bricks for registered
   tools such as WebSearch, HTTP Request for simple HTTP calls, Question Classifier/If/Else for routing,
   Variable Aggregator for joins, and Template/Answer/End for final formatting.
-- Claude Agent bricks are legacy compatibility wrappers for old drafts. Do not use them as the default shape
-  for new Claude-like agents; compose Context, Model Turn, Tool, Permission, Skill/MCP, Subagent, Mailbox,
-  Budget, Checkpoint, and Event bricks instead.
+- Compose Context, Model Turn, Tool, Permission, Skill/MCP, Mailbox,
+  Budget, Checkpoint, and Event bricks when building your own agent.
 - Values can reference prior output with {"$ref":{"node_id":"<id>","path":["field"]}}.
   Use node_id "$inputs" to reference raw workflow inputs.
 - **Template Transform Node Syntax**: Template variables use double-brace Jinja syntax: {{ variable_name }}.
@@ -550,7 +549,7 @@ class WorkflowBuilder:
                 text=(
                     f"Build and verify this application:\n\n{build['requirement']}\n\n"
                     f"Application id: {build['application_id']}. Auto publish: {build['auto_publish']}.\n\n"
-                    + self._catalog_overview()
+                    + self._catalog_overview(await self._available_blocks(build['application_id']))
                     + contract_context
                 ),
             )])]
@@ -1017,6 +1016,9 @@ class WorkflowBuilder:
         rescue_without_thinking = False
         repeated_rejections: dict[str, int] = {}
         for turn in range(1, max_turns + 1):
+            available_blocks = await self._available_blocks(application_id)
+            turn_tools = [t for t in tools if t.name != 'draft_upsert_agent'
+                          or getattr(available_blocks, 'agent_modules_enabled', True)]
             # 上下文成本闸门：老轮次的工具结果归档成占位行。没有它，40 轮构建的
             # 输入从 1 万 token 滚到 15 万（ERP 分页/测试报告全文被重发上百次）。
             self._compact_history(messages)
@@ -1064,7 +1066,7 @@ class WorkflowBuilder:
                     if teammate else "\nYou are the coordinator. Delegate when useful and synthesize results."
                 ),
                 messages=call_messages,
-                tools=tools,
+                tools=turn_tools,
                 max_output_tokens=state.turn_max_output_tokens,
                 thinking_enabled=turn_thinking_enabled,
                 effort=state.effort,
@@ -1318,6 +1320,9 @@ class WorkflowBuilder:
         build_started_at: float | None = None,
         max_elapsed_seconds: float | None = None,
     ) -> Any:
+        available_blocks = await self._available_blocks(application_id)
+        if tool == 'draft_upsert_agent':
+            available_blocks.get('claude_agent')
         if state.planning_mode == "disabled" and tool == "build_plan":
             raise RuntimeError("build_plan is disabled for this build planning_mode")
         if tool in ("Bash", "Read", "Write", "Glob"):
@@ -1435,7 +1440,7 @@ class WorkflowBuilder:
                     ),
                     "matching_types": sorted(
                         item.type
-                        for item in self.blocks.list()
+                        for item in available_blocks.list()
                         if not normalized_query
                         or normalized_query
                         in f"{item.type} {item.title} {item.description} {item.category}".casefold()
@@ -1443,7 +1448,7 @@ class WorkflowBuilder:
                 }
             state.catalog_queries.append(normalized_query)
             definitions = [
-                item for item in self.blocks.list()
+                item for item in available_blocks.list()
                 if not query or query in f"{item.type} {item.title} {item.description} {item.category}".casefold()
             ]
             results: list[dict[str, Any]] = [
@@ -1464,6 +1469,8 @@ class WorkflowBuilder:
                     "version": application["active_version"],
                 })
             for name in self.core_tools.names():
+                if name == 'Agent' and not getattr(available_blocks, 'agent_modules_enabled', True):
+                    continue
                 definition = self.core_tools.get(name).definition()
                 searchable = f"{name} {definition.description} core tool".casefold()
                 if query and query not in searchable:
@@ -1476,6 +1483,8 @@ class WorkflowBuilder:
             return results
         if tool == "catalog_get":
             name = str(data["type"])
+            if name.casefold() == 'agent' and not getattr(available_blocks, 'agent_modules_enabled', True):
+                raise KeyError('此工具不在本项目的可用能力中')
             if name in self.core_tools.names():
                 return self.core_tools.get(name).definition().model_dump(mode="json")
             for candidate in self.core_tools.names():
@@ -1483,7 +1492,7 @@ class WorkflowBuilder:
                     definition = self.core_tools.get(candidate).definition().model_dump(mode="json")
                     definition["canonical_name"] = candidate
                     return definition
-            definition = self.blocks.get(name)
+            definition = available_blocks.get(name)
             # The full definition includes the manual fields, so reading it
             # satisfies the read-the-manual-first requirement.
             self._remember_manual_lookup(state, definition.type)
@@ -1491,17 +1500,17 @@ class WorkflowBuilder:
         if tool == "manual_search":
             query = str(data.get("query", ""))
             block_kind = data.get("block_kind")
-            manuals = self.blocks.manuals(query=query, block_kind=str(block_kind) if block_kind else None)
+            manuals = available_blocks.manuals(query=query, block_kind=str(block_kind) if block_kind else None)
             for manual in manuals:
                 self._remember_manual_lookup(state, str(manual["type"]))
             return manuals
         if tool == "manual_get":
             block_type = str(data["type"])
-            manual = self.blocks.manual(block_type)
+            manual = available_blocks.manual(block_type)
             self._remember_manual_lookup(state, block_type)
             return manual
         if tool == "architecture_blueprint":
-            blueprint = self.blocks.claude_architecture_blueprint()
+            blueprint = available_blocks.claude_architecture_blueprint()
             for group in blueprint["groups"].values():
                 for manual in group:
                     self._remember_manual_lookup(state, str(manual["type"]))
@@ -1534,6 +1543,7 @@ class WorkflowBuilder:
                 [
                     record.template.meta
                     for record in self.template_store.list_records(all_versions=True)
+                    if self._supports_workflow(available_blocks, record.template.workflow)
                 ]
                 if self.template_store
                 else []
@@ -1593,9 +1603,12 @@ class WorkflowBuilder:
                     ),
                 }
                 for name in self.blocks.template_names()
+                if self._supports_workflow(available_blocks, self.blocks.expand_template(name))
             ]
             if self.template_store:
                 for record in self.template_store.list_records(all_versions=True):
+                    if not self._supports_workflow(available_blocks, record.template.workflow):
+                        continue
                     meta = record.template.meta
                     templates.append({
                         "name": meta.name,
@@ -1655,6 +1668,8 @@ class WorkflowBuilder:
                     x=x,
                     y=y,
                 )
+            if not self._supports_workflow(available_blocks, workflow):
+                raise ValueError('此模板包含本项目禁止使用的智能体积木')
             draft = await self.workflow_store.get_draft(application_id)
             revision = int(draft["revision"])
             for node in workflow.nodes:
@@ -2450,7 +2465,16 @@ class WorkflowBuilder:
             }
         return {"failure": failure}
 
-    def _catalog_overview(self) -> str:
+    async def _available_blocks(self, application_id):
+        if self.applications.projects is not None:
+            return await self.applications.projects.blocks_for(application_id)
+        return self.blocks
+
+    @staticmethod
+    def _supports_workflow(blocks, workflow):
+        return not hasattr(blocks, 'supports_workflow') or blocks.supports_workflow(workflow)
+
+    def _catalog_overview(self, blocks=None) -> str:
         """One compact line per block so the Builder never has to search blind.
 
         目录里带上**一句话职责**，不只是标题。选型是架构那一步唯一重要的事，
@@ -2462,7 +2486,7 @@ class WorkflowBuilder:
         """
 
         by_category: dict[str, list[str]] = {}
-        for item in self.blocks.list():
+        for item in (blocks or self.blocks).list():
             summary = (
                 item.editor.get("i18n", {}).get("zh", {}).get("description")
                 or item.description
@@ -2475,6 +2499,8 @@ class WorkflowBuilder:
         for category in sorted(by_category):
             lines.append(f"[{category}] " + "; ".join(sorted(by_category[category])))
         core = sorted(self.core_tools.names())
+        if not getattr(blocks, 'agent_modules_enabled', True):
+            core = [name for name in core if name != 'Agent']
         if core:
             lines.append("[core tools] " + "; ".join(core))
         return "\n".join(lines)

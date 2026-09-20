@@ -19,6 +19,7 @@ class CommandResult:
     stdout: str
     stderr: str
     exit_code: int
+    output_truncated: bool = False
 
 
 class SandboxSession:
@@ -31,6 +32,7 @@ class SandboxSession:
         mount_source: Path,
         network_policy: NetworkPolicy,
         network_allowlist: list[str],
+        readonly_paths: tuple[str, ...] = (),
     ) -> None:
         self.settings = settings
         self.session_id = session_id
@@ -40,6 +42,7 @@ class SandboxSession:
         self.mount_source = mount_source
         self.network_policy = network_policy
         self.network_allowlist = network_allowlist
+        self.readonly_paths = readonly_paths
         self.started = False
 
     async def start(self) -> None:
@@ -72,6 +75,8 @@ class SandboxSession:
             "--workdir",
             "/workspace",
         ]
+        for relative in self.readonly_paths:
+            command.extend(["--volume", f"{self.mount_source / relative}:/workspace/{relative}:ro"])
         if self.network_policy == NetworkPolicy.allowlist:
             command.extend(["--env", f"AGENT_NETWORK_ALLOWLIST={','.join(self.network_allowlist)}"])
         command.extend([self.settings.sandbox_image, "sleep", "infinity"])
@@ -102,6 +107,7 @@ class SandboxSession:
         result = await self._host_command(
             command, stdin=stdin, timeout=timeout or self.settings.sandbox_command_timeout
         )
+        result.output_truncated = len(result.stdout) > max_output or len(result.stderr) > max_output
         result.stdout = result.stdout[:max_output]
         result.stderr = result.stderr[:max_output]
         return result
@@ -134,6 +140,22 @@ class SandboxManager:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self.sessions: dict[str, SandboxSession] = {}
+        self.readonly_workspaces: dict[Path, tuple[str, ...]] = {}
+
+    def protect_inputs(self, workspace: Path, relative_paths: list[str]) -> None:
+        """Keep imported inputs read-only even inside workflow code/tool nodes."""
+        root = self.resolve_workspace(str(workspace))
+        paths = []
+        for value in relative_paths:
+            relative = Path(value)
+            target = root / relative
+            if relative.is_absolute() or ".." in relative.parts or target.is_symlink():
+                raise SandboxError("read-only input path must remain inside the workspace")
+            if target.exists():
+                if not target.resolve().is_relative_to(root):
+                    raise SandboxError("read-only input path leaves the workspace")
+                paths.append(relative.as_posix())
+        self.readonly_workspaces[root] = tuple(paths)
 
     def resolve_workspace(self, requested: str, *, create: bool = False) -> Path:
         root = self.settings.workspace_root.resolve()
@@ -167,6 +189,7 @@ class SandboxManager:
             mount_source=self._host_workspace(workspace),
             network_policy=network_policy,
             network_allowlist=network_allowlist,
+            readonly_paths=self.readonly_workspaces.get(workspace, ()),
         )
         await sandbox.start()
         self.sessions[session_id] = sandbox

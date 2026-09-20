@@ -15,6 +15,7 @@ from ..sandbox import SandboxSession
 class ToolResult:
     content: str
     is_error: bool = False
+    structured_output: dict[str, Any] | None = None
 
 
 @dataclass(slots=True)

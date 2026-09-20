@@ -1,0 +1,64 @@
+/* One light, cool palette for the project workspace and all editing surfaces. */
+:root {
+  color-scheme: light;
+  --ui-bg:#f5f7fa; --ui-panel:#fff; --ui-hover:#edf1f6; --ui-ink:#202b3d;
+  --ui-muted:#64748b; --ui-line:#e1e6ed; --ui-accent:#3f639f; --ui-accent-strong:#304f84;
+  --ui-accent-soft:#edf2fa; --ui-ok:#27775e; --ui-ok-soft:#edf7f2;
+  --ui-warn:#916521; --ui-warn-soft:#faf5e9; --ui-danger:#b4444a; --ui-danger-soft:#fdf0f1;
+  --ui-serif:Georgia,'Songti SC','STSong','SimSun',serif;
+  --ui-sans:ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;
+  --bg:var(--ui-bg); --panel:var(--ui-panel); --panel2:var(--ui-hover); --line:var(--ui-line);
+  --text:var(--ui-ink); --muted:var(--ui-muted); --blue:var(--ui-accent); --orange:var(--ui-warn);
+  --lil-paper:var(--ui-bg); --lil-panel:var(--ui-panel); --lil-panel-soft:#f9fafc;
+  --lil-ink:var(--ui-ink); --lil-muted:var(--ui-muted); --lil-line:var(--ui-line); --lil-line-soft:#edf0f5;
+  --lil-code:var(--ui-hover); --lil-accent:var(--ui-accent); --lil-accent-strong:var(--ui-accent-strong);
+  --lil-accent-line:#c9d6eb; --lil-ok-soft:var(--ui-accent-soft); --lil-warn:var(--ui-warn);
+  --lil-warn-soft:var(--ui-warn-soft); --lil-danger:var(--ui-danger); --lil-danger-soft:var(--ui-danger-soft);
+  --lil-pm:var(--ui-accent); --lil-pm-line:#c9d6eb; --lil-pm-soft:var(--ui-accent-soft);
+}
+html,body { font-family:var(--ui-sans); background:var(--ui-bg); color:var(--ui-ink); font-size:14px; }
+button,input,textarea,select { font:inherit; }
+button { color:var(--ui-ink); }
+a { color:var(--ui-accent); }
+button,input,textarea,select { accent-color:var(--ui-accent); }
+:is(button,a,input,textarea,select,summary):focus-visible { outline:2px solid var(--ui-accent); outline-offset:3px; }
+input,textarea,select { color:var(--ui-ink); background:var(--ui-panel); border:1px solid var(--ui-line); border-radius:8px; padding:10px 12px; }
+button:disabled { opacity:.5; cursor:not-allowed; }
+h1 { font-family:var(--ui-serif); font-weight:600; letter-spacing:-.025em; }
+.home-shell { --hbg:var(--ui-bg); --hpanel:var(--ui-panel); --hline:var(--ui-line); --htext:var(--ui-ink); --hmuted:var(--ui-muted); --haccent:var(--ui-accent); --haccent-ink:var(--ui-accent-strong); }
+.studio-shell { background:var(--ui-bg); color:var(--ui-ink); }
+.studio-header,.block-heading { background:var(--ui-panel); }
+.studio-title strong { font-size:14px; }
+.studio-grid { min-width:0; }
+.canvas-wrap { background:var(--ui-bg); }
+.brick-node { background:var(--ui-panel); border-color:#cbd5e1; box-shadow:0 2px 7px #202b3d0b; color:var(--ui-ink); }
+.brick-node.selected { box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 18%,transparent); }
+.brick-node strong { font-family:var(--ui-sans); }
+.brick-node small { color:var(--ui-muted); }
+.react-flow__controls,.react-flow__minimap { background:var(--ui-panel)!important; border-color:var(--ui-line)!important; box-shadow:0 2px 8px #202b3d0c; }
+.react-flow__controls-button { background:var(--ui-panel)!important; fill:var(--ui-ink)!important; border-color:var(--ui-line)!important; }
+.react-flow__handle { border-color:var(--ui-panel)!important; }
+.studio-shell[data-embedded=true] .studio-header { display:none; }
+.studio-shell[data-embedded=true] .studio-grid { height:100dvh; }
+.studio-shell :is(.panel-body,.block-panel) { scrollbar-width:thin; scrollbar-color:#cbd5e1 transparent; }
+.header-actions button,.wide,.run-result button { background:var(--ui-accent); color:#fff; box-shadow:none; }
+.header-actions .ghost { background:var(--ui-panel); color:var(--ui-ink); border-color:var(--ui-line); }
+.panel-tabs button.active { color:var(--ui-accent); background:var(--ui-accent-soft); border-bottom-color:var(--ui-accent); }
+.studio-shell .panel-kicker { color:var(--ui-accent); }
+.markdown-document { color:var(--ui-ink); font:14px/1.85 var(--ui-sans); min-width:0; }
+.markdown-document :is(h1,h2,h3,h4,h5,h6) { color:var(--ui-ink); }
+.markdown-document h1,.markdown-document h2 { font-family:var(--ui-serif); }
+.markdown-document pre,.markdown-document code { background:var(--ui-hover); color:var(--ui-ink); border-color:var(--ui-line); }
+.markdown-document pre { max-width:100%; }
+.markdown-document blockquote { background:var(--ui-accent-soft); color:var(--ui-muted); border-left-color:var(--ui-accent); }
+.markdown-table-wrap { overflow:auto; max-width:100%; border-color:var(--ui-line); }
+.markdown-table-wrap table { min-width:480px; }
+.markdown-table-wrap :is(th,td) { color:var(--ui-ink); border-color:var(--ui-line); overflow-wrap:normal; word-break:normal; }
+.markdown-table-wrap th { background:var(--ui-hover); }
+.markdown-table-wrap th:first-child { min-width:130px; }
+.markdown-document a { color:var(--ui-accent); border-bottom-color:#c9d6eb; }
+@media(prefers-reduced-motion:reduce) { *,*::before,*::after { animation-duration:.01ms!important; transition-duration:.01ms!important; scroll-behavior:auto!important; } }
+
+.studio-shell[data-embedded=true] { height:100dvh; }
+.studio-shell[data-embedded=true] .studio-grid { height:auto; }
+.studio-shell .canvas-toolbar button { box-shadow:0 2px 8px #202b3d0b; }

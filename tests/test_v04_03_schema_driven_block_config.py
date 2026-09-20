@@ -96,7 +96,7 @@ def _run_draft(client: TestClient, application_id: str) -> tuple[str, dict[str, 
 def test_registry_exposes_editor_descriptors_for_common_block_families() -> None:
     registry = build_block_registry()
     expected_paths = {
-        "llm": {"system", "prompt", "model", "temperature", "structured_output"},
+        "llm": {"system", "prompt", "model", "temperature", "structured_output", "max_output_tokens"},
         "model_turn": {"settings.system", "settings.prompt", "settings.model"},
         "http_request": {"method", "url", "headers", "timeout_seconds"},
         "tool": {"tool_name", "input"},
@@ -274,6 +274,8 @@ def test_saved_model_and_http_controls_change_runtime_behavior(tmp_path: Path) -
         system: str,
         prompt: str,
         node_id: str,
+        *,
+        diagnostics: dict[str, Any] | None = None,
     ) -> tuple[str, Usage]:
         model_calls.append({"model": model, "system": system, "prompt": prompt, "node_id": node_id})
         return f"{model}|{system}|{prompt}", Usage(input_tokens=2, output_tokens=3)

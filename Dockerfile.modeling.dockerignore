@@ -1,0 +1,9 @@
+**
+!Dockerfile.modeling
+!requirements-modeling.txt
+!requirements-modeling.lock
+!platform/
+!platform/backend/
+!platform/backend/src/
+!platform/backend/src/agent_platform/
+!platform/backend/src/agent_platform/modeling_worker.py

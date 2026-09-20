@@ -120,6 +120,8 @@ async function proxy(request: NextRequest, context: { params: Promise<{ path: st
   const responseHeaders = new Headers()
   responseHeaders.set('content-type', response.headers.get('content-type') || 'application/json')
   responseHeaders.set('cache-control', 'no-store')
+  const disposition = response.headers.get('content-disposition')
+  if (disposition) responseHeaders.set('content-disposition', disposition)
   const retryAfter = response.headers.get('retry-after')
   if (retryAfter) responseHeaders.set('retry-after', retryAfter)
   const responseLastEventId = response.headers.get('last-event-id')

@@ -50,6 +50,7 @@ class ApplicationService:
         self.store = store
         self.blocks = blocks
         self.tools = tools
+        self.projects = None
 
     async def apply_operation(
         self,
@@ -531,6 +532,11 @@ class ApplicationService:
         draft = await self.store.get_draft(application_id)
         snapshot: ApplicationSnapshot = draft["snapshot"]
         errors = self.blocks.validate_workflow(snapshot.workflow)
+        if self.projects is not None:
+            try:
+                await self.projects.validate_capabilities(application_id, snapshot)
+            except ValueError as error:
+                errors.append(str(error))
         known_tools = set(self.tools.names())
         for agent in snapshot.agents.values():
             unknown_tools = set(agent.tools) - known_tools

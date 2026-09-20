@@ -8,7 +8,7 @@
 .card h2{margin:0 0 10px;font-size:15px}
 .hint{color:var(--lil-muted);font-size:12.5px;line-height:1.7;margin:6px 0}
 .notice{border:1px solid var(--lil-accent-line);background:var(--lil-ok-soft);color:var(--lil-accent-strong);border-radius:10px;padding:9px 13px;font-size:12.5px;word-break:break-all}
-.error{border:1px solid #f6c6c2;background:var(--lil-danger-soft);color:var(--lil-danger);border-radius:10px;padding:9px 13px;font-size:12.5px}
+.error{border:1px solid #cad6e7;background:var(--lil-danger-soft);color:var(--lil-danger);border-radius:10px;padding:9px 13px;font-size:12.5px}
 .viewHead{display:flex;align-items:center;gap:10px;margin-bottom:10px}
 .nameInput{border:1px solid var(--lil-line);border-radius:8px;padding:7px 10px;font:inherit;font-size:14px;font-weight:600;flex:1}
 .viewHead code{color:var(--lil-muted);font-size:11px}
@@ -24,7 +24,7 @@
 .actions button{border:0;border-radius:9px;background:var(--lil-accent);color:#fff;padding:8px 16px;font-size:12.5px;cursor:pointer}
 .actions button:hover{background:var(--lil-accent-strong)}
 .ghost{background:var(--lil-panel) !important;border:1px solid var(--lil-line) !important;color:var(--lil-ink) !important}
-.danger{background:var(--lil-panel) !important;border:1px solid #f6c6c2 !important;color:var(--lil-danger) !important;margin-left:auto}
+.danger{background:var(--lil-panel) !important;border:1px solid #cad6e7 !important;color:var(--lil-danger) !important;margin-left:auto}
 .createRow{display:flex;gap:8px}
 .createRow input{flex:1;border:1px solid var(--lil-line);border-radius:9px;padding:9px 12px;font:inherit;font-size:13px}
 .createRow button{border:0;border-radius:9px;background:var(--lil-accent);color:#fff;padding:9px 18px;font-size:12.5px;cursor:pointer}

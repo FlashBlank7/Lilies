@@ -24,7 +24,7 @@ def test_health_and_authentication(tmp_path: Path) -> None:
             "/v1/models", headers={"Authorization": "Bearer secret-test-token"}
         )
         assert response.status_code == 200
-        assert response.json()["provider"] in ("deepseek", "multi", "scripted")
+        assert response.json()["provider"] in ("deepseek", "multi", "scripted", "project")
 
 
 def test_debug_page_is_available(tmp_path: Path) -> None:
@@ -49,7 +49,7 @@ def test_block_manual_endpoints_expose_agent_architecture_catalog(tmp_path: Path
         assert blocks.status_code == 200
         by_type = {item["type"]: item for item in blocks.json()}
         assert by_type["model_turn"]["block_kind"] == "agent_architecture"
-        assert by_type["claude_agent"]["block_kind"] == "legacy_compatibility"
+        assert "claude_agent" not in by_type
 
         manual = client.get("/api/v1/blocks/model_turn/manual", headers=auth)
         assert manual.status_code == 200

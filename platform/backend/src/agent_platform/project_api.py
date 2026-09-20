@@ -1,0 +1,323 @@
+"""Owner-facing project API. Native agents receive only project-bound tools."""
+import zipfile
+from typing import Any, Literal
+
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, Query
+from pydantic import BaseModel, ConfigDict, Field
+
+from .local_agent_api import AgentToolCall, SelectAgent
+from .project_agent_tools import WorkspaceProjectTools, project_tool_specs
+from .project_store import ProjectConflict
+from .project_conversation import ConversationMessage, ProgressUpdate
+from .requirement_discussion import load_discussion
+from .requirement_package import import_package
+from .model_connections import ModelConnection
+
+
+class Body(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+
+class NewProject(Body):
+    name: str = Field(min_length=1, max_length=100)
+    description: str = Field(default='', max_length=1000)
+    requirement: str = Field(default='', max_length=28000)
+
+
+class NewMember(Body):
+    name: str = Field(min_length=1, max_length=100)
+    description: str = Field(default='', max_length=1000)
+    purpose: Literal['business', 'test'] = 'business'
+
+
+class CopyModelConnection(Body):
+    source_project_id: str
+    role: Literal['main', 'vision'] = 'main'
+    source_role: Literal['main', 'vision'] | None = None
+
+
+class CopyMaterial(Body):
+    source_project_id: str
+    source_path: str = Field(min_length=1)
+
+
+class MemberPurpose(Body):
+    purpose: Literal['business', 'test']
+
+
+class ProjectCapabilities(Body):
+    agent_modules_enabled: bool = Field(strict=True)
+
+
+class Message(Body):
+    message: str = Field(default='', max_length=8000)
+    intent: Literal['discuss', 'build', 'operate'] = 'discuss'
+
+
+class Confirmation(Body):
+    revision: int = Field(ge=0)
+
+
+class NewTask(Body):
+    request_key: str = Field(min_length=1, max_length=240)
+    mode: Literal['workflow', 'agent'] = 'workflow'
+    workflow_id: str = ''
+    inputs: dict[str, Any] = Field(default_factory=dict)
+    message: str = Field(default='', max_length=8000)
+    purpose: Literal['build_test', 'customer_trial', 'business'] = 'business'
+    item_id: str = ''
+    feedback_task_id: str = ''
+
+
+class RecordUpdate(Body):
+    value: dict[str, Any]
+    expected_revision: int = Field(ge=0, strict=True)
+
+
+class Supplement(Body):
+    message: str = Field(default='', max_length=8000)
+    inputs: dict[str, Any] = Field(default_factory=dict)
+
+
+class HumanResponse(Body):
+    values: dict[str, Any]
+
+
+async def invoke(fn, *args, **kwargs):
+    try:
+        return await fn(*args, **kwargs)
+    except ProjectConflict as e:
+        raise HTTPException(409, str(e)) from e
+    except KeyError as e:
+        raise HTTPException(404, str(e)) from e
+    except (ValueError, RuntimeError, OSError) as e:
+        raise HTTPException(422, str(e)) from e
+
+
+def project_router(services, require_token):
+    router = APIRouter(prefix='/api/v1', dependencies=[Depends(require_token)])
+    projects, manager = services.projects, services.local_agents
+
+    async def require_project(project_id: str):
+        return await invoke(projects.store.get, project_id)
+
+    scoped = APIRouter(prefix='/projects/{project_id}', dependencies=[Depends(require_project)])
+
+    @router.get('/projects')
+    async def list_projects():
+        return await projects.store.list()
+
+    @router.post('/projects', status_code=201)
+    async def create_project(body: NewProject):
+        return await invoke(projects.create, **body.model_dump())
+
+    @router.post('/projects/requirement-packages/import', status_code=201)
+    async def import_project(file: UploadFile = File(...)):
+        try:
+            if not (file.filename or '').lower().endswith('.zip'):
+                raise ValueError('请选择 ZIP 格式的需求包')
+            result = await import_package(file.file, services.settings.workspace_root, services.workflow_store)
+            app = result['application']
+            return {**result, 'project': await projects.adopt_new_application(app['id'], app['name'], app['description'])}
+        except (ValueError, zipfile.BadZipFile, NotImplementedError) as e:
+            raise HTTPException(422, str(e)) from e
+        finally:
+            await file.close()
+
+    @router.get('/applications/{application_id}/project')
+    async def application_project(application_id: str):
+        return {'project_id': await projects.store.membership(application_id)}
+
+    @scoped.get('')
+    async def get_project(project_id: str):
+        return await projects.store.get(project_id)
+
+    @scoped.get('/members')
+    async def list_members(project_id: str):
+        return (await projects.store.get(project_id))['members']
+
+    @scoped.put('/capabilities')
+    async def set_capabilities(project_id: str, body: ProjectCapabilities):
+        # Owner API only: project-bound Builder tools cannot enable capabilities.
+        return await projects.store.set_agent_modules(project_id, body.agent_modules_enabled)
+
+    @scoped.patch('/members/{workflow_id}')
+    async def classify_member(project_id: str, workflow_id: str, body: MemberPurpose):
+        await invoke(projects.member, project_id, workflow_id)
+        await projects.store.classify_member(project_id, workflow_id, body.purpose)
+        return {'workflow_id': workflow_id, 'purpose': body.purpose}
+
+    @scoped.get('/progress')
+    async def progress(project_id: str):
+        return await projects.store.progress(project_id)
+
+    @scoped.put('/progress')
+    async def update_progress(project_id: str, body: ProgressUpdate):
+        return await invoke(projects.conversation.update, project_id, body.value, body.expected_revision)
+
+    @scoped.get('/topology')
+    async def topology(project_id: str):
+        return await projects.conversation.topology(project_id)
+
+    @scoped.get('/conversation')
+    async def conversation(project_id: str, after: str = '', before: str = '',
+                           limit: int = Query(default=50, ge=1, le=100),
+                           kind: Literal['messages', 'tools', 'activity'] = 'messages', request_id: str = ''):
+        try:
+            return projects.conversation.events(project_id, after=after, before=before, limit=limit, kind=kind, request_id=request_id)
+        except ValueError as e:
+            raise HTTPException(422, str(e)) from e
+
+    @scoped.post('/conversation/messages', status_code=202)
+    async def conversation_message(project_id: str, body: ConversationMessage):
+        await invoke(projects.conversation.send, project_id, body)
+        # Avoid returning the entire historical transcript on every message.
+        return projects.conversation.events(project_id)
+
+    @scoped.get('/conversation/metrics')
+    async def conversation_metrics(project_id: str, request_id: str = ''):
+        from .project_metrics import session_metrics
+        return session_metrics(manager.load(project_id)['events'], request_id)
+
+    @scoped.post('/members', status_code=201)
+    async def add_member(project_id: str, body: NewMember):
+        return await invoke(projects.add_member, project_id, **body.model_dump())
+
+    @scoped.delete('/members/{workflow_id}')
+    async def remove_member(project_id: str, workflow_id: str):
+        await invoke(projects.remove_member, project_id, workflow_id)
+        return {'removed': workflow_id}
+
+    @scoped.post('/members/{workflow_id}/tests/run')
+    async def test_project_member(project_id: str, workflow_id: str):
+        return await invoke(projects.test_workflow, project_id, workflow_id)
+
+    @scoped.get('/requirement-package')
+    async def package_files(project_id: str):
+        return await WorkspaceProjectTools(services, project_id, manager).call('project_file', {'action': 'list', 'path': 'requirement-package'})
+
+    @scoped.post('/materials', status_code=201)
+    async def upload_material(project_id: str, file: UploadFile = File(...)):
+        from .project_materials import add_material
+        return await invoke(add_material, services, project_id, file)
+
+    @scoped.post('/materials/copy', status_code=201)
+    async def copy_material(project_id: str, body: CopyMaterial):
+        from .project_materials import copy_material as copy
+        return await invoke(copy, services, project_id, body.source_project_id, body.source_path)
+
+    @scoped.get('/requirements')
+    async def requirements(project_id: str):
+        return load_discussion(projects.workspace(project_id))
+
+    @scoped.post('/requirements/messages', status_code=202)
+    async def discuss(project_id: str, body: Message):
+        return await invoke(manager.message, project_id, body.message or '请阅读需求包并与我核对理解', intent='discuss')
+
+    @scoped.post('/requirements/confirm')
+    async def confirm(project_id: str, body: Confirmation):
+        return await invoke(projects.confirm, project_id, body.revision)
+
+    @scoped.get('/agent-session')
+    async def session(project_id: str):
+        return {**manager.load(project_id), 'requirements': load_discussion(projects.workspace(project_id))}
+
+    @scoped.put('/agent-session')
+    async def select(project_id: str, body: SelectAgent):
+        return await invoke(manager.select, project_id, **body.model_dump())
+
+    @scoped.get('/vision-model')
+    async def vision_model(project_id: str):
+        connection = manager.connections.load(project_id, 'vision')
+        return manager.connections.public(connection) if connection else {'provider': None, 'has_api_key': False, 'runtime_enabled': False}
+
+    @scoped.put('/vision-model')
+    async def save_vision_model(project_id: str, body: ModelConnection):
+        try:
+            return manager.connections.save(project_id, body, role='vision')
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from error
+
+    @scoped.post('/model-connection/copy')
+    async def copy_model_connection(project_id: str, body: CopyModelConnection):
+        await require_project(body.source_project_id)
+        connection = manager.connections.load(body.source_project_id, body.source_role or body.role)
+        if not connection or connection.provider != 'api':
+            raise HTTPException(422, '所选项目尚未配置此用途的 API 模型')
+        if body.role == 'vision':
+            return await save_vision_model(project_id, connection)
+        return await invoke(manager.select, project_id, **connection.model_dump())
+
+    @scoped.post('/agent-session/messages', status_code=202)
+    async def message(project_id: str, body: Message):
+        if body.intent == 'operate' and not manager.running(project_id):
+            raise HTTPException(409, '请通过项目任务发起或继续业务处理')
+        return await invoke(manager.message, project_id, body.message or '继续', intent=body.intent)
+
+    @scoped.post('/agent-session/stop')
+    async def stop_agent(project_id: str):
+        return await manager.stop(project_id)
+
+    @scoped.post('/agent-session/resume', status_code=202)
+    async def resume_agent(project_id: str, body: Message):
+        state = manager.load(project_id)
+        if state.get('phase') == 'operate' and state.get('project_task_id'):
+            return await invoke(projects.resume, project_id, state['project_task_id'], body.message)
+        return await invoke(manager.message, project_id, body.message or '继续', intent=state['phase'])
+
+    @scoped.get('/agent-tools')
+    async def agent_tools(project_id: str):
+        return {'contract_version': 1, 'tools': project_tool_specs()}
+
+    @scoped.post('/agent-tools')
+    async def call_tool(project_id: str, body: AgentToolCall):
+        return await invoke(WorkspaceProjectTools(services, project_id, manager).call, body.name, body.arguments)
+
+    @scoped.get('/records')
+    async def records(project_id: str, collection: str | None = None):
+        return await projects.store.records(project_id, collection)
+
+    @scoped.get('/records/{collection}/{key:path}')
+    async def record(project_id: str, collection: str, key: str):
+        return await projects.store.get_record(project_id, collection, key)
+
+    @scoped.put('/records/{collection}/{key:path}')
+    async def update_record(project_id: str, collection: str, key: str, body: RecordUpdate):
+        return await invoke(projects.store.put_record, project_id, collection, key, body.value, body.expected_revision)
+
+    @scoped.get('/tasks')
+    async def tasks(project_id: str, purpose: Literal['', 'business', 'customer_trial', 'build_test', 'unclassified'] = '',
+                    item_id: str = '', before: str = '', limit: int = Query(default=100, ge=1, le=100), compact: bool = False):
+        result = await invoke(projects.store.tasks, project_id, purpose=purpose, item_id=item_id, before=before, limit=limit)
+        if compact:
+            return [{k: v for k, v in task.items() if k not in {'inputs', 'outputs'}} for task in result]
+        return result
+
+    @scoped.post('/tasks', status_code=202)
+    async def start_task(project_id: str, body: NewTask):
+        return await invoke(projects.start, project_id, **body.model_dump())
+
+    @scoped.get('/tasks/{task_id}')
+    async def task(project_id: str, task_id: str):
+        return await invoke(projects.task, project_id, task_id)
+
+    @scoped.post('/tasks/{task_id}/stop')
+    async def stop_task(project_id: str, task_id: str):
+        return await invoke(projects.stop, project_id, task_id)
+
+    @scoped.post('/tasks/{task_id}/resume', status_code=202)
+    async def resume_task(project_id: str, task_id: str, body: Message):
+        return await invoke(projects.resume, project_id, task_id, body.message)
+
+    @scoped.post('/tasks/{task_id}/supplements')
+    async def supplement_task(project_id: str, task_id: str, body: Supplement):
+        return await invoke(projects.supplement, project_id, task_id, body.message, body.inputs)
+
+    @scoped.post('/tasks/{task_id}/runs/{run_id}/input')
+    async def project_task_run_input(project_id: str, task_id: str, run_id: str, body: HumanResponse):
+        return await invoke(projects.respond, project_id, task_id, run_id, body.values)
+
+    from .modeling_api import register_modeling_routes
+    register_modeling_routes(scoped, services, invoke)
+    router.include_router(scoped)
+    return router

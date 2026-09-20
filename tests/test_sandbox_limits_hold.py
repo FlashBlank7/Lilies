@@ -19,7 +19,7 @@ from pathlib import Path
 import pytest
 
 from agent_platform.config import Settings
-from agent_platform.sandbox import CommandResult, NetworkPolicy, SandboxError, SandboxSession
+from agent_platform.sandbox import CommandResult, NetworkPolicy, SandboxError, SandboxSession, SandboxManager
 
 
 def _session(tmp_path: Path) -> SandboxSession:
@@ -45,6 +45,7 @@ async def test_huge_output_is_cut(tmp_path):
     result = await session.run(["echo"], max_output=1000)
     assert len(result.stdout) == 1000
     assert len(result.stderr) == 1000
+    assert result.output_truncated
 
 
 @pytest.mark.asyncio
@@ -71,7 +72,27 @@ async def test_output_under_the_cap_is_untouched(tmp_path):
         return CommandResult(stdout="正常输出", stderr="", exit_code=0)
 
     session._host_command = small
-    assert (await session.run(["echo"])).stdout == "正常输出"
+    result = await session.run(["echo"])
+    assert result.stdout == "正常输出"
+    assert not result.output_truncated
+
+
+@pytest.mark.asyncio
+async def test_bash_does_not_pass_truncated_output_as_complete_json(tmp_path):
+    from types import SimpleNamespace
+    from agent_platform.tools.core import BashTool
+    session = _session(tmp_path)
+    session.started = True
+
+    async def flood(argv, *, stdin=None, timeout=None):
+        return CommandResult('{"partial":true}' + ' ' * 200_001, '', 0)
+
+    session._host_command = flood
+    result = await BashTool().execute({'command': 'diagnostic'}, SimpleNamespace(sandbox=session))
+    assert result.is_error
+    assert '已截断' in result.content
+    assert result.structured_output['output_truncated']
+    assert 'json' not in result.structured_output
 
 
 @pytest.mark.asyncio
@@ -112,3 +133,41 @@ async def test_a_command_that_finishes_in_time_is_not_killed(tmp_path):
     result = await session._host_command(["echo", "好了"], timeout=10)
     assert result.exit_code == 0
     assert "好了" in result.stdout
+
+
+@pytest.mark.asyncio
+async def test_imported_inputs_are_mounted_readonly_while_outputs_stay_writable(tmp_path):
+    workspace = tmp_path / 'workspace'
+    workspace.mkdir()
+    (workspace / 'requirement-package').mkdir()
+    manager = SandboxManager(Settings(workspace_root=workspace))
+    manager.protect_inputs(workspace, ['requirement-package'])
+    commands = []
+
+    async def host_command(self, argv, **kwargs):
+        commands.append(argv)
+        return CommandResult('container', '', 0)
+
+    original = SandboxSession._host_command
+    SandboxSession._host_command = host_command
+    try:
+        session = await manager.get_or_create('project', str(workspace), NetworkPolicy.none, [])
+        assert session.readonly_paths == ('requirement-package',)
+        command = commands[0]
+        assert f'{workspace}:/workspace:rw' in command
+        assert f'{workspace / "requirement-package"}:/workspace/requirement-package:ro' in command
+    finally:
+        await manager.close()
+        SandboxSession._host_command = original
+
+
+def test_readonly_input_registration_rejects_paths_outside_project(tmp_path):
+    workspace = tmp_path / 'workspace'
+    workspace.mkdir()
+    outside = tmp_path / 'outside'
+    outside.mkdir()
+    (workspace / 'linked').symlink_to(outside)
+    manager = SandboxManager(Settings(workspace_root=workspace))
+    for path in ('../outside', str(outside), 'linked'):
+        with pytest.raises(SandboxError):
+            manager.protect_inputs(workspace, [path])

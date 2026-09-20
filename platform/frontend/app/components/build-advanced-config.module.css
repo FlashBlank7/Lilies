@@ -19,13 +19,13 @@
 .toggle span{font-weight:600}
 
 /* 深色工作室面：沿用 studio 面板配色 */
-.dark{border-color:#2b3547;background:#0c111a}
-.dark>summary{color:#8f9caf}
-.dark>summary b{color:#f5f7fb}
-.dark>summary span,.dark>summary small{color:#8f9caf}
-.dark[open]>summary{border-bottom-color:#20293a;color:#f5f7fb}
-.dark .grid label{color:#dfe6f2}
-.dark .grid label>span em{color:#8492a7}
-.dark .grid input[type=number],.dark .grid select{border-color:#2b3548;background:#0b1018;color:#dfe6f2}
-.dark .grid input[type=number]:focus,.dark .grid select:focus{outline:2px solid #33415e;border-color:#5b8cff}
-.dark .toggle input{accent-color:#5b8cff}
+.dark{border-color:var(--ui-line);background:var(--ui-panel)}
+.dark>summary{color:var(--ui-muted)}
+.dark>summary b{color:var(--ui-ink)}
+.dark>summary span,.dark>summary small{color:var(--ui-muted)}
+.dark[open]>summary{border-bottom-color:var(--ui-line);color:var(--ui-ink)}
+.dark .grid label{color:var(--ui-ink)}
+.dark .grid label>span em{color:var(--ui-muted)}
+.dark .grid input[type=number],.dark .grid select{border-color:var(--ui-line);background:var(--ui-bg);color:var(--ui-ink)}
+.dark .grid input[type=number]:focus,.dark .grid select:focus{outline:2px solid var(--ui-line);border-color:#cad6e7}
+.dark .toggle input{accent-color:var(--ui-accent)}

@@ -12,6 +12,9 @@ import {
   type Draft,
 } from '@/lib/platform'
 import OutputView from '@/app/components/OutputView'
+import RequirementPackageMaterials from '@/app/components/RequirementPackageMaterials'
+import RequirementDiscussion, { type DiscussionPhase } from '@/app/components/RequirementDiscussion'
+import LocalAgentSession, { type AgentMode } from '@/app/components/LocalAgentSession'
 import BuildAdvancedConfig, { defaultBuildOptions, buildOptionsPayload, type BuildOptions } from '@/app/components/BuildAdvancedConfig'
 import styles from './session.module.css'
 
@@ -148,6 +151,8 @@ export default function Session({ params }: { params: Promise<{ id: string }> })
   const [draft, setDraft] = useState<Draft | null>(null)
   const [latestRun, setLatestRun] = useState<RunRecord | null>(null)
   const [message, setMessage] = useState('')
+  const [discussionPhase, setDiscussionPhase] = useState<DiscussionPhase>('loading')
+  const [agentMode, setAgentMode] = useState<AgentMode>('loading')
   const [sending, setSending] = useState(false)
   const [notice, setNotice] = useState('')
   // 会话页默认不自动发布：搭好后先看交付说明再决定。
@@ -196,6 +201,7 @@ export default function Session({ params }: { params: Promise<{ id: string }> })
   }, [transcript])
 
   const building = Boolean(build && ACTIVE.has(build.status))
+  const canBuild = Boolean(build) || discussionPhase === 'none' || discussionPhase === 'confirmed'
 
   // 展开导出面板时才去拉工作区文件列表，收起时不打扰后端。
   function toggleExport() {
@@ -213,6 +219,7 @@ export default function Session({ params }: { params: Promise<{ id: string }> })
   }
 
   async function send() {
+    if (!canBuild) return
     const text = message.trim()
     if (sending) return
     if (building && !text) return
@@ -237,9 +244,11 @@ export default function Session({ params }: { params: Promise<{ id: string }> })
           setNotice(options.error)
           return
         }
+        const currentApp = discussionPhase === 'confirmed'
+          ? await api<Application>(`/api/v1/applications/${id}`) : app
         const requirement = text
-          ? `${app?.requirement || ''}\n\n补充要求：${text}`.trim()
-          : app?.requirement || ''
+          ? `${currentApp?.requirement || ''}\n\n补充要求：${text}`.trim()
+          : currentApp?.requirement || ''
         const started = await api<{ build_id: string }>(`/api/v1/applications/${id}/builds`, {
           method: 'POST',
           body: JSON.stringify({ requirement, ...options.payload }),
@@ -433,21 +442,25 @@ export default function Session({ params }: { params: Promise<{ id: string }> })
     </header>
 
     <div className={styles.columns}>
-      <section className={styles.chat} aria-label="莉莉丝会话">
+      <section className={styles.chat} aria-label="项目会话">
         <div className={styles.chatHead}>
-          <strong>莉莉丝会话</strong>
+          <strong>项目会话</strong>
           <small>
-            {transcript?.summary.available
+            {agentMode === 'codex' ? '本机 Codex 会话' : transcript?.summary.available
               ? `${transcript.summary.turn_count} 轮 · ${transcript.summary.tool_call_count} 次工具调用${transcript.summary.failed_tool_call_count ? ` · ${transcript.summary.failed_tool_call_count} 次失败` : ''}`
               : '还没有会话记录'}
           </small>
         </div>
+        {app && <RequirementPackageMaterials applicationId={id} requirement={app.requirement} />}
         {deliveryNote && <details className={styles.delivery}>
           <summary>交付说明（莉莉丝）</summary>
           <p>{deliveryNote}</p>
         </details>}
         <div className={styles.stream} ref={streamRef}>
-          {!transcript?.summary.available && <div className={styles.empty}>
+          <LocalAgentSession applicationId={id} onModeChange={setAgentMode} onUpdated={refresh} />
+          {agentMode === 'classic' && <>
+          {app && !build && <RequirementDiscussion applicationId={id} onPhaseChange={setDiscussionPhase} onConfirmed={() => void refresh()} />}
+          {!transcript?.summary.available && canBuild && <div className={styles.empty}>
             <p>发一句话，莉莉丝就开始搭建；她的每一轮思考、每次工具调用都会出现在这里。</p>
           </div>}
           {segments.length > 0
@@ -467,8 +480,9 @@ export default function Session({ params }: { params: Promise<{ id: string }> })
             <p>{pendingQuestion}</p>
           </div>}
           {building && <div className={styles.working}><span/>莉莉丝正在搭建…</div>}
+          </>}
         </div>
-        <div className={styles.composer}>
+        {agentMode === 'classic' && canBuild && <div className={styles.composer}>
           {notice && <div className={styles.notice}>{notice}</div>}
           {!build && <BuildAdvancedConfig disabled={sending} onChange={setBuildOptions} value={buildOptions} />}
           <div className={styles.composerRow}>
@@ -490,7 +504,7 @@ export default function Session({ params }: { params: Promise<{ id: string }> })
               {sending ? '发送中…' : building ? '插话' : build ? '继续搭建' : '开始搭建'}
             </button>
           </div>
-        </div>
+        </div>}
       </section>
 
       <section className={styles.right}>
