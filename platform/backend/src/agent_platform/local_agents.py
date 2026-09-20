@@ -470,6 +470,7 @@ class LocalAgents:
 
             async def on_tool(name, arguments):
                 nonlocal productive
+                waiting_on_active_task = False
                 current = self.load(application_id)
                 metadata = dict(operation_id=str(uuid4()), request_id=current.get('request_id', ''),
                     started_at=utc_now(), title=activity_title(name, arguments),
@@ -489,6 +490,11 @@ class LocalAgents:
                         try:
                             task = await self.services.projects.store.get_task(application_id, arguments['task_id'])
                             metadata['task_id'] = task['id']
+                            waiting_on_active_task = task['status'] in {'queued', 'running'} and (
+                                (name == 'project_action' and arguments.get('action') == 'wait') or
+                                (name == 'workflow_run' and arguments.get('action') == 'inspect' and
+                                 isinstance(arguments.get('wait_seconds'), int) and
+                                 arguments.get('wait_seconds', 0) > 0))
                         except (ValueError, KeyError):
                             pass
                 self.event(application_id, "tool_started", name,
@@ -497,6 +503,10 @@ class LocalAgents:
                     token = self.current_operation.set(metadata['operation_id'])
                     try:
                         result = await tools.call(name, arguments)
+                        if waiting_on_active_task and isinstance(result, dict) and result.get('status') == 'interrupted':
+                            # A user's stop ends an active wait without another paid
+                            # model turn. Reading an already stopped task stays a read.
+                            raise asyncio.CancelledError
                     finally:
                         self.current_operation.reset(token)
                         bound = next((event for event in reversed(self.load(application_id)['events'])

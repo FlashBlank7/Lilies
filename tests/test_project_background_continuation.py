@@ -203,3 +203,58 @@ def test_reply_without_background_work_ends_without_extra_model_calls(configured
     state = agent_settled(client, base)
     assert state['status'] == 'idle' and not state['error']
     assert len(turns) == 1 and client.get(base+'/tasks').json() == []
+
+
+@pytest.mark.parametrize('tool_name,extra', [('project_action', {'action':'wait'}),
+                                            ('workflow_run', {'action':'inspect','wait_seconds':30})])
+def test_stopped_active_wait_ends_raw_model_turn_but_history_remains_readable(configured, monkeypatch, tool_name, extra):
+    from types import SimpleNamespace
+    from agent_platform.connected_model import completion_events
+    from agent_platform.model_connections import ModelConnections
+
+    client, app, project, settings = configured
+    base = '/api/v1/projects/' + project['id']
+    entered, release = asyncio.Event(), asyncio.Event()
+    original = _NODE_EXECUTORS['end']
+
+    async def held(runtime, run):
+        entered.set()
+        await release.wait()
+        return await original(runtime, run)
+
+    monkeypatch.setitem(_NODE_EXECUTORS, 'end', held)
+    graph(client, project['id'], [node('s','start'), node('e','end')], [edge('s','e')])
+    task = client.post(base+'/tasks', json={'request_key':'live-wait-stop'}).json()
+    client.portal.call(asyncio.wait_for, entered.wait(), 2)
+    calls = []
+
+    async def stream(**kwargs):
+        calls.append(kwargs)
+        if len(calls) <= 2:
+            blocks = [{'type':'tool_use','id':'wait-'+str(len(calls)), 'name':tool_name,
+                       'input':{**extra,'task_id':task['id']}}]
+            reason = 'tool_use'
+        else:
+            blocks, reason = [{'type':'text','text':'历史中断状态可读'}], 'end_turn'
+        for e in completion_events(blocks, stop_reason=reason):
+            yield e
+
+    monkeypatch.setattr(ModelConnections, 'provider', lambda *a, **k: SimpleNamespace(stream=stream))
+    client.put(base+'/agent-session', json={'provider':'api','model':'test',
+               'base_url':'https://example.test/v1','api_key':'test'}).raise_for_status()
+    client.post(base+'/conversation/messages', json={'message':'等待原任务'}).raise_for_status()
+
+    async def waiting():
+        while not any(e['kind']=='tool_started' and e['text']==tool_name
+                      for e in app.state.services.local_agents.load(project['id'])['events']):
+            await asyncio.sleep(.01)
+    client.portal.call(asyncio.wait_for, waiting(), 2)
+    client.post(base+'/tasks/'+task['id']+'/stop').raise_for_status()
+    state = agent_settled(client, base)
+    assert state['status'] == 'interrupted' and len(calls) == 1
+    assert client.get(base+'/tasks/'+task['id']).json()['status'] == 'interrupted'
+    # A new explicit request can inspect the old interruption and answer normally.
+    client.post(base+'/conversation/messages', json={'message':'只查看刚才的状态'}).raise_for_status()
+    state = agent_settled(client, base)
+    assert state['status'] == 'idle' and len(calls) == 3
+    assert len(client.get(base+'/tasks').json()) == 1
