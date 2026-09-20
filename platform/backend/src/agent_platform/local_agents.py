@@ -367,7 +367,9 @@ class LocalAgents:
                         provider = ConnectedAgent(self.connections.load(application_id), runtime_dir / 'agent-turns')
                     else:
                         provider = self.connections.provider(application_id)
-                    client = ModelSession(provider, runtime_dir)
+                    client = ModelSession(provider, runtime_dir,
+                        max_model_calls=self.services.settings.project_agent_max_model_calls,
+                        max_output_tokens=self.services.settings.project_agent_max_output_tokens)
                 self.clients[self.key(application_id)] = client
                 instructions = INSTRUCTIONS
                 if self.connections.enabled(application_id):
@@ -411,6 +413,8 @@ class LocalAgents:
                     state.setdefault('previous_threads', []).append(previous_thread)
                     state['context_handoff'] = True
                 self.save(application_id, state)
+            if reset_budget := getattr(client, 'reset_budget', None):
+                reset_budget()
             state = self.load(application_id)
             state["status"] = "running"
             self.save(application_id, state)

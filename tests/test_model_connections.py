@@ -511,3 +511,34 @@ async def test_anthropic_thinking_signature_survives_tool_roundtrip(tmp_path):
         pass
     assert (await session.turn('read', event, tool))['status'] == 'completed'
     assert len(calls) == 2
+
+
+def test_project_request_limits_reach_provider_and_new_message_can_continue(configured, monkeypatch):
+    client, app, project, settings = configured
+    settings.project_agent_max_model_calls = 1
+    settings.project_agent_max_output_tokens = 192
+    base = '/api/v1/projects/' + project['id']
+    requests = []
+
+    def respond(request):
+        payload = json.loads(request.content)
+        requests.append(payload)
+        assert payload['max_tokens'] == 192
+        message = {'content': '继续完成。'} if len(requests) > 1 else {'content': '', 'tool_calls': [
+            {'id': 'discover', 'type': 'function', 'function': {'name': 'project_workflows',
+             'arguments': json.dumps({'action': 'list'})}}]}
+        return httpx.Response(200, json={'choices': [{'message': message,
+            'finish_reason': 'tool_calls' if 'tool_calls' in message else 'stop'}]})
+
+    monkeypatch.setattr(ModelConnections, 'provider', lambda self, pid: ConnectedModel(
+        self.load(pid), self.root / 'test', egress_enabled=True, transport=httpx.MockTransport(respond)))
+    client.put(base + '/agent-session', json={'provider': 'api', 'model': 'test-model',
+        'base_url': 'https://example.test/v1', 'api_key': 'test'}).raise_for_status()
+    client.post(base + '/agent-session/messages', json={'message': '查看流程'}).raise_for_status()
+    state = agent_settled(client, base)
+    assert '1 次对话模型调用上限' in state['error'] and len(requests) == 1
+    client.post(base + '/agent-session/messages', json={'message': '请继续完成'}).raise_for_status()
+    state = agent_settled(client, base)
+    assert state['status'] == 'idle' and not state['error'] and len(requests) == 2
+    assert any(b.get('role') == 'tool' and b.get('tool_call_id') == 'discover'
+               for b in requests[-1]['messages'])

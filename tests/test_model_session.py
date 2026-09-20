@@ -13,6 +13,37 @@ async def event(*args):
 
 
 @pytest.mark.asyncio
+async def test_request_budget_survives_background_turns_and_preserves_results(tmp_path):
+    seen, writes = [], []
+
+    async def stream(**kwargs):
+        seen.append(kwargs['max_output_tokens'])
+        for item in completion_events([{'type': 'tool_use', 'id': str(len(seen)),
+                'name': 'write', 'input': {}}], stop_reason='tool_use'):
+            yield item
+
+    async def tool(*args):
+        writes.append(len(writes) + 1)
+        return {'written': writes[-1]}
+
+    session = ModelSession(SimpleNamespace(stream=stream), tmp_path,
+                           max_model_calls=2, max_output_tokens=192)
+    await session.start([{'name': 'write', 'description': 'write', 'inputSchema': {'type': 'object'}}], 'test')
+    with pytest.raises(RuntimeError, match='2 次对话模型调用上限'):
+        await session.turn('work', event, tool)
+    with pytest.raises(RuntimeError, match='2 次对话模型调用上限'):
+        await session.turn('background result', event, tool)
+    assert seen == [192, 192] and writes == [1, 2]
+    saved = json.loads((tmp_path / 'conversation.json').read_text())
+    results = [b for m in saved['messages'] for b in m['content'] if b['type'] == 'tool_result']
+    assert [json.loads(b['content']) for b in results] == [{'written': 1}, {'written': 2}]
+    session.reset_budget()
+    with pytest.raises(RuntimeError, match='2 次对话模型调用上限'):
+        await session.turn('user continues', event, tool)
+    assert seen == [192] * 4 and writes == [1, 2, 3, 4]
+
+
+@pytest.mark.asyncio
 async def test_abrupt_tool_exit_preserves_completed_unknown_and_unstarted_results(tmp_path):
     class ProcessExit(BaseException):
         """Skip the normal cancellation/error cleanup, like process termination."""
