@@ -20,7 +20,7 @@ def is_read_call(name: str, arguments: dict) -> bool:
         return True
     return ((name == 'project_file' and arguments.get('action') in {'read', 'profile', 'list'})
             or (name == 'project_progress' and arguments.get('action', 'read') == 'read')
-            or name in {'block_catalog', 'project_records'}
+            or name in {'block_catalog', 'project_records', 'project_knowledge'}
             or (name == 'project_workflows' and arguments.get('action', 'list') == 'list')
             or (name == 'workflow_run' and arguments.get('action') == 'inspect'))
 

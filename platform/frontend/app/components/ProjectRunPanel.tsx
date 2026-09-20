@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import KnowledgeResults, {isKnowledgeSearchResult} from './KnowledgeResults'
 import { WorkflowValueField } from './WorkflowValueField'
 import { useEffect, useRef, useState } from 'react'
 import { api, withFrontendToken } from '@/lib/platform'
@@ -33,9 +34,11 @@ export function ProjectTaskOutput({ projectId, task }: { projectId: string; task
     if(typeof path==='string' && /^datasets\/[\w-]+\/files\/[\w./-]+$/.test(path) && !path.split('/').includes('..') && (!files.has(path)||Array.isArray(result.preview))) files.set(path,result)
     return files
   },new Map<string,Record<string,unknown>>()).values()]
+  const knowledgeResults = results.filter(isKnowledgeSearchResult)
   const trials = task.mode==='training' && Array.isArray(output.trials) ? output.trials as {slot:number;model:string;status:string;metrics?:Record<string,number>;error?:string}[] : []
   return <>
     <MarkdownDocument source={markdown} resolveLink={href => resolveProjectLink(projectId, href)} emptyLabel={['queued', 'running'].includes(task.status) ? '正在运行，结果会自动显示。' : '本次运行的输出见下方详情。'} />
+    {knowledgeResults.map((result, i) => <KnowledgeResults key={i} result={result} />)}
     {!!trials.length && <table><thead><tr><th>模型</th><th>验证指标</th><th>结果</th></tr></thead><tbody>{trials.map(t=><tr key={t.slot}><td>{t.model}</td><td>{Object.entries(t.metrics||{}).map(([k,v])=>`${k}: ${Number(v).toPrecision(5)}`).join(' / ')}</td><td>{t.error|| (t.status==='completed'?'已完成':t.status)}</td></tr>)}</tbody></table>}
     {task.mode==='training' && typeof output.study_id==='string' && typeof output.id==='string' && <p><a download href={withFrontendToken(`/api/platform/api/v1/projects/${projectId}/modeling/studies/${encodeURIComponent(output.study_id)}/candidates/${encodeURIComponent(output.id)}/download`)}>下载模型与训练记录 ↓</a></p>}
     {predictions.map((result,i)=>{const rows=Array.isArray(result.preview)?result.preview.slice(0,20) as Record<string,unknown>[]:[];const columns=rows.length?Object.keys(rows[0]).slice(0,8):[]

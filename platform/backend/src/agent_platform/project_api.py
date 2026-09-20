@@ -402,6 +402,8 @@ def project_router(services, require_token):
     register_modeling_routes(scoped, services, invoke)
     from .project_resources import register_resource_routes
     register_resource_routes(scoped, services, invoke)
+    from .project_knowledge import register_knowledge_routes
+    register_knowledge_routes(scoped, services, invoke)
     from .project_workflow_edit import register_workflow_edit_routes
     register_workflow_edit_routes(scoped, services, invoke)
     from .project_skills import register_skill_routes

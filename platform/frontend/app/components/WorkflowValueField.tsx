@@ -8,7 +8,7 @@ export type WorkflowFieldProps = {
   value: string; onChange: (value: string) => void; nodes: FieldNode[]; edges?: FieldEdge[]; blocks?: Block[]
   nodeId: string; label: string; projectId?: string; field?: string; allowReference?: boolean; disabled?: boolean; modelRole?: string
 }
-const resourceFields = new Set(['model_ref', 'dataset_id', 'model', 'file_path'])
+const resourceFields = new Set(['model_ref', 'knowledge_ref', 'dataset_id', 'model', 'file_path'])
 
 export function WorkflowValueField({ value, onChange, nodes, edges = [], blocks = [], nodeId, label, projectId, field, allowReference = true, disabled = false, modelRole = 'main' }: WorkflowFieldProps) {
   const reference = valueReference(parseField(value))
@@ -22,12 +22,12 @@ export function WorkflowValueField({ value, onChange, nodes, edges = [], blocks 
     setOptions([]); setError(false); setLoading(false)
     if (!projectId || !resource) return
     let active = true
-    const route = field === 'model_ref' ? '/models' : field === 'dataset_id' ? '/datasets?limit=100' : field === 'model' ? (modelRole === 'vision' ? '/vision-model' : '/agent-session') : ''
+    const route = field === 'knowledge_ref' ? '/knowledge' : field === 'model_ref' ? '/models' : field === 'dataset_id' ? '/datasets?limit=100' : field === 'model' ? (modelRole === 'vision' ? '/vision-model' : '/agent-session') : ''
     const url = field === 'file_path' ? `/api/v1/applications/${projectId}/workspace/files` : `/api/v1/projects/${projectId}${route}`
     setLoading(true)
     void api<unknown>(url).then(data => {
       if (!active) return
-      if (Array.isArray(data)) setOptions(data.map(item => ({ value: item.model_ref || item.id || item.path, label: `${item.name || item.path}${item.status === 'unbound' ? ' · 待绑定' : ''}` })))
+      if (Array.isArray(data)) setOptions(data.map(item => ({ value: item.knowledge_ref || item.model_ref || item.id || item.path, label: `${item.name || item.path}${item.status === 'unbound' ? ' · 待绑定' : item.status === 'pending' ? ' · 待建立索引' : ''}` })))
       else { const connection = data as { model?: string }; setOptions(connection.model ? [{ value: connection.model, label: connection.model }] : []) }
     }).catch(() => { if (active) setError(true) }).finally(() => { if (active) setLoading(false) })
     return () => { active = false }

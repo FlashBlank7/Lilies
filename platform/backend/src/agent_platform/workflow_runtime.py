@@ -1929,6 +1929,19 @@ class WorkflowRuntime:
         result = await self.modeling.run_block(project, run.node.type, args, run.run_id, run.scoped_id)
         return {'output': result}
 
+    @_node_executor('knowledge_search')
+    async def _exec_project_knowledge_search(self, run: NodeRun) -> dict[str, Any]:
+        from .project_knowledge import KnowledgeSearch
+        project = run.state.project_context if run.state else None
+        if not project:
+            raise ValueError('知识检索积木需要从项目运行')
+        config = run.config
+        result = await self.projects.knowledge.search(project['project_id'], config.knowledge_ref,
+            KnowledgeSearch(query=self._resolve(config.query, run.context), top_k=config.top_k,
+                            minimum_score=config.minimum_score),
+            version_id=project.get('knowledge_resources', {}).get(config.knowledge_ref, ''))
+        return {'output': result, **result}
+
     @_node_executor('project_record')
     async def _exec_project_record(self, run: NodeRun) -> dict[str, Any]:
         from .project_store import ProjectConflict

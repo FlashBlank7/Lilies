@@ -59,7 +59,7 @@ class ModelConnections:
         self.egress_enabled = egress_enabled
 
     def path(self, project_id: str, role: str = 'main'):
-        if role not in {'main', 'vision', 'generation'}:
+        if role not in {'main', 'vision', 'generation', 'embedding'}:
             raise ValueError('未知模型用途')
         suffix = '' if role == 'main' else '.' + role
         return self.root / (str(UUID(project_id)) + suffix + ".json")
@@ -69,13 +69,18 @@ class ModelConnections:
         return ModelConnection.model_validate_json(path.read_text()) if path.is_file() else None
 
     def save(self, project_id: str, value: ModelConnection, role: str = 'main') -> dict:
-        if role in {'vision', 'generation'} and value.provider != 'api':
-            raise ValueError('视觉及生成模型需要原始 API 连接')
+        if role in {'vision', 'generation', 'embedding'} and value.provider != 'api':
+            raise ValueError('视觉、生成及 Embedding 模型需要原始 API 连接')
+        if role == 'embedding' and value.protocol != 'openai':
+            raise ValueError('Embedding 使用 OpenAI 兼容的 embeddings 接口')
         previous = self.load(project_id, role)
         if value.provider == "api" and not value.api_key:
             if previous and previous.provider == "api" and previous.base_url == value.base_url and previous.protocol == value.protocol:
                 value = value.model_copy(update={"api_key": previous.api_key})
-            if not value.api_key or not value.api_key.get_secret_value():
+            from .providers.openai_chat import _is_loopback
+            if not value.api_key and role == 'embedding' and _is_loopback(value.base_url):
+                pass
+            elif not value.api_key or not value.api_key.get_secret_value():
                 raise ValueError("请填写 API Key；切换 API 地址时需要重新填写")
         if value.provider != "api":
             value = value.model_copy(update={"api_key": None, "base_url": ""})
@@ -112,6 +117,8 @@ class ModelConnections:
         return self.generation_settings(project_id)
 
     def provider(self, project_id: str, role: str = 'main'):
+        if role == 'embedding':
+            raise ValueError('Embedding 连接只能用于向量化，不能用于对话')
         from .connected_model import ConnectedModel
         value = self.load(project_id, role)
         if role == 'generation':

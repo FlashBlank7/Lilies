@@ -21,6 +21,7 @@ import DeveloperTools from './DeveloperTools'
 import WorkflowComposer from '@/app/components/WorkflowComposer'
 import ProjectModels from '@/app/components/ProjectModels'
 import ProjectSkills from '@/app/components/ProjectSkills'
+import ProjectKnowledge from '@/app/components/ProjectKnowledge'
 import styles from '../projects.module.css'
 
 type Project = { id: string; name: string; members: ProjectMember[]; agent_modules_enabled: boolean; access_role: 'admin' | 'owner' | 'collaborator' }
@@ -189,6 +190,7 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
     </>}
     {requirements !== null && <ReadingDialog wide title="当前需求文档" onClose={() => setRequirements(null)}><div className={styles.readerBody}><MarkdownDocument source={requirements} resolveLink={href => resolveProjectLink(id, href)} emptyLabel="尚未形成需求文档" /></div></ReadingDialog>}
     {tab === 'materials' && <ProjectSkills projectId={id} />}
+    {tab === 'materials' && project && <ProjectKnowledge key={id} projectId={id} canManage={project.access_role !== 'collaborator'} onFile={showFile} onWorkflow={workflow => { void refresh(); void showFlow(undefined, workflow); setEditingFlow(true) }} />}
     {tab === 'materials' && <section className={styles.panel}><h2>项目需求资料</h2><ProjectMaterials onOpenFile={showFile} id={id} /></section>}
     {tab === 'development' && <><p>成员草稿、建设测试、共享记录及完整运行历史。这里保留所有开发工具。</p><DeveloperTools id={id} initialTaskId={developerTaskId} /></>}
     {file && <ProjectFileReader projectId={id} path={file} onClose={() => setFile('')} onTask={fileTaskId ? () => { setFile(''); void showTask(fileTaskId) } : undefined} />}

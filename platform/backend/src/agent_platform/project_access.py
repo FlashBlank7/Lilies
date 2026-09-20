@@ -63,7 +63,7 @@ def authorization_dependency(services):
             raise HTTPException(403, '此平台功能仅对管理员开放')
         if path.endswith('/capabilities') and request.method != 'GET':
             raise HTTPException(403, '只有平台管理员可以授权完整智能体能力')
-        settings_change = (path.endswith(('/agent-session', '/vision-model', '/generation-model', '/model-connection/copy'))
+        settings_change = (path.endswith(('/agent-session', '/vision-model', '/generation-model', '/embedding-model', '/model-connection/copy'))
                            and request.method not in {'GET', 'HEAD'})
         if settings_change and any(role not in {'owner', 'admin'} for role in roles):
             raise HTTPException(403, '只有项目负责人可以修改模型连接')

@@ -31,6 +31,8 @@ class Projects:
         self.active: dict[str, asyncio.Task] = {}
         self.locks: dict[str, asyncio.Lock] = {}
         self.conversation = ProjectConversation(services, self)
+        from .project_knowledge import ProjectKnowledge
+        self.knowledge = ProjectKnowledge(services)
 
     def workspace(self, project_id: str):
         # Project id is the id of its main application; legacy application paths remain valid.
@@ -50,6 +52,7 @@ class Projects:
 
     async def initialize(self):
         await self.store.initialize()
+        await self.knowledge.initialize()
         for project in await self.store.list():
             self.services.sandboxes.protect_inputs(self.workspace(project['id']), ['requirement-package', 'requirements'])
 
@@ -98,8 +101,11 @@ class Projects:
         snapshots = await asyncio.to_thread(read)
         from .project_resources import model_resources
         resources = {m['model_ref']: m for m in await model_resources(self.services, project_id)}
+        knowledge = {k['knowledge_ref']: k['active_version'] if k['status'] == 'ready' else ''
+                     for k in await self.knowledge.list(project_id)}
         for snapshot in snapshots.values():
             snapshot['model_resources'] = resources
+            snapshot['knowledge_resources'] = knowledge
         return snapshots
 
     async def confirm(self, project_id: str, revision: int) -> dict:
@@ -193,7 +199,8 @@ class Projects:
     async def context(self, project_id: str, task_id: str, step: str) -> dict:
         task = await self.store.get_task(project_id, task_id, snapshots=True)
         return {'project_id': project_id, 'task_id': task_id, 'snapshots': task['snapshots'], 'step': step,
-                'model_resources': next(iter(task['snapshots'].values()), {}).get('model_resources', {})}
+                'model_resources': next(iter(task['snapshots'].values()), {}).get('model_resources', {}),
+                'knowledge_resources': next(iter(task['snapshots'].values()), {}).get('knowledge_resources', {})}
 
     async def execute(self, project_id: str, task_id: str, workflow_id: str, inputs: dict,
                       *, step: str = 'main', parent_run_id: str | None = None, reuse: bool = False,

@@ -17,6 +17,15 @@ from .modeling_models import ModelingTool
 from .modeling_summary import candidate_summary, study_summary
 from .modeling_workflow import submit_and_start
 from .project_resources import ModelResource
+from .project_knowledge import KnowledgeSearch
+
+
+class KnowledgeTool(Arguments):
+    action: Literal['list', 'read', 'search'] = 'list'
+    knowledge_ref: str = ''
+    query: str = ''
+    top_k: int = Field(default=5, ge=1, le=20)
+    minimum_score: float = Field(default=0.3, ge=-1, le=1)
 
 
 class DraftBatch(Arguments):
@@ -128,6 +137,7 @@ class ExecuteCode(Arguments):
 
 
 PROJECT_TOOL_MODELS = {
+    'project_knowledge': (KnowledgeTool, 'Discover project knowledge bases with list, inspect document/configuration summaries with read, or semantically search with query and knowledge_ref. Results include exact source text, locations, citations and the index version. Requires an explicitly configured Embedding connection; never substitutes a different model.'),
     'project_skills': (SkillsTool, 'List project skill names/descriptions; read a selected skill or reference only as needed; write with expected_revision.'),
     'project_models': (ModelsTool, 'List model references, bind a completed candidate and trial slot, or predict with model_ref and dataset_id without a workflow. Use request_key for retry identity; wait=false returns the prediction task immediately. Unbound names may be created before training finishes.'),
     'project_code': (ExecuteCode, 'Run Python in the project Docker environment without a workflow. Read-only inputs, writable solution/results, no network. Output and failures are returned directly.'),
@@ -243,6 +253,14 @@ class WorkspaceProjectTools(ProjectTools):
                 ]
             return result
         args = PROJECT_TOOL_MODELS[name][0].model_validate(arguments)
+        if name == 'project_knowledge':
+            knowledge = self.projects.knowledge
+            if args.action == 'list':
+                return await knowledge.list(self.application_id)
+            if args.action == 'read':
+                return await knowledge.get(self.application_id, args.knowledge_ref)
+            return await knowledge.search(self.application_id, args.knowledge_ref,
+                KnowledgeSearch(query=args.query, top_k=args.top_k, minimum_score=args.minimum_score))
         if name == 'project_skills':
             from .project_skills import skills, save_skill, SkillDocument
             if args.action == 'write':

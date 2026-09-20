@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
 from .event_automation import DurableEventTimerConfig
+from .project_knowledge import KnowledgeSearchConfig
 from .knowledge_rag import (
     GroundedAnswerConfig,
     KnowledgeIndexSyncConfig,
@@ -35,8 +36,8 @@ from .workflow_models import (
 )
 
 DEFAULT_WORKFLOW_BLOCKS = frozenset({'start', 'end', 'answer', 'code', 'llm', 'tool', 'http_request',
-    'data_analysis', 'feature_extract', 'model_train', 'model_predict', 'knowledge_retrieval',
-    'knowledge_index_sync', 'grounded_answer', 'if_else', 'iteration', 'loop', 'human_input',
+    'data_analysis', 'feature_extract', 'model_train', 'model_predict', 'knowledge_search',
+    'if_else', 'iteration', 'loop', 'human_input',
     'template_transform', 'variable_aggregator', 'variable_assigner', 'project_record'})
 
 
@@ -431,6 +432,7 @@ _ZH_BLOCKS = {
         "权限知识检索",
         "先按调用者角色过滤无权文档，再从获准知识中检索可引用片段。",
     ),
+    'knowledge_search': ('知识检索', '从项目知识库做语义检索，返回原文、出处和本次索引版本；可先保存流程，稍后配置知识库。'),
     "grounded_answer": (
         "有据回答",
         "只用已授权检索证据回答；没有足够证据时明确拒答。",
@@ -655,6 +657,12 @@ _EDITOR_FIELDS: dict[str, list[dict[str, Any]]] = {
             "description": "Stable webhook, job, or change-set identity used for idempotency.",
             "required": True,
         },
+    ],
+    'knowledge_search': [
+        {'path': 'knowledge_ref', 'label': 'Knowledge base', 'label_zh': '知识库', 'control': 'text'},
+        {'path': 'query', 'label': 'Question', 'label_zh': '问题', 'control': 'reference_or_text'},
+        {'path': 'top_k', 'label': 'Results', 'label_zh': '最多返回条数', 'control': 'number'},
+        {'path': 'minimum_score', 'label': 'Minimum similarity', 'label_zh': '最低相似度', 'control': 'number'},
     ],
     "knowledge_retrieval": [
         {
@@ -2981,6 +2989,16 @@ def build_block_registry() -> BlockRegistry:
                 ),
             ),
             KnowledgeIndexSyncConfig,
+        ),
+        (
+            _definition(
+                'knowledge_search', 'Semantic Knowledge Search',
+                'Search the current project knowledge base with its configured embedding model. Save before configuration; runtime requires a ready index. Return exact source text and citations; connect context to an LLM for synthesis.',
+                'model', KnowledgeSearchConfig, inputs=[('input', ValueType.object)],
+                outputs=[('output', ValueType.object), ('results', ValueType.array), ('context', ValueType.string), ('version', ValueType.string)],
+                error_branch=True,
+            ),
+            KnowledgeSearchConfig,
         ),
         (
             _definition(
