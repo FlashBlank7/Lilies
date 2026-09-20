@@ -326,7 +326,7 @@ class ProjectConversation:
         if not state.get('conversation_enabled'):
             raise ValueError('请从项目统一对话入口发起处理')
         item = await self.item(project_id, args.item_id) if args.item_id else None
-        if args.action in {'build', 'trial', 'operate', 'wait'} and not item:
+        if args.action in {'build', 'wait'} and not item:
             raise ValueError('此动作需要关联业务事项')
         if args.task_id:
             await self.projects.store.get_task(project_id, args.task_id)
@@ -337,8 +337,6 @@ class ProjectConversation:
         if args.action in {'inspect', 'finish'}:
             ready = await self.ready(project_id)
             state = self.manager.load(project_id)
-            if args.action == 'finish' and state.get('continue_work') and ready:
-                raise ValueError('仍有已授权可推进事项，请继续处理或记录具体阻塞')
             state.update(phase='coordinate')
             if args.action == 'finish':
                 state['continue_work'] = False
@@ -358,10 +356,6 @@ class ProjectConversation:
             self.manager.save(project_id, state)
             return {'waiting_item': item['id'], 'ready_items': await self.ready(project_id)}
         if args.action == 'build':
-            if load_discussion(self.projects.workspace(project_id))['status'] != 'confirmed':
-                raise ValueError('请先完成现有需求文档确认')
-            if item['id'] in state.get('blocked_this_request', []):
-                raise ValueError('此事项连续失败，已保留恢复动作；先处理其他事项，或由用户继续后重试')
             delivery = {'delivery_request_id': state.get('request_id', '')}
             if args.deliverable:
                 delivery['deliverable'] = args.deliverable
@@ -394,7 +388,7 @@ class ProjectConversation:
         else:
             task = await self.projects.start(project_id, request_key=args.request_key or 'conversation-' + str(uuid4()),
                 workflow_id=args.workflow_id or project_id, inputs=args.inputs, message=args.message,
-                purpose='customer_trial' if args.action == 'trial' else 'business', item_id=item['id'],
+                purpose='customer_trial' if args.action == 'trial' else 'business', item_id=item['id'] if item else '',
                 feedback_task_id=args.feedback_task_id or state.get('conversation_context', {}).get('task_id', ''))
         state = self.manager.load(project_id)
         state.update(phase='operate', active_item_id=(item or {}).get('id', task.get('item_id', '')),

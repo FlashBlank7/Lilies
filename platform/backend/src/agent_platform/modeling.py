@@ -450,7 +450,7 @@ class Modeling:
                 doc['code_sha256'] = hashlib.sha256((folder / 'transformer.py').read_bytes()).hexdigest()
             return await self.put(project_id, 'candidate', doc)
 
-    async def run_candidate(self, project_id, study_id, candidate_id, task_id, run_id):
+    async def run_candidate(self, project_id, study_id, candidate_id, task_id, run_id, *, pause_when_done=False):
         async with self.locks.setdefault(study_id, asyncio.Lock()):
             study = await self.get(project_id, 'study', study_id)
             candidate = await self.get(project_id, 'candidate', candidate_id)
@@ -470,6 +470,8 @@ class Modeling:
                 if features.exists():
                     candidate['features_result'] = json.loads(features.read_text())
                 self.finish_batch(study, candidate)
+                if pause_when_done:
+                    self.pause_clock(study)
                 await self.put(project_id, 'study', study)
                 return await self.put(project_id, 'candidate', candidate)
             dataset = await self.get(project_id, 'dataset', study['dataset_id'])
@@ -537,6 +539,8 @@ class Modeling:
                 candidate.update(status=result['status'], features_result=result['features'], runtime=result.get('runtime'), current=None)
                 if candidate['status'] == 'completed':
                     self.finish_batch(study, candidate)
+                    if pause_when_done:
+                        self.pause_clock(study)
                 else:
                     study.update(status='budget_exhausted', next_action='预算已用尽，已完成试验保留；增加预算后继续原任务')
                     self.pause_clock(study)
@@ -581,6 +585,12 @@ class Modeling:
 
     async def run_block(self, project, kind, args, run_id, node_id=''):
         project_id = project['project_id']
+        if kind == 'model_predict' and not args.get('model_ref') and not (args.get('study_id') and args.get('candidate_id')):
+            raise ValueError('模型预测节点尚未选择模型，请配置模型引用后重新运行')
+        if kind == 'model_predict' and args.get('model_ref'):
+            from .project_resources import binding_from_context
+            binding = binding_from_context(project, args['model_ref'])
+            args = {**args, **{k: binding[k] for k in ('study_id', 'candidate_id', 'slot')}}
         if project.get('record_scope') and kind == 'model_train':
             if args.get('finalize'):
                 study = await self.get(project_id, 'study', args['study_id'])
@@ -629,7 +639,10 @@ class Modeling:
         if not good:
             raise ValueError('候选没有可用模型')
         metric = study['evaluation']['metric']
-        best = sorted(good, key=lambda t: t['metrics'][metric], reverse=metric not in {'mae', 'rmse'})[0]
+        best = (next((t for t in good if t['slot'] == args['slot']), None) if args.get('slot') is not None
+                else sorted(good, key=lambda t: t['metrics'][metric], reverse=metric not in {'mae', 'rmse'})[0])
+        if best is None:
+            raise ValueError('指定模型版本不可用，请重新绑定')
         original = await self.get(project_id, 'dataset', study['dataset_id'])
         # Only file location changes at inference; preserve trained field semantics.
         dataset = {**dataset, 'mapping': original['mapping']}
@@ -639,6 +652,7 @@ class Modeling:
         if candidate.get('code_sha256'):
             config['transformer'] = '/transformer.py'; mounts.append((model.parent.parent / 'transformer.py', '/transformer.py'))
         result = await self.compute(project_id, dataset, config, folder, image=candidate['image'], extra_mounts=mounts)
+        result['model_version'] = {'study_id': study['id'], 'candidate_id': candidate['id'], 'slot': best['slot'], 'image': candidate['image']}
         result['artifact'] = f'datasets/{dataset["id"]}/files/{folder.name}/output/predictions.csv'
         return result
 

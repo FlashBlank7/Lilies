@@ -34,6 +34,11 @@ from .workflow_models import (
     WorkflowSpec,
 )
 
+DEFAULT_WORKFLOW_BLOCKS = frozenset({'start', 'end', 'answer', 'code', 'llm', 'tool', 'http_request',
+    'data_analysis', 'feature_extract', 'model_train', 'model_predict', 'knowledge_retrieval',
+    'knowledge_index_sync', 'grounded_answer', 'if_else', 'iteration', 'loop', 'human_input',
+    'template_transform', 'variable_aggregator', 'variable_assigner', 'project_record'})
+
 
 
 # pydantic 的英文报错 → 人话。只翻真机上真出现过的那几种（2026-08-29 统计
@@ -2305,6 +2310,18 @@ class BlockRegistry:
         walk(config)
         return found
 
+    def validate_draft(self, workflow: WorkflowSpec) -> list[str]:
+        """Validate editable data, independently from runnable graph shape."""
+        errors = []
+        known = {n.id for n in workflow.nodes}
+        for node in workflow.nodes:
+            errors.extend(self._dangling_refs(node.id, node.config, known))
+            try:
+                self.validate_node(node)
+            except Exception as error:
+                errors.append(f'{node.id}: {error}')
+        return errors
+
     def validate_workflow(self, workflow: WorkflowSpec, *, nested: bool = False) -> list[str]:
         errors: list[str] = []
         node_map = {node.id: node for node in workflow.nodes}
@@ -3215,6 +3232,10 @@ def build_block_registry() -> BlockRegistry:
     register_project_blocks(registry)
     from .modeling_models import register_modeling_blocks
     register_modeling_blocks(registry)
+    from .python_execution import register_code_block
+    register_code_block(registry)
+    for block in registry.list():
+        block.editor['advanced'] = block.type not in DEFAULT_WORKFLOW_BLOCKS
     return registry
 
 

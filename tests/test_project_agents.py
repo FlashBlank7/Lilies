@@ -9,7 +9,6 @@ class ScriptedSession:
     async def start(self, tools, instructions, thread_id=None):
         names = {t['name'] for t in tools}
         assert {'project_workflows', 'project_records', 'project_task_result'} <= names
-        assert 'operate阶段' in instructions
         return thread_id or 'project-test-thread'
 
     def __init__(self, *args, **kwargs):

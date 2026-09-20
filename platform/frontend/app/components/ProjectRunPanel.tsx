@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { WorkflowValueField } from './WorkflowValueField'
 import { useEffect, useRef, useState } from 'react'
 import { api, withFrontendToken } from '@/lib/platform'
 import { MarkdownDocument } from '@/lib/markdown'
@@ -26,8 +27,21 @@ export function ProjectTaskOutput({ projectId, task }: { projectId: string; task
   const output = task.outputs || {}
   const markdown = task.presentation?.markdown || (typeof output.markdown === 'string' ? output.markdown : '') || task.presentation?.message || (typeof output.message === 'string' ? output.message : '')
   const artifacts = task.presentation?.artifacts?.length ? task.presentation.artifacts : (Array.isArray(output.artifacts) ? output.artifacts : [])
+  const results = [output, ...Object.values(output).map(v => typeof v==='string'?{artifact:v}:v)].filter((v):v is Record<string,unknown> => !!v && typeof v==='object' && !Array.isArray(v))
+  const predictions = [...results.reduce((files,result)=>{
+    const path=result.artifact
+    if(typeof path==='string' && /^datasets\/[\w-]+\/files\/[\w./-]+$/.test(path) && !path.split('/').includes('..') && (!files.has(path)||Array.isArray(result.preview))) files.set(path,result)
+    return files
+  },new Map<string,Record<string,unknown>>()).values()]
+  const trials = task.mode==='training' && Array.isArray(output.trials) ? output.trials as {slot:number;model:string;status:string;metrics?:Record<string,number>;error?:string}[] : []
   return <>
     <MarkdownDocument source={markdown} resolveLink={href => resolveProjectLink(projectId, href)} emptyLabel={['queued', 'running'].includes(task.status) ? '正在运行，结果会自动显示。' : '本次运行的输出见下方详情。'} />
+    {!!trials.length && <table><thead><tr><th>模型</th><th>验证指标</th><th>结果</th></tr></thead><tbody>{trials.map(t=><tr key={t.slot}><td>{t.model}</td><td>{Object.entries(t.metrics||{}).map(([k,v])=>`${k}: ${Number(v).toPrecision(5)}`).join(' / ')}</td><td>{t.error|| (t.status==='completed'?'已完成':t.status)}</td></tr>)}</tbody></table>}
+    {task.mode==='training' && typeof output.study_id==='string' && typeof output.id==='string' && <p><a download href={withFrontendToken(`/api/platform/api/v1/projects/${projectId}/modeling/studies/${encodeURIComponent(output.study_id)}/candidates/${encodeURIComponent(output.id)}/download`)}>下载模型与训练记录 ↓</a></p>}
+    {predictions.map((result,i)=>{const rows=Array.isArray(result.preview)?result.preview.slice(0,20) as Record<string,unknown>[]:[];const columns=rows.length?Object.keys(rows[0]).slice(0,8):[]
+      return <section key={i}><h3>预测结果</h3><p>结果已保存，本次使用的模型版本固定在运行记录中。</p>
+        {!!rows.length&&<div style={{overflowX:'auto'}}><table><thead><tr>{columns.map(key=><th key={key}>{key==='prediction'?'预测值':key}</th>)}</tr></thead><tbody>{rows.map((row,j)=><tr key={j}>{columns.map(key=><td key={key}>{typeof row[key]==='number'?Number(row[key]).toPrecision(6):String(row[key]??'')}</td>)}</tr>)}</tbody></table><p>显示前 {rows.length} 行，完整结果见下载文件。</p></div>}
+        <a download href={withFrontendToken(`/api/platform/api/v1/projects/${projectId}/${result.artifact}`)}>下载预测结果 CSV ↓</a></section>})}
     {artifacts.map((entry: unknown, i: number) => {
       if (!entry || typeof entry !== 'object') return null
       const item = entry as { file_path?: string; label?: string }
@@ -104,7 +118,7 @@ export default function ProjectRunPanel({ projectId, members, initialWorkflowId,
     <p><Link href={`/applications/${workflowId}?tab=edit`} target="_blank">编辑这条工作流 ↗</Link></p>
     {loading ? <p role="status">正在读取输入配置…</p> : fields.map(field => <div key={field.name}>
       <label>{field.label || field.name}{field.required ? ' *' : ''}
-        {field.type === 'boolean' ? <select aria-label={field.name} disabled={active || busy} value={values[field.name] || ''} onChange={event => setValues(previous => ({ ...previous, [field.name]: event.target.value }))}><option value="">请选择</option><option value="true">是</option><option value="false">否</option></select>
+        {field.name === 'dataset_id' ? <WorkflowValueField allowReference={false} disabled={active || busy} projectId={projectId} field="dataset_id" nodeId="run" nodes={[]} label="预测数据集" value={values[field.name] || ''} onChange={next => setValues(previous => ({...previous, [field.name]: next}))} /> : field.type === 'boolean' ? <select aria-label={field.name} disabled={active || busy} value={values[field.name] || ''} onChange={event => setValues(previous => ({ ...previous, [field.name]: event.target.value }))}><option value="">请选择</option><option value="true">是</option><option value="false">否</option></select>
           : <textarea aria-label={field.name} rows={['object', 'array', 'any'].includes(field.type) ? 4 : 2} disabled={active || busy} value={values[field.name] || ''} onChange={event => setValues(previous => ({ ...previous, [field.name]: event.target.value }))} />}
       </label>{field.description && <p>{field.description}</p>}
       {['string', 'file'].includes(field.type) && files.length > 0 && <label>选择项目文件<select aria-label={`为 ${field.name} 选择项目文件`} disabled={active || busy} value="" onChange={event => setValues(previous => ({ ...previous, [field.name]: event.target.value }))}><option value="">从已上传资料或结果中选择…</option>{files.map(file => <option key={file.path} value={file.path}>{file.path}</option>)}</select></label>}

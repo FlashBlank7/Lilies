@@ -168,39 +168,24 @@ def test_customer_answer_is_durable_and_bound_to_item(configured, monkeypatch):
     assert client.get(base+'/requirements').json()['status'] == 'confirmed'
 
 
-def test_local_wait_does_not_end_authorized_building(configured, monkeypatch):
+def test_saved_draft_does_not_automatically_start_a_trial(configured, monkeypatch):
     class Building(TestSession):
         async def turn(self, message, on_event, on_tool, **kwargs):
             self.turns += 1
-            p = await on_tool('project_progress', {'view': 'full'})
-            if self.turns == 1:
-                await on_tool('project_action', {'action': 'build', 'item_id': 'allocate'})
-                draft = await on_tool('workflow_draft', {})
-                await on_tool('workflow_draft', {'operation': {'op': 'replace_workflow', 'expected_revision': draft['revision'],
-                    'idempotency_key': 'working', 'data': {'workflow': {'nodes': [node('s', 'start'), node('e', 'end', outputs={'ready': True})], 'edges': [edge('s', 'e')]}}}})
-                # End the model turn while actionable work remains. The platform must invoke the next turn.
-            else:
-                run = await on_tool('project_action', {'action': 'trial', 'item_id': 'allocate', 'inputs': {}})
-                assert run['status'] == 'succeeded' and run['outputs']['ready']
-                await on_tool('project_task_result', {'status': 'succeeded', 'message': '分配可以试用', 'markdown': '|结果|值|\n|---|---|\n|可处理|是|', 'outputs': {'forged': 1}})
-                p = await on_tool('project_progress', {'view': 'full'})
-                p['value']['items'][0].update(status='done', availability='trial', summary='已完成本次试用')
-                await on_tool('project_progress', {'action': 'update', 'expected_revision': p['revision'], 'value': p['value']})
-                await on_tool('project_action', {'action': 'finish'})
+            draft = await on_tool('workflow_draft', {})
+            await on_tool('workflow_draft', {'operation': {'op': 'replace_workflow',
+                'expected_revision': draft['revision'], 'idempotency_key': 'draft-only',
+                'data': {'workflow': {'nodes': [node('s', 'start'),
+                    node('e', 'end', outputs={'ready': True})], 'edges': [edge('s', 'e')]}}}})
             return {'status': 'completed'}
     client, app, project, _, base = configure_agent(configured, monkeypatch, Building)
-    put_progress(client, base, [item(), item('prediction', status='waiting', blocker={'kind': 'data', 'owner': '数据负责人', 'reason': '缺少棒身标签', 'next_action': '补充后验证'})])
-    client.post(base+'/conversation/messages', json={'message': '其他部分继续做'})
+    put_progress(client, base, [item()])
+    client.post(base+'/conversation/messages', json={'message': '先生成流程，暂不运行'})
     state = agent_settled(client, base)
     assert state['status'] == 'idle', state['error']
-    assert app.state.services.local_agents.clients[project['id']].turns == 2
-    items = client.get(base+'/progress').json()['value']['items']
-    assert items[0]['availability'] == 'trial' and items[0]['status'] == 'done'
-    assert items[1]['status'] == 'waiting'
-    task = client.get(base+'/tasks?purpose=customer_trial').json()[0]
-    assert task['outputs'] == {'ready': True}  # Presentation cannot replace actual runtime output.
-    assert task['presentation']['markdown'].startswith('|结果|')
-    assert len(client.get(base+'/tasks/'+task['id']).json()['runs']) == 1
+    assert app.state.services.local_agents.clients[project['id']].turns == 1
+    assert client.get(base+'/tasks').json() == []
+    assert client.get('/api/v1/applications/'+project['id']+'/draft').json()['snapshot']['workflow']['nodes'][1]['config']['outputs'] == {'ready': True}
 
 
 def test_discuss_disables_auto_continuation_without_cancelling_background_task(configured, monkeypatch):
@@ -324,7 +309,7 @@ def test_history_is_incremental_and_usage_is_explicit(configured, monkeypatch):
     assert client.get(base).json()['members'][-1]['purpose'] == 'business'
 
 
-def test_repeated_failure_pauses_one_item_and_continues_another(configured, monkeypatch):
+def test_repeated_failure_keeps_errors_visible_without_locking_edits(configured, monkeypatch):
     class Failing(TestSession):
         async def turn(self, message, on_event, on_tool, **kwargs):
             self.turns += 1
@@ -348,12 +333,14 @@ def test_repeated_failure_pauses_one_item_and_continues_another(configured, monk
     state = agent_settled(client, base)
     assert state['status'] == 'idle', state['error']
     progress = client.get(base+'/progress').json()['value']['items']
-    assert progress[0]['status'] == 'waiting' and progress[0]['blocker']['kind'] == 'runtime'
-    assert progress[1]['status'] == 'done'
+    assert progress[0]['status'] == 'working' and not progress[0]['blocker']
+    assert not state.get('blocked_this_request')
+    assert client.post(base+'/agent-tools', json={'name': 'project_file', 'arguments': {
+        'action': 'write', 'path': 'solution/repair.txt', 'content': 'fixed'}}).status_code == 200
 
 
 @pytest.mark.parametrize('inspect_history', [True, False])
-def test_failure_pause_counts_executions_not_failed_task_reads(configured, monkeypatch, inspect_history):
+def test_failed_executions_and_history_reads_preserve_task_evidence_without_phase_lock(configured, monkeypatch, inspect_history):
     observed = []
 
     class Inspecting(TestSession):
@@ -382,8 +369,8 @@ def test_failure_pause_counts_executions_not_failed_task_reads(configured, monke
     assert client.post(base + '/conversation/messages', json={'message': '检查运行错误'}).status_code == 202
     state = agent_settled(client, base)
     assert state['status'] == 'idle', state['error']
-    assert observed == ['working' if inspect_history else 'waiting']
-    assert bool(state.get('blocked_this_request')) is not inspect_history
+    assert observed == ['working']
+    assert not state.get('blocked_this_request')
     assert len(client.get(base + '/tasks').json()) == (1 if inspect_history else 3)
     operations = [e for e in state['events'] if e['kind'] == 'tool' and e['text'] == 'workflow_run']
     assert [e['success'] for e in operations] == ([False, True, True] if inspect_history else [False] * 3)

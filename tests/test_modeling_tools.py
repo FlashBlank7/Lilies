@@ -75,14 +75,14 @@ def test_tool_help_and_default_summary_with_full_and_http_compatibility(modeling
     assert len(spec['description']) < len(help['description']) / 3
     example = help['workflow_example']
     graph(client, project['id'], example['nodes'], example['edges'])
-    example_args = next(e for e in help['examples'] if e['action']=='submit_and_run')
+    example_args = next(e for e in help['examples'] if e['action']=='train')
     assert ModelingTool.model_validate(example_args).wait is True
 
 
 @pytest.mark.parametrize('change,match', [
     ('literal', '必须引用'), ('finalize', '留出集'), ('missing', '声明字符串'),
     ('extra_input', '必填字段'), ('type', '类型不匹配'), ('reserved', '由平台绑定'),
-    ('foreign', '当前项目'), ('phase', '绑定建设事项'), ('nested_finalize', '留出集')])
+    ('foreign', '当前项目'), ('nested_finalize', '留出集')])
 def test_preflight_rejects_invalid_inputs_and_graphs_without_creating_candidate(modeling, change, match):
     client, app, project, base, study, args, service = prepared(modeling)
     draft = client.get('/api/v1/applications/'+project['id']+'/draft').json()['snapshot']['workflow']
@@ -98,16 +98,13 @@ def test_preflight_rejects_invalid_inputs_and_graphs_without_creating_candidate(
     elif change == 'reserved': args['inputs'] = {'candidate_id': 'injected'}
     elif change == 'foreign':
         args['workflow_id'] = client.post('/api/v1/projects', json={'name': 'other'}).json()['id']
-    elif change == 'phase':
-        manager = app.state.services.local_agents; state = manager.load(project['id'])
-        state['phase'] = 'operate'; manager.save(project['id'], state)
     elif change == 'nested_finalize':
         member = client.post(base+'/members', json={'name': 'nested', 'purpose': 'test'}).json()['id']
         graph(client, member, [node('start','start'), node('final','model_train',study_id=study['id'],finalize=True),
               node('end','end')], [edge('start','final'),edge('final','end')])
         draft['nodes'].insert(2, node('nested','tool',tool_name='workflow:'+member,input={}))
         draft['edges'] = [edge('start','train'),edge('train','nested'),edge('nested','end')]
-    if change not in {'reserved', 'foreign', 'phase'}:
+    if change not in {'reserved', 'foreign'}:
         graph(client, project['id'], draft['nodes'], draft['edges'])
     response = call(client, base, **args)
     assert response.status_code == 422, response.text

@@ -16,6 +16,7 @@ from .workflow_models import DraftEdit, DraftOperation
 from .modeling_models import ModelingTool
 from .modeling_summary import candidate_summary, study_summary
 from .modeling_workflow import submit_and_start
+from .project_resources import ModelResource
 
 
 class DraftBatch(Arguments):
@@ -64,7 +65,7 @@ class MemberRun(Run):
 
 
 class Members(Arguments):
-    action: Literal['list', 'create', 'remove', 'classify'] = 'list'
+    action: Literal['list', 'inspect', 'create', 'remove', 'classify'] = 'list'
     workflow_id: str = ''
     name: str = Field(default='', max_length=100)
     description: str = Field(default='', max_length=1000)
@@ -88,17 +89,55 @@ class TaskResult(Arguments):
         description='Optional result files: [{label, file_path}]; relative paths in the current project.')
 
 
-MODELING_MANUAL = 'Project-scoped CPU modeling. Register CSV/TSV/XLSX from requirement-package, solution or results, or revise_dataset to create a new immutable version with clarified mapping. profile(sampled=true) gives a quick preview; false scans fully. If a file-based preparation workflow needs an uploaded dataset, use export_dataset(dataset_id) in build phase. It returns source_path, optional labels_path and files with SHA-256/bytes in current-project results/datasets/<id>/. Pass those paths to existing workflow inputs, never guess an internal /data path. Originals remain unchanged; retries reuse a verified independent copy, modified copies conflict. No arbitrary destination is accepted. create_study freezes evaluation/data/image; submit_candidate snapshots feature code and creates a batch of at most 5 trials. submit_candidate only registers. Prefer submit_and_run(study_id, workflow_id, candidate, inputs={}, wait=true): registers and runs through an existing workflow, never edits it. Declare string inputs study_id/candidate_id; model_train config must reference $inputs with those paths. One training node only, no finalize. Additional inputs allowed except the two platform-bound identifiers. Same candidate request_key and content/workflow/inputs return the original task, even after draft edits. Changed content conflicts. Interrupted tasks require project_action resume. Every calculation has real task/run records. Default view=summary; view=full for complete records. candidates(candidate_id=...) reads one candidate; lists use offset/limit. submit_and_run returns project_task_id, workflow_id, study_id, candidate_id, status, error, task, candidate and study. It requires build phase. Task purpose is build_test and links the study item and feedback_task_id; cancellation follows workflow_run. Use workflow_run inspect for complete outputs. Read candidates for measured scores, baseline, per-group errors, failed trials and parent hypotheses. training_note(study_id, candidate_id, slot) reads the per-trial note with actual fitted parameters, fixed split, search distributions and same-study comparisons; slot is zero-based. Each completed or failed trial is saved automatically. Downloadable model bundles include training-note.md/json, comparison.csv and curve.svg. Missing historical fields remain unknown. For a study with search_strategy="aide", call next_step before EACH candidate. It invokes pinned upstream AIDE branch selection using only this study measured validation history. Follow returned stage draft/debug/improve and parent_id; use batch_size=1 and one models entry. stage=run means execute/resume the existing candidate first; stage=stop means finish or explicitly resume the original study. Read the selected parent note, propose one concrete change, submit and run the existing training workflow. Search choice, upstream revision and parent score are recorded automatically. This is AIDE search-policy + platform agent + fixed platform evaluator, not the full upstream AIDE agent. Do not claim unbiased cross-study wins when budgets, context or warm starts differ. Run ordinary parameter search with Optuna; after a batch propose ONE error-driven feature/model change and submit a new candidate. Candidates support search_space keyed by sklearn model and actual parameter (float/int low/high/log or categorical choices); explicit model space replaces its default search, fixed parameters remain fixed. Default SVM search includes C/kernel/gamma and regression epsilon; tree leaf defaults use the smallest training fold. AutoGluon accepts autogluon_hyperparameters for GBM/RF/XT/KNN/LR (default GBM/RF/XT); explicit values are preserved. Read trial warnings and diagnostics: constant predictions suggest checking sample size/features/parameters, not rejecting the algorithm. All-failed batches consume budget but not quality patience; read study repair_candidate_id and submit a fixed child candidate. Three identical failed batches interrupt only that study. Do not repeat the same failed code or change evaluation to improve scores. No supplied metrics are accepted. budget adjusts total seconds/trials. finish(study_id, reason) ends a completed round of search and stops its clock WITHOUT evaluating holdout; use it when delivering before budget/patience ends. It requires no active computation, keeps trials/models, and budget can reopen it. Do not use finalize when holdout evaluation is not authorized. Model tools never access other projects. Runtime: network disabled, 4 CPU/4GB, one modeling computation, immutable data/code/image. Worker files are internal; download via modeling API. Use model_predict with a completed candidate and unlabeled dataset; preserve training mapping. Targets cannot be guaranteed; report validation vs untouched test status.'
+MODELING_MANUAL = """Project-scoped CPU modeling. Register CSV/TSV/XLSX with register_dataset, or upload in the model page.
+profile inspects data; create_study freezes dataset, evaluation and compute budget. train(study_id, candidate, wait=true)
+creates an idempotent project task without workflow_id. wait=false permits workflow editing while training runs.
+Reuse the candidate request_key for retries; changed content conflicts. workflow_run inspect reads the task;
+project_action resume continues the original task after interruption. candidates and training_note show measured
+scores, parameters, errors and model artifacts. Submit feedback as a new candidate with parent_id and hypothesis.
+project_models binds a completed candidate and trial slot to a stable model_ref; model_predict resolves that name
+at run start and preserves training preprocessing and environment. Unlabeled prediction data must retain features.
+Workflows can be created before any resource exists. submit_and_run remains available for older training workflows.
+export_dataset creates verified project-relative copies when a file-based tool needs them. revise_dataset creates
+an immutable version. Search spaces use actual sklearn parameters; AIDE is optional and requires its next_step
+selection. budget adjusts the study budget; finish stops its clock without evaluating holdout. Real CPU/Docker
+execution has no network, 4 CPU/4GB, and one modeling computation at a time. Report measured validation scores;
+finalize uses the held-out test set only when requested. Tools and artifacts are scoped to the current project.
+"""
+
+
+class SkillsTool(Arguments):
+    action: Literal['list', 'read', 'write'] = 'list'
+    skill_id: str = ''
+    document: dict[str, Any] = Field(default_factory=dict)
+    reference: str = ''
+
+
+class ModelsTool(Arguments):
+    action: Literal['list', 'bind', 'predict'] = 'list'
+    model_ref: str = ''
+    resource: ModelResource | None = None
+    dataset_id: str = ''
+    request_key: str = ''
+    wait: bool = True
+
+
+class ExecuteCode(Arguments):
+    code: str = Field(min_length=1, max_length=100000)
+    timeout: int = Field(default=60, ge=1, le=300)
 
 
 PROJECT_TOOL_MODELS = {
-    'project_modeling': (ModelingTool, 'Project CPU modeling: analyze data, export_dataset for file-based preparation, create a study, submit_and_run a candidate through an editable workflow, compare measured results, read training notes. Default view=summary; view=full for details. Read block_catalog(tool_name="project_modeling") once for setup, inputs and examples. Reuse one input-driven training workflow. Stop/resume uses its original task. Evaluation/data stay fixed; never finalize holdout without authorization. AIDE studies require next_step before each new candidate.'),
+    'project_skills': (SkillsTool, 'List project skill names/descriptions; read a selected skill or reference only as needed; write with expected_revision.'),
+    'project_models': (ModelsTool, 'List model references, bind a completed candidate and trial slot, or predict with model_ref and dataset_id without a workflow. Use request_key for retry identity; wait=false returns the prediction task immediately. Unbound names may be created before training finishes.'),
+    'project_code': (ExecuteCode, 'Run Python in the project Docker environment without a workflow. Read-only inputs, writable solution/results, no network. Output and failures are returned directly.'),
+    'project_modeling': (ModelingTool, 'Project CPU modeling: analyze data, create_study, train without a workflow, compare results and read training notes. submit_and_run retains the legacy workflow path. Default view=summary; view=full for details. Read the modeling project Skill when setup help is needed. Stop/resume uses the original task. Evaluation/data stay fixed; never finalize holdout without authorization. AIDE studies require next_step before each new candidate.'),
     'project_progress': (ProgressTool, 'Default read returns a SUMMARY with current revision; item_id reads one complete item, view=full reads the complete record. Prefer action=patch, item_id, changes, expected_revision to create/update ONE item while preserving others. Without item_id patch accepts goal/summary only. For action=update, value is a COMPLETE replacement: read view=full first, never replace from a summary. Version conflicts are explicit. Preserve customer answers. Record this request deliverable/completion_criteria separately from the enterprise goal. Link only real current-project workflows, tasks and files.'),
-    'project_action': (ProjectAction, 'Unified conversation: inspect progress; build a business item; trial/operate a workflow with actual inputs; resume an existing frozen task; discuss a requirement change; wait on a specific question/blocker; finish when no authorized work remains. trial/operate execute immediately and return real task results. Build feedback fixes use a NEW trial and feedback_task_id, never change an old task snapshot.'),
-    'workflow_draft': (MemberDraft, 'Read the current draft SUMMARY (revision/content_hash, nodes/edges index, tests index); view=nodes with node_ids reads exact configs, view=tests reads saved tests, view=full reads the complete draft. workflow_id defaults to the project main. Prefer batch={expected_revision,expected_content_hash,idempotency_key,operations:[{op,data},...]} for related edits to ONE member: one atomic save, rollback on any error, one revision increment. A single operation using the legacy schema is also supported. Read current revision before editing, preserve human layout, and use update_node.data={node_id,changes,merge_config:true}. Mutations return a summary; full data remains readable. Project scope and build authorization still apply.'),
+    'project_action': (ProjectAction, 'Optional project progress actions and frozen-task resume. trial/operate run an existing workflow immediately; item_id is optional. workflow_run(action="start") is the direct execution path. build/wait organize an existing progress item, and are never required before editing, training or execution. finish ends this conversation request.'),
+    'workflow_draft': (MemberDraft, 'Read the current draft SUMMARY (revision/content_hash, nodes/edges index, tests index); view=nodes with node_ids reads exact configs, view=tests reads saved tests, view=full reads the complete draft. workflow_id defaults to the project main. Prefer batch={expected_revision,expected_content_hash,idempotency_key,operations:[{op,data},...]} for related edits to ONE member: one atomic save, rollback on any error, one revision increment. A single operation using the legacy schema is also supported. Read current revision before editing, preserve human layout, and use update_node.data={node_id,changes,merge_config:true}. Mutations return a summary; full data remains readable. Project capability limits still apply; resources may remain unbound.'),
     'workflow_run': (MemberRun, 'Validate/start/inspect/test a member workflow. start waits by default; wait=false starts real concurrent tasks. For an existing running task, inspect(task_id=...,wait_seconds=30) waits up to 30 seconds without creating or restarting a task; maximum 60, default 0 returns immediately. Timeout returns its current status and leaves it running. Use bounded waiting instead of repeated immediate polling. Outputs default to a bounded summary; inspect(task_id=...,view=full) returns exact inputs, outputs and member traces. Small outputs remain complete; outputs_truncated explicitly marks previews. Saved tests return summary and failing cases by default; view=full returns every test. All member drafts freeze per task. Optional build request_key tests idempotency: same key/content returns existing task, changed content conflicts. Read actual failures and repair only affected code/graph, then rerun affected checks. Single terminal fields are direct; multiple terminals are grouped; workflow: calls wrap output.'),
-    'project_workflows': (Members, 'List project members with ids, create a new blank member or remove an unreferenced member. Creation/removal only in build phase. Main workflow id equals project id. A Tool node with tool_name="workflow:<member-id>" and input={...} calls that member. Main canvas is the executable collaboration graph.'),
-    'project_records': (Records, 'Read shared business records (get: found/revision/value; list: records). To change records, build and run a project_record node. Business operation phase cannot directly change files, graphs or records.'),
+    'project_workflows': (Members, 'List project members with ids, create a new blank member or remove an unreferenced member. inspect shows declared inputs and outputs. Main workflow id equals project id. A Tool node with tool_name="workflow:<member-id>" and input={...} calls that member. Main canvas is the executable collaboration graph.'),
+    'project_records': (Records, 'Read shared business records (get: found/revision/value; list: records). To change records, use a project_record node.'),
     'project_task_result': (TaskResult, 'Complete the active operate task or ask for needed input. A finished model turn does not itself finish a business task. Report actual run outputs; waiting_input lets the user update records and continue the same task.'),
 }
 
@@ -112,39 +151,14 @@ def project_tool_specs():
 
 
 PROJECT_INSTRUCTIONS = """
-数据分析与建模使用 project_modeling 和 data_analysis / feature_extract / model_train / model_predict 积木。
-先给客户数据概况和朴素参照，再运行标准模型。一次候选最多 5 次参数试验，Optuna 内部不需要逐次调用智能体。
-每批完成后读取真实指标、分组误差和失败原因；提出一项具体改动，以 parent_id 保留前后关系，继续同一研究。
-评价规则、数据版本不可在研究中改变；字段含义变更用 revise_dataset 创建新版本，再创建关联研究。
-研究默认总预算 30 分钟、30 次训练；达到目标、预算耗尽或连续 3 批未改善就交付当前最佳及差距，不再盲目重试。
-依赖安装失败是平台运行环境问题，报告具体错误及恢复动作，不能改用手写机器学习训练器。
-最终测试集不参与搜索。返回的 validation 指标不能称为盲测或产线达标。代码转换必须返回可序列化 sklearn transformer。
-保持一条紧凑训练流程：声明 study_id/candidate_id 字符串输入，训练节点引用 $inputs 对应字段。
-后续用 project_modeling(action="submit_and_run",study_id,workflow_id,candidate) 提交并运行，避免每轮改图或创建工作流。
-建模工具默认摘要；只在需要参数、逐样本划分或完整笔记时读 view="full"。用 block_catalog(tool_name="project_modeling") 查完整说明和示例。
-结束时用已完成候选生成独立 model_predict 工作流并用无标签输入真实试用，向客户呈现模型、结果报告和使用方式。
-本项目包含多个独立工作流。主工作流就是协作拓扑，调用节点使用 tool_name=workflow:<成员id>。
-当前上下文提供相关成员id及草稿修订号；缺少成员时再读 project_workflows。不能复制旧项目解法。
-workflow_draft默认摘要，不返回整份代码；需要配置时用view=nodes和node_ids，需要完整图时用view=full。
-编辑前取得当前revision/content_hash；将同一成员的关联修改合成batch原子保存，避免逐节点往返和重复读取整图。
-返回摘要足够判断保存结果；发生版本冲突时读取当前相关节点后合并，保留人工布局和无关修改。
-requirement-package/ 和 requirements/ 由所有成员共用且只读，solution/、results/用于本次产物。
-用 block_catalog(tool_name="Bash") 等查询运行工具参数和环境；空参数返回积木目录。
-项目共享数据使用 project_record 积木。get 未找到时 revision=0；put 做修订号比较更新，
-必须检查 written/conflict。竞争失败须重新读并判断，不能不看版本强行覆盖。
-工作流返回等待业务条件时，在 end 输出明确的 task_status="waiting_input"；否则为 succeeded。
-单个末端节点的结果直接返回字段，跨成员引用为 output.<字段>；多个末端则按节点id分组。以真实结果为准。
-build阶段：规划后自行创建成员、编辑主流程与成员，执行真实测试并修复。
-operate阶段：只能读资料和当前业务记录，选择执行主流程/成员；不能改图、需求或程序。
-每次执行都使用当前项目任务启动时固定的草稿。根据结果调用 project_task_result
-报告 succeeded、waiting_input 或 failed；需要补充信息就提出具体问题，等待用户继续。
-工作流测试可使用平台代码工具运行本次新实现的算法，不需要内置大模型或外网。
-运行标识可引用 $run.run_id，项目任务标识可引用 $run.project_task_id；均使用标准 $ref 分段路径。
-build阶段 workflow_run(action="start",request_key="测试唯一键") 可以验证平台任务去重，返回项目任务id和成员运行。
-真正并发的测试：用 wait=false 连续发起两项任务，再按 task_id 查询结果；不要用等待结束的串行调用充当并发。
-所有实际测试写入共享记录，使用独立的测试键。停止 Lilies 会取消本轮仍在运行的测试任务。
-保存的测试会复制 requirement-package/、requirements/、solution/、results/ 到每个用例独立目录；
-资料及确认需求保持只读，成员调用共享该用例目录。用例产物不写回项目原目录，通过运行输出检查。
+你是项目智能体，直接解决用户问题。可以独立分析资料、执行代码、训练、交付结果，也可以随时生成或修改工作流。
+不需要先确认需求、规划、查手册或通过测试才能保存草稿。缺少运行模型可以先留空，运行时再配置。
+用 project_skills 按需查看说明，project_workflows 发现已有工作流，inspect 查看输入输出；优先复用合适的已有能力。
+project_code 在隔离环境执行 Python；project_modeling(action="train", study_id, candidate, wait=false) 独立启动训练，无需 workflow_id。
+训练期间可以修改工作流。project_models 列出或绑定模型版本，预测积木通过 model_ref 选择；原始 LLM 使用项目可信 API。
+workflow_draft 支持整图替换和批量操作；修改前读取 revision/content_hash 并保留人工改动。生成不会自动执行业务。
+文件、数据、模型和结果只属于当前项目。使用真实工具输出判断，不把验证指标称为生产或独立测试效果。
+预算和用户停止必须遵守；遇到错误根据具体反馈修复，保留可用产物。是否允许完整智能体由项目能力控制，不能自行放开。
 """
 
 
@@ -155,6 +169,13 @@ class WorkspaceProjectTools(ProjectTools):
 
     def tool_definitions(self) -> list[dict]:
         return project_tool_specs()
+
+    def require_build(self):
+        # Unified project conversations can continue solving the task after a
+        # workflow call. Only the legacy explicitly read-only session is scoped.
+        state = self.manager.load(self.application_id)
+        if state.get('phase') == 'operate' and not state.get('conversation_enabled'):
+            raise ValueError('此旧业务会话只运行已有流程；请从项目对话修改，无需绑定建设事项')
 
     async def run_build_task(self, creation, wait=True):
         """Track/cancel a real task even if the agent disconnects during creation."""
@@ -167,6 +188,10 @@ class WorkspaceProjectTools(ProjectTools):
             await self.projects.stop(self.application_id, task['id'])
             raise
         self.manager.track_project_task(self.application_id, task['id'])
+        if not wait:
+            state = self.manager.load(self.application_id)
+            state['continue_work'] = True
+            self.manager.save(self.application_id, state)
         worker = self.projects.active.get(task['id'])
         if wait and worker:
             try:
@@ -180,7 +205,7 @@ class WorkspaceProjectTools(ProjectTools):
         phase = self.manager.load(self.application_id).get('phase')
         if name == 'project_file' and arguments.get('action') == 'write':
             self.require_build()
-        if name == 'requirements_submit' and phase == 'operate' and arguments.get('action') != 'read':
+        if name == 'requirements_submit' and phase == 'operate' and not self.manager.load(self.application_id).get('conversation_enabled') and arguments.get('action') != 'read':
             raise ValueError('业务处理阶段不能修改需求，请先切回需求沟通')
         if name not in PROJECT_TOOL_MODELS:
             result = await super().call(name, arguments)
@@ -189,7 +214,7 @@ class WorkspaceProjectTools(ProjectTools):
                 result['examples'] = [
                     {'action': 'profile', 'dataset_id': 'current-dataset', 'sampled': True},
                     {'action': 'export_dataset', 'dataset_id': 'current-dataset'},
-                    {'action': 'submit_and_run', 'study_id': 'current-study', 'workflow_id': 'current-member',
+                    {'action': 'train', 'study_id': 'current-study',
                      'candidate': {'request_key': 'first-model', 'engine': 'sklearn', 'models': ['linear'], 'batch_size': 1}},
                     {'action': 'training_note', 'study_id': 'current-study', 'candidate_id': 'current-candidate', 'slot': 0, 'view': 'full'},
                 ]
@@ -218,7 +243,34 @@ class WorkspaceProjectTools(ProjectTools):
                 ]
             return result
         args = PROJECT_TOOL_MODELS[name][0].model_validate(arguments)
+        if name == 'project_skills':
+            from .project_skills import skills, save_skill, SkillDocument
+            if args.action == 'write':
+                return await save_skill(self.services, self.application_id, args.skill_id, SkillDocument.model_validate(args.document))
+            result = await skills(self.services, self.application_id, args.skill_id if args.action == 'read' else '')
+            if args.reference:
+                return {'content': result['references'][args.reference]}
+            if isinstance(result, dict):
+                result = {**result, 'references': list(result.get('references', {}))}
+            return result
+        if name == 'project_models':
+            from .project_resources import model_resources, save_model, ModelResource
+            if args.action == 'bind':
+                return await save_model(self.services, self.application_id, args.model_ref, ModelResource.model_validate(args.resource))
+            if args.action == 'predict':
+                from .project_resources import start_prediction, PredictResource
+                return await self.run_build_task(start_prediction(self.services, self.application_id, args.model_ref,
+                    PredictResource(dataset_id=args.dataset_id, request_key=args.request_key or str(uuid4()))), args.wait)
+            return await model_resources(self.services, self.application_id)
+        if name == 'project_code':
+            self.require_build()
+            from .python_execution import execute_python
+            return await execute_python(self.services.sandboxes, self.workspace, args.code, args.timeout)
         if name == 'project_modeling':
+            if args.action == 'train':
+                self.require_build()
+                from .project_resources import start_training
+                return await self.run_build_task(start_training(self.services, self.application_id, args.study_id, args.candidate), args.wait)
             modeling = self.projects.services.modeling
             if args.action in {'register_dataset', 'revise_dataset', 'export_dataset', 'create_study', 'submit_candidate', 'submit_and_run', 'budget'}:
                 self.require_build()
@@ -267,6 +319,13 @@ class WorkspaceProjectTools(ProjectTools):
                 return {**result, 'progress': progress_summary(result['progress'])}
             return result
         if name == 'project_workflows':
+            if args.action == 'inspect':
+                await self.projects.member(self.application_id, args.workflow_id)
+                draft = await self.services.workflow_store.get_draft(args.workflow_id)
+                graph = draft['snapshot'].workflow
+                return {'workflow_id': args.workflow_id, 'revision': draft['revision'],
+                        'inputs': [n.config.get('inputs', []) for n in graph.nodes if n.type == 'start'],
+                        'outputs': [n.config.get('outputs', {}) for n in graph.nodes if n.type == 'end']}
             if args.action == 'list':
                 return await self.projects.store.get(self.application_id)
             if args.action == 'classify':
@@ -277,8 +336,6 @@ class WorkspaceProjectTools(ProjectTools):
             if args.action == 'create':
                 if not args.name.strip():
                     raise ValueError('请提供工作流名称')
-                if self.manager.load(self.application_id).get('conversation_enabled') and 'purpose' not in arguments:
-                    raise ValueError('请明确purpose=business或test，不能按工作流名称猜用途')
                 return await self.projects.add_member(self.application_id, args.name, args.description, args.purpose)
             await self.projects.remove_member(self.application_id, args.workflow_id)
             return {'removed': args.workflow_id}
@@ -320,8 +377,6 @@ class WorkspaceProjectTools(ProjectTools):
                 self.require_build()
                 edits = args.batch.operations if args.batch else [args.operation]
                 for edit in edits:
-                    if edit.op == 'set_metadata' and 'requirement' in edit.data:
-                        raise ValueError('请通过需求沟通修改需求')
                     # Include whole-graph replacements as well as incremental nodes.
                     raw = json.dumps(edit.data, ensure_ascii=False)
                     if 'workflow:' in raw:
@@ -368,8 +423,6 @@ class WorkspaceProjectTools(ProjectTools):
                 if not context or context['project_id'] != self.application_id:
                     raise ValueError('不能查看其他项目的运行')
                 return jsonable_encoder(run)
-            if phase not in {'build', 'operate'}:
-                raise ValueError('需求沟通阶段不能运行工作流')
             if phase == 'build':
                 self.require_build()
             if args.action == 'validate':
@@ -395,6 +448,7 @@ class WorkspaceProjectTools(ProjectTools):
                 return result
             result = await self.run_build_task(self.projects.start(self.application_id,
                 request_key=args.request_key or 'build-' + str(uuid4()), workflow_id=workflow_id, inputs=args.inputs,
-                purpose='build_test', item_id=state.get('active_item_id', '') if state.get('conversation_enabled') else ''), args.wait)
+                purpose='build_test' if phase == 'build' else 'business',
+                item_id=state.get('active_item_id', '') if state.get('conversation_enabled') else ''), args.wait)
             return result if args.view == 'full' else task_summary(result)
         raise ValueError('未实现的项目操作')

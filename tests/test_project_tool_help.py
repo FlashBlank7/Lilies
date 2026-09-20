@@ -47,15 +47,14 @@ def test_help_example_can_edit_a_project_member_and_run_its_changed_output(confi
     assert client.get(base+'/requirements').json()['status'] == 'confirmed'
 
 
-def test_paused_build_guidance_preserves_confirmation_and_tools_remain_discoverable(configured):
+def test_old_pause_state_does_not_block_direct_editing(configured):
     client, manager, pid, base = prepare(configured)
     state = manager.load(pid)
     state.update(phase='coordinate', blocked_this_request=['quantity'])
     manager.save(pid, state)
     result = client.post(base+'/agent-tools', json={'name': 'project_file', 'arguments': {
         'action': 'write', 'path': 'solution/test.txt', 'content': 'x'}})
-    assert result.status_code == 422
-    assert '连续失败' in result.text and '需求确认仍有效' in result.text
+    assert result.status_code == 200, result.text
     assert client.get(base+'/requirements').json()['status'] == 'confirmed'
     help = client.post(base+'/agent-tools', json={'name': 'block_catalog', 'arguments': {'tool_name': 'project_action'}})
     assert help.status_code == 200

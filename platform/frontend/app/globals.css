@@ -325,3 +325,13 @@
 .home-shell .app-readiness span.ready{color:var(--lil-accent-strong);border-color:var(--lil-accent-line)}
 .home-shell .app-readiness b{color:var(--lil-muted)}
 .home-shell .app-next-action{color:var(--lil-accent-strong)}
+
+/* Project editor: blocks → canvas → configuration. Legacy routes remain compatible. */
+.studio-shell[data-project-editor="true"] .studio-grid { grid-template-columns:var(--studio-right-width) minmax(0,1fr) var(--studio-left-width); }
+.studio-shell[data-project-editor="true"] .block-panel { grid-column:1; grid-row:1; border-right:1px solid var(--ui-line); border-left:0; }
+.studio-shell[data-project-editor="true"] .canvas-wrap { grid-column:2; grid-row:1; }
+.studio-shell[data-project-editor="true"] .left-panel { grid-column:3; grid-row:1; border-left:1px solid var(--ui-line); border-right:0; }
+.studio-shell[data-project-editor="true"] .left-panel-toggle { right:auto; left:0; transform:scaleX(-1); }
+.studio-shell[data-project-editor="true"] .left-panel-toggle b { transform:scaleX(-1); }
+@media(max-width:1000px){ .studio-shell[data-project-editor="true"] .block-panel[data-collapsed="false"] {left:0;right:auto;} }
+@media(max-width:720px){ .studio-shell[data-project-editor="true"] .left-panel[data-collapsed="false"] {right:0;left:auto;} }

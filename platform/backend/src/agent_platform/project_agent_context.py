@@ -100,13 +100,13 @@ async def conversation_context(services, project_id: str, state: dict, discussio
         'progress': progress_summary(progress, item_id), 'workflows': workflows,
         'conversation_context': link, 'continue_work': state.get('continue_work', False),
         'instruction': 'Use the current item and revision summaries. Read relevant node/file details only when needed. '
-                       'Keep existing customer answers and other items. Complete the requested change, run affected checks, '
-                       'fix actual errors, then present a new trial linked to the feedback. Full data remains available via tools.'}
+                       'Keep existing customer answers and human edits. Solve the requested task using project tools. '
+                       'Workflow generation only saves a draft; execute it when requested. Full data remains available via tools.'}
     task_id = state.get('project_task_id') or link.get('task_id')
     if task_id:
         context['business_task'] = task_summary(await services.projects.task(project_id, task_id))
     else:
-        tasks = await services.projects.store.tasks(project_id, item_id=item_id, purpose='customer_trial', limit=3)
+        tasks = await services.projects.store.tasks(project_id, item_id=item_id, limit=3)
         context['recent_results'] = [task_summary(t) for t in tasks]
     if getattr(services, 'modeling', None):
         studies = await services.modeling.list(project_id, 'study', limit=5)

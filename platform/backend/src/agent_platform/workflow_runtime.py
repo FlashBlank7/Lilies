@@ -1913,6 +1913,13 @@ class WorkflowRuntime:
             state=state,
         )
 
+    @_node_executor('code')
+    async def _exec_code(self, run: NodeRun) -> dict[str, Any]:
+        from .python_execution import execute_function
+        self._validate_runtime_tool_target('Bash', self._runtime_tool_allowlists.get(run.run_id))
+        return await execute_function(self.sandboxes, run.workspace_path, run.config,
+                                      self._resolve(run.config.inputs, run.context))
+
     @_node_executor('data_analysis', 'feature_extract', 'model_train', 'model_predict')
     async def _exec_modeling(self, run: NodeRun) -> dict[str, Any]:
         project = run.state.project_context if run.state else None

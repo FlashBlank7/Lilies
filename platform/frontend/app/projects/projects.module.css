@@ -92,8 +92,9 @@
 .flowMembers article { display:flex; align-items:center; gap:8px; }
 .callLinks { display:flex; gap:6px; flex-wrap:wrap; }
 .callLinks button { font-size:11px; padding:4px 6px; }
-.canvasHeading { display:flex; justify-content:space-between; align-items:center; margin:12px 0; }
+.canvasHeading { display:flex; justify-content:space-between; align-items:center; gap:12px; margin:12px 0; }
 .canvasHeading h2 { font-size:14px; margin:0; }
+@media(max-width:600px) { .canvasHeading { flex-wrap:wrap; } .canvasHeading h2 { flex-basis:100%; order:-1; overflow-wrap:anywhere; } .canvasHeading button,.canvasHeading a { flex-shrink:0; } }
 .taskTime { display:block; font-size:11px; margin-top:5px; }
 .page :global(.markdown-document) { color:var(--ui-ink); font-size:14px; }
 .page :global(.markdown-table-wrap) { max-width:100%; overflow:auto; }

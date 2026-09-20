@@ -127,7 +127,7 @@ it('trials and result feedback use the same conversation without an internal pha
   await waitFor(() => expect(api).toHaveBeenCalledWith('/api/v1/projects/p/conversation/messages', {
     method: 'POST', body: JSON.stringify({ message: '用 request.json 试一下', item_id: 'allocate', question_id: '', task_id: '' }),
   }))
-  fireEvent.click(screen.getByRole('tab', { name: '业务结果' }))
+  fireEvent.click(screen.getByRole('tab', { name: '运行记录' }))
   fireEvent.click(screen.getByRole('button', { name: /申请分配 · 运行完成/ }))
   expect(await screen.findByRole('table')).toHaveTextContent('资源2')
   fireEvent.click(screen.getByRole('button', { name: '反馈这个结果' }))
@@ -143,12 +143,9 @@ it('loads tool history only on demand and shows business members from the real t
   expect(vi.mocked(api).mock.calls.some(([path]) => path.includes('kind=tools'))).toBe(false)
   fireEvent.click(screen.getByText('查看操作记录'))
   await waitFor(() => expect(api).toHaveBeenCalledWith('/api/v1/projects/p/conversation?kind=tools'))
-  fireEvent.click(screen.getByRole('tab', { name: '业务流程' }))
+  fireEvent.click(screen.getByRole('tab', { name: '工作流' }))
   expect(await screen.findByRole('button', { name: '业务主流程' })).toBeInTheDocument()
   expect(screen.queryByRole('button', { name: '内部测试' })).not.toBeInTheDocument()
-  expect(screen.getByRole('region', { name: '需求与当前结果对照' })).toBeInTheDocument()
-  expect(screen.queryByTitle('业务工作流画布')).not.toBeInTheDocument()
-  fireEvent.click(screen.getByRole('button', { name: '编辑画布' }))
   expect(screen.getByTitle('业务工作流画布')).toHaveAttribute('src', '/applications/p?tab=edit&embedded=1')
 })
 
@@ -235,8 +232,8 @@ it('keeps the draft through reading, navigation, sidebar collapse and remount', 
   expect(screen.getByRole('dialog')).toHaveTextContent('当前需求')
   fireEvent.click(screen.getByRole('button', { name: '关闭阅读窗口' }))
   fireEvent.click(screen.getByRole('button', { name: '收起导航' }))
-  fireEvent.click(screen.getByRole('tab', { name: '项目资料' }))
-  fireEvent.click(screen.getByRole('tab', { name: '项目进展与对话' }))
+  fireEvent.click(screen.getByRole('tab', { name: '资料与知识' }))
+  fireEvent.click(screen.getByRole('tab', { name: '对话' }))
   expect(screen.getByLabelText('给项目统筹的消息')).toHaveValue('这份输入先留在草稿')
   cleanup()
   await setup()

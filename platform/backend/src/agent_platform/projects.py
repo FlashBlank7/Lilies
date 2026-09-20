@@ -95,7 +95,12 @@ class Projects:
                 return {r['application_id']: {'revision': r['revision'], 'content_hash': r['content_hash'], 'snapshot': json.loads(r['snapshot_json'])}
                         for r in c.execute('SELECT d.application_id,d.revision,d.content_hash,d.snapshot_json FROM project_members m '
                                            'JOIN application_drafts d ON d.application_id=m.application_id WHERE m.project_id=?', (project_id,))}
-        return await asyncio.to_thread(read)
+        snapshots = await asyncio.to_thread(read)
+        from .project_resources import model_resources
+        resources = {m['model_ref']: m for m in await model_resources(self.services, project_id)}
+        for snapshot in snapshots.values():
+            snapshot['model_resources'] = resources
+        return snapshots
 
     async def confirm(self, project_id: str, revision: int) -> dict:
         await self.store.get(project_id)
@@ -174,12 +179,16 @@ class Projects:
             except Exception as e:
                 await self.store.update_task(task_id, status='failed', error=str(e))
                 raise
+        elif task['mode'] in {'training', 'prediction'}:
+            from .project_resources import run_compute
+            self.active[task_id] = asyncio.create_task(run_compute(self.services, task))
         else:
             self.active[task_id] = asyncio.create_task(self._run(task))
 
     async def context(self, project_id: str, task_id: str, step: str) -> dict:
         task = await self.store.get_task(project_id, task_id, snapshots=True)
-        return {'project_id': project_id, 'task_id': task_id, 'snapshots': task['snapshots'], 'step': step}
+        return {'project_id': project_id, 'task_id': task_id, 'snapshots': task['snapshots'], 'step': step,
+                'model_resources': next(iter(task['snapshots'].values()), {}).get('model_resources', {})}
 
     async def execute(self, project_id: str, task_id: str, workflow_id: str, inputs: dict,
                       *, step: str = 'main', parent_run_id: str | None = None, reuse: bool = False,

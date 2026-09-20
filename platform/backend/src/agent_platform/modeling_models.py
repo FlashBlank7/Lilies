@@ -136,6 +136,8 @@ class CandidateRequest(Contract):
 
 
 class ModelingBlock(Contract):
+    model_ref: Any = ''
+    slot: Any = None
     dataset_id: Any = ''
     study_id: Any = ''
     candidate_id: Any = ''
@@ -148,7 +150,7 @@ class FinishStudy(Contract):
 
 
 class ModelingTool(Contract):
-    action: Literal['datasets', 'register_dataset', 'revise_dataset', 'export_dataset', 'profile', 'studies', 'create_study', 'read_study', 'next_step', 'submit_candidate', 'submit_and_run', 'candidates', 'training_note', 'budget', 'finish']
+    action: Literal['datasets', 'register_dataset', 'revise_dataset', 'export_dataset', 'profile', 'studies', 'create_study', 'read_study', 'next_step', 'submit_candidate', 'submit_and_run', 'train', 'candidates', 'training_note', 'budget', 'finish']
     view: Literal['summary', 'full'] = 'summary'
     workflow_id: str = ''
     inputs: dict[str, Any] = Field(default_factory=dict, description='Additional workflow inputs. study_id and candidate_id are bound by submit_and_run; do not supply them here.')
@@ -169,6 +171,8 @@ class ModelingTool(Contract):
 
     @model_validator(mode='after')
     def submission(self):
+        if self.action == 'train' and (not self.study_id or self.candidate is None):
+            raise ValueError('train 需要 study_id 和 candidate 配置')
         if self.action == 'submit_and_run':
             if not self.study_id or not self.workflow_id or self.candidate is None:
                 raise ValueError('submit_and_run 需要 study_id、workflow_id 和 candidate 配置')
@@ -184,13 +188,13 @@ def register_modeling_blocks(registry):
         ('data_analysis', '数据分析', '扫描项目数据集，查看质量、标签分布和时序概况。'),
         ('feature_extract', '特征提取', '按预测时点提取时序特征或选择表格字段；需要拟合的转换留在训练折内。'),
         ('model_train', '训练评估', '运行已登记的建模候选，保存逐次试验、最佳模型和真实评价。'),
-        ('model_predict', '模型预测', '使用指定候选的固定模型与特征处理预测无标签数据。'),
+        ('model_predict', '模型预测', '通过 model_ref 使用项目模型预测无标签 dataset_id 数据。自动保存 CSV，output.artifact 是项目内下载路径；output.model_version 是固定模型版本。无需额外导出积木。模型可在保存后绑定。'),
     ]:
         definition = _definition(kind, title, description, 'integration', ModelingBlock,
             inputs=[('input', ValueType.any)], outputs=[('output', ValueType.object)], error_branch=True,
             manual={'summary': description + ' 必须从项目任务运行。用 project_modeling 登记数据和研究、提交候选；填写返回的标识。'
                 '所有输出位于 output。data_analysis/feature_extract 需要 dataset_id；model_train 需要 study_id/candidate_id；'
-                'model_predict 需要无标签 dataset_id 和已完成的 study_id/candidate_id。model_train 的 finalize=true 在研究结束后评价保留测试集，随后不再允许搜索。模型、评估器及数据快照不可由节点覆盖。',
+                'model_predict 使用无标签 dataset_id 和 model_ref（也兼容旧 study_id/candidate_id），返回 output.artifact 的 CSV 下载路径。资源可稍后绑定。model_train 的 finalize=true 在研究结束后评价保留测试集，随后不再允许搜索。模型、评估器及数据快照不可由节点覆盖。',
                 'when_to_use': ['表格分类回归与工艺时序建模'],
                 'examples': [{'description': title, 'config': {'dataset_id': '当前项目数据集标识'}}],
                 'anti_patterns': ['不要改变已固定的划分，不要把训练成功当成精度达标。'],
@@ -198,4 +202,13 @@ def register_modeling_blocks(registry):
                 'claude_architecture_mapping': 'Project modeling runtime',
                 'composability_constraints': ['项目身份由运行上下文绑定。']})
         definition.editor['i18n']['zh'].update(title=title, description=description)
+        fields = [('dataset_id', '数据集')]
+        if kind == 'model_predict':
+            fields += [('model_ref', '调用模型')]
+        elif kind == 'model_train':
+            fields += [('study_id', '训练记录'), ('candidate_id', '候选方案')]
+        if kind == 'feature_extract':
+            fields += [('features', '特征设置')]
+        definition.editor['fields'] = [{'path': key, 'label': label, 'label_zh': label,
+            'control': 'json' if key == 'features' else 'reference_or_text'} for key, label in fields]
         registry.register(definition, ModelingBlock)

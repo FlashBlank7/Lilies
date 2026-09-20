@@ -1,6 +1,8 @@
 # 项目内数据分析与自主建模
 
-2026-09-14 实现。范围是表格、工艺时序、传统机器学习和本机 CPU。使用现有项目、统筹对话、成员画布与运行记录；原工业工作流和运行镜像保留。
+v0.6（2026-09-20）已将独立训练与工作流分开：可以先保存未绑定模型的预测草稿，也可以不创建训练工作流直接启动建模。新页面操作见 [v0.6 试用说明](V06_TRYOUT.md)。
+
+2026-09-14 起实现的建模内核范围是表格、工艺时序、传统机器学习和本机 CPU。使用现有项目、统筹对话、成员画布与运行记录；原工业工作流和运行镜像保留。
 
 ## 客户使用路径
 
@@ -24,7 +26,7 @@
 
 `modeling_objects` 在平台 SQLite 中保存摘要；输入、缓存与产物在 `data/modeling/`。计算容器不挂载平台数据库、项目凭证或其他项目文件。Optuna 使用独立 SQLite 文件，在同研究、同特征与模型方向下延续参数历史。
 
-上传文件需要交给已有文件型准备流程时，统筹在建设阶段调用 `project_modeling(action="export_dataset", dataset_id)`。平台校验当前项目的数据版本并导出独立副本到固定的 `results/datasets/{dataset_id}/`，返回 `source_path`、可选 `labels_path`、各文件字节数及 SHA-256；将返回路径交给工作流输入即可。重复调用复用内容一致的副本；副本被修改或不完整时明确冲突，不静默覆盖。原始数据集不变，需求包不变，不开放任意目标路径。此操作不运行分析或训练。
+上传文件需要交给已有文件型准备流程时，项目智能体调用 `project_modeling(action="export_dataset", dataset_id)`。平台校验当前项目的数据版本并导出独立副本到固定的 `results/datasets/{dataset_id}/`，返回 `source_path`、可选 `labels_path`、各文件字节数及 SHA-256；将返回路径交给工作流输入即可。重复调用复用内容一致的副本；副本被修改或不完整时明确冲突，不静默覆盖。原始数据集不变，需求包不变，不开放任意目标路径。此操作不运行分析或训练。
 
 ### 每个模型的训练笔记（2026-09-15）
 
@@ -49,15 +51,23 @@
 | 数据分析 `data_analysis` | `dataset_id` | 质量统计、分布、时序抽样、数据集标识 |
 | 特征提取 `feature_extract` | `dataset_id`, `features` | 字段来源、窗口与计算方式、可传递特征方案 |
 | 训练评估 `model_train` | `study_id`, `candidate_id` | 已持久化试验、指标、模型与运行关联 |
-| 模型预测 `model_predict` | 无标签 `dataset_id`, `study_id`, `candidate_id` | 预测预览和可下载 CSV |
+| 模型预测 `model_predict` | 无标签 `dataset_id`, `model_ref`（兼容旧 study/candidate） | 预测预览和可下载 CSV |
 
 积木结果位于 `output`。`model_train` 的 `finalize=true` 在选模结束后评价保留测试集；评价前固定最佳候选，此研究随后禁止继续搜索。没有保留测试样本时仅交付验证结果。保存的画布测试可以回放已完成训练并真实执行预测，不额外改动研究。
 
-## 精简的建模工具（2026-09-16）
+## 独立训练（v0.6）
+
+页面“模型”可选择数据、目标列及算法并启动任务；停止和继续使用原任务编号。API 为 `POST /api/v1/projects/{id}/modeling/studies/{study_id}/train`，请求体沿用 CandidateRequest，不要求 `workflow_id`。项目对话使用 `project_modeling(action="train", study_id, candidate)`，重复的候选 request_key 和相同内容返回原任务。
+
+“可调用模型”创建稳定 `model_ref`，通过已完成的候选和 trial slot 绑定版本。模型、预处理及镜像由运行时校验；缺少资源时失败，不自动换模型。工作流或独立预测任务启动时固定版本，重新绑定只影响后续运行。
+
+## 旧训练工作流兼容路径（2026-09-16）
+
+以下 submit_and_run 用于已有训练工作流。新项目无需创建这类工作流。
 
 `project_modeling` 默认 `view="summary"`：保留指标方向、最佳/参照、剩余预算、改动、错误、各折诊断和最差5个分组；省略的分组数明确返回。完整参数、划分、预测和训练笔记仍保存在原处，用返回的 `detail` 工具参数读取 `view="full"`。`candidates` 可用 `candidate_id` 精确读取一个候选，列表继续支持 `offset/limit`。已有HTTP详情接口语义不变。
 
-首次搭建时，用 `block_catalog(tool_name="project_modeling")` 读取完整说明、输入契约和可直接编辑的画布示例。训练流程声明 `study_id`、`candidate_id` 两个字符串输入；唯一的 `model_train` 节点分别配置为 `{"$ref":{"node_id":"$inputs","path":["study_id"]}}` 和对应的 `candidate_id` 引用。后续复用该流程，无需每轮改节点。
+需要维护旧训练工作流时，可以用 `block_catalog(tool_name="project_modeling")` 读取完整说明、输入契约和可直接编辑的画布示例。训练流程声明 `study_id`、`candidate_id` 两个字符串输入；唯一的 `model_train` 节点分别配置为 `{"$ref":{"node_id":"$inputs","path":["study_id"]}}` 和对应的 `candidate_id` 引用。后续复用该流程，无需每轮改节点。
 
 ```json
 {"action":"submit_and_run","study_id":"当前研究","workflow_id":"当前项目训练成员",

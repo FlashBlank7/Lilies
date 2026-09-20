@@ -223,7 +223,7 @@ class LocalAgents:
                 return self.load(application_id)
             workspace = self.services.settings.workspace_root.resolve() / application_id
             discussion = load_discussion(workspace)
-            if intent == "build" and discussion["status"] != "confirmed":
+            if intent == "build" and discussion["status"] != "confirmed" and not self.services.projects.store.exists(application_id):
                 raise ValueError("请先完成需求沟通，并在应用内确认需求文档")
             if intent == "discuss" and discussion["status"] == "confirmed":
                 discussion.update(status="discussing", revision=discussion["revision"] + 1)
@@ -354,7 +354,7 @@ class LocalAgents:
                 specs = project_tool_specs() if is_project else tool_specs()
                 contract = hashlib.sha256(json.dumps(specs, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
                 if is_project:
-                    instructions = instructions.replace('五个项目工具', '项目工具') + PROJECT_INSTRUCTIONS + CONVERSATION_INSTRUCTIONS
+                    instructions = PROJECT_INSTRUCTIONS
                 previous_thread = state.get('thread_id')
                 # Codex's thread/resume cannot replace dynamicTools. Keep the
                 # application conversation while renewing only its provider thread.
@@ -409,8 +409,11 @@ class LocalAgents:
 
             productive = False
             failures: dict[str, tuple[str, int]] = {}
+            pending_workers: set[str] = set()
 
             async def failed_action(signature: str):
+                if is_project:
+                    return
                 current = self.load(application_id)
                 if not current.get('conversation_enabled'):
                     return
@@ -429,7 +432,10 @@ class LocalAgents:
                     self.event(application_id, 'status', '此事项连续三次遇到同一问题，已保留错误与恢复动作，先检查其他可推进事项。')
 
             async def on_event(method, params):
-                if method == "item/completed":
+                if method == 'model_usage':
+                    self.event(application_id, 'model_usage', '模型调用',
+                        request_id=self.load(application_id).get('request_id', ''), **params)
+                elif method == "item/completed":
                     item = params.get("item", {})
                     if item.get("type") == "agentMessage" and item.get("text"):
                         self.event(application_id, "assistant", item["text"])
@@ -488,10 +494,14 @@ class LocalAgents:
                 current = self.load(application_id)
                 metadata['item_id'] = current.get('active_item_id', '') or metadata['item_id']
                 metadata['task_id'] = metadata['task_id'] or current.get('project_task_id', '')
-                if isinstance(result, dict) and (result.get('id') or result.get('project_task_id')) and name in {'workflow_run', 'project_action', 'project_modeling'}:
+                if isinstance(result, dict) and (result.get('id') or result.get('project_task_id')) and name in {'workflow_run', 'project_action', 'project_modeling', 'project_models'}:
                     try:
                         task = await self.services.projects.store.get_task(application_id, result.get('project_task_id') or result['id'])
                         metadata['task_id'] = task['id']
+                        if task['status'] in {'queued', 'running'} and arguments.get('wait') is False:
+                            pending_workers.add(task['id'])
+                        elif task['status'] not in {'queued', 'running'}:
+                            pending_workers.discard(task['id'])
                     except (ValueError, KeyError):
                         pass
                 # Reading a failed task succeeded; its historical status is not
@@ -558,6 +568,29 @@ class LocalAgents:
                 if not current.get('conversation_enabled'):
                     break
                 if current.get('pending_messages'):
+                    continue
+                if is_project:
+                    # Only actual background work schedules another model turn.
+                    # A saved draft or unfinished progress item does not.
+                    if not pending_workers or not current.get('continue_work'):
+                        break
+                    self.event(application_id, 'status', '正在等待已启动的任务完成')
+                    while pending_workers:
+                        current = self.load(application_id)
+                        if current.get('pending_messages') or not current.get('continue_work'):
+                            break
+                        workers = {worker for task_id in pending_workers
+                                   if (worker := self.services.projects.active.get(task_id)) and not worker.done()}
+                        if len(workers) < len(pending_workers):
+                            break
+                        await asyncio.wait(workers, timeout=1, return_when=asyncio.FIRST_COMPLETED)
+                    current = self.load(application_id)
+                    if not current.get('continue_work'):
+                        break
+                    completed = [task_id for task_id in pending_workers
+                                 if not (worker := self.services.projects.active.get(task_id)) or worker.done()]
+                    pending_workers.difference_update(completed)
+                    context['user_message'] = '已启动的任务有结果返回，请读取状态和结果继续处理：' + ', '.join(completed)
                     continue
                 ready = await self.services.projects.conversation.ready(application_id)
                 current = self.load(application_id)

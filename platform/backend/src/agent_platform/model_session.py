@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from uuid import uuid4
 
 from .agent_core import collect_model_stream
@@ -55,9 +56,12 @@ class ModelSession:
                     self.messages.append(ChatMessage(role="user", content=[ContentBlock(type="text", text="\n".join(self.pending))]))
                     self.pending.clear()
                     self.save()
+                started = time.perf_counter()
                 response = await collect_model_stream(self.provider.stream(model="project", system=self.instructions,
                     messages=self.messages, tools=self.tools, max_output_tokens=16_384,
                     thinking_enabled=True, effort="medium"), timeout_seconds=timeout, expose_thinking=True)
+                await on_event('model_usage', {'usage': response.usage.model_dump(mode='json'),
+                    'seconds': time.perf_counter() - started})
                 self.messages.append(ChatMessage(role="assistant", content=response.blocks))
                 calls = [b for b in response.blocks if b.type == "tool_use"]
                 text = "".join(b.text or "" for b in response.blocks if b.type == "text")

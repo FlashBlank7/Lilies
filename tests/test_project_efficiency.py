@@ -58,12 +58,11 @@ def test_summary_details_and_atomic_edit_preserve_layout_and_conflicts(configure
     assert tool(client, base, 'workflow_run', action='inspect', task_id=run['id'], view='full').json()['outputs'] == run['outputs']
 
 
-def test_batch_rejects_foreign_members_and_requirement_changes(configured):
+def test_batch_rejects_foreign_members_but_allows_requirement_changes(configured):
     client, _, pid, base = prepare(configured)
     other = client.post('/api/v1/projects', json={'name': '其他项目'}).json()['id']
     draft = tool(client, base, 'workflow_draft').json()
     operations = [
-        {'op': 'set_metadata', 'data': {'requirement': '篡改'}},
         {'op': 'replace_workflow', 'data': {'workflow': {'nodes': [node('call', 'tool', tool_name='workflow:'+other)], 'edges': []}}},
         {'op': 'add_node', 'data': {'node': node('call', 'tool', tool_name='workflow:'+other)}}]
     for operation in operations:
@@ -71,6 +70,7 @@ def test_batch_rejects_foreign_members_and_requirement_changes(configured):
         assert response.status_code == 422
         assert tool(client, base, 'workflow_draft').json()['revision'] == draft['revision']
     assert tool(client, base, 'workflow_draft', workflow_id=other).status_code == 422
+    assert tool(client, base, 'workflow_draft', batch=batch(draft, {'op':'set_metadata', 'data':{'requirement':'更新用途'}})).status_code == 200
 
 
 def test_item_patch_preserves_other_items_answers_and_requires_current_revision(configured):
@@ -106,35 +106,31 @@ def test_native_loop_repairs_real_failure_and_regresses_without_customer_coachin
     class Repairing(TestSession):
         async def turn(self, message, on_event, on_tool, **kwargs):
             context = json.loads(message); contexts.append(context); self.turns += 1
-            if self.turns == 1:
-                await on_tool('project_action', {'action': 'build', 'item_id': 'allocate',
-                    'deliverable': '返回申请数量', 'completion_criteria': ['数量为2', '原失败任务保留']})
-                draft = await on_tool('workflow_draft', {})
-                await on_tool('workflow_draft', {'batch': batch(draft,
-                    {'op': 'replace_workflow', 'data': {'workflow': {'nodes': [node('s','start'),
-                        node('e','end',outputs={'quantity':ref('s','missing')})], 'edges':[edge('s','e')]}}},
-                    {'op':'add_test','data':{'test':{'id':'quantity','name':'数量','requirement':'返回2','inputs':{},
-                        'assertions':[{'path':['quantity'],'operator':'equals','expected':2}]}}})})
-                failed = await on_tool('workflow_run', {'action': 'start'})
-                assert failed['status'] == 'failed' and failed['error']
-                results.append(failed)
-                # Model turn ends after failure; platform must resume this same request.
-            else:
-                assert context['progress']['current_item']['completion_criteria'] == ['数量为2', '原失败任务保留']
-                draft = await on_tool('workflow_draft', {})
-                exact = await on_tool('workflow_draft', {'view':'nodes','node_ids':['e']})
-                assert exact['nodes'][0]['config']['outputs']['quantity']['$ref']['path'] == ['missing']
-                await on_tool('workflow_draft', {'batch':batch(draft, update('e',config={'outputs':{'quantity':2}}),key='repair')})
-                checks = await on_tool('workflow_run', {'action':'tests'})
-                assert checks['passed'] and not checks['failed_tests']
-                trial = await on_tool('project_action', {'action':'trial','item_id':'allocate','inputs':{},'feedback_task_id':results[0]['id']})
-                assert trial['outputs'] == {'quantity':2}; results.append(trial)
-                await on_tool('project_task_result', {'status':'succeeded','message':'数量为2，已修复实际错误'})
-                progress = await on_tool('project_progress', {})
-                await on_tool('project_progress', {'action':'patch','item_id':'allocate','expected_revision':progress['revision'],
-                    'changes':{'status':'done','availability':'trial','summary':'本次条件已满足','next_action':'',
-                               'results':[{'label':'修复后的试用','task_id':trial['id']}]}})
-                await on_tool('project_action', {'action':'finish'})
+            await on_tool('project_action', {'action': 'build', 'item_id': 'allocate',
+                'deliverable': '返回申请数量', 'completion_criteria': ['数量为2', '原失败任务保留']})
+            draft = await on_tool('workflow_draft', {})
+            await on_tool('workflow_draft', {'batch': batch(draft,
+                {'op': 'replace_workflow', 'data': {'workflow': {'nodes': [node('s','start'),
+                    node('e','end',outputs={'quantity':ref('s','missing')})], 'edges':[edge('s','e')]}}},
+                {'op':'add_test','data':{'test':{'id':'quantity','name':'数量','requirement':'返回2','inputs':{},
+                    'assertions':[{'path':['quantity'],'operator':'equals','expected':2}]}}})})
+            failed = await on_tool('workflow_run', {'action': 'start'})
+            assert failed['status'] == 'failed' and failed['error']
+            results.append(failed)
+            draft = await on_tool('workflow_draft', {})
+            exact = await on_tool('workflow_draft', {'view':'nodes','node_ids':['e']})
+            assert exact['nodes'][0]['config']['outputs']['quantity']['$ref']['path'] == ['missing']
+            await on_tool('workflow_draft', {'batch':batch(draft, update('e',config={'outputs':{'quantity':2}}),key='repair')})
+            checks = await on_tool('workflow_run', {'action':'tests'})
+            assert checks['passed'] and not checks['failed_tests']
+            trial = await on_tool('project_action', {'action':'trial','item_id':'allocate','inputs':{},'feedback_task_id':results[0]['id']})
+            assert trial['outputs'] == {'quantity':2}; results.append(trial)
+            await on_tool('project_task_result', {'status':'succeeded','message':'数量为2，已修复实际错误'})
+            progress = await on_tool('project_progress', {})
+            await on_tool('project_progress', {'action':'patch','item_id':'allocate','expected_revision':progress['revision'],
+                'changes':{'status':'done','availability':'trial','summary':'本次条件已满足','next_action':'',
+                           'results':[{'label':'修复后的试用','task_id':trial['id']}]}})
+            await on_tool('project_action', {'action':'finish'})
             return {'status':'completed'}
     client, app, project, _, base = configure_agent(configured, monkeypatch, Repairing)
     waiting = item('supplier', status='waiting', blocker={'kind':'data','owner':'供应商','reason':'缺接口','next_action':'补接口后连接'})
@@ -144,7 +140,7 @@ def test_native_loop_repairs_real_failure_and_regresses_without_customer_coachin
     client.post(base+'/conversation/messages',json={'message':'完成数量处理；供应商同步等待接口','item_id':'allocate'})
     state = agent_settled(client,base)
     assert state['status'] == 'idle', state['error']
-    assert len(contexts) == 2 and len([e for e in state['events'] if e['kind']=='user']) == 1
+    assert len(contexts) == 1 and len([e for e in state['events'] if e['kind']=='user']) == 1
     assert 'secret-detail' not in json.dumps(contexts) and 'confirmed_requirements' not in contexts[0]
     assert len(contexts[0]['workflows']) == 1
     assert client.get(base+'/tasks/'+results[0]['id']).json()['status']=='failed'
@@ -154,7 +150,7 @@ def test_native_loop_repairs_real_failure_and_regresses_without_customer_coachin
     assert progress[0]['delivery_request_id']==state['request_id'] and progress[0]['status']=='done'
     assert progress[1]['status']=='waiting' and progress[1]['blocker']['reason']=='缺接口'
     metrics = client.get(base+'/conversation/metrics').json()['requests'][0]
-    assert metrics['agent_turns']==2 and metrics['tool_failures']==1
+    assert metrics['agent_turns']==1 and metrics['tool_failures']==1
     assert metrics['first_presented_task_id']==results[1]['id']
 
 

@@ -16,7 +16,7 @@ it('reopens and stops a persisted manual run, then returns to its member input f
     if (path.endsWith('/stop')) return { ...task, status: 'interrupted' } as never
     if (path.endsWith('/tasks/t')) return task as never
     if (path.includes('/tasks?purpose=customer_trial')) return [task] as never
-    if (path.includes('/tasks?purpose=business') || path.endsWith('/workspace/files')) return [] as never
+    if (path.includes('/tasks?compact=true') || path.endsWith('/workspace/files')) return [] as never
     if (path.endsWith('/progress')) return { revision: 0, value: { goal: '', summary: '', items: [] } } as never
     if (path.endsWith('/draft')) return { snapshot: { workflow: { nodes: [] } } } as never
     if (options) throw new Error(path)

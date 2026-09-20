@@ -2,6 +2,7 @@
 
 import '@xyflow/react/dist/style.css'
 import Link from 'next/link'
+import { WorkflowValueField, WorkflowObjectFields, WorkflowInputFields } from '@/app/components/WorkflowValueField'
 import { useRouter } from 'next/navigation'
 import { Play } from 'lucide-react'
 import {
@@ -903,7 +904,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   const [embedded, setEmbedded] = useState(false)
   useEffect(() => { setEmbedded(new URLSearchParams(window.location.search).get('embedded') === '1') }, [])
   const [configText, setConfigText] = useState('{}')
-  const [configEditorMode, setConfigEditorMode] = useState<ConfigEditorMode>('json')
+  const [configEditorMode, setConfigEditorMode] = useState<ConfigEditorMode>('form')
   const [configFieldValues, setConfigFieldValues] = useState<ConfigEditorValues>({})
   const [configEditorBase, setConfigEditorBase] = useState<Record<string, unknown>>({})
   const [build, setBuild] = useState<Build | null>(null)
@@ -2196,7 +2197,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   ] : []
   const businessDefinitionMissing = Boolean(draft && !draft.snapshot.requirement.trim() && !projectContext)
 
-  return <main className="studio-shell" data-studio-chrome="collapsible" data-embedded={embedded}>
+  return <main className="studio-shell" data-studio-chrome="collapsible" data-embedded={embedded} data-project-editor={Boolean(projectContext)}>
     <header className="studio-header" data-collapsed={studioChrome.headerExpanded ? 'false' : 'true'} id="studio-header">
       <Link href={projectContext ? `/projects/${projectContext.id}` : "/"} target={projectContext ? "_top" : undefined} className="back">←</Link>
       <div className="studio-title"><b className={surfaceStyles.studioLabel}>Engineer Studio</b><strong>{draft?.snapshot.name || t.loading}</strong><span>{draft?.snapshot.mode === 'chat' ? t.modeChat : t.modeWorkflow} · {t.draft} r{draft?.revision ?? 0}</span></div>
@@ -2247,7 +2248,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
           title={studioChrome.leftPanelExpanded ? (locale === 'zh' ? '收起工作区' : 'Collapse workspace') : (locale === 'zh' ? '展开工作区' : 'Expand workspace')}
           type="button"
         ><span aria-hidden="true">{studioChrome.leftPanelExpanded ? '‹' : '›'}</span><b>{locale === 'zh' ? '工作区' : 'Workspace'}</b></button>
-        <div className={`panel-tabs ${surfaceStyles.threeTabs}`} data-detail-tab-url-state="synced">{VISIBLE_STUDIO_TABS.map(item => <button aria-pressed={tab === item} className={tab === item ? 'active' : ''} data-studio-tab={item} onClick={() => setStudioTab(item)} key={item} type="button">{item === 'build' ? t.buildTab : item === 'edit' ? t.editTab : item === 'test' ? t.testTab : item === 'automation' ? locale === 'zh' ? '自动化' : 'Automation' : locale === 'zh' ? '集成' : 'Integrations'}</button>)}</div>
+        <div className={`panel-tabs ${surfaceStyles.threeTabs}`} data-detail-tab-url-state="synced">{(projectContext ? (['edit','test'] as const) : VISIBLE_STUDIO_TABS).map(item => <button aria-pressed={tab === item} className={tab === item ? 'active' : ''} data-studio-tab={item} onClick={() => setStudioTab(item)} key={item} type="button">{item === 'build' ? t.buildTab : item === 'edit' ? (projectContext && locale === 'zh' ? '配置' : t.editTab) : item === 'test' ? (projectContext && locale === 'zh' ? '测试' : t.testTab) : item === 'automation' ? locale === 'zh' ? '自动化' : 'Automation' : locale === 'zh' ? '集成' : 'Integrations'}</button>)}</div>
         {tab === 'build' && projectContext && <div className="panel-body"><h2>项目工作流</h2><p>在画布中添加节点、配置输入和代码，再直接试运行。也可以在项目会话中与 Lilies 协作。</p><Link target="_top" href={`/projects/${projectContext.id}?run=${id}`}>运行这条工作流</Link></div>}
         {tab === 'build' && !projectContext && <div className="panel-body">
           <div className="panel-kicker">{locale === 'zh' ? '莉莉丝 Builder' : 'Lilies Builder'}</div><h2>{t.continueBuild}</h2>
@@ -2342,12 +2343,12 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
           <div className="event-log">{events.map((event, index) => <div key={index}><span>{event.type}</span><pre>{JSON.stringify(event.data, null, 2)}</pre></div>)}</div>
         </div>}
         {tab === 'edit' && <div className="panel-body">
-          <div className="panel-kicker">{t.workflowEditKicker}</div><h2>{t.patchPreviewTitle}</h2>
-          <section className="workflow-readable-summary" data-workflow-readable-summary="natural-language">
+          <div className="panel-kicker">{projectContext ? '工作流' : t.workflowEditKicker}</div><h2>{projectContext ? '节点配置' : t.patchPreviewTitle}</h2>
+          {!projectContext && <section className="workflow-readable-summary" data-workflow-readable-summary="natural-language">
             <div className="workflow-readable-head"><strong>{t.workflowReadableTitle}</strong><small>{t.workflowReadableHelp}</small></div>
             <p data-workflow-readable-purpose="true"><b>{t.workflowReadablePurpose}</b>{workflowPurposeSummary}</p>
             <div className="workflow-readable-steps">{workflowStepSummaryItems.length ? workflowStepSummaryItems.map(item => <article key={item.id}><strong>{item.title}</strong><small>{item.detail}</small></article>) : <p className="muted">{t.nodeInspectorNoConfig}</p>}</div>
-          </section>
+          </section>}
           {projectContext && <p><Link target="_top" href={`/projects/${projectContext.id}`}>返回项目，与 Lilies 协作</Link></p>}
           {!projectContext && <>          <section
             className="workflow-edit-dialog"
@@ -2391,7 +2392,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
           <h3>{t.nodeInspector}</h3>
           <section className="node-inspector-guide" data-node-inspector={selected ? 'selection-summary' : selectedEdge ? 'edge-summary' : 'empty-selection'}>
             <div className="node-inspector-guide-head"><strong>{selected ? t.nodeInspectorSummaryTitle : selectedEdge ? t.nodeInspectorEdgeTitle : t.nodeInspectorNoSelectionTitle}</strong><small>{selected ? t.nodeInspectorSummaryHelp : selectedEdge ? t.nodeInspectorEdgeHelp : t.nodeInspectorNoSelectionHelp}</small></div>
-            {selected && <><div className="node-summary-grid">{selectedNodeSummary.map(item => <article key={item.label}><span>{item.label}</span><b>{item.value}</b><small>{item.detail}</small></article>)}</div><button type="button" className="ghost" data-workflow-edit-reference-action="add-selected" onClick={() => addWorkflowEditReference(selected.id)}>{t.workflowEditReferenceAddSelected}</button></>}
+            {selected && !projectContext && <><div className="node-summary-grid">{selectedNodeSummary.map(item => <article key={item.label}><span>{item.label}</span><b>{item.value}</b><small>{item.detail}</small></article>)}</div><button type="button" className="ghost" data-workflow-edit-reference-action="add-selected" onClick={() => addWorkflowEditReference(selected.id)}>{t.workflowEditReferenceAddSelected}</button></>}
             {selectedEdge && <div className="edge-summary"><code>{selectedEdge.source} → {selectedEdge.target}</code>{selectedEdge.label && <span>{selectedEdge.label}</span>}</div>}
           </section>
           {selected ? <>
@@ -2411,7 +2412,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
                   configDirtyRef.current = true
                   configEditVersionRef.current += 1
                   setConfigText(JSON.stringify({ ...config, tool_name: event.target.value, input: config.input || {} }, null, 2))
-                  setConfigEditorMode('json')
+                  if (configEditorMode === 'form') setConfigFieldValues(previous => ({...previous, tool_name: event.target.value}))
                 }}>
                 <option value="">选择成员工作流</option>
                 {projectContext.members.filter(m => m.id !== id).map(m => <option key={m.id} value={'workflow:' + m.id}>{m.name}</option>)}
@@ -2432,7 +2433,10 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
                 return <label className={`config-form-field ${field.control === 'boolean' ? 'boolean' : ''}`} data-config-field={field.path} key={field.path}>
                   <span className="config-form-label"><b>{label}</b>{field.required && <em>{t.configRequired}</em>}</span>
                   {description && <small>{description}</small>}
-                  {field.control === 'boolean' ? <input type="checkbox" checked={value === true} onChange={event => update(event.target.checked)} />
+                  {selected.type === 'start' && field.path === 'inputs' ? <WorkflowInputFields value={String(value ?? '[]')} onChange={update} />
+                    : ['outputs', 'input', 'variables', 'inputs'].includes(field.path) && field.control === 'json' ? <WorkflowObjectFields projectId={projectContext?.id} nodes={draft?.snapshot.workflow.nodes || []} nodeId={selected.id} label={label} field={field.path} value={String(value ?? '{}')} onChange={update} />
+                    : (field.control === 'reference_or_text' || (selected.type === 'llm' && field.path === 'model')) ? <WorkflowValueField projectId={projectContext?.id} nodes={draft?.snapshot.workflow.nodes || []} nodeId={selected.id} label={label} field={field.path} value={String(value ?? '')} onChange={update} />
+                    : field.control === 'boolean' ? <input type="checkbox" checked={value === true} onChange={event => update(event.target.checked)} />
                     : field.control === 'enum' ? <select value={String(value ?? '')} onChange={event => update(event.target.value)}>{!field.required && <option value="" />}{field.options?.map(option => <option key={option} value={option}>{option}</option>)}</select>
                       : ['textarea', 'json', 'reference_or_text', 'string_list'].includes(field.control) ? <textarea className={field.control === 'json' ? 'config-json-field' : ''} spellCheck={field.control !== 'json'} value={String(value ?? '')} onChange={event => update(event.target.value)} />
                         : <input type={field.control === 'number' ? 'number' : 'text'} readOnly={field.control === 'readonly'} min={field.minimum} max={field.maximum} step={field.step} value={String(value ?? '')} onChange={event => update(event.target.value)} />}

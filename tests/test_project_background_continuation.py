@@ -120,7 +120,7 @@ def test_customer_message_is_processed_while_background_task_keeps_running(confi
     assert session.turns == 3 and len(observed) == 1
 
 
-def test_empty_replies_without_background_work_still_stop(configured, monkeypatch):
+def test_reply_without_background_work_ends_without_extra_model_calls(configured, monkeypatch):
     turns = []
 
     class EmptyReply(TestSession):
@@ -134,5 +134,5 @@ def test_empty_replies_without_background_work_still_stop(configured, monkeypatc
     put_progress(client, base, [item()])
     assert client.post(base+'/conversation/messages', json={'message': '继续执行'}).status_code == 202
     state = agent_settled(client, base)
-    assert state['status'] == 'error' and '连续三轮' in state['error']
-    assert len(turns) == 3 and client.get(base+'/tasks').json() == []
+    assert state['status'] == 'idle' and not state['error']
+    assert len(turns) == 1 and client.get(base+'/tasks').json() == []

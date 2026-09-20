@@ -207,6 +207,7 @@ export type Block = {
   claude_architecture_mapping?: string | null
   composability_constraints?: string[]
   editor?: {
+    advanced?: boolean
     fields?: BlockEditorField[]
     notices?: BlockEditorNotice[]
     i18n?: Record<string, { title?: string; description?: string; category?: string }>

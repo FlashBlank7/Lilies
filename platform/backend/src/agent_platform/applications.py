@@ -479,7 +479,7 @@ class ApplicationService:
             snapshot.tests = [item for item in snapshot.tests if item.id != test_id]
         elif operation == "replace_workflow":
             workflow = WorkflowSpec.model_validate(data["workflow"])
-            errors = self.blocks.validate_workflow(workflow)
+            errors = self.blocks.validate_draft(workflow)
             if errors:
                 raise ValueError("replacement workflow is invalid: " + "; ".join(errors))
             snapshot.workflow = workflow

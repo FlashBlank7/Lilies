@@ -1,0 +1,15 @@
+.section { border: 1px solid var(--ui-line); background: var(--ui-panel); border-radius: 12px; padding: 20px; margin: 16px 0; color: var(--ui-ink); }
+.section h2 { font-size: 18px; margin: 0 0 8px; }
+.section p { color: var(--ui-muted); line-height: 1.6; }
+.row { display: flex; gap: 12px; flex-wrap: wrap; align-items: end; }
+.row > input { flex: 1; min-width: 180px; }
+.row label { display: grid; gap: 6px; flex: 1; min-width: 160px; }
+.section input, .section select, .section textarea { padding: 9px 12px; border: 1px solid var(--ui-line); border-radius: 6px; background: var(--ui-panel); color: inherit; font: inherit; max-width: 100%; box-sizing: border-box; }
+.section button { border: 1px solid var(--ui-line); border-radius: 6px; padding: 9px 14px; background: var(--ui-hover); color: var(--ui-ink); cursor: pointer; font: inherit; }
+.section button:disabled { opacity: .5; cursor: wait; }
+.section :focus-visible { outline: 2px solid #2c70b9; outline-offset: 3px; }
+.section [role=alert] { color: #a92937; }
+.table { width: 100%; border-collapse: collapse; }
+.table th, .table td { text-align: left; border-bottom: 1px solid var(--ui-line); padding: 12px 8px; }
+.editor { width: 100%; min-height: 220px; margin: 12px 0; }
+@media(max-width: 640px) { .section { padding: 12px; } .row { flex-direction: column; align-items: stretch; } .row > *, .row label { min-width: 0; width: 100%; } .table { display: block; overflow-x: auto; } }

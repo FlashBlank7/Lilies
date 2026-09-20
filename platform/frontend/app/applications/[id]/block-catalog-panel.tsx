@@ -215,12 +215,14 @@ export function BlockPurpose({ block, locale, compact = false }: BlockPurposePro
 export function BlockCatalogPanel({ blocks, expanded, locale, onAdd, onToggle }: BlockCatalogPanelProps) {
   const zh = locale === 'zh'
   const [query, setQuery] = useState('')
+  const [advanced, setAdvanced] = useState(false)
   const [selectedType, setSelectedType] = useState<string | null>(null)
   const [addingType, setAddingType] = useState<string | null>(null)
   const filtered = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase()
-    if (!needle) return blocks
-    return blocks.filter(block => [
+    const available = advanced ? blocks : blocks.filter(block => !block.editor?.advanced && block.block_kind !== 'agent_architecture' && block.block_kind !== 'legacy_compatibility')
+    if (!needle) return available
+    return available.filter(block => [
       block.type,
       localizedTitle(block, locale),
       localizedDescription(block, locale),
@@ -228,7 +230,7 @@ export function BlockCatalogPanel({ blocks, expanded, locale, onAdd, onToggle }:
       block.manual_summary || '',
       ...(block.when_to_use || []),
     ].join(' ').toLocaleLowerCase().includes(needle))
-  }, [blocks, locale, query])
+  }, [blocks, locale, query, advanced])
   const grouped = useMemo(() => groupedBlocks(filtered, locale), [filtered, locale])
 
   async function addSelected(block: Block) {
@@ -268,7 +270,7 @@ export function BlockCatalogPanel({ blocks, expanded, locale, onAdd, onToggle }:
     </button>
     <div className={styles.content} id="studio-block-catalog-content">
       <header className={styles.heading}>
-        <div><strong>{zh ? '积木库' : 'Brick library'}</strong><small>{zh ? `${blocks.length} 个可用积木` : `${blocks.length} available`}</small></div>
+        <div><strong>{zh ? '积木库' : 'Brick library'}</strong><small>{zh ? `显示 ${filtered.length} 个积木` : `${filtered.length} shown`}</small></div>
         <span>{zh ? '可拖到画布；点击先看说明' : 'Drag to canvas, or click to inspect'}</span>
         <input
           aria-label={zh ? '搜索积木' : 'Search bricks'}
@@ -279,6 +281,7 @@ export function BlockCatalogPanel({ blocks, expanded, locale, onAdd, onToggle }:
         />
       </header>
       <div className={styles.groups}>
+      <label><input type="checkbox" checked={advanced} onChange={event => setAdvanced(event.target.checked)} />{zh ? '显示高级与兼容积木' : 'Show advanced and compatibility blocks'}</label>
       {Object.entries(grouped).map(([category, items]) => <section className={styles.group} key={category}>
         <h2>{category}</h2>
         {items.map(block => {

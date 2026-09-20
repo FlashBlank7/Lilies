@@ -44,7 +44,7 @@ export default function ModelConnectionPanel({ base, connected, running, onSaved
     } catch (cause) { setError(String(cause)) } finally { setBusy(false) }
   }
   return <div className={styles.modelConnection}>
-    <button disabled={running || busy} onClick={() => connected || role === 'vision' ? void edit() : setOpen(true)}>{role === 'vision' ? '视觉模型设置' : connected ? '模型设置' : '连接模型'}</button>
+    <button disabled={running || busy} onClick={() => void edit()}>{role === 'vision' ? '视觉模型设置' : connected ? '模型设置' : '连接模型'}</button>
     {!connected && role === 'main' && <small>配置 API 模型，供工作流和项目对话使用。</small>}
     {open && <ReadingDialog title={role === 'vision' ? '视觉模型设置' : '项目模型设置'} onClose={() => { setOpen(false); setKey('') }}><div className={styles.modelSetup}>
       <p>{role === 'vision' ? '使用支持图片输入的 API 模型读取设计图。此连接独立于主模型。' : '连接模型 API，供工作流中的模型节点和 Lilies 使用。'}</p>
