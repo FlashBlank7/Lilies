@@ -16,14 +16,16 @@ function innerWorkflows(nodes: WorkflowNode[], path: string[] = [], prefix = '')
 
 type Edit = { workflow_id: string; previous_workflow: Graph; draft: { revision: number } }
 
-export default function WorkflowComposer({ projectId, workflowId = '', onChanged, nodes = [], selectedNodeIds = [], revision, disabled = false, editRequest = 0 }: { projectId: string; workflowId?: string; onChanged: (id: string) => void; nodes?: WorkflowNode[]; selectedNodeIds?: string[]; revision?: number; disabled?: boolean; editRequest?: number }) {
+export default function WorkflowComposer({ projectId, workflowId = '', onChanged, nodes = [], selectedNodeIds = [], selectionPath = [], revision, disabled = false, editRequest = 0 }: { projectId: string; workflowId?: string; onChanged: (id: string) => void; nodes?: WorkflowNode[]; selectedNodeIds?: string[]; selectionPath?: string[]; revision?: number; disabled?: boolean; editRequest?: number }) {
   const [instruction, setInstruction] = useState('')
   const [advanced, setAdvanced] = useState(false)
   const [scope, setScope] = useState('whole')
   const inputRef = useRef<HTMLInputElement>(null)
+  const canvasScope = JSON.stringify(selectionPath)
+  useEffect(() => { setScope(selectionPath.length ? canvasScope : 'whole') }, [canvasScope])
   useEffect(() => {
     if (!editRequest) return
-    setScope(selectedNodeIds.length ? 'selection' : 'whole')
+    setScope(selectedNodeIds.length ? 'selection' : selectionPath.length ? JSON.stringify(selectionPath) : 'whole')
     inputRef.current?.focus({ preventScroll: true })
     inputRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
   }, [editRequest])
@@ -37,7 +39,7 @@ export default function WorkflowComposer({ projectId, workflowId = '', onChanged
     setBusy(true); setError('')
     try {
       const draft = revision !== undefined ? { revision } : workflowId ? await api<{ revision: number }>(`/api/v1/applications/${workflowId}/draft`) : undefined
-      const result = await api<Edit>(base + '/workflow-generation', { method: 'POST', body: JSON.stringify({ instruction, node_ids: scope === 'selection' ? selectedNodeIds : [], workflow_path: scope !== 'selection' && scope !== 'whole' ? JSON.parse(scope) : [], advanced_blocks: advanced, workflow_id: workflowId, expected_revision: draft?.revision, name: instruction.slice(0,60) }) })
+      const result = await api<Edit>(base + '/workflow-generation', { method: 'POST', body: JSON.stringify({ instruction, node_ids: scope === 'selection' ? selectedNodeIds : [], workflow_path: scope === 'selection' ? selectionPath : scope !== 'whole' ? JSON.parse(scope) : [], advanced_blocks: advanced, workflow_id: workflowId, expected_revision: draft?.revision, name: instruction.slice(0,60) }) })
       setLast(result); onChanged(result.workflow_id)
     } catch (cause) { setError(String(cause)) } finally { setBusy(false) }
   }

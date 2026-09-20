@@ -84,3 +84,13 @@ it('opens the selected scope from the canvas action and blocks AI changes while 
  expect(vi.mocked(api)).not.toHaveBeenCalled()
  expect(scroll).toHaveBeenCalledOnce()
 })
+
+
+it('keeps the container path when AI edits selected inner nodes',async()=>{
+ vi.mocked(api).mockResolvedValue({workflow_id:'w',previous_workflow:{nodes:[],edges:[]},draft:{revision:9}} as never)
+ render(<WorkflowComposer projectId="p" workflowId="w" revision={8} selectedNodeIds={['same']} selectionPath={['outer','inner']} editRequest={1} onChanged={vi.fn()}/>);
+ fireEvent.change(screen.getByLabelText('工作流描述'),{target:{value:'只修改当前循环的这个积木'}})
+ fireEvent.click(screen.getByRole('button',{name:'应用修改'}))
+ await waitFor(()=>expect(api).toHaveBeenCalled())
+ expect(JSON.parse(vi.mocked(api).mock.calls[0][1]!.body as string)).toMatchObject({expected_revision:8,node_ids:['same'],workflow_path:['outer','inner']})
+})

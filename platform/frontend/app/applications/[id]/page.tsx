@@ -1,5 +1,7 @@
 'use client'
 
+import { containerWorkflow as containerInnerWorkflow, workflowAtPath, scopedMutation, scopedFieldNodes } from '@/lib/workflow-scope'
+import { outputPaths } from '@/lib/workflow-fields'
 import WorkflowComposer from '@/app/components/WorkflowComposer'
 import { workflowFieldLabels, workflowModelHelp } from '@/lib/workflow-fields'
 import { useAccount } from '@/app/components/AuthBoundary'
@@ -620,66 +622,6 @@ function workflowRef(nodeId: string, sourcePort = 'output') {
   return { $ref: { node_id: nodeId, path: [sourcePort || 'output'] } }
 }
 
-type InnerWorkflow = { nodes: WorkflowNode[]; edges: Draft['snapshot']['workflow']['edges'] }
-
-function containerInnerWorkflow(container: WorkflowNode | undefined | null): InnerWorkflow | null {
-  const config = container?.config as Record<string, unknown> | undefined
-  const workflow = config?.workflow as InnerWorkflow | undefined
-  if (!workflow || !Array.isArray(workflow.nodes)) return null
-  return { nodes: workflow.nodes, edges: Array.isArray(workflow.edges) ? workflow.edges : [] }
-}
-
-/** 容器作用域内的图操作 → 重写容器完整配置（原子、单一 update_node）。 */
-function applyInnerOp(
-  container: WorkflowNode,
-  op: string,
-  data: Record<string, unknown>,
-): Record<string, unknown> {
-  const config = JSON.parse(JSON.stringify(container.config || {})) as Record<string, unknown>
-  const workflow = (config.workflow || { nodes: [], edges: [] }) as {
-    nodes: Array<Record<string, unknown>>
-    edges: Array<Record<string, unknown>>
-  }
-  workflow.nodes = Array.isArray(workflow.nodes) ? workflow.nodes : []
-  workflow.edges = Array.isArray(workflow.edges) ? workflow.edges : []
-  config.workflow = workflow
-
-  if (op === 'add_node') {
-    const node = data.node as Record<string, unknown>
-    if (workflow.nodes.some(item => item.id === node.id)) {
-      throw new Error(`容器内已有同名节点：${String(node.id)}`)
-    }
-    workflow.nodes.push(node)
-  } else if (op === 'update_node') {
-    const node = workflow.nodes.find(item => item.id === data.node_id)
-    if (!node) throw new Error(`容器内找不到节点：${String(data.node_id)}`)
-    const changes = (data.changes || {}) as Record<string, unknown>
-    for (const [key, value] of Object.entries(changes)) {
-      if (key === 'config') {
-        node.config = data.merge_config === false
-          ? value
-          : { ...((node.config as Record<string, unknown>) || {}), ...(value as Record<string, unknown>) }
-      } else {
-        node[key] = value
-      }
-    }
-  } else if (op === 'remove_node') {
-    workflow.nodes = workflow.nodes.filter(item => item.id !== data.node_id)
-    workflow.edges = workflow.edges.filter(
-      item => item.source !== data.node_id && item.target !== data.node_id,
-    )
-  } else if (op === 'add_edge') {
-    const edge = data.edge as Record<string, unknown>
-    workflow.edges.push({
-      id: edge.id, source: edge.source, target: edge.target,
-      source_port: edge.source_port || 'output', target_port: edge.target_port || 'input',
-    })
-  } else if (op === 'remove_edge') {
-    workflow.edges = workflow.edges.filter(item => item.id !== data.edge_id)
-  }
-  return config
-}
-
 function referencedNodeIds(value: unknown) {
   const ids = new Set<string>()
   const visit = (item: unknown) => {
@@ -958,8 +900,8 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   const configDirtyRef = useRef(false)
   const configEditVersionRef = useRef(0)
   // 容器子画布：非空时，画布投影/图操作全部作用于该容器的内部子流程
-  const [containerScope, setContainerScope] = useState<string | null>(null)
-  const containerScopeRef = useRef<string | null>(null)
+  const [containerScope, setContainerScope] = useState<string[]>([])
+  const containerScopeRef = useRef<string[]>([])
   const selectedEdgeId = useRef<string | null>(null)
   const flowRef = useRef<ReactFlowInstance<StudioNode, Edge> | null>(null)
   const canvasWrapRef = useRef<HTMLElement>(null)
@@ -1074,20 +1016,12 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     draftRef.current = next
     setDraft(next)
     setRequirement(next.snapshot.requirement)
-    // 容器作用域：投影容器内部子流程；容器被删则自动退出
-    let activeNodes = next.snapshot.workflow.nodes
-    let activeEdges = next.snapshot.workflow.edges
-    if (containerScopeRef.current) {
-      const container = next.snapshot.workflow.nodes.find(item => item.id === containerScopeRef.current)
-      const inner = containerInnerWorkflow(container)
-      if (inner) {
-        activeNodes = inner.nodes
-        activeEdges = inner.edges
-      } else {
-        containerScopeRef.current = null
-        setContainerScope(null)
-      }
+    let activeGraph = workflowAtPath(next.snapshot.workflow, containerScopeRef.current)
+    if (!activeGraph) {
+      containerScopeRef.current = []; setContainerScope([])
+      activeGraph = next.snapshot.workflow
     }
+    const activeNodes = activeGraph.nodes, activeEdges = activeGraph.edges
     const workflowEdges = validWorkflowEdges(activeNodes, activeEdges)
     const workflowEditSelection = normalizeWorkflowEditSelection(
       workflowEditSelectionRef.current,
@@ -1252,30 +1186,19 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  function mutation(op: string, data: Record<string, unknown>) {
+  function activeWorkflow(current = draftRef.current, scope = containerScopeRef.current) {
+    return workflowAtPath(current?.snapshot.workflow, scope)
+  }
+
+  function mutation(op: string, data: Record<string, unknown>, scope = [...containerScopeRef.current]) {
     const queued = mutationQueueRef.current.then(async (): Promise<Draft | null> => {
       const current = draftRef.current
       if (!current) return null
-      // 容器作用域翻译：内部图操作 → 原子重写容器配置（同一后端漏斗，天然并发安全）
-      const scope = containerScopeRef.current
-      if (scope && ['add_node', 'update_node', 'remove_node', 'add_edge', 'remove_edge'].includes(op)) {
-        const container = current.snapshot.workflow.nodes.find(item => item.id === scope)
-        const targetsContainerItself = (data.node_id === scope)
-        if (container && !targetsContainerItself) {
-          try {
-            const rewritten = applyInnerOp(container, op, data)
-            op = 'update_node'
-            data = { node_id: scope, changes: { config: rewritten }, merge_config: false }
-          } catch (error) {
-            setNotice(String(error instanceof Error ? error.message : error))
-            return current
-          }
-        }
-      }
       try {
+        const edit = scopedMutation(current.snapshot.workflow, scope, op, data)
         await api(`/api/v1/applications/${id}/draft`, {
           method: 'POST',
-          body: JSON.stringify({ expected_revision: current.revision, idempotency_key: idempotency(), op, data }),
+          body: JSON.stringify({ expected_revision: current.revision, idempotency_key: idempotency(), ...edit }),
         })
         const next = await refresh()
         setNotice(t.savedDraft)
@@ -1290,46 +1213,28 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     return queued
   }
 
-  function enterContainerScope(nodeId: string) {
-    const container = draftRef.current?.snapshot.workflow.nodes.find(item => item.id === nodeId)
-    if (!container || !containerInnerWorkflow(container)) return
-    containerScopeRef.current = nodeId
-    setContainerScope(nodeId)
-    selectedId.current = null
-    setSelected(null)
-    setSelectedNode(null)
+  function changeContainerScope(path: string[]) {
+    if (configDirtyRef.current) { setNotice('请先保存当前积木配置，再切换画布'); return }
+    containerScopeRef.current = path; setContainerScope(path)
+    setSelectedNode(null); setSelectedWorkflowEdge(null)
+    workflowEditSelectionRef.current = { nodeIds: [], edgeIds: [] }
     lastFitSignature.current = ''
     if (draftRef.current) syncCanvas(draftRef.current)
-    setNotice(locale === 'zh'
-      ? `已进入容器「${container.title || nodeId}」内部；这里的改动都保存在该容器里。`
-      : `Editing inside container "${container.title || nodeId}".`)
+  }
+
+  function enterContainerScope(nodeId: string) {
+    const container = activeWorkflow()?.nodes.find(item => item.id === nodeId)
+    if (!containerInnerWorkflow(container)) return
+    changeContainerScope([...containerScopeRef.current, nodeId])
   }
 
   function exitContainerScope() {
-    containerScopeRef.current = null
-    setContainerScope(null)
-    selectedId.current = null
-    setSelected(null)
-    setSelectedNode(null)
-    lastFitSignature.current = ''
-    if (draftRef.current) syncCanvas(draftRef.current)
+    changeContainerScope(containerScopeRef.current.slice(0, -1))
   }
 
   const onConnect = useCallback(async (connection: Connection) => {
-    if (containerScopeRef.current) {
-      // 容器内直连：结构校验交给后端对容器的整体校验
-      const edgeId = idempotency()
-      setEdges(current => addEdge({
-        id: edgeId, source: connection.source || '', target: connection.target || '',
-        sourceHandle: connection.sourceHandle, targetHandle: connection.targetHandle,
-      }, current))
-      await mutation('add_edge', { edge: {
-        id: edgeId, source: connection.source, target: connection.target,
-        source_port: connection.sourceHandle || 'output', target_port: connection.targetHandle || 'input',
-      } })
-      return
-    }
-    const contract = resolveConnectionContract(connection, draftRef.current?.snapshot.workflow, blocks)
+    const scope = [...containerScopeRef.current]
+    const contract = resolveConnectionContract(connection, activeWorkflow(), blocks)
     if (contract.error) {
       setNotice(connectionErrorMessage(contract, locale))
       return
@@ -1346,25 +1251,26 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     const next = await mutation('add_edge', { edge: {
       id: edgeId, source: contract.sourceNode.id, target: contract.targetNode.id,
       source_port: contract.sourcePort.name, target_port: contract.targetPort.name,
-    } })
-    const target = next?.snapshot.workflow.nodes.find(item => item.id === contract.targetNode.id)
+    } }, scope)
+    const target = activeWorkflow(next, scope)?.nodes.find(item => item.id === contract.targetNode.id)
     if (target) {
       const config = configAfterConnect(target, contract.sourceNode.id, contract.sourcePort.name)
       if (config !== target.config) {
-        await mutation('update_node', { node_id: target.id, changes: { config }, merge_config: false })
+        await mutation('update_node', { node_id: target.id, changes: { config }, merge_config: false }, scope)
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [blocks, locale])
 
   async function addBlock(block: Block, requestedPosition?: CanvasPoint) {
-    if (containerScopeRef.current && (block.type === 'iteration' || block.type === 'loop')) {
+    const scope = [...containerScopeRef.current]
+    if (containerScopeRef.current.length >= 2 && (block.type === 'iteration' || block.type === 'loop')) {
       setNotice(locale === 'zh'
         ? '容器里不能再放循环类积木（嵌套上限 2 层）——先返回上层。'
         : 'Containers cannot nest further loop blocks.')
       return
     }
-    const index = draftRef.current?.snapshot.workflow.nodes.length || 0
+    const index = activeWorkflow()?.nodes.length || 0
     const nodeId = `${block.type}-${Date.now()}`
     const position = requestedPosition || { x: 120 + index * 55, y: 120 + (index % 4) * 90 }
     const next = await mutation('add_node', { node: {
@@ -1372,10 +1278,8 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
       description: blockDescription(block), config: block.default_config || {}, position,
       retry: { enabled: false, max_attempts: 1, delay_seconds: 0.5 }, error_strategy: 'fail',
     } })
-    const scopeId = containerScopeRef.current
-    const activeList = scopeId
-      ? containerInnerWorkflow(next?.snapshot.workflow.nodes.find(item => item.id === scopeId))?.nodes || []
-      : next?.snapshot.workflow.nodes || []
+    if (JSON.stringify(scope) !== JSON.stringify(containerScopeRef.current)) return
+    const activeList = activeWorkflow(next, scope)?.nodes || []
     const added = activeList.find(item => item.id === nodeId)
     if (!added) return
     setSelectedNode(added)
@@ -1440,13 +1344,16 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   }
 
   async function arrangeCanvasNodes() {
+    const scope = [...containerScopeRef.current]
+    await mutationQueueRef.current
+    if (JSON.stringify(scope) !== JSON.stringify(containerScopeRef.current)) return
     const current = draftRef.current
-    const workflowNodes = current?.snapshot.workflow.nodes || []
+    const workflowNodes = activeWorkflow(current)?.nodes || []
     if (!current || !workflowNodes.length) {
       setNotice(t.canvasArrangeEmpty)
       return
     }
-    const workflowEdges = validWorkflowEdges(workflowNodes, current.snapshot.workflow.edges)
+    const workflowEdges = validWorkflowEdges(workflowNodes, activeWorkflow(current)?.edges || [])
     const positions = arrangedCanvasPositions(workflowNodes, workflowEdges)
     const changedNodes = workflowNodes.filter(node => {
       const position = positions.get(node.id)
@@ -1462,23 +1369,9 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     }
     setCanvasArranging(true)
     try {
-      let expectedRevision = current.revision
-      for (const node of changedNodes) {
-        const position = positions.get(node.id)
-        if (!position) continue
-        const next = await api<Draft>(`/api/v1/applications/${id}/draft`, {
-          method: 'POST',
-          body: JSON.stringify({
-            expected_revision: expectedRevision,
-            idempotency_key: idempotency(),
-            op: 'update_node',
-            data: { node_id: node.id, changes: { position } },
-          }),
-        })
-        expectedRevision = next.revision
-        draftRef.current = next
-      }
-      await refresh()
+      const graph = activeWorkflow(current)!
+      const arranged = { ...graph, nodes: graph.nodes.map(node => ({ ...node, position: positions.get(node.id) || node.position })) }
+      if (!await mutation('replace_workflow', { workflow: arranged }, scope)) return
       setNotice(t.canvasArrangeDone)
       window.setTimeout(() => flowRef.current?.fitView({ padding: 0.24, duration: 260 }), 40)
     } catch (error) {
@@ -1511,12 +1404,13 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   }
 
   function chooseNode(node: StudioNode) {
-    const value = draft?.snapshot.workflow.nodes.find(item => item.id === node.id) || null
+    const value = activeWorkflow()?.nodes.find(item => item.id === node.id) || null
     setSelectedNode(value)
     setStudioTab('edit')
   }
 
   function chooseEdge(edge: Edge) {
+    setSelectedNode(null)
     setSelectedWorkflowEdge(edge)
   }
 
@@ -1524,7 +1418,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     selection: WorkflowEditSelection,
     options: { selectCanvas?: boolean; invalidatePreview?: boolean } = {},
   ) {
-    const workflow = draftRef.current?.snapshot.workflow
+    const workflow = activeWorkflow()
     const availableNodes = workflow?.nodes.map(node => node.id) || flowRef.current?.getNodes().map(node => node.id) || []
     const availableEdges = workflow?.edges || flowRef.current?.getEdges().map(edge => ({
       id: edge.id,
@@ -1579,7 +1473,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   function removeWorkflowEditReference(nodeId: string) {
     const current = workflowEditSelectionRef.current
     const nextNodeIds = current.nodeIds.filter(item => item !== nodeId)
-    const workflowEdges = draftRef.current?.snapshot.workflow.edges || []
+    const workflowEdges = activeWorkflow()?.edges || []
     const next = selectionForRightDrag(nextNodeIds, workflowEdges)
     updateWorkflowEditSelection(next, { selectCanvas: true })
   }
@@ -1592,7 +1486,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   function setWorkflowEditReferencesFromSelection(selectedNodes: StudioNode[], selectedEdges: Edge[]) {
     const nodeSelection = selectionForRightDrag(
       selectedNodes.map(node => node.id),
-      draftRef.current?.snapshot.workflow.edges || [],
+      activeWorkflow()?.edges || [],
     )
     updateWorkflowEditSelection({
       nodeIds: nodeSelection.nodeIds,
@@ -1603,7 +1497,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   function openWorkflowEditContextMenu(clientX: number, clientY: number, selection: WorkflowEditSelection) {
     const normalized = updateWorkflowEditSelection(selection, { selectCanvas: true })
     const selectedWorkflowNode = normalized.nodeIds.length === 1
-      ? draftRef.current?.snapshot.workflow.nodes.find(node => node.id === normalized.nodeIds[0]) || null
+      ? activeWorkflow()?.nodes.find(node => node.id === normalized.nodeIds[0]) || null
       : null
     setSelectedNode(selectedWorkflowNode)
     const bounds = canvasWrapRef.current?.getBoundingClientRect()
@@ -1632,7 +1526,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   function handleNodeContextMenu(event: MouseEvent<Element>, node: StudioNode) {
     event.preventDefault()
     event.stopPropagation()
-    const workflowEdges = draftRef.current?.snapshot.workflow.edges || []
+    const workflowEdges = activeWorkflow()?.edges || []
     const selection = selectionForNodeContextMenu(node.id, workflowEditSelectionRef.current, workflowEdges)
     setNotice(t.workflowEditReferenceAdded(safeText(node.data?.title, node.id)))
     openWorkflowEditContextMenu(event.clientX, event.clientY, selection)
@@ -1651,7 +1545,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   function handleSelectionContextMenu(event: MouseEvent<Element>, selectedNodes: StudioNode[]) {
     event.preventDefault()
     event.stopPropagation()
-    const workflowEdges = draftRef.current?.snapshot.workflow.edges || []
+    const workflowEdges = activeWorkflow()?.edges || []
     const nodeIds = selectedNodes.map(node => node.id)
     const selection = selectionForRightDrag(nodeIds, workflowEdges)
     openWorkflowEditContextMenu(event.clientX, event.clientY, selection)
@@ -1722,7 +1616,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
       }, true)
       const selection = selectionForRightDrag(
         selectedNodes.map(node => node.id),
-        draftRef.current?.snapshot.workflow.edges || [],
+        activeWorkflow()?.edges || [],
       )
       if (!selection.nodeIds.length) {
         clearWorkflowEditReferences()
@@ -1759,6 +1653,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   async function saveConfig() {
     if (!selected) return
     const editVersion = configEditVersionRef.current
+    const scope = [...containerScopeRef.current]
     try {
       const fields = editorFieldsForBlock(blocks.find(block => block.type === selected.type))
       const config = configEditorMode === 'form' && fields.length
@@ -1766,8 +1661,9 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
         : parseConfigObject(configText)
       setConfigText(JSON.stringify(config, null, 2))
       setConfigEditorBase(config)
-      const next = await mutation('update_node', { node_id: selected.id, changes: { config }, merge_config: false })
-      await reconcileIncomingEdges(selected.id, config, next)
+      const next = await mutation('update_node', { node_id: selected.id, changes: { config }, merge_config: false }, scope)
+      if (!next) return
+      await reconcileIncomingEdges(selected.id, config, next, scope)
       if (next && selectedId.current === selected.id && configEditVersionRef.current === editVersion) configDirtyRef.current = false
     } catch (error) {
       setNotice(configEditorMode === 'form' ? t.configFieldInvalid(String(error)) : t.invalidJson(String(error)))
@@ -1923,25 +1819,33 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     }
   }
 
-  async function reconcileIncomingEdges(nodeId: string, config: Record<string, unknown>, next: Draft | null) {
+  async function reconcileIncomingEdges(nodeId: string, config: Record<string, unknown>, next: Draft | null, scope = [...containerScopeRef.current]) {
     const current = next || draftRef.current
-    const node = current?.snapshot.workflow.nodes.find(item => item.id === nodeId)
+    const node = activeWorkflow(current, scope)?.nodes.find(item => item.id === nodeId)
     if (!current || node?.type !== 'variable_aggregator') return
     const desiredSources = referencedNodeIds(config)
-    const availableSources = new Set(current.snapshot.workflow.nodes.map(item => item.id))
-    const incoming = current.snapshot.workflow.edges.filter(edge => edge.target === nodeId && !edge.branch)
+    const availableSources = new Set((activeWorkflow(current, scope)?.nodes || []).map(item => item.id))
+    const incoming = (activeWorkflow(current, scope)?.edges || []).filter(edge => edge.target === nodeId && !edge.branch)
     for (const edge of incoming) {
-      if (!desiredSources.has(edge.source)) await mutation('remove_edge', { edge_id: edge.id })
+      if (!desiredSources.has(edge.source)) await mutation('remove_edge', { edge_id: edge.id }, scope)
     }
     const refreshed = draftRef.current || current
-    const existingSources = new Set(refreshed.snapshot.workflow.edges.filter(edge => edge.target === nodeId && !edge.branch).map(edge => edge.source))
+    const existingSources = new Set((activeWorkflow(refreshed, scope)?.edges || []).filter(edge => edge.target === nodeId && !edge.branch).map(edge => edge.source))
     for (const source of desiredSources) {
       if (source !== nodeId && availableSources.has(source) && !existingSources.has(source)) {
         await mutation('add_edge', { edge: {
           id: idempotency(), source, target: nodeId, source_port: 'output', target_port: 'input',
-        } })
+        } }, scope)
       }
     }
+  }
+
+  async function setEdgeBranch(edgeId: string, branch: string) {
+    const scope = [...containerScopeRef.current]
+    await mutationQueueRef.current
+    const graph = activeWorkflow(draftRef.current, scope)
+    if (!graph) return
+    await mutation('replace_workflow', { workflow: { ...graph, edges: graph.edges.map(edge => edge.id === edgeId ? { ...edge, branch: branch || null } : edge) } }, scope)
   }
 
   async function deleteSelectedNode() {
@@ -1952,17 +1856,19 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   }
 
   async function persistDeletedNodes(deleted: StudioNode[]) {
+    const scope = [...containerScopeRef.current]
     for (const node of deleted) {
       if (selectedId.current === node.id) setSelectedNode(null)
-      await mutation('remove_node', { node_id: node.id })
+      await mutation('remove_node', { node_id: node.id }, scope)
     }
   }
 
   async function persistDeletedEdges(deleted: Edge[]) {
+    const scope = [...containerScopeRef.current]
     for (const edge of deleted) {
       const before = draftRef.current
-      const actual = before?.snapshot.workflow.edges.find(item => item.id === edge.id)
-        || before?.snapshot.workflow.edges.find(item => item.source === edge.source && item.target === edge.target)
+      const actual = activeWorkflow(before, scope)?.edges.find(item => item.id === edge.id)
+        || activeWorkflow(before, scope)?.edges.find(item => item.source === edge.source && item.target === edge.target)
       if (!actual) {
         setNotice(t.edgeAlreadyRemoved)
         await refresh().catch(() => undefined)
@@ -1972,16 +1878,16 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
         selectedEdgeId.current = null
         setSelectedEdge(null)
       }
-      const target = before?.snapshot.workflow.nodes.find(item => item.id === actual.target)
+      const target = activeWorkflow(before, scope)?.nodes.find(item => item.id === actual.target)
       if (target) {
         const config = configAfterDisconnect(target, actual.source)
         await mutation('update_node', {
           node_id: target.id,
           changes: { config },
           merge_config: false,
-        })
+        }, scope)
       }
-      await mutation('remove_edge', { edge_id: actual.id })
+      await mutation('remove_edge', { edge_id: actual.id }, scope)
     }
   }
 
@@ -2178,24 +2084,31 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     })
   }
   const workflowEditReferenceNodes = useMemo(() => {
-    const workflow = draft?.snapshot.workflow
+    const workflow = workflowAtPath(draft?.snapshot.workflow, containerScope)
     if (!workflow) return []
     const byId = new Map(workflow.nodes.map(node => [node.id, node]))
     return workflowEditReferenceIds.map(nodeId => byId.get(nodeId)).filter(Boolean) as WorkflowNode[]
-  }, [draft, workflowEditReferenceIds])
+  }, [draft, containerScope, workflowEditReferenceIds])
   const workflowStepSummaryItems = useMemo(() => {
-    const workflow = draft?.snapshot.workflow
+    const workflow = workflowAtPath(draft?.snapshot.workflow, containerScope)
     if (!workflow) return []
     return workflow.nodes.map((node, index) => ({
       id: node.id,
       title: `${index + 1}. ${safeText(node.title, node.id)}`,
       detail: safeText(node.description, t.nodeInspectorNoDescription),
     }))
-  }, [draft, t.nodeInspectorNoDescription])
+  }, [draft, containerScope, t.nodeInspectorNoDescription])
   const workflowPurposeSummary = useMemo(
     () => readableWorkflowPurpose(draft?.snapshot, t.fallbackDescription),
     [draft, t.fallbackDescription],
   )
+  const fieldNodes = scopedFieldNodes(draft?.snapshot.workflow, containerScope)
+  const fieldEdges = workflowAtPath(draft?.snapshot.workflow, containerScope)?.edges || []
+  const selectedInner = containerInnerWorkflow(selected)
+  const innerFieldNodes = selected ? scopedFieldNodes(draft?.snapshot.workflow, [...containerScope, selected.id]) : []
+  const innerFieldEdges = innerFieldNodes.map(node => ({ source: node.id, target: '$container-result' }))
+  const edgeSource = fieldNodes.find(node => node.id === selectedEdge?.source)
+  const edgeBranches = edgeSource?.type === 'if_else' ? [...(Array.isArray(edgeSource.config.cases) ? edgeSource.config.cases.map(item => String(item.id)) : []), String(edgeSource.config.default_branch || 'else')] : []
   const selectedBlockDefinition = blocks.find(block => block.type === selected?.type)
   const selectedEditorFields = editorFieldsForBlock(selectedBlockDefinition)
   const selectedEditorNotices = selectedBlockDefinition?.editor?.notices || []
@@ -2359,7 +2272,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
             <p data-workflow-readable-purpose="true"><b>{t.workflowReadablePurpose}</b>{workflowPurposeSummary}</p>
             <div className="workflow-readable-steps">{workflowStepSummaryItems.length ? workflowStepSummaryItems.map(item => <article key={item.id}><strong>{item.title}</strong><small>{item.detail}</small></article>) : <p className="muted">{t.nodeInspectorNoConfig}</p>}</div>
           </section>}
-          {projectContext && <><p><Link target="_top" href={`/projects/${projectContext.id}`}>返回项目，与 Lilies 协作</Link></p><WorkflowComposer projectId={projectContext.id} workflowId={id} revision={draft?.revision} nodes={draft?.snapshot.workflow.nodes || []} selectedNodeIds={workflowEditReferenceIds} editRequest={projectEditRequest} disabled={configDirtyRef.current} onChanged={() => { void refresh() }} /></>}
+          {projectContext && <><p><Link target="_top" href={`/projects/${projectContext.id}`}>返回项目，与 Lilies 协作</Link></p><WorkflowComposer projectId={projectContext.id} workflowId={id} revision={draft?.revision} nodes={draft?.snapshot.workflow.nodes || []} selectedNodeIds={workflowEditReferenceIds} selectionPath={containerScope} editRequest={projectEditRequest} disabled={configDirtyRef.current} onChanged={() => { void refresh() }} /></>}
           {!projectContext && <>          <section
             className="workflow-edit-dialog"
             data-application-id={id}
@@ -2403,9 +2316,13 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
           <section className="node-inspector-guide" data-node-inspector={selected ? 'selection-summary' : selectedEdge ? 'edge-summary' : 'empty-selection'}>
             <div className="node-inspector-guide-head"><strong>{selected ? t.nodeInspectorSummaryTitle : selectedEdge ? t.nodeInspectorEdgeTitle : t.nodeInspectorNoSelectionTitle}</strong><small>{selected ? t.nodeInspectorSummaryHelp : selectedEdge ? t.nodeInspectorEdgeHelp : t.nodeInspectorNoSelectionHelp}</small></div>
             {selected && !projectContext && <><div className="node-summary-grid">{selectedNodeSummary.map(item => <article key={item.label}><span>{item.label}</span><b>{item.value}</b><small>{item.detail}</small></article>)}</div><button type="button" className="ghost" data-workflow-edit-reference-action="add-selected" onClick={() => addWorkflowEditReference(selected.id)}>{t.workflowEditReferenceAddSelected}</button></>}
-            {selectedEdge && <div className="edge-summary"><code>{selectedEdge.source} → {selectedEdge.target}</code>{selectedEdge.label && <span>{selectedEdge.label}</span>}</div>}
+            {selectedEdge && <div className="edge-summary"><code>{selectedEdge.source} → {selectedEdge.target}</code>{selectedEdge.label && <span>{selectedEdge.label}</span>}
+              {edgeBranches.length > 0 && <label>分支条件<select aria-label="连线分支条件" value={String(selectedEdge.label || '')} onChange={event => void setEdgeBranch(selectedEdge.id, event.target.value)}><option value="">不限制分支</option>{edgeBranches.map(branch => <option key={branch} value={branch}>{branch === String(edgeSource?.config.default_branch || 'else') ? '其他情况' : branch}</option>)}</select></label>}
+              <button type="button" onClick={() => void persistDeletedEdges([selectedEdge])}>删除此连线</button>
+            </div>}
           </section>
           {selected ? <>
+            {selectedInner && <button type="button" className="wide" onClick={() => enterContainerScope(selected.id)}>进入循环内部编辑</button>}
             {selectedBlockDefinition && <BlockPurpose block={selectedBlockDefinition} locale={locale} />}
             <BlockInstanceDetails locale={locale} node={selected} />
             <section className="safe-edit-guide" data-node-inspector="safe-edit-guide"><strong>{t.nodeInspectorSafeEditTitle}</strong><span>{t.nodeInspectorSafeEditHelp}</span></section>
@@ -2432,9 +2349,11 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
             </label>}
             {configEditorMode === 'form' ? <div className="config-form" data-config-editor="schema-form">
               {selectedEditorFields.length ? selectedEditorFields.map(field => {
-                const label = locale === 'zh' ? (selected.type === 'llm' && field.path === 'model' ? '调用模型' : field.label_zh || workflowFieldLabels[field.path] || field.label) : field.label
+                const label = locale === 'zh' ? (selectedInner && field.path === 'output_node_id' ? '输出积木' : selectedInner && field.path === 'output_path' ? '输出字段路径' : selected.type === 'llm' && field.path === 'model' ? '调用模型' : field.label_zh || workflowFieldLabels[field.path] || field.label) : field.label
                 const description = locale === 'zh' ? field.description_zh || (selected.type === 'llm' ? workflowModelHelp[field.path] : field.description) : field.description
                 const value = configFieldValues[field.path]
+                const outputValue = field.control === 'string_list' ? JSON.stringify(String(value || '').split('\n').filter(Boolean)) : String(value || '[]')
+                const outputChoices = selectedInner ? outputPaths(selectedInner.nodes.find(node => node.id === configFieldValues.output_node_id), blocks) : []
                 const update = (next: ConfigEditorValue) => {
                   configDirtyRef.current = true
                   configEditVersionRef.current += 1
@@ -2443,12 +2362,16 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
                 return <div role="group" aria-label={label} className={`config-form-field ${field.control === 'boolean' ? 'boolean' : ''}`} data-config-field={field.path} key={`${selected.id}:${field.path}`}>
                   <span className="config-form-label"><b>{label}</b>{field.required && <em>{t.configRequired}</em>}</span>
                   {description && <small>{description}</small>}
-                  {selected.type === 'start' && field.path === 'inputs' ? <WorkflowInputFields value={String(value ?? '[]')} onChange={update} />
-                    : selected.type === 'llm' && field.path === 'images' ? <WorkflowImageFields projectId={projectContext?.id} nodes={draft?.snapshot.workflow.nodes || []} edges={draft?.snapshot.workflow.edges || []} blocks={blocks} nodeId={selected.id} label={label} value={String(value ?? '[]')} onChange={update} />
-                    : selected.type === 'if_else' && field.path === 'cases' ? <WorkflowConditionFields projectId={projectContext?.id} nodes={draft?.snapshot.workflow.nodes || []} edges={draft?.snapshot.workflow.edges || []} blocks={blocks} nodeId={selected.id} label={label} value={String(value ?? '[]')} onChange={update} />
-                    : selected.type === 'variable_aggregator' && field.path === 'variables' ? <WorkflowArrayFields projectId={projectContext?.id} nodes={draft?.snapshot.workflow.nodes || []} edges={draft?.snapshot.workflow.edges || []} blocks={blocks} nodeId={selected.id} label={label} value={String(value ?? '[]')} onChange={update} />
-                    : ['outputs', 'input', 'variables', 'inputs', 'assignments', 'headers', 'query'].includes(field.path) && field.control === 'json' ? <WorkflowObjectFields projectId={projectContext?.id} nodes={draft?.snapshot.workflow.nodes || []} edges={draft?.snapshot.workflow.edges || []} blocks={blocks} modelRole={String(configFieldValues.model_role || selected.config.model_role || 'main')} nodeId={selected.id} label={label} field={field.path} value={String(value ?? '{}')} onChange={update} />
-                    : (field.control === 'reference_or_text' || ['model_ref', 'dataset_id', 'file_path'].includes(field.path) || (selected.type === 'llm' && field.path === 'model')) ? <WorkflowValueField projectId={projectContext?.id} nodes={draft?.snapshot.workflow.nodes || []} edges={draft?.snapshot.workflow.edges || []} blocks={blocks} modelRole={String(configFieldValues.model_role || selected.config.model_role || 'main')} allowReference={field.path !== 'model'} nodeId={selected.id} label={label} field={field.path} value={String(value ?? '')} onChange={update} />
+                  {selectedInner && field.path === 'workflow' ? <button type="button" onClick={() => enterContainerScope(selected.id)}>打开内部画布（{selectedInner.nodes.length} 个积木）</button>
+                    : selectedInner && field.path === 'output_node_id' ? <select aria-label={label} value={String(value ?? '')} onChange={event => update(event.target.value)}><option value="">选择内部输出积木</option>{value && !selectedInner.nodes.some(node => node.id === value) && <option value={String(value)}>{String(value)} · 已失效</option>}{selectedInner.nodes.map(node => <option key={node.id} value={node.id}>{node.title || node.id}</option>)}</select>
+                    : selectedInner && field.path === 'output_path' ? <select aria-label={label} value={outputValue} onChange={event => update(field.control === 'string_list' ? JSON.parse(event.target.value).join('\n') : event.target.value)}><option value="[]">整个输出</option>{outputValue !== '[]' && !outputChoices.some(path => JSON.stringify(path) === outputValue) && <option value={outputValue}>当前路径：{String(value)}</option>}{outputChoices.map(path => <option key={JSON.stringify(path)} value={JSON.stringify(path)}>{path.join('.')}</option>)}</select>
+                    : selectedInner && ['state_update', 'feedback_value', 'break_value', 'cancel_value', 'break_condition.expected', 'cancel_condition.expected'].includes(field.path) ? <WorkflowValueField projectId={projectContext?.id} nodes={innerFieldNodes} edges={innerFieldEdges} blocks={blocks} nodeId="$container-result" label={label} value={String(value ?? '')} onChange={update} />
+                    : selected.type === 'start' && field.path === 'inputs' ? <WorkflowInputFields value={String(value ?? '[]')} onChange={update} />
+                    : selected.type === 'llm' && field.path === 'images' ? <WorkflowImageFields projectId={projectContext?.id} nodes={fieldNodes} edges={fieldEdges} blocks={blocks} nodeId={selected.id} label={label} value={String(value ?? '[]')} onChange={update} />
+                    : selected.type === 'if_else' && field.path === 'cases' ? <WorkflowConditionFields projectId={projectContext?.id} nodes={fieldNodes} edges={fieldEdges} blocks={blocks} nodeId={selected.id} label={label} value={String(value ?? '[]')} onChange={update} />
+                    : selected.type === 'variable_aggregator' && field.path === 'variables' ? <WorkflowArrayFields projectId={projectContext?.id} nodes={fieldNodes} edges={fieldEdges} blocks={blocks} nodeId={selected.id} label={label} value={String(value ?? '[]')} onChange={update} />
+                    : ['outputs', 'input', 'variables', 'inputs', 'assignments', 'headers', 'query'].includes(field.path) && field.control === 'json' ? <WorkflowObjectFields projectId={projectContext?.id} nodes={fieldNodes} edges={fieldEdges} blocks={blocks} modelRole={String(configFieldValues.model_role || selected.config.model_role || 'main')} nodeId={selected.id} label={label} field={field.path} value={String(value ?? '{}')} onChange={update} />
+                    : (field.control === 'reference_or_text' || ['model_ref', 'dataset_id', 'file_path'].includes(field.path) || (selected.type === 'llm' && field.path === 'model')) ? <WorkflowValueField projectId={projectContext?.id} nodes={fieldNodes} edges={fieldEdges} blocks={blocks} modelRole={String(configFieldValues.model_role || selected.config.model_role || 'main')} allowReference={field.path !== 'model'} nodeId={selected.id} label={label} field={field.path} value={String(value ?? '')} onChange={update} />
                     : field.control === 'boolean' ? <input aria-label={label} type="checkbox" checked={value === true} onChange={event => update(event.target.checked)} />
                     : field.control === 'enum' ? <select aria-label={label} value={String(value ?? '')} onChange={event => update(event.target.value)}>{!field.required && field.default_value == null && <option value="" />}{field.options?.map(option => <option key={option} value={option}>{selected.type === 'llm' && field.path === 'model_role' ? option === 'vision' ? '视觉模型' : '主模型' : option}</option>)}</select>
                       : ['textarea', 'json', 'reference_or_text', 'string_list'].includes(field.control) ? <textarea aria-label={label} className={field.control === 'json' ? 'config-json-field' : ''} spellCheck={field.control !== 'json'} value={String(value ?? '')} onChange={event => update(event.target.value)} />
@@ -2617,11 +2540,11 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
           <input type="password" value={tokenInput} placeholder={t.authPlaceholder} onChange={event => setTokenInput(event.target.value)} />
           <div className="auth-actions"><button>{t.authSave}</button><button type="button" className="ghost" onClick={() => { clearClientToken(); setTokenInput('') }}>{t.authClear}</button></div>
         </form>}
-        {containerScope && <div className="container-scope-bar" data-container-scope={containerScope}>
-          <button onClick={exitContainerScope} type="button">← {locale === 'zh' ? '返回工作流' : 'Back to workflow'}</button>
+        {containerScope.length > 0 && <div className="container-scope-bar" data-container-scope={containerScope.join("/")}>
+          <button onClick={exitContainerScope} type="button">← {locale === 'zh' ? '返回上层' : 'Back to parent'}</button>
           <strong>
             {locale === 'zh' ? '容器内部：' : 'Inside container: '}
-            {draft?.snapshot.workflow.nodes.find(item => item.id === containerScope)?.title || containerScope}
+            {containerScope.map((value, index) => workflowAtPath(draft?.snapshot.workflow, containerScope.slice(0, index))?.nodes.find(node => node.id === value)?.title || value).join(' / ')}
           </strong>
           <span>{locale === 'zh' ? '这里的增删连线都保存在该容器里；双击外层容器节点即可进入。' : 'Edits here are saved inside this container.'}</span>
         </div>}
@@ -2662,8 +2585,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
           onNodeClick={(_, node) => chooseNode(node)}
           onNodeContextMenu={handleNodeContextMenu}
           onNodeDoubleClick={(_, node) => {
-            if (containerScopeRef.current) return
-            const spec = draftRef.current?.snapshot.workflow.nodes.find(item => item.id === node.id)
+            const spec = activeWorkflow()?.nodes.find(item => item.id === node.id)
             if (spec && (spec.type === 'iteration' || spec.type === 'loop')) enterContainerScope(spec.id)
           }}
           onNodeDragStop={(_, node) => mutation('update_node', { node_id: node.id, changes: { position: safeCanvasPosition(node.position) } })}
