@@ -17,15 +17,33 @@ from .modeling_models import ModelingTool
 from .modeling_summary import candidate_summary, study_summary
 from .modeling_workflow import submit_and_start
 from .project_resources import ModelResource
-from .project_knowledge import KnowledgeSearch
+from .project_knowledge import KnowledgeSearch, KnowledgeSettings, KnowledgeSource
 
 
 class KnowledgeTool(Arguments):
-    action: Literal['list', 'read', 'search'] = 'list'
+    action: Literal['list', 'read', 'search', 'configure', 'add', 'remove', 'build'] = 'list'
     knowledge_ref: str = ''
     query: str = ''
     top_k: int = Field(default=5, ge=1, le=20)
     minimum_score: float = Field(default=0.3, ge=-1, le=1)
+    settings: KnowledgeSettings | None = None
+    source: KnowledgeSource | None = None
+    expected_revision: int | None = Field(default=None, ge=1)
+    document_id: str = ''
+
+    @model_validator(mode='after')
+    def operation_inputs(self):
+        if self.action != 'list' and not self.knowledge_ref:
+            raise ValueError('请提供 knowledge_ref；先用 list 查看已有知识库')
+        if self.action == 'configure' and self.settings is None:
+            raise ValueError('configure 需要 settings，包含 name 和 expected_revision；新建使用 0')
+        if self.action == 'add' and self.source is None:
+            raise ValueError('add 需要 source，包含 expected_revision 和 source_path 或 text')
+        if self.action in {'remove', 'build'} and self.expected_revision is None:
+            raise ValueError('请提供当前 expected_revision；用 read 查看最新配置')
+        if self.action == 'remove' and not self.document_id:
+            raise ValueError('remove 需要当前知识库中的 document_id')
+        return self
 
 
 class DraftBatch(Arguments):
@@ -137,7 +155,7 @@ class ExecuteCode(Arguments):
 
 
 PROJECT_TOOL_MODELS = {
-    'project_knowledge': (KnowledgeTool, 'Discover project knowledge bases with list, inspect document/configuration summaries with read, or semantically search with query and knowledge_ref. Results include exact source text, locations, citations and the index version. Requires an explicitly configured Embedding connection; never substitutes a different model.'),
+    'project_knowledge': (KnowledgeTool, 'Manage project knowledge without requiring a workflow. list returns summaries; read inspects one knowledge_ref. configure uses settings (name, expected_revision=0 to create, chunk_size/chunk_overlap and optional prefixes); add uses source (expected_revision plus project source_path or text); remove uses document_id and expected_revision; build uses expected_revision and the owner-configured Embedding connection. Mutations use the same revision checks as the page. Rebuilding an unchanged ready index does not re-embed. search uses query, knowledge_ref, top_k and minimum_score, returning source text, locations, citations and index version. Never changes model connections or switches providers.'),
     'project_skills': (SkillsTool, 'List project skill names/descriptions; read a selected skill or reference only as needed; write with expected_revision.'),
     'project_models': (ModelsTool, 'List model references, bind a completed candidate and trial slot, or predict with model_ref and dataset_id without a workflow. Use request_key for retry identity; wait=false returns the prediction task immediately. Unbound names may be created before training finishes.'),
     'project_code': (ExecuteCode, 'Run Python in the project Docker environment without a workflow. Read-only inputs, writable solution/results, no network. Output and failures are returned directly.'),
@@ -215,6 +233,8 @@ class WorkspaceProjectTools(ProjectTools):
         phase = self.manager.load(self.application_id).get('phase')
         if name == 'project_file' and arguments.get('action') == 'write':
             self.require_build()
+        if name == 'project_knowledge' and arguments.get('action') in {'configure', 'add', 'remove', 'build'}:
+            self.require_build()
         if name == 'requirements_submit' and phase == 'operate' and not self.manager.load(self.application_id).get('conversation_enabled') and arguments.get('action') != 'read':
             raise ValueError('业务处理阶段不能修改需求，请先切回需求沟通')
         if name not in PROJECT_TOOL_MODELS:
@@ -259,6 +279,15 @@ class WorkspaceProjectTools(ProjectTools):
                 return await knowledge.list(self.application_id)
             if args.action == 'read':
                 return await knowledge.get(self.application_id, args.knowledge_ref)
+            if args.action == 'configure':
+                return await knowledge.save(self.application_id, args.knowledge_ref, args.settings)
+            if args.action == 'add':
+                return await knowledge.add(self.application_id, args.knowledge_ref, args.source)
+            if args.action == 'remove':
+                return await knowledge._change_documents(self.application_id, args.knowledge_ref,
+                    args.expected_revision, delete_id=args.document_id)
+            if args.action == 'build':
+                return await knowledge.build(self.application_id, args.knowledge_ref, args.expected_revision)
             return await knowledge.search(self.application_id, args.knowledge_ref,
                 KnowledgeSearch(query=args.query, top_k=args.top_k, minimum_score=args.minimum_score))
         if name == 'project_skills':

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import Papa from 'papaparse'
 import { MarkdownDocument } from '@/lib/markdown'
-import { projectFileFromLink, resolveProjectFileLink, resolveProjectLink } from '@/lib/project-links'
+import { projectFileFromLink, projectFilePathFromLink, resolveProjectFileLink, resolveProjectLink } from '@/lib/project-links'
 import ReadingDialog from './ReadingDialog'
 import styles from '@/app/projects/projects.module.css'
 
@@ -12,11 +12,12 @@ export default function ProjectFileReader({ projectId, path, onClose, onTask }: 
   const [error, setError] = useState('')
   const [attempt, setAttempt] = useState(0)
   const url = resolveProjectLink(projectId, path)
-  const valid = projectFileFromLink(projectId, url) === path
+  const valid = projectFilePathFromLink(projectId, url) === path
+  const previewText = projectFileFromLink(projectId, url) === path
   useEffect(() => {
-    if (!valid) return
-    const controller = new AbortController()
     setText(null); setError('')
+    if (!previewText) return
+    const controller = new AbortController()
     void (async () => {
       const response = await fetch(url, { signal: controller.signal })
       if (!response.ok) throw new Error(`文件读取失败（${response.status}）`)
@@ -25,15 +26,16 @@ export default function ProjectFileReader({ projectId, path, onClose, onTask }: 
       if (!controller.signal.aborted) setText(content)
     })().catch(e => { if (e.name !== 'AbortError') setError(String(e.message || e)) })
     return () => controller.abort()
-  }, [url, valid, attempt])
+  }, [url, previewText, attempt])
   const csv = useMemo(() => /\.csv$/i.test(path) && text !== null ? Papa.parse<string[]>(text, { preview:201, skipEmptyLines:true }) : null, [path, text])
   const html = /\.html?$/i.test(path)
   return <ReadingDialog wide title={path.split('/').pop() || '项目文件'} onClose={onClose}>
     {!valid ? <p role="alert">只能预览当前项目的资料与结果文件。</p> : <>
       <div className={styles.actions}><a href={url} download>下载原文件</a>{onTask && <button onClick={onTask}>查看关联结果</button>}<small>{path}</small></div>
-      {error && <p role="alert" className={styles.error}>{error} <button onClick={() => setAttempt(v => v + 1)}>重新读取</button></p>}
-      {text === null && !error && <p role="status">正在读取文件…</p>}
-      {text !== null && (csv ? <>
+      {previewText && error && <p role="alert" className={styles.error}>{error} <button onClick={() => setAttempt(v => v + 1)}>重新读取</button></p>}
+      {!previewText && <p>此文件格式暂不支持页面预览，请下载原文件查看。</p>}
+      {previewText && text === null && !error && <p role="status">正在读取文件…</p>}
+      {previewText && text !== null && (csv ? <>
         {csv.errors.length > 0 && <p role="alert">表格格式存在问题：{csv.errors[0].message}。可下载原文件核对。</p>}
         {csv.meta.truncated && <p>预览前 200 行，完整内容请下载原文件。</p>}
         {(csv.data[0]?.length || 0) > 6 && <p>表格较宽，可在表格内横向滚动。</p>}

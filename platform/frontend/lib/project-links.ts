@@ -11,13 +11,18 @@ export function resolveProjectLink(projectId: string, href: string): string {
   return withFrontendToken(`/api/platform/api/v1/applications/${encodeURIComponent(projectId)}/workspace/files/${path.split('/').map(encodeURIComponent).join('/')}`)
 }
 
-export function projectFileFromLink(projectId: string, href: string): string | null {
+export function projectFilePathFromLink(projectId: string, href: string): string | null {
   const prefix = `/api/platform/api/v1/applications/${encodeURIComponent(projectId)}/workspace/files/`
   if (!href.startsWith(prefix)) return null
   let path: string
   try { path = decodeURIComponent(href.slice(prefix.length).split('?')[0]) } catch { return null }
   if (!/^(results|solution|requirement-package|requirements)\//.test(path) || /[\\\u0000-\u001f]/.test(path) || path.split('/').some(p => p === '..' || p === '.')) return null
-  return /\.(md|txt|csv|json|html?)$/i.test(path) ? path : null
+  return path
+}
+
+export function projectFileFromLink(projectId: string, href: string): string | null {
+  const path = projectFilePathFromLink(projectId, href)
+  return path && /\.(md|txt|csv|json|html?)$/i.test(path) ? path : null
 }
 
 export function resolveProjectFileLink(projectId: string, sourcePath: string, href: string): string {
