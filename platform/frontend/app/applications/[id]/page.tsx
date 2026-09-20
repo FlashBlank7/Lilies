@@ -2,6 +2,7 @@
 
 import { containerWorkflow as containerInnerWorkflow, workflowAtPath, scopedMutation, scopedFieldNodes } from '@/lib/workflow-scope'
 import { outputPaths } from '@/lib/workflow-fields'
+import ProjectWorkflowChecks from '@/app/components/ProjectWorkflowChecks'
 import WorkflowComposer from '@/app/components/WorkflowComposer'
 import { workflowFieldLabels, workflowModelHelp } from '@/lib/workflow-fields'
 import { useAccount } from '@/app/components/AuthBoundary'
@@ -832,16 +833,21 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   const t = messages[locale]
   const [draft, setDraft] = useState<Draft | null>(null)
   const [projectContext, setProjectContext] = useState<{ id: string; name: string; members: { id: string; name: string }[] } | null>(null)
+  const [projectLookup, setProjectLookup] = useState<'loading' | 'ready' | 'error'>('loading')
+  const [projectLookupError, setProjectLookupError] = useState('')
+  const [projectRetry, setProjectRetry] = useState(0)
   useEffect(() => {
     let active = true
+    setProjectLookup('loading'); setProjectContext(null)
     void api<{ project_id: string | null }>(`/api/v1/applications/${id}/project`).then(async value => {
       if (value.project_id) {
         const project = await api<{ id: string; name: string; members: { id: string; name: string }[] }>(`/api/v1/projects/${value.project_id}`)
         if (active) setProjectContext(project)
       }
-    }).catch(() => {})
+      if (active) setProjectLookup('ready')
+    }).catch(cause => { if (active) { setProjectLookupError(String(cause)); setProjectLookup('error') } })
     return () => { active = false }
-  }, [id])
+  }, [id, projectRetry])
 
   const [blocks, setBlocks] = useState<Block[]>([])
   const [versions, setVersions] = useState<Version[]>([])
@@ -1163,6 +1169,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   }, [acceptanceRepairPreview])
   useEffect(() => {
     syncStudioTabFromLocation()
+    if (projectLookup !== 'ready' || projectContext) return
     const query = new URLSearchParams(window.location.search)
     const buildId = query.get('build')
     if (buildId) watchBuild(buildId)
@@ -1184,7 +1191,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [projectLookup, projectContext?.id])
 
   function activeWorkflow(current = draftRef.current, scope = containerScopeRef.current) {
     return workflowAtPath(current?.snapshot.workflow, scope)
@@ -1966,8 +1973,8 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
       const result = await api<{ passed: boolean } & Record<string, unknown>>(projectContext ? `/api/v1/projects/${projectContext.id}/members/${id}/tests/run` : `/api/v1/applications/${id}/tests/run`, { method: 'POST' })
       setTestReport(result)
       setPublicationDecision(null)
-      setNotice(result.passed ? t.testsPassed : t.testsFailed)
-      if (!result.passed) await previewAcceptanceRepair(result)
+      setNotice(projectContext ? result.passed ? '测试通过' : '部分测试未通过，请查看结果' : result.passed ? t.testsPassed : t.testsFailed)
+      if (!result.passed && !projectContext) await previewAcceptanceRepair(result)
       await refresh()
     } catch (error) {
       setTestReport(acceptanceRunErrorReport(draftRef.current, error))
@@ -2120,15 +2127,18 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   ] : []
   const businessDefinitionMissing = Boolean(draft && !draft.snapshot.requirement.trim() && !projectContext)
 
+  if (projectLookup === 'loading') return <main><p role="status">正在打开工作流…</p></main>
+  if (projectLookup === 'error') return <main><p role="alert">{projectLookupError}</p><button onClick={() => setProjectRetry(value => value + 1)}>重新读取</button></main>
+
   return <main className="studio-shell" data-studio-chrome="collapsible" data-embedded={embedded} data-project-editor={Boolean(projectContext)}>
     <header className="studio-header" data-collapsed={studioChrome.headerExpanded ? 'false' : 'true'} id="studio-header">
       <Link href={projectContext ? `/projects/${projectContext.id}` : "/"} target={projectContext ? "_top" : undefined} className="back">←</Link>
-      <div className="studio-title"><b className={surfaceStyles.studioLabel}>Engineer Studio</b><strong>{draft?.snapshot.name || t.loading}</strong><span>{draft?.snapshot.mode === 'chat' ? t.modeChat : t.modeWorkflow} · {t.draft} r{draft?.revision ?? 0}</span></div>
-      <div className="header-center"><span className={`evidence-state ${evidenceState}`} data-evidence-state={evidenceState}>{evidenceStateLabel}</span>{activeVersion && <span>{t.activeVersion(activeVersion)}</span>}<span className={`runtime-chip ${runtimeStatus}`} data-runtime-status={runtimeStatus} title={runtimeStatusDetail}>{runtimeStatusText}</span></div>
+      <div className="studio-title"><b className={surfaceStyles.studioLabel}>{projectContext ? '工作流画布' : 'Engineer Studio'}</b><strong>{draft?.snapshot.name || t.loading}</strong><span>{draft?.snapshot.mode === 'chat' ? t.modeChat : t.modeWorkflow} · {t.draft} r{draft?.revision ?? 0}</span></div>
+      {!projectContext && <div className="header-center"><span className={`evidence-state ${evidenceState}`} data-evidence-state={evidenceState}>{evidenceStateLabel}</span>{activeVersion && <span>{t.activeVersion(activeVersion)}</span>}<span className={`runtime-chip ${runtimeStatus}`} data-runtime-status={runtimeStatus} title={runtimeStatusDetail}>{runtimeStatusText}</span></div>}
       <div className={`header-actions ${surfaceStyles.studioActions}`}>
         <button className="lang-toggle" onClick={toggleLocale}>{t.switchLabel}</button>
-        <Link className={surfaceStyles.surfaceLink} href={projectContext ? `/projects/${projectContext.id}?run=${id}` : `/runtime/${id}`} target={projectContext ? "_top" : undefined}><Play size={14} /><span>{t.debugDraft}</span></Link>
-        <button data-publication-action="open" onClick={() => void publish()} disabled={publicationBusy}>{publicationBusy ? t.publicationChecking : t.publishVersion}</button>
+        <Link className={surfaceStyles.surfaceLink} href={projectContext ? `/projects/${projectContext.id}?run=${id}` : `/runtime/${id}`} target={projectContext ? "_top" : undefined}><Play size={14} /><span>{projectContext ? '运行工作流' : t.debugDraft}</span></Link>
+        {!projectContext && <button data-publication-action="open" onClick={() => void publish()} disabled={publicationBusy}>{publicationBusy ? t.publicationChecking : t.publishVersion}</button>}
         <button
           aria-controls="studio-header"
           aria-expanded={studioChrome.headerExpanded}
@@ -2146,7 +2156,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
       nodeCount={draft?.snapshot.workflow.nodes.length || 0}
       onToggle={() => toggleStudioChrome('undefinedBusinessExpanded')}
     />}
-    {publicationDecision && (publicationDecision.requires_confirmation || publicationDecision.blocked) && <section className={`publication-decision-banner ${publicationDecision.blocked ? 'blocked' : 'warning'}`} data-publication-decision={publicationDecision.blocked ? 'blocked' : 'confirmation'}>
+    {!projectContext && publicationDecision && (publicationDecision.requires_confirmation || publicationDecision.blocked) && <section className={`publication-decision-banner ${publicationDecision.blocked ? 'blocked' : 'warning'}`} data-publication-decision={publicationDecision.blocked ? 'blocked' : 'confirmation'}>
       <div><strong>{publicationDecision.blocked ? t.publicationBlockedTitle : t.publicationConfirmationTitle}</strong><span>{publicationDecision.evidence_state === 'stale' ? t.publicationStaleDetail : t.publicationMissingDetail}</span></div>
       <ul>{publicationDecision.warnings.map(warning => <li key={warning.code}>{warning.message}</li>)}</ul>
       <div className="publication-decision-actions">
@@ -2325,7 +2335,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
             {selectedInner && <button type="button" className="wide" onClick={() => enterContainerScope(selected.id)}>进入循环内部编辑</button>}
             {selectedBlockDefinition && <BlockPurpose block={selectedBlockDefinition} locale={locale} />}
             <BlockInstanceDetails locale={locale} node={selected} />
-            <section className="safe-edit-guide" data-node-inspector="safe-edit-guide"><strong>{t.nodeInspectorSafeEditTitle}</strong><span>{t.nodeInspectorSafeEditHelp}</span></section>
+            {!projectContext && <section className="safe-edit-guide" data-node-inspector="safe-edit-guide"><strong>{t.nodeInspectorSafeEditTitle}</strong><span>{t.nodeInspectorSafeEditHelp}</span></section>}
             <div className="config-editor-heading"><strong>{t.configLabel}</strong><div className="config-editor-tabs" role="tablist">
               <button type="button" role="tab" aria-selected={configEditorMode === 'form'} data-config-editor-mode="form" disabled={!selectedEditorFields.length} onClick={() => switchConfigEditorMode('form')}>{t.configFormTab}</button>
               <button type="button" role="tab" aria-selected={configEditorMode === 'json'} data-config-editor-mode="json" onClick={() => switchConfigEditorMode('json')}>{t.configJsonTab}</button>
@@ -2382,7 +2392,8 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
             <button className="wide" data-config-editor-action="save" onClick={saveConfig}>{t.saveConfig}</button><button className="danger-link" onClick={deleteSelectedNode}>{t.deleteNode}</button>
           </> : <p className="muted">{selectedEdge ? t.edgeSelectedHint : t.nodeHelp}</p>}
         </div>}
-        {tab === 'test' && <div className="panel-body">
+        {tab === 'test' && projectContext && <div className="panel-body"><ProjectWorkflowChecks projectId={projectContext.id} workflowId={id} cases={acceptanceCaseViews} report={displayedTestReport} running={testsRunning} dirty={configDirtyRef.current} onRun={() => void runTests()} />{versions.length > 0 && <details><summary>已保存版本（{versions.length}）</summary>{versions.map(version => <div className="version-row" key={version.version}><span>v{version.version}</span><button onClick={async () => { try { await api(`/api/v1/applications/${id}/versions/${version.version}/restore`, { method: 'POST' }); await refresh() } catch (cause) { setNotice(String(cause)) } }}>恢复为当前草稿</button></div>)}</details>}</div>}
+        {tab === 'test' && !projectContext && <div className="panel-body">
           <section className={`draft-evidence-panel ${evidenceState}`} data-draft-evidence={evidenceState}>
             <div><strong>{t.evidenceStateTitle}: {evidenceStateLabel}</strong><small>{evidenceState === 'current' ? t.evidenceCurrentDetail : evidenceState === 'stale' ? t.evidenceStaleDetail : t.evidenceMissingDetail}</small></div>
             {draft?.evidence?.change_summary?.length ? <ul>{draft.evidence.change_summary.slice(-3).map((item, index) => <li key={`${String(item.revision || '')}-${index}`}>{String(item.operation || t.evidenceChanged)} · r{String(item.revision || '?')}</li>)}</ul> : null}

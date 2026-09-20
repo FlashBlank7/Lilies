@@ -118,9 +118,9 @@ export default function ProjectConversation({ id, conversationId, projectName, c
     {canConfigureModel ? <ModelConnectionPanel base={base} connected={Boolean(session?.provider)} running={Boolean(running)} onSaved={refresh} /> : !session?.provider && <p>请联系项目负责人配置模型连接，随后即可使用项目对话。</p>}
     {session?.provider && session.provider !== 'api' && <p>此项目的旧会话使用外部 Agent。请在模型设置中连接模型 API，由 Lilies 继续处理；原有记录会保留。</p>}
     {session?.requirements?.document && <div className={styles.requirements}><FileText size={14} />
-      <button onClick={() => setReader({ title: '当前需求文档', text: session.requirements.document })}>{session.requirements.status === 'confirmed' ? '当前需求文档' : '核对需求理解'}</button>
+      <button onClick={() => setReader({ title: '当前需求文档', text: session.requirements.document })}>当前需求文档</button>
       <small>第 {session.requirements.revision} 版</small>
-      {session.requirements.status === 'review' && <button disabled={busy || Boolean(running)} onClick={() => void act(() => api(base + '/requirements/confirm', { method: 'POST', body: JSON.stringify({ revision: session.requirements.revision }) }))}>理解正确，确认需求文档</button>}</div>}
+    </div>}
     <div ref={historyElement} className={styles.chatHistory} onScroll={e => { const el = e.currentTarget; followBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80; try { sessionStorage.setItem(draftKey + ':scroll', String(el.scrollTop)) } catch {} }}>
       {older && <button onClick={() => void act(history)} disabled={busy}>加载更早的对话</button>}
       {!events.length && <p>从“请分析这些资料”开始；已有项目可以直接问“现在做到哪了”。</p>}

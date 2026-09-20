@@ -281,3 +281,14 @@ it('shows this delivery and its completion conditions alongside the unfinished e
   expect(screen.getByRole('region', { name: '氧预测' })).toHaveTextContent('等待条件')
   expect(screen.getByText('处理申请并改善预测')).toBeInTheDocument()
 })
+
+
+it('reads shared requirements without requiring a confirmation step before talking', async () => {
+  await setup({requirements:{status:'review',document:'# 待讨论的需求',revision:4}})
+  expect(screen.getByRole('button',{name:'当前需求文档'})).toBeEnabled()
+  expect(screen.queryByRole('button',{name:'理解正确，确认需求文档'})).not.toBeInTheDocument()
+  fireEvent.change(screen.getByLabelText('给项目统筹的消息'),{target:{value:'先训练一个基线模型'}})
+  fireEvent.click(screen.getByRole('button',{name:'发送'}))
+  await waitFor(()=>expect(api).toHaveBeenCalledWith('/api/v1/projects/p/conversations/chat/messages',expect.objectContaining({method:'POST'})))
+  expect(vi.mocked(api).mock.calls.some(([path])=>path.endsWith('/requirements/confirm'))).toBe(false)
+})
