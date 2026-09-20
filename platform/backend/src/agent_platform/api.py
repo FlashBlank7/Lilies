@@ -533,6 +533,7 @@ class Services:
     projects: Any | None = None
     modeling: Any | None = None
     accounts: Any | None = None
+    project_sessions: Any | None = None
 
 
 class ResumeBuildRequest(BaseModel):
@@ -1953,6 +1954,8 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
     services.builders.register("lilies", services.local_agents)
     from .auth import Accounts
     services.accounts = Accounts(services.storage, settings)
+    from .project_sessions import ProjectSessions
+    services.project_sessions = ProjectSessions(services)
     discussion_locks: dict[str, asyncio.Lock] = {}
 
     @asynccontextmanager
@@ -1965,6 +1968,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         await services.workflow_store.initialize()
         await services.projects.initialize()
         await services.accounts.initialize()
+        await services.project_sessions.initialize()
         await services.modeling.initialize()
         await services.local_agents.initialize()
         await services.durable_jobs.initialize()

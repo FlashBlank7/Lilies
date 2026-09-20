@@ -17,6 +17,7 @@ from .local_agent_tools import ProjectTools, tool_specs
 from .models import utc_now
 from .model_connections import ModelConnection, ModelConnections, LOCAL_PROVIDERS, AGENT_PROVIDERS
 from .model_session import ModelSession
+from .conversation_scope import conversation_for, conversation_scope
 from .project_activity import activity_title, latest_operations
 from .project_metrics import is_read_call, payload_measurement
 from .project_agent_context import conversation_context
@@ -68,19 +69,34 @@ class LocalAgents:
         from uuid import UUID
         if str(UUID(application_id)) != application_id:
             raise ValueError("无效项目编号")
-        return self.root / application_id
+        base = self.root / application_id
+        conversation_id = conversation_for(application_id)
+        return base / 'conversations' / conversation_id if conversation_id else base
+
+    def key(self, application_id: str) -> str:
+        conversation_id = conversation_for(application_id)
+        return application_id + ':' + conversation_id if conversation_id else application_id
+
+    def project_running(self, application_id: str) -> bool:
+        return any((key == application_id or key.startswith(application_id + ':')) and not task.done()
+                   for key, task in self.tasks.items())
 
     def load(self, application_id: str) -> dict:
         path = self.folder(application_id) / "session.json"
-        if path.is_file():
-            return json.loads(path.read_text(encoding="utf-8"))
-        return {"contract_version": 1, "provider": None, "status": "idle", "phase": "discuss",
-                "session_id": "", "thread_id": None, "build_id": None,
-                "events": [], "error": "", "revision": 0}
+        state = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {
+            "contract_version": 1, "provider": None, "status": "idle", "phase": "discuss",
+            "session_id": "", "thread_id": None, "build_id": None,
+            "events": [], "error": "", "revision": 0}
+        if conversation_id := conversation_for(application_id):
+            connection = self.connections.load(application_id)
+            state.update(self.connections.public(connection) if connection else {"provider": None})
+            state.update(conversation_id=conversation_id, conversation_enabled=True)
+            state['session_id'] = state.get('session_id') or str(uuid4())
+        return state
 
     def save(self, application_id: str, state: dict) -> None:
         directory = self.folder(application_id)
-        directory.mkdir(parents=True, exist_ok=True)
+        directory.mkdir(parents=True, exist_ok=True, mode=0o700)
         state["revision"] = state.get("revision", 0) + 1
         state["updated_at"] = utc_now()
         temporary = directory / "session.tmp"
@@ -102,7 +118,7 @@ class LocalAgents:
             self.event(application_id, 'tool', operation['tool_name'], success=False, **metadata)
 
     def running(self, application_id: str) -> bool:
-        task = self.tasks.get(application_id)
+        task = self.tasks.get(self.key(application_id))
         return bool(task and not task.done())
 
     def last_user_message(self, application_id: str) -> str:
@@ -112,24 +128,29 @@ class LocalAgents:
         return ""
 
     async def initialize(self) -> None:
-        for path in self.root.glob("*/session.json"):
-            state = json.loads(path.read_text(encoding="utf-8"))
-            workspace = self.services.settings.workspace_root.resolve() / path.parent.name
-            if state.get("provider") in AGENT_PROVIDERS and workspace.is_dir():
-                self.services.sandboxes.protect_inputs(workspace, ["requirement-package", "requirements"])
-            if state.get("status") in {"running", "connecting"}:
-                state.update(status="interrupted", error="应用已重启，点击继续恢复本项目会话")
-                self.save(path.parent.name, state)
-                self.interrupt_operations(path.parent.name, '服务已重启，等待继续')
-                if state.get('conversation_enabled') and self.services.projects.store.exists(path.parent.name):
-                    await self.services.projects.conversation.pause(path.parent.name, '应用已重启，进展保留，等待继续')
+        paths = [*self.root.glob("*/session.json"), *self.root.glob("*/conversations/*/session.json")]
+        for path in paths:
+            private = path.parent.parent.name == 'conversations'
+            project_id = path.parents[2].name if private else path.parent.name
+            conversation_id = path.parent.name if private else ''
+            with conversation_scope(project_id, conversation_id):
+                state = json.loads(path.read_text(encoding="utf-8"))
+                workspace = self.services.settings.workspace_root.resolve() / project_id
+                if state.get("provider") in AGENT_PROVIDERS and workspace.is_dir():
+                    self.services.sandboxes.protect_inputs(workspace, ["requirement-package", "requirements"])
+                if state.get("status") in {"running", "connecting"}:
+                    state.update(status="interrupted", error="应用已重启，点击继续恢复此会话")
+                    self.save(project_id, state)
+                    self.interrupt_operations(project_id, '服务已重启，等待继续')
+                    if state.get('conversation_enabled') and self.services.projects.store.exists(project_id):
+                        await self.services.projects.conversation.pause(project_id, '应用已重启，进展保留，等待继续')
 
     async def select(self, application_id: str, provider: str, executable: str = "", model: str = "", **options) -> dict:
         await self.services.workflow_store.get_application(application_id)
         await self.require_project_model(application_id, provider)
         async with self.locks.setdefault(application_id, asyncio.Lock()):
-            if self.running(application_id):
-                raise ValueError("请先停止当前 Agent，再更换搭建者")
+            if self.project_running(application_id):
+                raise ValueError("请先停止本项目正在运行的会话，再更换模型连接")
             previous = self.load(application_id)
             info = {}
             connection = ModelConnection(provider=provider, executable=executable, model=model, **options)
@@ -146,8 +167,9 @@ class LocalAgents:
             elif provider != "classic":
                 raise ValueError("不支持的模型连接")
             public = self.connections.save(application_id, connection)
-            if application_id in self.clients:
-                await self.clients.pop(application_id).close()
+            for key in list(self.clients):
+                if key == application_id or key.startswith(application_id + ':'):
+                    await self.clients.pop(key).close()
             same_api = provider != 'api' or (
                 previous.get('protocol', 'openai') == public['protocol']
                 and previous.get('base_url', '') == public['base_url'])
@@ -157,7 +179,7 @@ class LocalAgents:
                 self.save(application_id, previous)
                 return previous
             directory = self.folder(application_id)
-            directory.mkdir(parents=True, exist_ok=True)
+            directory.mkdir(parents=True, exist_ok=True, mode=0o700)
             if previous.get("session_id"):
                 (directory / f"previous-{previous['session_id']}.json").write_text(
                     json.dumps(previous, ensure_ascii=False), encoding="utf-8")
@@ -199,7 +221,7 @@ class LocalAgents:
             if self.running(application_id):
                 if intent != state["phase"] and not unified:
                     raise ValueError("请先停止当前轮次，再切换需求沟通或搭建阶段")
-                client = self.clients.get(application_id)
+                client = self.clients.get(self.key(application_id))
                 if unified:
                     # A plain supplement belongs to the active request, including
                     # its original result feedback. Empty optional fields must not
@@ -246,9 +268,9 @@ class LocalAgents:
                     self.save(application_id, state)
                 self.resume_messages[build_id] = message
                 self.start(build_id)
-                self.tasks[application_id] = self.active[build_id]
+                self.tasks[self.key(application_id)] = self.active[build_id]
             else:
-                self.tasks[application_id] = asyncio.create_task(self._run(application_id, message))
+                self.tasks[self.key(application_id)] = asyncio.create_task(self._run(application_id, message))
             return self.load(application_id)
 
     def start(self, build_id: str) -> None:
@@ -263,11 +285,11 @@ class LocalAgents:
         if state["provider"] not in AGENT_PROVIDERS:
             await self.services.workflow_store.update_build(build_id, status="needs_attention", error="请先连接项目模型")
             return {"status": "needs_attention"}
-        current = self.tasks.get(application_id)
+        current = self.tasks.get(self.key(application_id))
         if current and current is not asyncio.current_task() and not current.done():
             await self.services.workflow_store.update_build(build_id, status="needs_attention", error="项目 Agent 正在执行另一轮任务")
             return {"status": "needs_attention"}
-        self.tasks[application_id] = asyncio.current_task()
+        self.tasks[self.key(application_id)] = asyncio.current_task()
         state.update(phase="build", build_id=build_id, status="connecting", error="")
         self.save(application_id, state)
         message = self.resume_messages.pop(build_id, "开始搭建。请根据已确认需求编辑并运行工作流。")
@@ -294,10 +316,10 @@ class LocalAgents:
         task.cancel()
 
     def track_run(self, application_id: str, run_id: str) -> None:
-        self.runs.setdefault(application_id, set()).add(run_id)
+        self.runs.setdefault(self.key(application_id), set()).add(run_id)
 
     def track_project_task(self, application_id: str, task_id: str) -> None:
-        self.project_test_tasks.setdefault(application_id, set()).add(task_id)
+        self.project_test_tasks.setdefault(self.key(application_id), set()).add(task_id)
         operation_id = self.current_operation.get()
         if not operation_id:
             return
@@ -309,14 +331,14 @@ class LocalAgents:
             self.event(application_id, 'tool_progress', operation['tool_name'], **metadata)
 
     async def stop_project_tests(self, application_id: str) -> None:
-        for task_id in self.project_test_tasks.pop(application_id, set()):
+        for task_id in self.project_test_tasks.pop(self.key(application_id), set()):
             task = await self.services.projects.store.get_task(application_id, task_id)
             if task['status'] in {'queued', 'running'}:
                 await self.services.projects.stop(application_id, task_id)
 
     async def stop(self, application_id: str) -> dict:
         async with self.locks.setdefault(application_id, asyncio.Lock()):
-            task = self.tasks.get(application_id)
+            task = self.tasks.get(self.key(application_id))
             if task and not task.done():
                 task.cancel()
                 await asyncio.gather(task, return_exceptions=True)
@@ -324,7 +346,7 @@ class LocalAgents:
             return self.load(application_id)
 
     async def _run(self, application_id: str, message: str, *, build_id: str | None = None) -> None:
-        client = self.clients.get(application_id)
+        client = self.clients.get(self.key(application_id))
         status, error = "idle", ""
         is_project = self.services.projects.store.exists(application_id)
         from .project_agent_tools import WorkspaceProjectTools, PROJECT_INSTRUCTIONS, project_tool_specs
@@ -346,7 +368,7 @@ class LocalAgents:
                     else:
                         provider = self.connections.provider(application_id)
                     client = ModelSession(provider, runtime_dir)
-                self.clients[application_id] = client
+                self.clients[self.key(application_id)] = client
                 instructions = INSTRUCTIONS
                 if self.connections.enabled(application_id):
                     instructions = instructions.replace('当前工作流测试只允许本项目文件和无外网的确定性处理；模型节点/外部系统需另行配置。',
@@ -376,7 +398,7 @@ class LocalAgents:
                     await client.close()
                     client = self.client_factory(info['path'],
                         self.folder(application_id) / state['session_id'], model=state.get('model', ''), thinking=state.get('thinking', 'medium'))
-                    self.clients[application_id] = client
+                    self.clients[self.key(application_id)] = client
                     current = self.load(application_id)
                     current.update(executable=info['path'], version=info['version'])
                     self.save(application_id, current)
@@ -598,7 +620,7 @@ class LocalAgents:
                     continue
                 if not current.get('continue_work') or not ready:
                     break
-                workers = {worker for task_id in self.project_test_tasks.get(application_id, set())
+                workers = {worker for task_id in self.project_test_tasks.get(self.key(application_id), set())
                            if (worker := self.services.projects.active.get(task_id)) and not worker.done()}
                 if workers:
                     self.event(application_id, 'status', '正在等待已启动的任务完成')
@@ -637,8 +659,8 @@ class LocalAgents:
                 await self.stop_project_tests(application_id)
                 if client:
                     await client.close()
-                self.clients.pop(application_id, None)
-                for run_id in self.runs.pop(application_id, set()):
+                self.clients.pop(self.key(application_id), None)
+                for run_id in self.runs.pop(self.key(application_id), set()):
                     task = self.services.workflow_runtime.active_tasks.get(run_id)
                     if task and not task.done():
                         self.services.workflow_runtime.cancel(run_id)

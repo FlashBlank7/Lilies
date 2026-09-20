@@ -22,11 +22,14 @@ type Session = {
   requirements: { status: string; document: string; revision: number }
 }
 
-export default function ProjectConversation({ id, projectName, canConfigureModel = true, items, tasks = [], members = [], focus, onUpdated, onSent, onTask, onWorkflow, onFeedback }: {
-  id: string; projectName?: string; canConfigureModel?: boolean; tasks?: ProjectTask[]; members?: ProjectMember[]; onTask?: (id: string) => void; onWorkflow?: (id: string) => void; onFeedback?: (itemId: string, taskId: string) => void; items: ProgressItem[]; focus?: ConversationFocus; onUpdated: () => unknown; onSent: () => void
+export default function ProjectConversation({ id, conversationId, projectName, canConfigureModel = true, items, tasks = [], members = [], focus, onUpdated, onSent, onTask, onWorkflow, onFeedback }: {
+  id: string; conversationId?: string; projectName?: string; canConfigureModel?: boolean; tasks?: ProjectTask[]; members?: ProjectMember[]; onTask?: (id: string) => void; onWorkflow?: (id: string) => void; onFeedback?: (itemId: string, taskId: string) => void; items: ProgressItem[]; focus?: ConversationFocus; onUpdated: () => unknown; onSent: () => void
 }) {
   const account = useAccount()
   const base = '/api/v1/projects/' + id
+  const conversationBase = base + (conversationId ? '/conversations/' + conversationId : '/conversation')
+  const mounted = useRef(true)
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
   const [reader, setReader] = useState<{ title: string; text: string } | null>(null)
   const [modelingContext, setModelingContext] = useState<ModelingContext | null>(null)
   const [summaries, setSummaries] = useState<Record<string, Activity>>({})
@@ -41,7 +44,7 @@ export default function ProjectConversation({ id, projectName, canConfigureModel
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [connectionError, setConnectionError] = useState('')
-  const draftKey = (account ? 'lilies:user:' + account.id + ':project:' : 'lilies:project:') + id + ':draft'
+  const draftKey = (account ? 'lilies:user:' + account.id + ':project:' : 'lilies:project:') + id + (conversationId && conversationId !== 'legacy' ? ':conversation:' + conversationId : '') + ':draft'
   const restored = useRef(false)
   const cursor = useRef('')
   const revision = useRef(-1)
@@ -53,7 +56,7 @@ export default function ProjectConversation({ id, projectName, canConfigureModel
     try {
       let page: Session
       try {
-        page = await api<Session>(base + '/conversation' + (cursor.current ? '?after=' + encodeURIComponent(cursor.current) : ''))
+        page = await api<Session>(conversationBase + (cursor.current ? '?after=' + encodeURIComponent(cursor.current) : ''))
       } catch (cause) {
         if (!cursor.current || !cause || typeof cause !== 'object'
           || !('status' in cause) || cause.status !== 422
@@ -61,14 +64,15 @@ export default function ProjectConversation({ id, projectName, canConfigureModel
         // A prior connection may hold an obsolete cursor. Keep the displayed
         // history and composer, then resume incrementally from saved messages.
         cursor.current = ''
-        page = await api<Session>(base + '/conversation')
+        page = await api<Session>(conversationBase)
       }
+      if (!mounted.current) return
       if (!cursor.current) setOlder(page.has_more)
       if (page.last_cursor) cursor.current = page.last_cursor
       setSession(page); setSummaries(previous => ({ ...previous, ...page.request_activity })); setEvents(previous => merge(previous, page.events)); setConnectionError('')
       if (revision.current !== page.revision) { revision.current = page.revision; void onUpdated() }
     } catch (cause) { setConnectionError(String(cause)) }
-  }, [base, onUpdated])
+  }, [conversationBase, onUpdated])
   useEffect(() => { try { const saved = sessionStorage.getItem(draftKey); if (saved) setMessage(saved); const context = sessionStorage.getItem(draftKey + ':modeling'); if (context) setModelingContext(JSON.parse(context)) } catch {} }, [draftKey])
   useEffect(() => { void refresh(); const timer = window.setInterval(() => void refresh(), 1500); return () => window.clearInterval(timer) }, [refresh])
   useEffect(() => { if (focus) { if (focus.message !== undefined) updateDraft(focus.message); composer.current?.focus() } }, [focus])
@@ -89,27 +93,28 @@ export default function ProjectConversation({ id, projectName, canConfigureModel
   }
   function send(text = message, resume = false) {
     void act(async () => {
-      await api(base + '/conversation/messages', { method: 'POST', body: JSON.stringify({ message: text,
+      await api(conversationBase + '/messages', { method: 'POST', body: JSON.stringify({ message: text,
         item_id: focus?.item_id || modelingContext?.item_id || (resume ? session?.active_item_id || session?.conversation_context?.item_id : '') || '',
         question_id: resume ? '' : focus?.question_id || '',
         task_id: focus?.task_id || modelingContext?.task_id || (resume ? session?.conversation_context?.task_id || session?.project_task_id : '') || '',
         ...(modelingContext ? { dataset_id: modelingContext.dataset_id || '', study_id: modelingContext.study_id || '', candidate_id: modelingContext.candidate_id || '' } : {}) }) })
+      if (!mounted.current) return
       updateDraft(''); updateModelingContext(null); onSent(); followBottom.current = true; setSentNotice(running ? '补充已发送，统筹会接着处理。' : '请求已发送。')
     })
   }
   async function history() {
-    const page = await api<Session>(base + '/conversation?before=' + encodeURIComponent(events[0]?.id || ''))
+    const page = await api<Session>(conversationBase + '?before=' + encodeURIComponent(events[0]?.id || ''))
     setSummaries(previous => ({ ...page.request_activity, ...previous })); setEvents(previous => merge(page.events, previous)); setOlder(page.has_more); followBottom.current = false
   }
   async function loadTools(before = '') {
-    const page = await api<Session>(base + '/conversation?kind=tools' + (before ? '&before=' + encodeURIComponent(before) : ''))
+    const page = await api<Session>(conversationBase + '?kind=tools' + (before ? '&before=' + encodeURIComponent(before) : ''))
     setTools(previous => before ? merge(page.events, previous) : page.events); setMoreTools(page.has_more); setShowTools(true)
   }
   const running = session && ['connecting', 'running'].includes(session.status)
   const activeItem = items.find(i => i.id === session?.active_item_id)
   return <section className={styles.conversation} aria-label="项目统筹对话">
     <div className={styles.conversationHeader}><div><h2>{projectName || '和统筹继续沟通'}</h2><small>{running ? activeItem ? '正在处理：' + activeItem.title : '统筹正在处理你的请求' : '查看进度、试用已有能力，或告诉我哪里需要调整'}</small></div>
-      {running && <button disabled={busy} onClick={() => void act(() => api(base + '/agent-session/stop', { method: 'POST' }))}>停止</button>}</div>
+      {running && <button disabled={busy} onClick={() => void act(() => api(conversationId ? conversationBase + '/stop' : base + '/agent-session/stop', { method: 'POST' }))}>停止</button>}</div>
     {canConfigureModel ? <ModelConnectionPanel base={base} connected={Boolean(session?.provider)} running={Boolean(running)} onSaved={refresh} /> : !session?.provider && <p>请联系项目负责人配置模型连接，随后即可使用项目对话。</p>}
     {session?.provider && session.provider !== 'api' && <p>此项目的旧会话使用外部 Agent。请在模型设置中连接模型 API，由 Lilies 继续处理；原有记录会保留。</p>}
     {session?.requirements?.document && <div className={styles.requirements}><FileText size={14} />
@@ -131,10 +136,10 @@ export default function ProjectConversation({ id, projectName, canConfigureModel
           </article> : <article className={event.kind === 'user' ? styles.chatUser : styles.chatAssistant}><small>{event.kind === 'user' ? '你' : '项目统筹'}</small><MarkdownDocument source={event.text} emptyLabel="" resolveLink={href => resolveProjectLink(id, href)} />
             {event.kind !== 'user' && event.text.length > 900 && <button onClick={() => setReader({ title: '统筹报告', text: event.text })}>独立阅读全文 <ArrowUpRight size={13} /></button>}
           </article>}
-          {lastInRequest && summaries[event.request_id!] && <ProjectActivity projectId={id} workflowNames={Object.fromEntries(members.map(m => [m.id, m.name]))} active={Boolean(running) && session?.request_id === event.request_id} requestId={event.request_id} current={summaries[event.request_id!]} onTask={onTask} onWorkflow={onWorkflow} />}
+          {lastInRequest && summaries[event.request_id!] && <ProjectActivity projectId={id} conversationId={conversationId} workflowNames={Object.fromEntries(members.map(m => [m.id, m.name]))} active={Boolean(running) && session?.request_id === event.request_id} requestId={event.request_id} current={summaries[event.request_id!]} onTask={onTask} onWorkflow={onWorkflow} />}
         </div>
       })}
-      {session?.current_activity && !events.some(e => e.request_id === session.request_id) && <ProjectActivity projectId={id} workflowNames={Object.fromEntries(members.map(m => [m.id, m.name]))} active={Boolean(running)} requestId={session.request_id} current={session.current_activity} onTask={onTask} onWorkflow={onWorkflow} />}
+      {session?.current_activity && !events.some(e => e.request_id === session.request_id) && <ProjectActivity projectId={id} conversationId={conversationId} workflowNames={Object.fromEntries(members.map(m => [m.id, m.name]))} active={Boolean(running)} requestId={session.request_id} current={session.current_activity} onTask={onTask} onWorkflow={onWorkflow} />}
     </div>
     <ModelingPanel compact projectId={id} onTask={onTask} onContext={(context, text) => { updateModelingContext(context); if (text !== undefined && !message.trim()) updateDraft(text); composer.current?.focus() }} />
     {Boolean(error || session?.error) && <p role="alert" className={`${styles.error} ${styles.notice}`}>{error || session?.error}</p>}

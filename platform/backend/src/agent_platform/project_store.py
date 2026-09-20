@@ -94,6 +94,7 @@ class ProjectStore:
                 'project_tasks': {'purpose': "TEXT NOT NULL DEFAULT 'unclassified'",
                                   'item_id': "TEXT NOT NULL DEFAULT ''",
                                   'feedback_task_id': "TEXT NOT NULL DEFAULT ''",
+                                  'conversation_id': "TEXT NOT NULL DEFAULT ''",
                                   'presentation_json': "TEXT NOT NULL DEFAULT '{}'"},
             }.items():
                 existing = {r['name'] for r in c.execute(f'PRAGMA table_info({table})')}
@@ -287,6 +288,8 @@ class ProjectStore:
     async def create_task(self, task_id: str, project_id: str, request_key: str, mode: str,
                           workflow_id: str, inputs: dict, message: str, snapshots: dict,
                           purpose: str = 'business', item_id: str = '', feedback_task_id: str = '') -> tuple[dict, bool]:
+        from .conversation_scope import conversation_for
+        conversation_id = conversation_for(project_id)
         def create():
             with connect(self.db_path) as c:
                 c.execute('BEGIN IMMEDIATE')
@@ -300,9 +303,9 @@ class ProjectStore:
                     return self.task(existing), False
                 now = utc_now()
                 c.execute("INSERT INTO project_tasks(id,project_id,request_key,mode,workflow_id,status,inputs_json,"
-                          "message,snapshots_json,created_at,updated_at,purpose,item_id,feedback_task_id) VALUES (?,?,?,?,?,'queued',?,?,?,?,?,?,?,?)",
+                          "message,snapshots_json,created_at,updated_at,purpose,item_id,feedback_task_id,conversation_id) VALUES (?,?,?,?,?,'queued',?,?,?,?,?,?,?,?,?)",
                           (task_id, project_id, request_key, mode, workflow_id, encode(inputs), message, encode(snapshots), now, now,
-                           purpose, item_id, feedback_task_id))
+                           purpose, item_id, feedback_task_id, conversation_id))
                 return self.task(c.execute("SELECT * FROM project_tasks WHERE id=?", (task_id,)).fetchone()), True
         return await asyncio.to_thread(create)
 

@@ -26,10 +26,11 @@ const session = { provider: 'api', status: 'idle', error: '', revision: 1, event
 
 async function setup(sessionOverride: Record<string, unknown> = {}, currentProgress = progress) {
   vi.mocked(api).mockImplementation(async (path, options) => {
+    if (path.endsWith('/conversations')) return [{ id: 'chat', title: '我的会话', status: 'idle' }] as never
     if (path.endsWith('/progress')) return currentProgress as never
     if (path.endsWith('/topology')) return { members: project.members, calls: [] } as never
-    if (path.includes('/conversation?kind=tools')) return { ...session, events: [{ id: 'tool1', kind: 'tool', text: 'workflow_run', success: true, result: '真实结果' }] } as never
-    if (path.includes('/conversation')) return { ...session, ...sessionOverride, events: path.includes('after=') || options?.method === 'POST' ? [] : sessionOverride.events || session.events } as never
+    if (path.includes('/conversations/chat?kind=tools')) return { ...session, events: [{ id: 'tool1', kind: 'tool', text: 'workflow_run', success: true, result: '真实结果' }] } as never
+    if (path.includes('/conversations/chat')) return { ...session, ...sessionOverride, events: path.includes('after=') || options?.method === 'POST' ? [] : sessionOverride.events || session.events } as never
     if (path.endsWith('/tasks/t1')) return task as never
     if (path.includes('/tasks?purpose=customer_trial')) return [task] as never
     if (path.includes('/tasks')) return [] as never
@@ -54,10 +55,10 @@ it('attaches an uploaded dataset without replacing the customer’s unsent reque
   fireEvent.click(screen.getByRole('button', { name: '关闭阅读窗口' }))
   expect(screen.getByLabelText('给项目统筹的消息')).toHaveValue('用已有模型预测这份文件，不重新训练')
   fireEvent.click(screen.getByRole('button', { name: '发送' }))
-  await waitFor(() => expect(api).toHaveBeenCalledWith('/api/v1/projects/p/conversation/messages', {
+  await waitFor(() => expect(api).toHaveBeenCalledWith('/api/v1/projects/p/conversations/chat/messages', {
     method: 'POST', body: expect.stringContaining('"dataset_id":"uploaded"'),
   }))
-  const call = vi.mocked(api).mock.calls.find(([path, options]) => path.endsWith('/conversation/messages') && options?.method === 'POST')!
+  const call = vi.mocked(api).mock.calls.find(([path, options]) => path.endsWith('/conversations/chat/messages') && options?.method === 'POST')!
   expect(JSON.parse(call[1]!.body as string).message).toBe('用已有模型预测这份文件，不重新训练')
 })
 
@@ -74,7 +75,7 @@ it('removes answered questions with the same identifier in different business it
   current.value.items = current.value.items.map(i => ({ ...i, questions: i.questions.map(q =>
     q.id === 'maintenance' ? { ...q, answer: '已经恢复' } : q) }))
   live.revision = 2
-  await act(async () => { (intervals.mock.calls[0][0] as () => void)() })
+  await act(async () => { (intervals.mock.calls.find(call => call[1] === 1500)![0] as () => void)() })
   await waitFor(() => expect(within(pending()).queryByText('运行环境等待恢复')).not.toBeInTheDocument())
   expect(within(pending()).getByText('坐标从哪端开始？')).toBeInTheDocument()
 })
@@ -85,20 +86,20 @@ it('recovers an invalid message cursor without losing visible history or the uns
   fireEvent.change(screen.getByLabelText('给项目统筹的消息'), { target: { value: '尚未发送的客户补充' } })
   const healthy = vi.mocked(api).getMockImplementation()!
   vi.mocked(api).mockImplementation(async (path, options) => {
-    if (path.endsWith('/conversation?after=m1'))
+    if (path.endsWith('/conversations/chat?after=m1'))
       throw Object.assign(new Error('会话分页位置不存在'), { status: 422, detail: '会话分页位置不存在' })
-    if (path.endsWith('/conversation')) return { ...session, revision: 2,
+    if (path.endsWith('/conversations/chat')) return { ...session, revision: 2,
       events: [{ id: 'm2', kind: 'assistant', text: '已从保存状态恢复', time: '' }],
       first_cursor: 'm2', last_cursor: 'm2' } as never
     return healthy(path, options)
   })
-  await act(async () => { (intervals.mock.calls[0][0] as () => void)() })
+  await act(async () => { (intervals.mock.calls.find(call => call[1] === 1500)![0] as () => void)() })
   expect(await screen.findByText('已从保存状态恢复')).toBeInTheDocument()
   expect(screen.getByText('可以先试用申请分配。')).toBeInTheDocument()
   expect(screen.getByLabelText('给项目统筹的消息')).toHaveValue('尚未发送的客户补充')
   expect(screen.queryByText('连接暂时中断，已保存的对话和结果仍保留。')).not.toBeInTheDocument()
-  await act(async () => { (intervals.mock.calls[0][0] as () => void)() })
-  expect(api).toHaveBeenCalledWith('/api/v1/projects/p/conversation?after=m2')
+  await act(async () => { (intervals.mock.calls.find(call => call[1] === 1500)![0] as () => void)() })
+  expect(api).toHaveBeenCalledWith('/api/v1/projects/p/conversations/chat?after=m2')
 })
 
 it('shows usable capability and ongoing work independently, with local questions', async () => {
@@ -113,7 +114,7 @@ it('shows usable capability and ongoing work independently, with local questions
   fireEvent.click(screen.getByRole('button', { name: '回答这个问题' }))
   fireEvent.change(screen.getByLabelText('给项目统筹的消息'), { target: { value: '从头部开始' } })
   fireEvent.click(screen.getByRole('button', { name: '发送' }))
-  await waitFor(() => expect(api).toHaveBeenCalledWith('/api/v1/projects/p/conversation/messages', {
+  await waitFor(() => expect(api).toHaveBeenCalledWith('/api/v1/projects/p/conversations/chat/messages', {
     method: 'POST', body: JSON.stringify({ message: '从头部开始', item_id: 'predict', question_id: 'origin', task_id: '' }),
   }))
 })
@@ -124,7 +125,7 @@ it('trials and result feedback use the same conversation without an internal pha
   expect((screen.getByLabelText('给项目统筹的消息') as HTMLTextAreaElement).value).toContain('申请分配')
   fireEvent.change(screen.getByLabelText('给项目统筹的消息'), { target: { value: '用 request.json 试一下' } })
   fireEvent.click(screen.getByRole('button', { name: '发送' }))
-  await waitFor(() => expect(api).toHaveBeenCalledWith('/api/v1/projects/p/conversation/messages', {
+  await waitFor(() => expect(api).toHaveBeenCalledWith('/api/v1/projects/p/conversations/chat/messages', {
     method: 'POST', body: JSON.stringify({ message: '用 request.json 试一下', item_id: 'allocate', question_id: '', task_id: '' }),
   }))
   fireEvent.click(screen.getByRole('tab', { name: '运行记录' }))
@@ -133,7 +134,7 @@ it('trials and result feedback use the same conversation without an internal pha
   fireEvent.click(screen.getByRole('button', { name: '反馈这个结果' }))
   fireEvent.change(screen.getByLabelText('给项目统筹的消息'), { target: { value: '这个分配不合适，请修改后再试' } })
   fireEvent.click(screen.getByRole('button', { name: '发送' }))
-  await waitFor(() => expect(api).toHaveBeenCalledWith('/api/v1/projects/p/conversation/messages', {
+  await waitFor(() => expect(api).toHaveBeenCalledWith('/api/v1/projects/p/conversations/chat/messages', {
     method: 'POST', body: JSON.stringify({ message: '这个分配不合适，请修改后再试', item_id: 'allocate', question_id: '', task_id: 't1' }),
   }))
 })
@@ -142,7 +143,7 @@ it('loads tool history only on demand and shows business members from the real t
   await setup()
   expect(vi.mocked(api).mock.calls.some(([path]) => path.includes('kind=tools'))).toBe(false)
   fireEvent.click(screen.getByText('查看操作记录'))
-  await waitFor(() => expect(api).toHaveBeenCalledWith('/api/v1/projects/p/conversation?kind=tools'))
+  await waitFor(() => expect(api).toHaveBeenCalledWith('/api/v1/projects/p/conversations/chat?kind=tools'))
   fireEvent.click(screen.getByRole('tab', { name: '工作流' }))
   expect(await screen.findByRole('button', { name: '业务主流程' })).toBeInTheDocument()
   expect(screen.queryByRole('button', { name: '内部测试' })).not.toBeInTheDocument()
@@ -153,7 +154,7 @@ it('continues interrupted feedback with its original item and task', async () =>
   await setup({ status: 'interrupted', active_item_id: 'allocate', conversation_context: { item_id: 'allocate', task_id: 't1' } })
   expect(screen.getByText(/已停止，进展和结果已保留/)).toHaveTextContent('检查分配反馈')
   fireEvent.click(screen.getByRole('button', { name: '继续推进' }))
-  await waitFor(() => expect(api).toHaveBeenCalledWith('/api/v1/projects/p/conversation/messages', {
+  await waitFor(() => expect(api).toHaveBeenCalledWith('/api/v1/projects/p/conversations/chat/messages', {
     method: 'POST', body: JSON.stringify({ message: '继续推进已授权的剩余工作；先读取当前进展与最近反馈。', item_id: 'allocate', question_id: '', task_id: 't1' }),
   }))
 })
@@ -164,7 +165,7 @@ it('lets the customer supplement an already answered question in its original co
   fireEvent.click(screen.getByRole('button', { name: '补充回答' }))
   fireEvent.change(screen.getByLabelText('给项目统筹的消息'), { target: { value: '补充：从头部开始' } })
   fireEvent.click(screen.getByRole('button', { name: '发送' }))
-  await waitFor(() => expect(api).toHaveBeenCalledWith('/api/v1/projects/p/conversation/messages', {
+  await waitFor(() => expect(api).toHaveBeenCalledWith('/api/v1/projects/p/conversations/chat/messages', {
     method: 'POST', body: JSON.stringify({ message: '补充：从头部开始', item_id: 'predict', question_id: 'origin', task_id: '' }),
   }))
 })
@@ -197,7 +198,7 @@ it('opens the referenced report, follows its files and keeps feedback bound to t
   fireEvent.click(screen.getByRole('button', { name: '反馈这个结果' }))
   expect(screen.getByLabelText('给项目统筹的消息')).toHaveValue('未发送的反馈')
   fireEvent.click(screen.getByRole('button', { name: '发送' }))
-  await waitFor(() => expect(api).toHaveBeenCalledWith('/api/v1/projects/p/conversation/messages', {
+  await waitFor(() => expect(api).toHaveBeenCalledWith('/api/v1/projects/p/conversations/chat/messages', {
     method: 'POST', body: JSON.stringify({ message: '未发送的反馈', item_id: 'allocate', question_id: '', task_id: 't1' }),
   }))
 })
@@ -252,7 +253,7 @@ it('shows a result card only with a persisted task link and carries feedback to 
   fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: '反馈这个结果' }))
   fireEvent.change(screen.getByLabelText('给项目统筹的消息'), { target: { value: '这个结果请改一下' } })
   fireEvent.click(screen.getByRole('button', { name: '发送' }))
-  await waitFor(() => expect(api).toHaveBeenCalledWith('/api/v1/projects/p/conversation/messages', {
+  await waitFor(() => expect(api).toHaveBeenCalledWith('/api/v1/projects/p/conversations/chat/messages', {
     method: 'POST', body: JSON.stringify({ message: '这个结果请改一下', item_id: 'allocate', question_id: '', task_id: 't1' }),
   }))
 })

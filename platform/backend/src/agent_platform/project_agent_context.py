@@ -107,7 +107,10 @@ async def conversation_context(services, project_id: str, state: dict, discussio
         context['business_task'] = task_summary(await services.projects.task(project_id, task_id))
     else:
         tasks = await services.projects.store.tasks(project_id, item_id=item_id, limit=3)
-        context['recent_results'] = [task_summary(t) for t in tasks]
+        from .conversation_scope import conversation_for
+        current_conversation = conversation_for(project_id)
+        context['recent_results'] = [task_summary(t) for t in tasks
+            if t.get('mode') != 'agent' or t.get('conversation_id', '') == current_conversation]
     if getattr(services, 'modeling', None):
         studies = await services.modeling.list(project_id, 'study', limit=5)
         context['modeling'] = [{k: s.get(k) for k in ('id', 'dataset_id', 'name', 'status', 'best', 'baseline', 'trials_used', 'budget', 'next_action', 'error', 'repair_candidate_id', 'failure_streak', 'search_strategy')} for s in studies]

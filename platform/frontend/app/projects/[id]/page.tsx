@@ -11,7 +11,7 @@ import { api, withFrontendToken } from '@/lib/platform'
 import { MarkdownDocument } from '@/lib/markdown'
 import { projectFileFromLink, resolveProjectLink } from '@/lib/project-links'
 import { availabilityNames, workNames, taskNames, type ProjectProgress, type ProjectMember, type ProjectTask, type ConversationFocus, type ProgressItem, type ProjectTopology } from '@/lib/project-progress'
-import ProjectConversation from '@/app/components/ProjectConversation'
+import ProjectConversations from '@/app/components/ProjectConversations'
 import ProjectMaterials from '@/app/components/ProjectMaterials'
 import ProjectRunPanel, { ProjectTaskOutput, ProjectRunEvents } from '@/app/components/ProjectRunPanel'
 import ModelConnectionPanel from '@/app/components/ModelConnectionPanel'
@@ -131,7 +131,7 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
     {tab === 'run' && project && <ProjectRunPanel key={runWorkflowId} projectId={id} members={project.members} initialWorkflowId={runWorkflowId} onTask={updateManualTask} />}
     <div hidden={tab !== 'overview'} className={styles.projectHome}>
       <div><div className={styles.mobileProgress}><span>{ready.length} 项可试用 · {questions.length} 个待回答问题</span><button onClick={() => setProgressOpen(true)}>查看进展</button></div>
-        <ProjectConversation id={id} canConfigureModel={Boolean(project && project.access_role !== 'collaborator')} projectName={project?.name} items={items} tasks={tasks} members={project?.members} focus={focus} onUpdated={refresh} onSent={clearFocus} onTask={taskId => void showTask(taskId)} onWorkflow={workflow => void showFlow(undefined, workflow)} onFeedback={(itemId, taskId) => talk(items.find(i => i.id === itemId), '', taskId)} />
+        <ProjectConversations id={id} canConfigureModel={Boolean(project && project.access_role !== 'collaborator')} projectName={project?.name} items={items} tasks={tasks} members={project?.members} focus={focus} onUpdated={refresh} onSent={clearFocus} onTask={taskId => void showTask(taskId)} onWorkflow={workflow => void showFlow(undefined, workflow)} onFeedback={(itemId, taskId) => talk(items.find(i => i.id === itemId), '', taskId)} />
       </div>
       <aside className={styles.progressRail} data-open={progressOpen} aria-label="项目进展摘要">
         <div className={styles.mobileProgress}><strong>项目进展</strong><button aria-label="关闭进展面板" onClick={() => setProgressOpen(false)}><X size={16} /></button></div>

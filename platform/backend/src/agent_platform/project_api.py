@@ -199,22 +199,25 @@ def project_router(services, require_token):
         return await projects.conversation.topology(project_id)
 
     @scoped.get('/conversation')
-    async def conversation(project_id: str, after: str = '', before: str = '',
+    async def conversation(project_id: str, request: Request, after: str = '', before: str = '',
                            limit: int = Query(default=50, ge=1, le=100),
                            kind: Literal['messages', 'tools', 'activity'] = 'messages', request_id: str = ''):
+        await services.project_sessions.require(project_id, 'legacy', request.state.user)
         try:
             return projects.conversation.events(project_id, after=after, before=before, limit=limit, kind=kind, request_id=request_id)
         except ValueError as e:
             raise HTTPException(422, str(e)) from e
 
     @scoped.post('/conversation/messages', status_code=202)
-    async def conversation_message(project_id: str, body: ConversationMessage):
+    async def conversation_message(project_id: str, request: Request, body: ConversationMessage):
+        await services.project_sessions.require(project_id, 'legacy', request.state.user)
         await invoke(projects.conversation.send, project_id, body)
         # Avoid returning the entire historical transcript on every message.
         return projects.conversation.events(project_id)
 
     @scoped.get('/conversation/metrics')
-    async def conversation_metrics(project_id: str, request_id: str = ''):
+    async def conversation_metrics(project_id: str, request: Request, request_id: str = ''):
+        await services.project_sessions.require(project_id, 'legacy', request.state.user)
         from .project_metrics import session_metrics
         return session_metrics(manager.load(project_id)['events'], request_id)
 
@@ -251,7 +254,8 @@ def project_router(services, require_token):
         return load_discussion(projects.workspace(project_id))
 
     @scoped.post('/requirements/messages', status_code=202)
-    async def discuss(project_id: str, body: Message):
+    async def discuss(project_id: str, request: Request, body: Message):
+        await services.project_sessions.require(project_id, 'legacy', request.state.user)
         return await invoke(manager.message, project_id, body.message or '请阅读需求包并与我核对理解', intent='discuss')
 
     @scoped.post('/requirements/confirm')
@@ -259,8 +263,12 @@ def project_router(services, require_token):
         return await invoke(projects.confirm, project_id, body.revision)
 
     @scoped.get('/agent-session')
-    async def session(project_id: str):
-        return {**manager.load(project_id), 'requirements': load_discussion(projects.workspace(project_id))}
+    async def session(project_id: str, request: Request):
+        if await services.project_sessions.legacy_allowed(project_id, request.state.user):
+            return {**manager.load(project_id), 'requirements': load_discussion(projects.workspace(project_id))}
+        connection = manager.connections.load(project_id)
+        return {**(manager.connections.public(connection) if connection else {'provider': None}),
+                'status': 'idle', 'events': [], 'revision': 0, 'error': ''}
 
     @scoped.put('/agent-session')
     async def select(project_id: str, body: SelectAgent):
@@ -308,17 +316,20 @@ def project_router(services, require_token):
         return await invoke(manager.select, project_id, **connection.model_dump())
 
     @scoped.post('/agent-session/messages', status_code=202)
-    async def message(project_id: str, body: Message):
+    async def message(project_id: str, request: Request, body: Message):
+        await services.project_sessions.require(project_id, 'legacy', request.state.user)
         if body.intent == 'operate' and not manager.running(project_id):
             raise HTTPException(409, '请通过项目任务发起或继续业务处理')
         return await invoke(manager.message, project_id, body.message or '继续', intent=body.intent)
 
     @scoped.post('/agent-session/stop')
-    async def stop_agent(project_id: str):
+    async def stop_agent(project_id: str, request: Request):
+        await services.project_sessions.require(project_id, 'legacy', request.state.user)
         return await manager.stop(project_id)
 
     @scoped.post('/agent-session/resume', status_code=202)
-    async def resume_agent(project_id: str, body: Message):
+    async def resume_agent(project_id: str, request: Request, body: Message):
+        await services.project_sessions.require(project_id, 'legacy', request.state.user)
         state = manager.load(project_id)
         if state.get('phase') == 'operate' and state.get('project_task_id'):
             return await invoke(projects.resume, project_id, state['project_task_id'], body.message)
@@ -353,27 +364,38 @@ def project_router(services, require_token):
         return result
 
     @scoped.post('/tasks', status_code=202)
-    async def start_task(project_id: str, body: NewTask):
+    async def start_task(project_id: str, body: NewTask, request: Request):
+        if body.mode == 'agent':
+            await services.project_sessions.require(project_id, 'legacy', request.state.user)
         return await invoke(projects.start, project_id, **body.model_dump())
 
     @scoped.get('/tasks/{task_id}')
     async def task(project_id: str, task_id: str):
         return await invoke(projects.task, project_id, task_id)
 
+    async def require_task_conversation(project_id, task_id, request):
+        task = await invoke(projects.store.get_task, project_id, task_id)
+        if task['mode'] == 'agent':
+            await services.project_sessions.require(project_id, task.get('conversation_id') or 'legacy', request.state.user)
+
     @scoped.post('/tasks/{task_id}/stop')
-    async def stop_task(project_id: str, task_id: str):
+    async def stop_task(project_id: str, task_id: str, request: Request):
+        await require_task_conversation(project_id, task_id, request)
         return await invoke(projects.stop, project_id, task_id)
 
     @scoped.post('/tasks/{task_id}/resume', status_code=202)
-    async def resume_task(project_id: str, task_id: str, body: Message):
+    async def resume_task(project_id: str, task_id: str, request: Request, body: Message):
+        await require_task_conversation(project_id, task_id, request)
         return await invoke(projects.resume, project_id, task_id, body.message)
 
     @scoped.post('/tasks/{task_id}/supplements')
-    async def supplement_task(project_id: str, task_id: str, body: Supplement):
+    async def supplement_task(project_id: str, task_id: str, request: Request, body: Supplement):
+        await require_task_conversation(project_id, task_id, request)
         return await invoke(projects.supplement, project_id, task_id, body.message, body.inputs)
 
     @scoped.post('/tasks/{task_id}/runs/{run_id}/input')
-    async def project_task_run_input(project_id: str, task_id: str, run_id: str, body: HumanResponse):
+    async def project_task_run_input(project_id: str, task_id: str, request: Request, run_id: str, body: HumanResponse):
+        await require_task_conversation(project_id, task_id, request)
         return await invoke(projects.respond, project_id, task_id, run_id, body.values)
 
     from .modeling_api import register_modeling_routes
@@ -384,5 +406,7 @@ def project_router(services, require_token):
     register_workflow_edit_routes(scoped, services, invoke)
     from .project_skills import register_skill_routes
     register_skill_routes(scoped, services, invoke)
+    from .project_sessions import register_session_routes
+    register_session_routes(scoped, services, invoke)
     router.include_router(scoped)
     return router

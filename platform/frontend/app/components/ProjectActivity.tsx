@@ -35,9 +35,10 @@ function RelatedRun({ projectId, taskId, onTask, onWorkflow, workflowNames }: { 
   </div>
 }
 
-export default function ProjectActivity({ projectId, requestId, current, onTask, onWorkflow, workflowNames = {}, active = current?.status === 'running' }: {
-  projectId: string; workflowNames?: Record<string, string>; active?: boolean; requestId?: string; current?: Activity | null; onTask?: (id: string) => void; onWorkflow?: (id: string) => void
+export default function ProjectActivity({ projectId, conversationId, requestId, current, onTask, onWorkflow, workflowNames = {}, active = current?.status === 'running' }: {
+  projectId: string; conversationId?: string; workflowNames?: Record<string, string>; active?: boolean; requestId?: string; current?: Activity | null; onTask?: (id: string) => void; onWorkflow?: (id: string) => void
 }) {
+  const conversationPath = conversationId ? 'conversations/' + conversationId : 'conversation'
   const [open, setOpen] = useState(false)
   const [operations, setOperations] = useState<Activity[]>([])
   const [before, setBefore] = useState('')
@@ -45,7 +46,7 @@ export default function ProjectActivity({ projectId, requestId, current, onTask,
   const [error, setError] = useState('')
   async function older() {
     try {
-      const page = await api<{ events: Activity[]; has_more: boolean; first_cursor: string }>(`/api/v1/projects/${projectId}/conversation?kind=activity&request_id=${encodeURIComponent(requestId || '')}&before=${encodeURIComponent(before)}`)
+      const page = await api<{ events: Activity[]; has_more: boolean; first_cursor: string }>(`/api/v1/projects/${projectId}/${conversationPath}?kind=activity&request_id=${encodeURIComponent(requestId || '')}&before=${encodeURIComponent(before)}`)
       setOperations(previous => [...new Map([...page.events, ...previous].map(a => [a.operation_id, a])).values()])
       setMore(page.has_more); setBefore(page.first_cursor); setError('')
     } catch (e) { setError(String(e)) }
@@ -55,7 +56,7 @@ export default function ProjectActivity({ projectId, requestId, current, onTask,
     let alive = true, cursor = ''
     const refresh = async () => {
       try {
-        const page = await api<{ events: Activity[]; has_more: boolean; first_cursor: string; last_cursor: string }>(`/api/v1/projects/${projectId}/conversation?kind=activity&request_id=${encodeURIComponent(requestId || '')}${cursor ? '&after=' + encodeURIComponent(cursor) : ''}`)
+        const page = await api<{ events: Activity[]; has_more: boolean; first_cursor: string; last_cursor: string }>(`/api/v1/projects/${projectId}/${conversationPath}?kind=activity&request_id=${encodeURIComponent(requestId || '')}${cursor ? '&after=' + encodeURIComponent(cursor) : ''}`)
         if (!alive) return
         if (!cursor) { setBefore(page.first_cursor); setMore(page.has_more) }
         cursor = page.last_cursor || cursor
@@ -65,7 +66,7 @@ export default function ProjectActivity({ projectId, requestId, current, onTask,
     void refresh()
     const timer = active ? window.setInterval(() => void refresh(), 1500) : undefined
     return () => { alive = false; window.clearInterval(timer) }
-  }, [projectId, open, requestId, active])
+  }, [projectId, conversationPath, open, requestId, active])
   const visible = operations.filter(a => !requestId || a.request_id === requestId)
   const summary = current || visible.at(-1)
   return <details className={styles.activity} onToggle={e => setOpen(e.currentTarget.open)}>

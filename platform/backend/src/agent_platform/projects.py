@@ -167,6 +167,11 @@ class Projects:
             return await self.task(project_id, task['id'])
 
     async def _launch(self, task: dict, message: str = ''):
+        from .conversation_scope import conversation_scope
+        with conversation_scope(task['project_id'], task.get('conversation_id', '')):
+            return await self._launch_in_conversation(task, message)
+
+    async def _launch_in_conversation(self, task: dict, message: str = ''):
         task_id, project_id = task['id'], task['project_id']
         await self.store.update_task(task_id, status='running', error='')
         if task['mode'] == 'agent':
@@ -296,13 +301,23 @@ class Projects:
                     await self.services.harness.finish_task(run['id'], status='cancelled')
             break
 
+    @staticmethod
+    def require_task_scope(project_id: str, task: dict) -> None:
+        from .conversation_scope import conversation_for
+        current = conversation_for(project_id)
+        if current and task['mode'] == 'agent' and task.get('conversation_id', '') != current:
+            raise ProjectConflict('请在任务所属会话中停止或继续智能体任务')
+
     async def stop(self, project_id: str, task_id: str) -> dict:
         task = await self.store.get_task(project_id, task_id)
+        self.require_task_scope(project_id, task)
         if task['mode'] == 'agent':
+            from .conversation_scope import conversation_scope
             manager = self.services.local_agents
-            if (manager.load(project_id).get('project_task_id') == task_id and manager.running(project_id)
-                    and manager.tasks.get(project_id) is not asyncio.current_task()):
-                await manager.stop(project_id)
+            with conversation_scope(project_id, task.get('conversation_id', '')):
+                if (manager.load(project_id).get('project_task_id') == task_id and manager.running(project_id)
+                        and manager.tasks.get(manager.key(project_id)) is not asyncio.current_task()):
+                    await manager.stop(project_id)
         worker = self.active.get(task_id)
         if worker and not worker.done():
             worker.cancel()
@@ -315,16 +330,20 @@ class Projects:
     async def resume(self, project_id: str, task_id: str, message: str = '') -> dict:
         async with self.locks.setdefault(project_id, asyncio.Lock()):
             task = await self.store.get_task(project_id, task_id)
+            self.require_task_scope(project_id, task)
             if task['status'] not in {'waiting_input', 'interrupted', 'failed'}:
                 raise ProjectConflict('仅等待补充、中断或失败的任务可以继续')
-            if task['mode'] == 'agent' and self.services.local_agents.running(project_id):
-                raise ProjectConflict('Lilies 正在处理另一轮任务')
+            from .conversation_scope import conversation_scope
+            with conversation_scope(project_id, task.get('conversation_id', '')):
+                if task['mode'] == 'agent' and self.services.local_agents.running(project_id):
+                    raise ProjectConflict('此会话正在处理另一轮任务')
             await self._launch(task, message)
             return await self.task(project_id, task_id)
 
     async def supplement(self, project_id: str, task_id: str, message: str, inputs: dict):
         async with self.locks.setdefault(project_id, asyncio.Lock()):
             task = await self.store.get_task(project_id, task_id)
+            self.require_task_scope(project_id, task)
             if task['status'] not in {'waiting_input', 'interrupted', 'failed'}:
                 raise ProjectConflict('请在任务等待补充或停止后提交补充')
             await self.store.supplement(task_id, message, inputs)
