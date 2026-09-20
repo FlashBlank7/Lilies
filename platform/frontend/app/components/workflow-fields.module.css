@@ -1,0 +1,20 @@
+.field, .entries, .entry { display: grid; gap: .5rem; min-width: 0; }
+.entries { gap: .75rem; }
+.entry { padding: .75rem; border: 1px solid var(--ui-line); border-radius: .5rem; }
+.field label, .entry label { display: grid; gap: .25rem; min-width: 0; }
+.field input, .field textarea, .field select, .entry input, .entry select { width: 100%; min-width: 0; max-width: 100%; box-sizing: border-box; }
+.row { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+.row > label { flex: 1 1 7rem; }
+.row .checkbox { display: flex; flex-direction: row; align-items: center; gap: .5rem; }
+.row .checkbox input { width: auto; }
+.help { color: var(--ui-muted); font-size: .8rem; overflow-wrap: anywhere; }
+.field button, .entry button { justify-self: start; }
+.field button, .entry button, .entries > button {
+  appearance: none; min-height: 2rem; padding: .5rem .75rem;
+  border: 1px solid var(--ui-line); border-radius: 7px;
+  background: var(--ui-panel); color: var(--ui-ink); font: inherit; cursor: pointer;
+}
+.field button:disabled, .entry button:disabled, .entries > button:disabled { opacity: .55; cursor: default; }
+.field :is(input, select, textarea, button):focus-visible, .entry :is(input, select, textarea, button):focus-visible, .entries > button:focus-visible {
+  outline: 2px solid var(--ui-accent); outline-offset: 2px;
+}

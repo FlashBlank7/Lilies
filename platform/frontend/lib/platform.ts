@@ -173,6 +173,7 @@ export type CapabilityModuleInsertResult = {
 }
 
 export type BlockEditorField = {
+  default_value?: unknown
   path: string
   label: string
   label_zh?: string

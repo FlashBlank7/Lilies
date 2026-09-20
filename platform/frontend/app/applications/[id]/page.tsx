@@ -1,10 +1,13 @@
 'use client'
 
 import WorkflowComposer from '@/app/components/WorkflowComposer'
+import { workflowFieldLabels, workflowModelHelp } from '@/lib/workflow-fields'
 import { useAccount } from '@/app/components/AuthBoundary'
 import '@xyflow/react/dist/style.css'
 import Link from 'next/link'
-import { WorkflowValueField, WorkflowObjectFields, WorkflowInputFields } from '@/app/components/WorkflowValueField'
+import WorkflowImageFields from '@/app/components/WorkflowImageFields'
+import WorkflowConditionFields from '@/app/components/WorkflowConditionFields'
+import { WorkflowValueField, WorkflowObjectFields, WorkflowInputFields, WorkflowArrayFields } from '@/app/components/WorkflowValueField'
 import { useRouter } from 'next/navigation'
 import { Play } from 'lucide-react'
 import {
@@ -471,14 +474,15 @@ function schemaFieldControl(path: string, schema: Record<string, unknown>): Bloc
 function editorFieldsForBlock(block: Block | undefined): BlockEditorField[] {
   if (!block) return []
   const hints = block.editor?.fields
-  if (hints?.length) return hints
   const schema = asRecord(block.config_schema)
   const properties = asRecord(schema.properties)
+  if (hints?.length) return hints.map(field => ({ ...field, default_value: asRecord(properties[field.path]).default }))
   const required = new Set(asStringArray(schema.required))
   return Object.entries(properties).map(([path, raw]) => {
     const fieldSchema = asRecord(raw)
     return {
       path,
+      default_value: fieldSchema.default,
       label: safeText(fieldSchema.title, path.replaceAll('_', ' ')),
       description: safeText(fieldSchema.description),
       control: schemaFieldControl(path, fieldSchema),
@@ -505,7 +509,7 @@ function serializeConfigEditorValue(field: BlockEditorField, value: unknown): Co
 }
 
 function configEditorValues(fields: BlockEditorField[], config: Record<string, unknown>): ConfigEditorValues {
-  return Object.fromEntries(fields.map(field => [field.path, serializeConfigEditorValue(field, configValueAtPath(config, field.path))]))
+  return Object.fromEntries(fields.map(field => [field.path, serializeConfigEditorValue(field, configValueAtPath(config, field.path) === undefined ? field.default_value : configValueAtPath(config, field.path))]))
 }
 
 function cloneConfig(config: Record<string, unknown>): Record<string, unknown> {
@@ -2428,25 +2432,28 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
             </label>}
             {configEditorMode === 'form' ? <div className="config-form" data-config-editor="schema-form">
               {selectedEditorFields.length ? selectedEditorFields.map(field => {
-                const label = locale === 'zh' ? field.label_zh || field.label : field.label
-                const description = locale === 'zh' ? field.description_zh || field.description : field.description
+                const label = locale === 'zh' ? (selected.type === 'llm' && field.path === 'model' ? '调用模型' : field.label_zh || workflowFieldLabels[field.path] || field.label) : field.label
+                const description = locale === 'zh' ? field.description_zh || (selected.type === 'llm' ? workflowModelHelp[field.path] : field.description) : field.description
                 const value = configFieldValues[field.path]
                 const update = (next: ConfigEditorValue) => {
                   configDirtyRef.current = true
                   configEditVersionRef.current += 1
                   setConfigFieldValues(current => ({ ...current, [field.path]: next }))
                 }
-                return <label className={`config-form-field ${field.control === 'boolean' ? 'boolean' : ''}`} data-config-field={field.path} key={field.path}>
+                return <div role="group" aria-label={label} className={`config-form-field ${field.control === 'boolean' ? 'boolean' : ''}`} data-config-field={field.path} key={`${selected.id}:${field.path}`}>
                   <span className="config-form-label"><b>{label}</b>{field.required && <em>{t.configRequired}</em>}</span>
                   {description && <small>{description}</small>}
                   {selected.type === 'start' && field.path === 'inputs' ? <WorkflowInputFields value={String(value ?? '[]')} onChange={update} />
-                    : ['outputs', 'input', 'variables', 'inputs'].includes(field.path) && field.control === 'json' ? <WorkflowObjectFields projectId={projectContext?.id} nodes={draft?.snapshot.workflow.nodes || []} nodeId={selected.id} label={label} field={field.path} value={String(value ?? '{}')} onChange={update} />
-                    : (field.control === 'reference_or_text' || (selected.type === 'llm' && field.path === 'model')) ? <WorkflowValueField projectId={projectContext?.id} nodes={draft?.snapshot.workflow.nodes || []} nodeId={selected.id} label={label} field={field.path} value={String(value ?? '')} onChange={update} />
-                    : field.control === 'boolean' ? <input type="checkbox" checked={value === true} onChange={event => update(event.target.checked)} />
-                    : field.control === 'enum' ? <select value={String(value ?? '')} onChange={event => update(event.target.value)}>{!field.required && <option value="" />}{field.options?.map(option => <option key={option} value={option}>{option}</option>)}</select>
-                      : ['textarea', 'json', 'reference_or_text', 'string_list'].includes(field.control) ? <textarea className={field.control === 'json' ? 'config-json-field' : ''} spellCheck={field.control !== 'json'} value={String(value ?? '')} onChange={event => update(event.target.value)} />
-                        : <input type={field.control === 'number' ? 'number' : 'text'} readOnly={field.control === 'readonly'} min={field.minimum} max={field.maximum} step={field.step} value={String(value ?? '')} onChange={event => update(event.target.value)} />}
-                </label>
+                    : selected.type === 'llm' && field.path === 'images' ? <WorkflowImageFields projectId={projectContext?.id} nodes={draft?.snapshot.workflow.nodes || []} edges={draft?.snapshot.workflow.edges || []} blocks={blocks} nodeId={selected.id} label={label} value={String(value ?? '[]')} onChange={update} />
+                    : selected.type === 'if_else' && field.path === 'cases' ? <WorkflowConditionFields projectId={projectContext?.id} nodes={draft?.snapshot.workflow.nodes || []} edges={draft?.snapshot.workflow.edges || []} blocks={blocks} nodeId={selected.id} label={label} value={String(value ?? '[]')} onChange={update} />
+                    : selected.type === 'variable_aggregator' && field.path === 'variables' ? <WorkflowArrayFields projectId={projectContext?.id} nodes={draft?.snapshot.workflow.nodes || []} edges={draft?.snapshot.workflow.edges || []} blocks={blocks} nodeId={selected.id} label={label} value={String(value ?? '[]')} onChange={update} />
+                    : ['outputs', 'input', 'variables', 'inputs', 'assignments', 'headers', 'query'].includes(field.path) && field.control === 'json' ? <WorkflowObjectFields projectId={projectContext?.id} nodes={draft?.snapshot.workflow.nodes || []} edges={draft?.snapshot.workflow.edges || []} blocks={blocks} modelRole={String(configFieldValues.model_role || selected.config.model_role || 'main')} nodeId={selected.id} label={label} field={field.path} value={String(value ?? '{}')} onChange={update} />
+                    : (field.control === 'reference_or_text' || ['model_ref', 'dataset_id', 'file_path'].includes(field.path) || (selected.type === 'llm' && field.path === 'model')) ? <WorkflowValueField projectId={projectContext?.id} nodes={draft?.snapshot.workflow.nodes || []} edges={draft?.snapshot.workflow.edges || []} blocks={blocks} modelRole={String(configFieldValues.model_role || selected.config.model_role || 'main')} allowReference={field.path !== 'model'} nodeId={selected.id} label={label} field={field.path} value={String(value ?? '')} onChange={update} />
+                    : field.control === 'boolean' ? <input aria-label={label} type="checkbox" checked={value === true} onChange={event => update(event.target.checked)} />
+                    : field.control === 'enum' ? <select aria-label={label} value={String(value ?? '')} onChange={event => update(event.target.value)}>{!field.required && field.default_value == null && <option value="" />}{field.options?.map(option => <option key={option} value={option}>{selected.type === 'llm' && field.path === 'model_role' ? option === 'vision' ? '视觉模型' : '主模型' : option}</option>)}</select>
+                      : ['textarea', 'json', 'reference_or_text', 'string_list'].includes(field.control) ? <textarea aria-label={label} className={field.control === 'json' ? 'config-json-field' : ''} spellCheck={field.control !== 'json'} value={String(value ?? '')} onChange={event => update(event.target.value)} />
+                        : <input aria-label={label} type={field.control === 'number' ? 'number' : 'text'} readOnly={field.control === 'readonly'} min={field.minimum} max={field.maximum} step={field.step} value={String(value ?? '')} onChange={event => update(event.target.value)} />}
+                </div>
               }) : <p className="muted">{t.configFormNoFields}</p>}
             </div> : <div className="config-expert" data-config-editor="expert-json"><p className="muted">{t.configExpertHelp}</p><textarea className="json-editor" value={configText} onChange={event => { configDirtyRef.current = true; configEditVersionRef.current += 1; setConfigText(event.target.value) }} /></div>}
             <button className="wide" data-config-editor-action="save" onClick={saveConfig}>{t.saveConfig}</button><button className="danger-link" onClick={deleteSelectedNode}>{t.deleteNode}</button>
