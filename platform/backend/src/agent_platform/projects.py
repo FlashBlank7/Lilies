@@ -242,10 +242,12 @@ class Projects:
                     runtime._start(record['state'])
                     await asyncio.shield(runtime.active_tasks[run['id']])
                     return execution_result(await self.services.workflow_store.get_run(run['id']))
+        # ProjectModelProvider checks the explicit project connection at the model
+        # node. A missing connection must not reject branches that never call it.
         scope = {'workspace_boundary': str(workspace),
                  'allowed_nested_application_ids': list(context['snapshots']),
                  'allowed_runtime_tools': ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash'],
-                 'allowed_network_hosts': [], 'model_access': self.services.local_agents.connections.workflow_enabled(project_id), 'allowed_connector_operations': []}
+                 'allowed_network_hosts': [], 'model_access': True, 'allowed_connector_operations': []}
         creation = asyncio.create_task(runtime.create_run(workflow_id,
             WorkflowRunRequest(inputs=inputs, use_draft=True, workspace_path=str(workspace)),
             project_context=context, parent_task_id=parent_run_id, application_call_chain=call_chain,
@@ -389,7 +391,7 @@ class Projects:
                 workspace_path=str(self.workspace(project_id)), workspace_boundary=str(self.workspace(project_id)),
                 allowed_nested_application_ids=list(frozen),
                 allowed_runtime_tools=['Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash'],
-                allowed_network_hosts=[], model_access=self.services.local_agents.connections.workflow_enabled(project_id), allowed_connector_operations=[],
+                allowed_network_hosts=[], model_access=True, allowed_connector_operations=[],
                 project_context=await self.context(project_id, task['id'], 'tests'))
             await self.store.update_task(task['id'], status='succeeded' if report['passed'] else 'failed', outputs=report)
             return {**report, 'project_task_id': task['id']}

@@ -7,7 +7,6 @@ import KnowledgeResults, {type KnowledgeSearchResult} from './KnowledgeResults'
 
 type Knowledge = { knowledge_ref: string; name: string; revision: number; chunk_size: number; chunk_overlap: number; document_prefix: string; query_prefix: string; status: string; active_version: string; embedding_model: string; chunk_count: number; documents: { id: string; title: string; characters: number; source_path: string }[] }
 type Connection = { model?: string; base_url?: string; has_api_key?: boolean; runtime_enabled?: boolean }
-const ref = (node_id: string, ...path: string[]) => ({ $ref: { node_id, path } })
 
 export default function ProjectKnowledge({ projectId, canManage, onWorkflow, onFile }: {
   projectId: string; canManage: boolean; onWorkflow: (id: string) => void; onFile: (path: string) => void
@@ -70,15 +69,11 @@ export default function ProjectKnowledge({ projectId, canManage, onWorkflow, onF
     }) })
     setText(''); setTitle(''); setSource(''); setResult(undefined)
   }
-  async function createWorkflow() {
+  async function createWorkflow(mode: 'search' | 'answer') {
     if (!current) return
-    const member = await api<{id: string}>(base + '/members', {method: 'POST', body: JSON.stringify({name: current.name + ' · 检索'})})
+    const workflow = await api(base + `/knowledge/${selected}/workflow-definition`, {method: 'POST', body: JSON.stringify({mode, top_k: topK, minimum_score: minimum})})
+    const member = await api<{id: string}>(base + '/members', {method: 'POST', body: JSON.stringify({name: current.name + (mode === 'answer' ? ' · 引用问答' : ' · 检索')})})
     const draft = await api<{revision: number}>(`/api/v1/applications/${member.id}/draft`)
-    const workflow = {nodes: [
-      {id: 'start', type: 'start', title: '输入问题', config: {inputs: [{name: 'query', label: '问题', type: 'string', required: true}]}, position: {x: 40, y: 120}},
-      {id: 'search', type: 'knowledge_search', title: '知识检索', config: {knowledge_ref: selected, query: ref('$inputs', 'query'), top_k: topK, minimum_score: minimum}, position: {x: 340, y: 120}},
-      {id: 'end', type: 'end', title: '原文与出处', config: {outputs: {result: ref('search', 'output')}}, position: {x: 640, y: 120}},
-    ], edges: [{id: 'start-search', source: 'start', target: 'search'}, {id: 'search-end', source: 'search', target: 'end'}]}
     await api(base + `/workflows/${member.id}/draft`, {method: 'PUT', body: JSON.stringify({expected_revision: draft.revision, workflow})})
     onWorkflow(member.id)
   }
@@ -98,7 +93,9 @@ export default function ProjectKnowledge({ projectId, canManage, onWorkflow, onF
       <label>查询前缀<input aria-label="查询前缀" disabled={!!busy} value={queryPrefix} onChange={e => setQueryPrefix(e.target.value)} /></label>
     </div></details>
     <div className={styles.row}><button disabled={!!busy || !name || !reference || overlap >= size} onClick={() => void act('保存知识库', save)}>保存知识库配置</button>
-      <button disabled={!!busy || !current} onClick={() => void act('创建工作流', createWorkflow)}>创建检索工作流</button></div>
+      <button disabled={!!busy || !current} onClick={() => void act('创建工作流', () => createWorkflow('search'))}>创建检索工作流</button>
+      <button disabled={!!busy || !current} onClick={() => void act('创建工作流', () => createWorkflow('answer'))}>创建引用问答工作流</button></div>
+    <p>引用问答使用项目主模型回答，Embedding 负责检索；模型可以稍后配置。生成流程不会调用模型或启动任务。</p>
     <details><summary>Embedding 模型连接</summary>
       <p>使用独立的 OpenAI 兼容 embeddings 接口。更换模型或地址后需要重新建立索引；本地回环服务无需密钥。</p>
       {canManage ? <><div className={styles.row}>

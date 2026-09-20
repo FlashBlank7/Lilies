@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from .db import connect
 from .model_connections import ModelConnection
 from .models import utc_now
+from .knowledge_workflow import KnowledgeWorkflowOptions, knowledge_workflow
 from .project_store import ProjectConflict
 from .providers.openai_chat import _is_loopback
 
@@ -402,6 +403,11 @@ def register_knowledge_routes(router, services, invoke):
     @router.put('/knowledge/{knowledge_ref}')
     async def save(project_id: str, knowledge_ref: str, body: KnowledgeSettings):
         return await invoke(knowledge.save, project_id, knowledge_ref, body)
+
+    @router.post('/knowledge/{knowledge_ref}/workflow-definition')
+    async def definition(project_id: str, knowledge_ref: str, body: KnowledgeWorkflowOptions):
+        await invoke(knowledge.get, project_id, knowledge_ref)
+        return knowledge_workflow(knowledge_ref, body)
 
     @router.get('/knowledge/{knowledge_ref}')
     async def read(project_id: str, knowledge_ref: str):

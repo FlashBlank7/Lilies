@@ -35,10 +35,11 @@ export function ProjectTaskOutput({ projectId, task }: { projectId: string; task
     return files
   },new Map<string,Record<string,unknown>>()).values()]
   const knowledgeResults = results.filter(isKnowledgeSearchResult)
+  const knowledgeAnswer = knowledgeResults.length === 1 && typeof output.markdown === 'string' && isKnowledgeSearchResult((output.knowledge || {}) as Record<string, unknown>)
   const trials = task.mode==='training' && Array.isArray(output.trials) ? output.trials as {slot:number;model:string;status:string;metrics?:Record<string,number>;error?:string}[] : []
   return <>
-    <MarkdownDocument source={markdown} resolveLink={href => resolveProjectLink(projectId, href)} emptyLabel={['queued', 'running'].includes(task.status) ? '正在运行，结果会自动显示。' : '本次运行的输出见下方详情。'} />
-    {knowledgeResults.map((result, i) => <KnowledgeResults key={i} result={result} />)}
+    {!knowledgeAnswer && <MarkdownDocument source={markdown} resolveLink={href => resolveProjectLink(projectId, href)} emptyLabel={['queued', 'running'].includes(task.status) ? '正在运行，结果会自动显示。' : '本次运行的输出见下方详情。'} />}
+    {knowledgeResults.map((result, i) => <KnowledgeResults key={i} result={result} answer={knowledgeAnswer ? output.markdown as string : undefined} question={typeof output.question === 'string' ? output.question : undefined} />)}
     {!!trials.length && <table><thead><tr><th>模型</th><th>验证指标</th><th>结果</th></tr></thead><tbody>{trials.map(t=><tr key={t.slot}><td>{t.model}</td><td>{Object.entries(t.metrics||{}).map(([k,v])=>`${k}: ${Number(v).toPrecision(5)}`).join(' / ')}</td><td>{t.error|| (t.status==='completed'?'已完成':t.status)}</td></tr>)}</tbody></table>}
     {task.mode==='training' && typeof output.study_id==='string' && typeof output.id==='string' && <p><a download href={withFrontendToken(`/api/platform/api/v1/projects/${projectId}/modeling/studies/${encodeURIComponent(output.study_id)}/candidates/${encodeURIComponent(output.id)}/download`)}>下载模型与训练记录 ↓</a></p>}
     {predictions.map((result,i)=>{const rows=Array.isArray(result.preview)?result.preview.slice(0,20) as Record<string,unknown>[]:[];const columns=rows.length?Object.keys(rows[0]).slice(0,8):[]

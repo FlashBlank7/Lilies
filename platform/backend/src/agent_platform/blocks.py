@@ -2754,7 +2754,7 @@ def build_block_registry() -> BlockRegistry:
             ),
             EventSubscriptionTriggerConfig,
         ),
-        (_definition("llm", "LLM", "Make one provider-neutral model call.", "model", LLMConfig, inputs=[("input", ValueType.any)], outputs=[("text", ValueType.string), ("structured", ValueType.object)], retry=True, error_branch=True), LLMConfig),
+        (_definition("llm", "LLM", "Make one provider-neutral model call.", "model", LLMConfig, inputs=[("input", ValueType.any)], outputs=[("text", ValueType.string), ("structured", ValueType.object), ("usage", ValueType.object)], retry=True, error_branch=True), LLMConfig),
         (_definition(
             "claude_agent",
             "Claude Agent (Legacy)",
@@ -2995,7 +2995,7 @@ def build_block_registry() -> BlockRegistry:
                 'knowledge_search', 'Semantic Knowledge Search',
                 'Search the current project knowledge base with its configured embedding model. Save before configuration; runtime requires a ready index. Return exact source text and citations; connect context to an LLM for synthesis.',
                 'model', KnowledgeSearchConfig, inputs=[('input', ValueType.object)],
-                outputs=[('output', ValueType.object), ('results', ValueType.array), ('context', ValueType.string), ('version', ValueType.string)],
+                outputs=[('output', ValueType.object), ('results', ValueType.array), ('context', ValueType.string), ('version', ValueType.string), ('retrieved_count', ValueType.number)],
                 error_branch=True,
             ),
             KnowledgeSearchConfig,
