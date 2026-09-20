@@ -5,15 +5,15 @@
   "scripts": {
     "dev": "next dev --webpack",
     "dev:turbo": "next dev --turbopack",
-    "build": "next build",
-    "start": "next start",
+    "build": "next build && node scripts/prepare-standalone.mjs",
+    "start": "node .next/standalone/server.js",
     "lint": "tsc --noEmit",
     "test": "vitest run"
   },
   "dependencies": {
     "@xyflow/react": "^12.10.0",
     "lucide-react": "^0.468.0",
-    "next": "^16.0.0",
+    "next": "^16.3.5",
     "papaparse": "^5.7.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
@@ -30,9 +30,9 @@
     "@vitejs/plugin-react": "^6.0.5",
     "jsdom": "^30.0.1",
     "typescript": "^5.7.0",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.11"
   },
   "overrides": {
-    "postcss": "^8.5.10"
+    "postcss": "^8.5.28"
   }
 }
