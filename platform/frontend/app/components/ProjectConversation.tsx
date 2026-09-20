@@ -7,6 +7,7 @@ import { resolveProjectLink } from '@/lib/project-links'
 import { taskNames, type ProjectActivity as Activity, type ProjectTask, type ProjectMember, type ConversationFocus, type ProgressItem } from '@/lib/project-progress'
 import ProjectActivity from './ProjectActivity'
 import ModelConnectionPanel from './ModelConnectionPanel'
+import { useAccount } from './AuthBoundary'
 import ReadingDialog from './ReadingDialog'
 import ModelingPanel, { type ModelingContext } from './ModelingPanel'
 import { FileText, ArrowUpRight } from 'lucide-react'
@@ -21,9 +22,10 @@ type Session = {
   requirements: { status: string; document: string; revision: number }
 }
 
-export default function ProjectConversation({ id, projectName, items, tasks = [], members = [], focus, onUpdated, onSent, onTask, onWorkflow, onFeedback }: {
-  id: string; projectName?: string; tasks?: ProjectTask[]; members?: ProjectMember[]; onTask?: (id: string) => void; onWorkflow?: (id: string) => void; onFeedback?: (itemId: string, taskId: string) => void; items: ProgressItem[]; focus?: ConversationFocus; onUpdated: () => unknown; onSent: () => void
+export default function ProjectConversation({ id, projectName, canConfigureModel = true, items, tasks = [], members = [], focus, onUpdated, onSent, onTask, onWorkflow, onFeedback }: {
+  id: string; projectName?: string; canConfigureModel?: boolean; tasks?: ProjectTask[]; members?: ProjectMember[]; onTask?: (id: string) => void; onWorkflow?: (id: string) => void; onFeedback?: (itemId: string, taskId: string) => void; items: ProgressItem[]; focus?: ConversationFocus; onUpdated: () => unknown; onSent: () => void
 }) {
+  const account = useAccount()
   const base = '/api/v1/projects/' + id
   const [reader, setReader] = useState<{ title: string; text: string } | null>(null)
   const [modelingContext, setModelingContext] = useState<ModelingContext | null>(null)
@@ -39,7 +41,7 @@ export default function ProjectConversation({ id, projectName, items, tasks = []
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [connectionError, setConnectionError] = useState('')
-  const draftKey = 'lilies:project:' + id + ':draft'
+  const draftKey = (account ? 'lilies:user:' + account.id + ':project:' : 'lilies:project:') + id + ':draft'
   const restored = useRef(false)
   const cursor = useRef('')
   const revision = useRef(-1)
@@ -108,7 +110,7 @@ export default function ProjectConversation({ id, projectName, items, tasks = []
   return <section className={styles.conversation} aria-label="项目统筹对话">
     <div className={styles.conversationHeader}><div><h2>{projectName || '和统筹继续沟通'}</h2><small>{running ? activeItem ? '正在处理：' + activeItem.title : '统筹正在处理你的请求' : '查看进度、试用已有能力，或告诉我哪里需要调整'}</small></div>
       {running && <button disabled={busy} onClick={() => void act(() => api(base + '/agent-session/stop', { method: 'POST' }))}>停止</button>}</div>
-    <ModelConnectionPanel base={base} connected={Boolean(session?.provider)} running={Boolean(running)} onSaved={refresh} />
+    {canConfigureModel ? <ModelConnectionPanel base={base} connected={Boolean(session?.provider)} running={Boolean(running)} onSaved={refresh} /> : !session?.provider && <p>请联系项目负责人配置模型连接，随后即可使用项目对话。</p>}
     {session?.provider && session.provider !== 'api' && <p>此项目的旧会话使用外部 Agent。请在模型设置中连接模型 API，由 Lilies 继续处理；原有记录会保留。</p>}
     {session?.requirements?.document && <div className={styles.requirements}><FileText size={14} />
       <button onClick={() => setReader({ title: '当前需求文档', text: session.requirements.document })}>{session.requirements.status === 'confirmed' ? '当前需求文档' : '核对需求理解'}</button>

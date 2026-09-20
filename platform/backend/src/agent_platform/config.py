@@ -16,6 +16,9 @@ class Settings(BaseSettings):
 
     app_name: str = "Agent Platform"
     api_token: str = "change-me"
+    auth_session_days: int = Field(default=7, ge=1, le=90)
+    auth_register_per_hour: int = Field(default=20, ge=1)
+    auth_login_failures_per_15m: int = Field(default=10, ge=1)
     # 绑定地址读 API_HOST 优先；泛用 HOST 常被外壳污染（conda 会设
     # HOST=x86_64-conda-linux-gnu），解析不了的值一律回落回环，服务不裸奔也不崩。
     host: str = Field(default="127.0.0.1", validation_alias=AliasChoices("API_HOST", "HOST"))

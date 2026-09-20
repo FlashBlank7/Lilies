@@ -2,7 +2,7 @@
 import zipfile
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, Query
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from .local_agent_api import AgentToolCall, SelectAgent
@@ -22,6 +22,11 @@ class NewProject(Body):
     name: str = Field(min_length=1, max_length=100)
     description: str = Field(default='', max_length=1000)
     requirement: str = Field(default='', max_length=28000)
+
+
+class AccessMember(Body):
+    name: str = Field(min_length=1, max_length=40)
+    role: Literal['owner', 'collaborator'] = 'collaborator'
 
 
 class NewMember(Body):
@@ -104,21 +109,32 @@ def project_router(services, require_token):
     scoped = APIRouter(prefix='/projects/{project_id}', dependencies=[Depends(require_project)])
 
     @router.get('/projects')
-    async def list_projects():
-        return await projects.store.list()
+    async def list_projects(request: Request):
+        items = []
+        for project in await projects.store.list():
+            role = await services.accounts.project_role(request.state.user, project['id'])
+            if role:
+                items.append({**project, 'access_role': role})
+        return items
 
     @router.post('/projects', status_code=201)
-    async def create_project(body: NewProject):
-        return await invoke(projects.create, **body.model_dump())
+    async def create_project(body: NewProject, request: Request):
+        project = await invoke(projects.create, **body.model_dump())
+        if request.state.user['id'] != 'root':
+            await services.accounts.add_member(project['id'], request.state.user['id'], 'owner')
+        return {**project, 'access_role': 'owner' if request.state.user['role'] != 'admin' else 'admin'}
 
     @router.post('/projects/requirement-packages/import', status_code=201)
-    async def import_project(file: UploadFile = File(...)):
+    async def import_project(request: Request, file: UploadFile = File(...)):
         try:
             if not (file.filename or '').lower().endswith('.zip'):
                 raise ValueError('请选择 ZIP 格式的需求包')
             result = await import_package(file.file, services.settings.workspace_root, services.workflow_store)
             app = result['application']
-            return {**result, 'project': await projects.adopt_new_application(app['id'], app['name'], app['description'])}
+            project = await projects.adopt_new_application(app['id'], app['name'], app['description'])
+            if request.state.user['id'] != 'root':
+                await services.accounts.add_member(project['id'], request.state.user['id'], 'owner')
+            return {**result, 'project': project}
         except (ValueError, zipfile.BadZipFile, NotImplementedError) as e:
             raise HTTPException(422, str(e)) from e
         finally:
@@ -129,8 +145,31 @@ def project_router(services, require_token):
         return {'project_id': await projects.store.membership(application_id)}
 
     @scoped.get('')
-    async def get_project(project_id: str):
-        return await projects.store.get(project_id)
+    async def get_project(project_id: str, request: Request):
+        return {**await projects.store.get(project_id),
+                'access_role': await services.accounts.project_role(request.state.user, project_id)}
+
+    @scoped.get('/access-members')
+    async def access_members(project_id: str):
+        return await services.accounts.members(project_id)
+
+    @scoped.post('/access-members')
+    async def add_access_member(project_id: str, body: AccessMember, request: Request):
+        await services.accounts.require_project(request.state.user, project_id, owner=True)
+        user = await services.storage.user_by_name(body.name.strip())
+        if not user or user['status'] != 'active':
+            raise HTTPException(404, '未找到可加入项目的账号，请核对用户名')
+        # Adding an existing owner as a collaborator must not remove ownership.
+        if body.role == 'collaborator' and await services.accounts.project_role(user, project_id) == 'owner':
+            raise HTTPException(409, '请通过转交负责人操作修改项目负责人')
+        await services.accounts.add_member(project_id, user['id'], body.role)
+        return await services.accounts.members(project_id)
+
+    @scoped.delete('/access-members/{user_id}')
+    async def remove_access_member(project_id: str, user_id: str, request: Request):
+        await services.accounts.require_project(request.state.user, project_id, owner=True)
+        await services.accounts.remove_member(project_id, user_id)
+        return {'ok': True}
 
     @scoped.get('/members')
     async def list_members(project_id: str):
@@ -202,8 +241,9 @@ def project_router(services, require_token):
         return await invoke(add_material, services, project_id, file)
 
     @scoped.post('/materials/copy', status_code=201)
-    async def copy_material(project_id: str, body: CopyMaterial):
+    async def copy_material(project_id: str, body: CopyMaterial, request: Request):
         from .project_materials import copy_material as copy
+        await services.accounts.require_project(request.state.user, body.source_project_id)
         return await invoke(copy, services, project_id, body.source_project_id, body.source_path)
 
     @scoped.get('/requirements')
@@ -239,8 +279,9 @@ def project_router(services, require_token):
             raise HTTPException(422, str(error)) from error
 
     @scoped.post('/model-connection/copy')
-    async def copy_model_connection(project_id: str, body: CopyModelConnection):
+    async def copy_model_connection(project_id: str, body: CopyModelConnection, request: Request):
         await require_project(body.source_project_id)
+        await services.accounts.require_project(request.state.user, body.source_project_id, owner=True)
         connection = manager.connections.load(body.source_project_id, body.source_role or body.role)
         if not connection or connection.provider != 'api':
             raise HTTPException(422, '所选项目尚未配置此用途的 API 模型')

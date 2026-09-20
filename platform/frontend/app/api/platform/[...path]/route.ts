@@ -1,6 +1,6 @@
 import fs from 'fs'
 import path from 'path'
-import { NextRequest } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 
 export const dynamic = 'force-dynamic'
 
@@ -30,14 +30,12 @@ function loadLocalEnv() {
     try {
       if (fs.existsSync(candidate)) {
         const text = fs.readFileSync(candidate, 'utf-8')
-        const token = parseEnvValue(text, 'API_TOKEN')
         const platformUrl = parseEnvValue(text, 'AGENT_PLATFORM_URL')
-        if (token) localEnvCache.set('API_TOKEN', token)
         if (platformUrl) localEnvCache.set('AGENT_PLATFORM_URL', platformUrl)
-        if (token || platformUrl) return
+        if (platformUrl) return
       }
     } catch {
-      // Local development auth should fall through to explicit browser token or process env.
+      // The configured backend URL takes precedence over local development defaults.
     }
     const parent = path.dirname(current)
     if (parent === current) break
@@ -54,9 +52,7 @@ function platformBaseUrl() {
   return (process.env.AGENT_PLATFORM_URL || localEnvValue('AGENT_PLATFORM_URL') || 'http://127.0.0.1:8000').replace(/\/$/, '')
 }
 
-function proxyApiToken(browserToken: string | null) {
-  return browserToken || process.env.API_TOKEN || localEnvValue('API_TOKEN') || 'change-me'
-}
+const sessionCookie = 'lilies_session'
 
 const LOCAL_LILIES_QUERY_SECRET_KEYS = new Set([
   'access_token',
@@ -100,14 +96,25 @@ async function proxy(request: NextRequest, context: { params: Promise<{ path: st
       headers: { 'content-type': 'application/json', 'cache-control': 'no-store' },
     })
   }
-  const browserToken = request.headers.get('x-lilies-platform-api-token')
-    || request.headers.get('x-agent-platform-token')
-    || searchParams.get('frontend_token')
-  searchParams.delete('frontend_token')
+  const endpoint = '/' + path.join('/')
+  const publicAuth = ['/api/v1/auth/login', '/api/v1/auth/register'].includes(endpoint)
+  const origin = request.headers.get('origin')
+  const write = !['GET', 'HEAD'].includes(request.method)
+  const protocol = request.headers.get('x-forwarded-proto') || request.nextUrl.protocol.replace(':', '')
+  let sameOrigin = false
+  try { sameOrigin = Boolean(origin && new URL(origin).origin === `${protocol}://${request.headers.get('host')}`) } catch { /* Invalid origins are rejected. */ }
+  if (write && !sameOrigin) {
+    return NextResponse.json({ detail: '请求来源不正确，请从平台页面重试' }, { status: 403 })
+  }
+  const token = request.cookies.get(sessionCookie)?.value
+  if (!publicAuth && !token) {
+    return NextResponse.json({ detail: '请先登录' }, { status: 401 })
+  }
+  for (const key of ['frontend_token', 'token', 'access_token']) searchParams.delete(key)
   const query = searchParams.toString()
   const target = `${base}/${path.join('/')}${query ? `?${query}` : ''}`
   const headers = new Headers()
-  headers.set('Authorization', `Bearer ${proxyApiToken(browserToken)}`)
+  if (token && !publicAuth) headers.set('Authorization', `Bearer ${token}`)
   const contentType = request.headers.get('content-type')
   if (contentType) headers.set('content-type', contentType)
   const accept = request.headers.get('accept')
@@ -126,7 +133,22 @@ async function proxy(request: NextRequest, context: { params: Promise<{ path: st
   if (retryAfter) responseHeaders.set('retry-after', retryAfter)
   const responseLastEventId = response.headers.get('last-event-id')
   if (responseLastEventId) responseHeaders.set('last-event-id', responseLastEventId)
-  return new Response(response.body, { status: response.status, headers: responseHeaders })
+  if (publicAuth && response.ok) {
+    const result = await response.json()
+    const outgoing = NextResponse.json({ user: result.user }, { status: response.status, headers: responseHeaders })
+    outgoing.cookies.set(sessionCookie, result.token, {
+      httpOnly: true, sameSite: 'lax', path: '/',
+      secure: request.nextUrl.protocol === 'https:' || request.headers.get('x-forwarded-proto') === 'https',
+      expires: new Date(result.expires_at * 1000),
+    })
+    return outgoing
+  }
+  const outgoing = new NextResponse(response.body, { status: response.status, headers: responseHeaders })
+  // A late 401 from an older request must not erase a newly established session.
+  if (endpoint === '/api/v1/auth/logout' || (endpoint === '/api/v1/auth/password' && response.ok)) {
+    outgoing.cookies.set(sessionCookie, '', { httpOnly: true, sameSite: 'lax', path: '/', maxAge: 0 })
+  }
+  return outgoing
 }
 
 export const GET = proxy

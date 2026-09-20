@@ -34,6 +34,8 @@ def client(tmp_path: Path):
                         data_dir=tmp_path / "data",
                         workspace_root=tmp_path / "workspaces")
     with TestClient(create_app(settings, SlowBuilderProvider())) as c:
+        # v0.6: legacy link behavior is exercised by an authenticated caller.
+        c.headers["Authorization"] = "Bearer workflow-test"
         yield c
 
 

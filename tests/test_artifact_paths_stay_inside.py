@@ -62,6 +62,8 @@ def setup(tmp_path: Path):
 
     app = create_app(settings, SlowBuilderProvider())
     with TestClient(app) as client:
+        # v0.6: legacy link behavior is exercised by an authenticated caller.
+        client.headers["Authorization"] = "Bearer workflow-test"
         app_id = client.post("/api/v1/applications", headers=headers(),
                              json={"name": "产物越界测试",
                                    "requirement": "验证产物下载不越界"},

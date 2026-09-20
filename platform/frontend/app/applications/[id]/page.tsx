@@ -1,5 +1,6 @@
 'use client'
 
+import { useAccount } from '@/app/components/AuthBoundary'
 import '@xyflow/react/dist/style.css'
 import Link from 'next/link'
 import { WorkflowValueField, WorkflowObjectFields, WorkflowInputFields } from '@/app/components/WorkflowValueField'
@@ -918,6 +919,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   const [publicationDecision, setPublicationDecision] = useState<PublicationDecision | null>(null)
   const [publicationBusy, setPublicationBusy] = useState(false)
   const [testReport, setTestReport] = useState<Record<string, unknown> | null>(null)
+  const account = useAccount()
   const [capabilityModules, setCapabilityModules] = useState<CapabilityModule[]>([])
   const [capabilityModulesLoading, setCapabilityModulesLoading] = useState(false)
   const [capabilityModulesError, setCapabilityModulesError] = useState('')
@@ -1177,6 +1179,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   }, [refresh])
 
   const refreshCapabilityModules = useCallback(async () => {
+    if (account?.role !== 'admin') { setCapabilityModules([]); return [] }
     setCapabilityModulesLoading(true)
     setCapabilityModulesError('')
     try {
@@ -1191,7 +1194,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     } finally {
       setCapabilityModulesLoading(false)
     }
-  }, [id])
+  }, [id, account?.role])
 
   useEffect(() => {
     if (initialLoadStartedRef.current) return

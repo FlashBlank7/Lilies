@@ -29,7 +29,7 @@ class ArchivedCannotRunTest(unittest.TestCase):
                                        scheduler_poll_seconds=3600))
 
     def _post(self, application: dict):
-        client = TestClient(self.app)
+        client = TestClient(self.app, headers={"Authorization": "Bearer run-test"})
         with client:
             services = self.app.state.services
             services.workflow_store.verify_access_code = AsyncMock(return_value=True)
@@ -80,7 +80,7 @@ class ArchivedCannotRunTest(unittest.TestCase):
         create_run.assert_not_awaited()      # 钱一分没花
 
     def test_missing_application_is_404_not_409(self):
-        client = TestClient(self.app)
+        client = TestClient(self.app, headers={"Authorization": "Bearer run-test"})
         with client:
             services = self.app.state.services
             services.workflow_store.verify_access_code = AsyncMock(return_value=True)

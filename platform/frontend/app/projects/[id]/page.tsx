@@ -16,13 +16,14 @@ import ProjectMaterials from '@/app/components/ProjectMaterials'
 import ProjectRunPanel, { ProjectTaskOutput, ProjectRunEvents } from '@/app/components/ProjectRunPanel'
 import ModelConnectionPanel from '@/app/components/ModelConnectionPanel'
 import ProjectCapabilities from '@/app/components/ProjectCapabilities'
+import ProjectAccessMembers from '@/app/components/ProjectAccessMembers'
 import DeveloperTools from './DeveloperTools'
 import WorkflowComposer from '@/app/components/WorkflowComposer'
 import ProjectModels from '@/app/components/ProjectModels'
 import ProjectSkills from '@/app/components/ProjectSkills'
 import styles from '../projects.module.css'
 
-type Project = { id: string; name: string; members: ProjectMember[]; agent_modules_enabled: boolean }
+type Project = { id: string; name: string; members: ProjectMember[]; agent_modules_enabled: boolean; access_role: 'admin' | 'owner' | 'collaborator' }
 const emptyProgress: ProjectProgress = { revision: 0, value: { goal: '', summary: '', items: [] }, updated_at: null }
 
 export default function ProjectPage({ params }: { params: Promise<{ id: string }> }) {
@@ -118,14 +119,19 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
     }}>
     <header className={styles.header}><div><span className={styles.eyebrow}>项目工作空间</span><h1>{project?.name || '正在读取项目…'}</h1>
       <p>独立解决任务，随时生成和使用工作流。</p></div></header>
-    {tab === 'settings' && project && <section className={styles.panel}><ModelConnectionPanel base={base} connected={true} running={false} onSaved={refresh} /><ModelConnectionPanel base={base} role="vision" connected={false} running={false} onSaved={refresh} /><ProjectCapabilities projectId={id} enabled={Boolean(project.agent_modules_enabled)} onSaved={() => { setEditingFlow(false); void refresh() }} /></section>}
+    {tab === 'settings' && project && <section className={styles.panel}>
+      <ProjectAccessMembers projectId={id} canManage={project.access_role !== 'collaborator'} onChanged={() => void refresh()} />
+      {project.access_role !== 'collaborator' && <><ModelConnectionPanel base={base} connected={true} running={false} onSaved={refresh} /><ModelConnectionPanel base={base} role="vision" connected={false} running={false} onSaved={refresh} /></>}
+      {project.access_role === 'collaborator' && <p>模型连接由项目负责人配置。你可以在工作流中使用项目已配置的模型。</p>}
+      {project.access_role === 'admin' && <ProjectCapabilities projectId={id} enabled={Boolean(project.agent_modules_enabled)} onSaved={() => { setEditingFlow(false); void refresh() }} />}
+    </section>}
     {error && <p role="alert" className={styles.error}>{error}</p>}
     {tab === 'models' && <ProjectModels projectId={id} onWorkflow={workflow => { void refresh(); void showFlow(undefined, workflow); setEditingFlow(true) }} onTask={taskId => { void refresh(); void showTask(taskId) }} onTalk={message => talk(undefined, message)} />}
     <div hidden={tab !== 'overview' && tab !== 'flow'}><WorkflowComposer projectId={id} workflowId={tab === 'overview' ? '' : workflowId} onChanged={workflow => { void refresh(); void showFlow(undefined, workflow); setEditingFlow(true) }} /></div>
     {tab === 'run' && project && <ProjectRunPanel key={runWorkflowId} projectId={id} members={project.members} initialWorkflowId={runWorkflowId} onTask={updateManualTask} />}
     <div hidden={tab !== 'overview'} className={styles.projectHome}>
       <div><div className={styles.mobileProgress}><span>{ready.length} 项可试用 · {questions.length} 个待回答问题</span><button onClick={() => setProgressOpen(true)}>查看进展</button></div>
-        <ProjectConversation id={id} projectName={project?.name} items={items} tasks={tasks} members={project?.members} focus={focus} onUpdated={refresh} onSent={clearFocus} onTask={taskId => void showTask(taskId)} onWorkflow={workflow => void showFlow(undefined, workflow)} onFeedback={(itemId, taskId) => talk(items.find(i => i.id === itemId), '', taskId)} />
+        <ProjectConversation id={id} canConfigureModel={Boolean(project && project.access_role !== 'collaborator')} projectName={project?.name} items={items} tasks={tasks} members={project?.members} focus={focus} onUpdated={refresh} onSent={clearFocus} onTask={taskId => void showTask(taskId)} onWorkflow={workflow => void showFlow(undefined, workflow)} onFeedback={(itemId, taskId) => talk(items.find(i => i.id === itemId), '', taskId)} />
       </div>
       <aside className={styles.progressRail} data-open={progressOpen} aria-label="项目进展摘要">
         <div className={styles.mobileProgress}><strong>项目进展</strong><button aria-label="关闭进展面板" onClick={() => setProgressOpen(false)}><X size={16} /></button></div>

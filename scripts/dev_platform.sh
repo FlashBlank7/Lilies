@@ -47,7 +47,7 @@ API_CONNECT_URL="http://$API_CONNECT_AUTHORITY:$API_PORT"
 STUDIO_PLATFORM_URL="${STUDIO_PLATFORM_URL:-$API_CONNECT_URL}"
 
 if [[ "${1:-}" == "--check-env" ]]; then
-  [[ -n "${API_TOKEN:-}" ]] && echo "API_TOKEN ok" || echo "API_TOKEN missing"
+  [[ -n "${API_TOKEN:-}" ]] && echo "API_TOKEN ok" || echo "API_TOKEN not configured (optional service integration)"
   echo "Studio proxy target: $STUDIO_PLATFORM_URL"
   command -v codex >/dev/null 2>&1 && echo "Local Codex found (login checked when connecting)" || echo "Local Codex not found on PATH; select its executable in the project"
   echo "MODELING_IMAGE ${MODELING_IMAGE:-lilies-modeling:20260914} (configured; build separately if missing)"
@@ -60,12 +60,6 @@ if [[ "${1:-}" == "--check-env" ]]; then
       ;;
   esac
   exit 0
-fi
-
-if [[ -z "${API_TOKEN:-}" ]]; then
-  echo "API_TOKEN is missing. Edit $ROOT/.env before starting." >&2
-  echo "Run ./scripts/dev_platform.sh --check-env to verify dotenv loading." >&2
-  exit 1
 fi
 
 ensure_node_tools() {
@@ -191,7 +185,7 @@ echo "Starting Studio on http://$WEB_HOST:$WEB_PORT"
 echo "Studio proxy target: $STUDIO_PLATFORM_URL"
 (
   cd platform/frontend
-  AGENT_PLATFORM_URL="$STUDIO_PLATFORM_URL" API_TOKEN="$API_TOKEN" npm run dev -- --hostname "$WEB_HOST" --port "$WEB_PORT"
+  env -u API_TOKEN AGENT_PLATFORM_URL="$STUDIO_PLATFORM_URL" npm run dev -- --hostname "$WEB_HOST" --port "$WEB_PORT"
 ) &
 
 wait

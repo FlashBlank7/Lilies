@@ -66,7 +66,6 @@ GET     /api/v1/forecast-models/{model_id}/versions/{version}                   
 GET     /api/v1/health-report                                                            workflow_health_report
 GET     /api/v1/knowledge-indexes                                                        list_knowledge_indexes
 GET     /api/v1/knowledge-indexes/{index_name}                                           get_knowledge_index
-GET     /api/v1/me                                                                       whoami
 GET     /api/v1/model-deployments/{deployment_name}                                      get_tabular_model_deployment
 GET     /api/v1/module-protocol/validate                                                 validate_module_output
 GET     /api/v1/orchestration/advise                                                     orchestration_advise
@@ -107,7 +106,6 @@ GET     /api/v1/use/{application_id}/definition                                 
 GET     /api/v1/use/{application_id}/runs/{run_id}                                       use_get_run
 GET     /api/v1/use/{application_id}/runs/{run_id}/artifacts                             use_list_artifacts
 GET     /api/v1/use/{application_id}/runs/{run_id}/artifacts/{artifact_path:path}        use_download_artifact
-GET     /api/v1/users                                                                    list_users
 GET     /dashboard                                                                       dashboard
 GET     /debug                                                                           debug_page
 GET     /dingtalk-icon-192.png                                                           dingtalk_icon_192
@@ -155,8 +153,6 @@ POST    /api/v1/applications/{application_id}/versions/{version}/restore        
 POST    /api/v1/assistant/agent                                                          assistant_agent_chat
 POST    /api/v1/assistant/agent/stream                                                   assistant_agent_stream
 POST    /api/v1/assistant/chat                                                           assistant_chat
-POST    /api/v1/auth/login                                                               auth_login
-POST    /api/v1/auth/register                                                            auth_register
 POST    /api/v1/builds/{build_id}/cancel                                                 cancel_build
 POST    /api/v1/builds/{build_id}/messages                                               post_build_message
 POST    /api/v1/builds/{build_id}/resume                                                 resume_build
@@ -227,8 +223,6 @@ POST    /api/v1/templates/{name}/rate                                           
 POST    /api/v1/use/{application_id}/parse-table                                         use_parse_table
 POST    /api/v1/use/{application_id}/runs                                                use_create_run
 POST    /api/v1/use/{application_id}/runs/{run_id}/resume                                use_resume_run
-POST    /api/v1/users                                                                    create_user
-POST    /api/v1/users/{user_id}/status                                                   set_user_status
 POST    /v1/agent-generations                                                            generate_agent
 POST    /v1/agents/{agent_id}/versions/{version}/publish                                 publish_agent
 POST    /v1/sessions                                                                     create_session

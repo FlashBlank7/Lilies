@@ -1140,21 +1140,12 @@ export class PlatformApiError extends Error {
   }
 }
 
-export function getClientToken() {
-  if (typeof window === 'undefined') return ''
-  return window.localStorage.getItem(tokenKey) || ''
-}
-
-export function saveClientToken(token: string) {
-  if (typeof window === 'undefined') return
-  const value = token.trim()
-  if (value) window.localStorage.setItem(tokenKey, value)
-  else window.localStorage.removeItem(tokenKey)
-}
-
+// Older components still call these helpers; browser authentication is now
+// exclusively the HttpOnly session cookie. Never retain pasted service tokens.
+export function getClientToken() { return '' }
+export function saveClientToken(_token: string) { clearClientToken() }
 export function clearClientToken() {
-  if (typeof window === 'undefined') return
-  window.localStorage.removeItem(tokenKey)
+  if (typeof window !== 'undefined') window.localStorage.removeItem(tokenKey)
 }
 
 export function isAuthError(error: unknown) {
@@ -1164,12 +1155,7 @@ export function isAuthError(error: unknown) {
   return String(error).includes('401') || String(error).toLowerCase().includes('invalid api token')
 }
 
-export function withFrontendToken(path: string) {
-  const token = getClientToken()
-  if (!token) return path
-  const separator = path.includes('?') ? '&' : '?'
-  return `${path}${separator}frontend_token=${encodeURIComponent(token)}`
-}
+export function withFrontendToken(path: string) { return path }
 
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const token = getClientToken()
@@ -1185,7 +1171,14 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   })
   if (!response.ok) {
     const body = parseApiErrorBody(await response.text())
+    if (response.status === 401 && typeof window !== 'undefined' && !path.startsWith('/api/v1/auth/')) window.dispatchEvent(new Event('lilies:unauthorized'))
     throw new PlatformApiError(response.status, response.statusText, body)
+  }
+  if (typeof window !== 'undefined' && typeof BroadcastChannel !== 'undefined'
+      && ['/api/v1/auth/login', '/api/v1/auth/register', '/api/v1/auth/logout', '/api/v1/auth/password'].includes(path)) {
+    const channel = new BroadcastChannel('lilies-account')
+    channel.postMessage('changed')
+    channel.close()
   }
   return response.json() as Promise<T>
 }

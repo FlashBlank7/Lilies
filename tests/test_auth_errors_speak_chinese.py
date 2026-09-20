@@ -40,7 +40,7 @@ def test_no_token_says_so_in_chinese(client):
     response = client.get("/api/v1/overview")
     assert response.status_code == 401
     detail = response.json()["detail"]
-    assert "令牌" in detail, detail
+    assert "登录" in detail, detail
     assert not ENGLISH_SENTENCE.search(detail), detail
 
 
@@ -50,7 +50,7 @@ def test_a_wrong_token_says_something_different(client):
     wrong = client.get("/api/v1/overview",
                        headers={"Authorization": "Bearer wrong-token-1234"}).json()["detail"]
     assert missing != wrong
-    assert "没带" in missing
+    assert "先登录" in missing
     assert "失效" in wrong or "不对" in wrong
 
 
@@ -59,7 +59,7 @@ def test_a_wrong_token_is_chinese_too(client):
                           headers={"Authorization": "Bearer wrong-token-1234"})
     assert response.status_code == 401
     detail = response.json()["detail"]
-    assert "令牌" in detail and not ENGLISH_SENTENCE.search(detail), detail
+    assert "登录" in detail and not ENGLISH_SENTENCE.search(detail), detail
 
 
 def test_the_right_token_still_gets_in(client):
@@ -78,7 +78,7 @@ def test_the_client_would_show_the_chinese_sentence(client):
     assert '"detail"' in body
     detail = client.get("/api/v1/overview").json()["detail"]
     assert isinstance(detail, str), "detail 不是字符串的话，客户端会印一坨 JSON"
-    assert "令牌" in detail
+    assert "登录" in detail
 
 
 def _details(src_text: str) -> list[str]:

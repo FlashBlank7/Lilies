@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { api, isAuthError, saveClientToken } from '@/lib/platform'
+import { api, isAuthError } from '@/lib/platform'
 import RequirementPackageImport from '@/app/components/RequirementPackageImport'
 import AppShell from '@/app/components/AppShell'
 import ReadingDialog from '@/app/components/ReadingDialog'
@@ -20,7 +20,6 @@ export default function Projects() {
   const [busy, setBusy] = useState(false)
   const [loading, setLoading] = useState(true)
   const [authRequired, setAuthRequired] = useState(false)
-  const [token, setToken] = useState('')
   const [search, setSearch] = useState('')
   const [dialog, setDialog] = useState<'new' | 'import' | null>(null)
   const refresh = useCallback(async () => {
@@ -42,10 +41,7 @@ export default function Projects() {
   return <AppShell><main className={`${styles.page} ${styles.projectIndex}`}>
     <header className={styles.header}><div><span className={styles.eyebrow}>你的工作空间</span><h1>打开项目</h1><p>从想法到可以使用的工作流，在项目里一起推进。</p></div>
       <div className={styles.actions}><button onClick={() => setDialog('import')}><Upload size={16} />导入需求包</button><button className={styles.primary} onClick={() => setDialog('new')}><Plus size={17} />打开新项目</button></div></header>
-    {authRequired && <form className={styles.panel} onSubmit={e => { e.preventDefault(); saveClientToken(token); void refresh() }}>
-      <label>访问令牌<input type="password" value={token} onChange={e => setToken(e.target.value)} autoComplete="off" /></label>
-      <button disabled={loading || !token.trim()}>连接平台</button>
-    </form>}
+    {authRequired && <p role="alert">登录已失效，<Link href="/login">请重新登录</Link>。</p>}
     {dialog === 'new' && <ReadingDialog title="打开新项目" onClose={() => setDialog(null)}><section aria-label="打开新项目"><p>先给项目起个名字，打开后再说明需求或补充资料。</p>
       <form className={styles.actions} onSubmit={e => { e.preventDefault(); void create() }}><input aria-label="新项目名称" placeholder="例如：库存分配改进" maxLength={100} value={name} onChange={e => setName(e.target.value)} />
         <button className={styles.primary} disabled={busy || authRequired || !name.trim()}>{busy ? '正在打开…' : '创建并打开'}</button></form>

@@ -125,14 +125,9 @@ def test_local_start_does_not_require_removed_bridges_or_provider_key(tmp_path: 
     result = subprocess.run(['bash', str(script)], cwd=tmp_path, env=environment,
                             capture_output=True, text=True, timeout=10)
     assert 'test-token' not in result.stdout + result.stderr
-    if with_token:
-        assert result.returncode == 0, result.stderr
-        assert 'web:http://127.0.0.1:8123' in log.read_text()
-        assert 'api:agent_platform.api:app --host 127.0.0.1 --port 8123' in log.read_text()
-    else:
-        assert result.returncode == 1
-        assert 'API_TOKEN is missing' in result.stderr
-        assert not log.exists()
+    assert result.returncode == 0, result.stderr
+    assert 'web:http://127.0.0.1:8123' in log.read_text()
+    assert 'api:agent_platform.api:app --host 127.0.0.1 --port 8123' in log.read_text()
 
 
 def test_example_configuration_keeps_provider_egress_closed(tmp_path: Path, monkeypatch) -> None:

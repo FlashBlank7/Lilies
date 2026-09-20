@@ -87,6 +87,8 @@ class OwnerEndpointUsesTheFilterTest(unittest.TestCase):
                                   workspace_root=root / "w",
                                   scheduler_poll_seconds=3600))
         with TestClient(app) as client:
+            # v0.6: legacy link behavior is exercised by an authenticated caller.
+            client.headers["Authorization"] = "Bearer owner-test"
             services = app.state.services
             services.workflow_store.verify_owner_code = AsyncMock(return_value=True)
             services.workflow_store.list_builds = AsyncMock(return_value=[{"id": "b1"}])
