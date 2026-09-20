@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import hmac
+import ipaddress
 import secrets
 import sqlite3
 import time
@@ -249,6 +250,21 @@ class UserStatus(BaseModel):
     status: str = Field(pattern='^(active|disabled)$')
 
 
+def auth_client_address(request: Request, settings) -> str:
+    """Only a configured ingress may supply an address for auth rate limits."""
+    secret = settings.auth_proxy_secret
+    supplied = request.headers.get('x-lilies-proxy-key', '')
+    if secret and hmac.compare_digest(secret.encode(), supplied.encode()):
+        raw = request.headers.get('x-lilies-client-ip', '')
+        try:
+            if '%' not in raw:
+                address = ipaddress.ip_address(raw)
+                return str(getattr(address, 'ipv4_mapped', None) or address)
+        except ValueError:
+            pass
+    return request.client.host if request.client else 'unknown'
+
+
 def account_router(accounts: Accounts, require_token):
     router = APIRouter(prefix='/api/v1')
 
@@ -258,14 +274,14 @@ def account_router(accounts: Accounts, require_token):
 
     @router.post('/auth/register', status_code=201)
     async def register(body: Credentials, request: Request):
-        address = request.client.host if request.client else 'unknown'
+        address = auth_client_address(request, accounts.settings)
         await accounts.limit('register', address, accounts.settings.auth_register_per_hour, 3600)
         return await accounts.issue(await accounts.create(body.name, body.password.get_secret_value()))
 
     @router.post('/auth/login')
     async def login(body: Credentials, request: Request):
         name = body.name.strip()
-        address = request.client.host if request.client else 'unknown'
+        address = auth_client_address(request, accounts.settings)
         key = token_hash(address + '\0' + name)
         await accounts.limit('login', key, accounts.settings.auth_login_failures_per_15m, 900)
         user = await accounts.storage.user_by_name(name)

@@ -1,5 +1,7 @@
 import fs from 'fs'
 import path from 'path'
+import { timingSafeEqual } from 'node:crypto'
+import { isIP } from 'node:net'
 import { NextRequest, NextResponse } from 'next/server'
 
 export const dynamic = 'force-dynamic'
@@ -114,6 +116,18 @@ async function proxy(request: NextRequest, context: { params: Promise<{ path: st
   const query = searchParams.toString()
   const target = `${base}/${path.join('/')}${query ? `?${query}` : ''}`
   const headers = new Headers()
+  // The ingress overwrites both headers. Browser-supplied forwarding headers
+  // never become rate-limit identities without the deployment-only key.
+  if (publicAuth) {
+    const secret = process.env.AUTH_PROXY_SECRET || ''
+    const supplied = request.headers.get('x-lilies-proxy-key') || ''
+    const address = request.headers.get('x-lilies-client-ip') || ''
+    const expected = Buffer.from(secret), received = Buffer.from(supplied)
+    if (secret.length >= 32 && expected.length === received.length && timingSafeEqual(expected, received) && isIP(address) && !address.includes('%')) {
+      headers.set('x-lilies-client-ip', address)
+      headers.set('x-lilies-proxy-key', secret)
+    }
+  }
   if (token && !publicAuth) headers.set('Authorization', `Bearer ${token}`)
   const contentType = request.headers.get('content-type')
   if (contentType) headers.set('content-type', contentType)

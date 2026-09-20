@@ -8,6 +8,7 @@ const request = (path: string, init: RequestInit = {}) => new NextRequest('http:
 beforeEach(() => {
   vi.stubEnv('AGENT_PLATFORM_URL', 'http://backend.test')
   vi.stubEnv('API_TOKEN', 'must-not-be-forwarded')
+  vi.stubEnv('AUTH_PROXY_SECRET', '')
   vi.stubGlobal('fetch', vi.fn())
 })
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs() })
@@ -50,4 +51,43 @@ it('does not erase a newer browser session when an old request returns 401', asy
   const response = await GET(request('api/v1/me', { headers: { cookie: 'lilies_session=old-session' } }), context('api/v1/me'))
   expect(response.status).toBe(401)
   expect(response.headers.get('set-cookie')).toBeNull()
+})
+
+it.each(['', 'wrong-key', 'x'.repeat(32)])('strips untrusted client identities (key %s)', async supplied => {
+  vi.stubEnv('AUTH_PROXY_SECRET', 'p'.repeat(32))
+  vi.mocked(fetch).mockResolvedValue(Response.json({ detail: 'limited' }, { status: 429, headers: {'Retry-After':'35'} }))
+  const response=await POST(request('api/v1/auth/register', {method:'POST',headers:{
+    origin:'http://platform.test',host:'platform.test',
+    'x-lilies-proxy-key':supplied,'x-lilies-client-ip':'192.0.2.10','x-forwarded-for':'192.0.2.11','x-real-ip':'192.0.2.12',
+  },body:'{}'}),context('api/v1/auth/register'))
+  const headers=new Headers(vi.mocked(fetch).mock.calls[0][1]?.headers)
+  expect(headers.has('x-lilies-proxy-key')).toBe(false)
+  expect(headers.has('x-lilies-client-ip')).toBe(false)
+  expect(headers.has('x-forwarded-for')).toBe(false)
+  expect(response.status).toBe(429)
+  expect(response.headers.get('retry-after')).toBe('35')
+})
+
+it.each(['192.0.2.10', '2001:db8::a'])('passes the authenticated ingress identity %s without exposing the key',async address=>{
+  const secret='p'.repeat(32)
+  vi.stubEnv('AUTH_PROXY_SECRET',secret)
+  vi.mocked(fetch).mockResolvedValue(Response.json({detail:'limited'},{status:429}))
+  const response=await POST(request('api/v1/auth/register',{method:'POST',headers:{
+    origin:'http://platform.test',host:'platform.test','x-lilies-proxy-key':secret,'x-lilies-client-ip':address,
+  },body:'{}'}),context('api/v1/auth/register'))
+  const headers=new Headers(vi.mocked(fetch).mock.calls[0][1]?.headers)
+  expect(headers.get('x-lilies-client-ip')).toBe(address)
+  expect(headers.get('x-lilies-proxy-key')).toBe(secret)
+  expect(response.headers.has('x-lilies-proxy-key')).toBe(false)
+  expect(await response.text()).not.toContain(secret)
+})
+
+it.each(['192.0.2.1, 192.0.2.2','not-an-ip','fe80::1%eth0'])('discards malformed ingress identity %s',async address=>{
+  const secret='p'.repeat(32)
+  vi.stubEnv('AUTH_PROXY_SECRET',secret)
+  vi.mocked(fetch).mockResolvedValue(Response.json({detail:'limited'},{status:429}))
+  await POST(request('api/v1/auth/login',{method:'POST',headers:{
+    origin:'http://platform.test',host:'platform.test','x-lilies-proxy-key':secret,'x-lilies-client-ip':address,
+  },body:'{}'}),context('api/v1/auth/login'))
+  expect(new Headers(vi.mocked(fetch).mock.calls[0][1]?.headers).has('x-lilies-client-ip')).toBe(false)
 })
