@@ -16,6 +16,8 @@ def is_read_call(name: str, arguments: dict) -> bool:
         return not (arguments.get('operation') or arguments.get('batch'))
     if name == 'project_modeling':
         return arguments.get('action') in {'datasets', 'studies', 'read_study', 'candidates', 'training_note', 'next_step'}
+    if name == 'project_action' and arguments.get('action') == 'wait' and arguments.get('task_id'):
+        return True
     return ((name == 'project_file' and arguments.get('action') in {'read', 'profile', 'list'})
             or (name == 'project_progress' and arguments.get('action', 'read') == 'read')
             or name in {'block_catalog', 'project_records'}

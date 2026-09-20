@@ -12,6 +12,8 @@ def activity_title(name: str, arguments: dict) -> str:
                 'create_study': '建立建模研究', 'training_note': '查看训练笔记',
                 'candidates': '比较模型结果', 'finish': '整理本轮建模结果'}.get(action, '查看建模进展')
     if name == 'project_action':
+        if action == 'wait' and arguments.get('task_id'):
+            return '等待任务结果'
         return {'inspect': '查看项目进展', 'build': '准备搭建工作流', 'trial': '试用业务流程',
                 'operate': '处理业务请求', 'resume': '继续原任务', 'wait': '整理待补条件',
                 'finish': '整理本次交付', 'discuss': '修订需求理解'}.get(action, '推进项目')

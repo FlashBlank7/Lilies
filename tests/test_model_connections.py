@@ -48,7 +48,7 @@ async def test_api_protocol_key_thinking_and_real_tool_response(tmp_path, protoc
             assert body['output_config'] == {'effort': 'high'}
         return httpx.Response(200, json={'content': [{'type': 'tool_use', 'id': 't1', 'name': 'read', 'input': {'path': 'input.txt'}}],
             'stop_reason': 'tool_use', 'usage': {'input_tokens': 10, 'output_tokens': 20}})
-    model = ConnectedModel(connection(protocol=protocol, thinking=thinking), tmp_path, transport=httpx.MockTransport(respond))
+    model = ConnectedModel(connection(protocol=protocol, thinking=thinking), tmp_path, egress_enabled=True, transport=httpx.MockTransport(respond))
     result = await complete(model, [ToolDefinition(name='read', description='read', input_schema={'type': 'object'})])
     assert result.stop_reason == 'tool_use'
     assert result.blocks[-1].input == {'path': 'input.txt'}
@@ -116,7 +116,7 @@ def test_project_runtime_enabled_explicitly_and_isolated(configured, monkeypatch
         calls.append(body)
         return httpx.Response(200, json={'choices': [{'message': {'content': body['messages'][-1]['content']}, 'finish_reason': 'stop'}]})
     store = app.state.services.local_agents.connections
-    monkeypatch.setattr(ModelConnections, 'provider', lambda self, pid: ConnectedModel(self.load(pid), self.root / 'test', transport=httpx.MockTransport(respond)))
+    monkeypatch.setattr(ModelConnections, 'provider', lambda self, pid: ConnectedModel(self.load(pid), self.root / 'test', egress_enabled=True, transport=httpx.MockTransport(respond)))
     base = '/api/v1/projects/' + project['id']
     data = {'provider': 'api', 'base_url': 'https://example.test/v1', 'model': 'selected-model',
             'api_key': 'key', 'thinking': 'high', 'runtime_enabled': False}
@@ -158,7 +158,7 @@ def test_llm_output_limit_is_discoverable_and_reaches_model_http(configured, mon
         return httpx.Response(200, json={'content': [{'type': 'text', 'text': '{"ok":true}'}], 'stop_reason': 'end_turn'})
 
     monkeypatch.setattr(ModelConnections, 'provider', lambda self, pid: ConnectedModel(self.load(pid),
-        self.root / 'test', transport=httpx.MockTransport(respond)))
+        self.root / 'test', egress_enabled=True, transport=httpx.MockTransport(respond)))
     base = '/api/v1/projects/' + project['id']
     assert client.put(base + '/agent-session', json={'provider': 'api', 'protocol': protocol,
         'base_url': 'https://example.test/v1', 'model': 'test', 'api_key': 'test',
@@ -204,7 +204,7 @@ def test_api_structured_failure_exposes_bounded_diagnostics_to_project_tools(con
         return httpx.Response(200, json={'content': [{'type': 'text', 'text': text}], 'stop_reason': stop_reason})
 
     monkeypatch.setattr(ModelConnections, 'provider', lambda self, pid: ConnectedModel(self.load(pid),
-        self.root / 'test', transport=httpx.MockTransport(respond)))
+        self.root / 'test', egress_enabled=True, transport=httpx.MockTransport(respond)))
     base = '/api/v1/projects/' + project['id']
     assert client.put(base + '/agent-session', json={'provider': 'api', 'protocol': 'anthropic',
         'base_url': 'https://example.test/v1', 'model': 'test', 'api_key': 'private-key',
@@ -245,7 +245,7 @@ def test_api_builder_invokes_platform_tool_and_keeps_session(configured, monkeyp
             assert any(m['role'] == 'tool' for m in body['messages'])
             message, reason = {'content': '已查看项目进度。'}, 'stop'
         return httpx.Response(200, json={'choices': [{'message': message, 'finish_reason': reason}]})
-    monkeypatch.setattr(ModelConnections, 'provider', lambda self, pid: ConnectedModel(self.load(pid), self.root / 'test', transport=httpx.MockTransport(respond)))
+    monkeypatch.setattr(ModelConnections, 'provider', lambda self, pid: ConnectedModel(self.load(pid), self.root / 'test', egress_enabled=True, transport=httpx.MockTransport(respond)))
     base = '/api/v1/projects/' + project['id']
     data = {'provider': 'api', 'base_url': 'https://example.test/v1', 'model': 'selected-model', 'api_key': 'private-key'}
     assert client.put(base + '/agent-session', json=data).status_code == 200
@@ -380,7 +380,7 @@ def test_platform_loop_builds_runs_reads_failure_and_repairs_via_model_api(confi
         return httpx.Response(200, json={'choices': [{'message': message,
             'finish_reason': 'tool_calls' if 'tool_calls' in message else 'stop'}]})
     monkeypatch.setattr(ModelConnections, 'provider', lambda self, pid: ConnectedModel(
-        self.load(pid), self.root / 'test', transport=httpx.MockTransport(respond)))
+        self.load(pid), self.root / 'test', egress_enabled=True, transport=httpx.MockTransport(respond)))
     def no_external_agent(*args, **kwargs):
         raise AssertionError('platform must own the agent loop')
     monkeypatch.setattr(app.state.services.local_agents, 'client_factory', no_external_agent)
@@ -417,7 +417,7 @@ async def test_model_adapter_rejects_agent_sessions_before_starting_a_process(tm
 
 @pytest.mark.asyncio
 async def test_api_errors_do_not_leak_echoed_credentials(tmp_path):
-    model = ConnectedModel(connection(), tmp_path, transport=httpx.MockTransport(
+    model = ConnectedModel(connection(), tmp_path, egress_enabled=True, transport=httpx.MockTransport(
         lambda request: httpx.Response(401, text=request.headers['authorization'])))
     with pytest.raises(Exception, match='HTTP 401') as error:
         await complete(model)
@@ -474,7 +474,7 @@ async def test_concurrent_projects_keep_distinct_models_and_keys(tmp_path, monke
         model = json.loads(request.content)['model']
         seen.append((model, request.headers['authorization']))
         return httpx.Response(200, json={'choices': [{'message': {'content': model}, 'finish_reason': 'stop'}]})
-    monkeypatch.setattr(store, 'provider', lambda pid: ConnectedModel(store.load(pid), tmp_path, transport=httpx.MockTransport(respond)))
+    monkeypatch.setattr(store, 'provider', lambda pid: ConnectedModel(store.load(pid), tmp_path, egress_enabled=True, transport=httpx.MockTransport(respond)))
     routed = ProjectModelProvider(None, store)
     async def run(pid):
         token = project_model.set(pid)
@@ -502,7 +502,7 @@ async def test_anthropic_thinking_signature_survives_tool_roundtrip(tmp_path):
         assert assistant['content'][:2] == [thinking, redacted]
         assert body['messages'][-1]['content'][0]['content'] == '{"text": "input"}'
         return httpx.Response(200, json={'content': [{'type': 'text', 'text': 'done'}], 'stop_reason': 'end_turn'})
-    provider = ConnectedModel(connection(protocol='anthropic', thinking='high'), tmp_path, transport=httpx.MockTransport(respond))
+    provider = ConnectedModel(connection(protocol='anthropic', thinking='high'), tmp_path, egress_enabled=True, transport=httpx.MockTransport(respond))
     session = ModelSession(provider, tmp_path / 'conversation')
     await session.start([{'name': 'read', 'description': 'read', 'inputSchema': {'type': 'object'}}], 'test')
     async def tool(name, arguments):

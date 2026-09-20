@@ -54,8 +54,9 @@ class ModelConnection(BaseModel):
 
 
 class ModelConnections:
-    def __init__(self, data_dir: Path):
+    def __init__(self, data_dir: Path, *, egress_enabled: bool | None = None):
         self.root = data_dir.resolve() / "model-connections"
+        self.egress_enabled = egress_enabled
 
     def path(self, project_id: str, role: str = 'main'):
         if role not in {'main', 'vision', 'generation'}:
@@ -121,7 +122,7 @@ class ModelConnections:
                 raise ProviderError('请配置并启用工作流生成模型；也可在生成模型设置中沿用项目主模型')
         if not value:
             raise ProviderError("请先配置项目模型")
-        return ConnectedModel(value, self.root / "sessions" / project_id, supports_images=role == 'vision')
+        return ConnectedModel(value, self.root / "sessions" / project_id, supports_images=role == 'vision', egress_enabled=self.egress_enabled)
 
 
 class ProjectModelProvider(ModelProvider):

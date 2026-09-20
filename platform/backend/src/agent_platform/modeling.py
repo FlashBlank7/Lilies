@@ -546,7 +546,9 @@ class Modeling:
                     self.pause_clock(study)
             except BaseException as error:
                 candidate.update(status='interrupted' if isinstance(error, (asyncio.CancelledError, TimeoutError)) else 'failed', error=str(error) or '用户停止或服务中断', current=None)
-                study.update(status='interrupted', error=candidate['error'], next_action='继续原项目任务，已完成试验不会重跑')
+                study.update(status='interrupted', error=candidate['error'], next_action=(
+                    '任务已中断；等待用户要求继续原任务，已完成试验不会重跑'
+                    if isinstance(error, asyncio.CancelledError) else '继续原项目任务，已完成试验不会重跑'))
                 self.pause_clock(study)
                 raise
             finally:

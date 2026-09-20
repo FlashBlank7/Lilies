@@ -177,7 +177,7 @@ def test_enabled_macro_uses_real_platform_agent_loop_with_mock_model(configured,
         requests.append(json.loads(request.content))
         return httpx.Response(200, json={'choices': [{'message': {'content': 'platform agent result'}, 'finish_reason': 'stop'}]})
     monkeypatch.setattr(ModelConnections, 'provider', lambda self, owner: ConnectedModel(
-        self.load(owner), self.root / 'test', transport=httpx.MockTransport(respond)))
+        self.load(owner), self.root / 'test', egress_enabled=True, transport=httpx.MockTransport(respond)))
     app.state.services.runtime.sandboxes = FakeSandboxes(settings.workspace_root / pid)
     assert client.put(base + '/agent-session', json={'provider': 'api', 'model': 'trusted-model',
         'base_url': 'https://model.test/v1', 'api_key': 'fake-key', 'runtime_enabled': True}).status_code == 200

@@ -53,7 +53,7 @@ class LocalAgents:
     def __init__(self, services, *, client_factory=CodexAppServer) -> None:
         self.services = services
         self.root = services.settings.data_dir.resolve() / "local-agents"
-        self.connections = ModelConnections(services.settings.data_dir)
+        self.connections = ModelConnections(services.settings.data_dir, egress_enabled=services.settings.model_egress_enabled)
         self.client_factory = client_factory
         self.clients: dict[str, CodexAppServer | ModelSession] = {}
         self.tasks: dict[str, asyncio.Task] = {}
@@ -597,21 +597,33 @@ class LocalAgents:
                     if not pending_workers or not current.get('continue_work'):
                         break
                     self.event(application_id, 'status', '正在等待已启动的任务完成')
+                    completed = []
                     while pending_workers:
                         current = self.load(application_id)
                         if current.get('pending_messages') or not current.get('continue_work'):
                             break
-                        workers = {worker for task_id in pending_workers
-                                   if (worker := self.services.projects.active.get(task_id)) and not worker.done()}
-                        if len(workers) < len(pending_workers):
-                            break
+                        finished = [task_id for task_id in pending_workers
+                                    if not (worker := self.services.projects.active.get(task_id)) or worker.done()]
+                        if finished:
+                            pending_workers.difference_update(finished)
+                            for task_id in finished:
+                                task = await self.services.projects.store.get_task(application_id, task_id)
+                                # A stopped task is not a result notification. Waking
+                                # the agent here can undo the user's stop by resuming it.
+                                if task['status'] in {'succeeded', 'failed'}:
+                                    completed.append(task_id)
+                            if completed:
+                                break
+                            continue
+                        workers = {self.services.projects.active[task_id] for task_id in pending_workers}
                         await asyncio.wait(workers, timeout=1, return_when=asyncio.FIRST_COMPLETED)
                     current = self.load(application_id)
                     if not current.get('continue_work'):
                         break
-                    completed = [task_id for task_id in pending_workers
-                                 if not (worker := self.services.projects.active.get(task_id)) or worker.done()]
-                    pending_workers.difference_update(completed)
+                    if current.get('pending_messages'):
+                        continue
+                    if not completed:
+                        break
                     context['user_message'] = '已启动的任务有结果返回，请读取状态和结果继续处理：' + ', '.join(completed)
                     continue
                 ready = await self.services.projects.conversation.ready(application_id)

@@ -54,7 +54,7 @@ def build_agent_runtime_core(
         timeout_seconds=settings.deepseek_timeout_seconds,
         egress_enabled=settings.model_egress_enabled,
     )
-    selected_provider = ProjectModelProvider(selected_provider, ModelConnections(settings.data_dir))
+    selected_provider = ProjectModelProvider(selected_provider, ModelConnections(settings.data_dir, egress_enabled=settings.model_egress_enabled))
     secret_kms_provider = build_secret_kms_provider(
         provider=settings.platform_harness_secret_kms_provider,
         provider_id=settings.platform_harness_secret_kms_provider_id,

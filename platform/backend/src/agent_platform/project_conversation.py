@@ -326,7 +326,7 @@ class ProjectConversation:
         if not state.get('conversation_enabled'):
             raise ValueError('请从项目统一对话入口发起处理')
         item = await self.item(project_id, args.item_id) if args.item_id else None
-        if args.action in {'build', 'wait'} and not item:
+        if (args.action == 'build' or args.action == 'wait' and not args.task_id) and not item:
             raise ValueError('此动作需要关联业务事项')
         if args.task_id:
             await self.projects.store.get_task(project_id, args.task_id)
@@ -348,6 +348,14 @@ class ProjectConversation:
             self.manager.save(project_id, state)
             return {'phase': 'discuss', 'instruction': '仅确有需求变更时通过requirements_submit完整修订文档；本动作不撤销确认。'}
         if args.action == 'wait':
+            if args.task_id:
+                # Waiting observes an existing task; it neither creates a business
+                # item nor restarts a stopped task. asyncio.wait also lets us return
+                # an interrupted worker's saved status without cancelling the caller.
+                worker = self.projects.active.get(args.task_id)
+                if worker:
+                    await asyncio.wait({worker})
+                return await self.projects.task(project_id, args.task_id)
             if not (item['blocker'] or any(not q['answer'] for q in item['questions'])):
                 raise ValueError('请先登记具体问题或实际阻塞及恢复动作')
             await self.patch_item(project_id, item['id'], status='waiting')

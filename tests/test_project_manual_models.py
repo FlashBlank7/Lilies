@@ -29,7 +29,7 @@ def test_model_retry_recovers_transient_errors_but_stops_for_account_errors(conf
             return httpx.Response(status, text='upstream echoed private-key')
         return httpx.Response(200, json={'choices': [{'message': {'content': 'recovered'}, 'finish_reason': 'stop'}]})
     monkeypatch.setattr(ModelConnections, 'provider', lambda self, project_id, role='main': ConnectedModel(
-        self.load(project_id, role), self.root / 'test', transport=httpx.MockTransport(respond)))
+        self.load(project_id, role), self.root / 'test', egress_enabled=True, transport=httpx.MockTransport(respond)))
     assert client.put(base + '/agent-session', json={
         'provider': 'api', 'base_url': 'https://model.test/v1', 'model': 'test-model',
         'api_key': 'private-key', 'runtime_enabled': True}).status_code == 200
@@ -97,7 +97,7 @@ def test_visual_node_uses_separate_connection_and_actual_workspace_image(configu
         assert content[1]['source']['media_type'] == 'image/png'
         assert base64.b64decode(content[1]['source']['data']) == PNG
         return httpx.Response(200, json={'content': [{'type': 'text', 'text': '{"label":"diagram"}'}], 'stop_reason': 'end_turn'})
-    monkeypatch.setattr(ModelConnections, 'provider', lambda self, project_id, role='main': ConnectedModel(self.load(project_id, role), self.root / 'test', transport=httpx.MockTransport(respond), supports_images=role == 'vision'))
+    monkeypatch.setattr(ModelConnections, 'provider', lambda self, project_id, role='main': ConnectedModel(self.load(project_id, role), self.root / 'test', egress_enabled=True, transport=httpx.MockTransport(respond), supports_images=role == 'vision'))
     assert client.put(base + '/vision-model', json={'provider': 'api', 'protocol': protocol,
         'base_url': 'https://vision.test/v1', 'model': 'visual-model', 'api_key': 'private-visual-key', 'runtime_enabled': True}).status_code == 200
     image = settings.workspace_root / pid / 'results' / 'page.png'

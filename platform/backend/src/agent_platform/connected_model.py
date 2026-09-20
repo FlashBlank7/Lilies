@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from pathlib import Path
 
 import httpx
@@ -9,7 +10,7 @@ import httpx
 from .models import StreamEvent
 from .providers.base import ModelProvider, ProviderCapabilities, ProviderError
 from .providers.deepseek import DeepSeekProvider
-from .providers.openai_chat import OpenAIChatProvider
+from .providers.openai_chat import OpenAIChatProvider, _is_loopback
 
 
 async def validate_kimi_cli(executable: str):
@@ -33,10 +34,14 @@ def completion_events(blocks, usage=None, stop_reason="end_turn"):
 
 
 class ConnectedModel(ModelProvider):
-    def __init__(self, connection, runtime_dir: Path, *, transport=None, supports_images=False):
+    def __init__(self, connection, runtime_dir: Path, *, transport=None, supports_images=False, egress_enabled=None):
         self.connection, self.runtime_dir, self.transport = connection, runtime_dir, transport
         self.supports_images = supports_images
         self.name = connection.provider
+        if egress_enabled is None:
+            configured = os.getenv('LILIES_MODEL_EGRESS_ENABLED', os.getenv('MODEL_EGRESS_ENABLED', 'false'))
+            egress_enabled = configured.strip().lower() in {'1', 'true', 'yes', 'on'}
+        self.egress_enabled = bool(egress_enabled)
 
     def capabilities(self, model):
         return ProviderCapabilities(thinking=True, tools=True, parallel_tools=False,
@@ -51,6 +56,8 @@ class ConnectedModel(ModelProvider):
 
     async def api_stream(self, system, messages, tools, max_tokens, tool_choice):
         c = self.connection
+        if not self.egress_enabled and not _is_loopback(c.base_url):
+            raise ProviderError('模型出口已关闭；仅在获准的真实调用中启用 MODEL_EGRESS_ENABLED')
         key = c.api_key.get_secret_value() if c.api_key else ""
         if not key:
             raise ProviderError("请填写项目 API Key")
