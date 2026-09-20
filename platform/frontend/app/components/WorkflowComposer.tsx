@@ -1,5 +1,7 @@
 'use client'
 
+import { clientId } from '@/lib/client-id'
+
 import { useEffect, useRef, useState } from 'react'
 import { api, type WorkflowNode } from '@/lib/platform'
 import styles from './workspace-tools.module.css'
@@ -47,7 +49,7 @@ export default function WorkflowComposer({ projectId, workflowId = '', onChanged
     if (!last) return
     setBusy(true); setError('')
     try {
-      await api(base + `/workflows/${last.workflow_id}/draft`, { method: 'PUT', body: JSON.stringify({ expected_revision: last.draft.revision, workflow: last.previous_workflow, request_key: crypto.randomUUID() }) })
+      await api(base + `/workflows/${last.workflow_id}/draft`, { method: 'PUT', body: JSON.stringify({ expected_revision: last.draft.revision, workflow: last.previous_workflow, request_key: clientId() }) })
       onChanged(last.workflow_id); setLast(undefined)
     } catch (cause) { setError(String(cause)) } finally { setBusy(false) }
   }

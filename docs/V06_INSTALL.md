@@ -57,3 +57,16 @@ docker run --rm -p 127.0.0.1:3000:3000 -e AGENT_PLATFORM_URL=http://backend-host
 - 首次干净 npm 安装报告 7 项漏洞。升级到 Next.js 16.3.5、Vitest 4.1.11、PostCSS 8.5.28 及兼容间接依赖后，锁文件和实际干净安装的 `npm audit` 均报告 0 项。修复依据包括 [Next.js 公告](https://github.com/vercel/next.js/security/advisories/GHSA-2xp9-vwfh-vxw4) 和 [Vitest 公告](https://github.com/vitest-dev/vitest/security/advisories/GHSA-82fw-gwwq-j7x9)。审计结果不等于不存在其他缺陷。
 
 以上仍使用同一台 Mac 的 Docker Desktop 和浏览器，属于依赖、数据与运行包隔离验证。另一台物理设备、原生文件选择器及真实 AI 连接恢复后的验收仍需完成；全程没有开启远程模型出口。
+
+
+## 2026-09-21：模拟跨设备与局域网 HTTP 修复
+
+按用户“自己模拟”的要求，使用独立 Linux 容器中的 HTTP 客户端，直接访问正在运行的前端局域网 IP 与 3000 端口。所有业务请求经过生产前端代理，未直连后端；使用两个新诊断账号和独立 Cookie 会话，未读取已有客户项目。两账号注册和重新登录、项目/草稿/文件默认隔离、加入协作者、移除后的项目/运行/下载权限撤销、退出失效均实际验证通过。
+
+容器模拟 multipart 上传中文 CSV，核对原始字节哈希；协作者运行已保存的输入→Python→结果流程，平台实际启动 Docker 执行，得到 2 条记录、合计 10。下载的中文报告与预期字节一致，SHA256 为 `dc75894885cbda389d3bd906dbb8ac0dde29ac3d433723869be2c153b90bb348`。本项未调用模型、未安装额外依赖、未修改已有项目资料。
+
+另用真实浏览器从局域网 HTTP 地址登录、查看项目和画布、通过下拉选择同一资料并运行，发现 `crypto.randomUUID is not a function`：localhost 上可用的 API 在该 HTTP 入口不可用。新增共享 ID 函数，在缺少 randomUUID 时使用 getRandomValues 生成 UUID；手动运行、训练、预测、撤销及项目说明创建均复用它。没有降低随机性或改动服务端权限。
+
+修复后生产构建更新至本机服务，浏览器从原局域网地址重新运行成功，页面实际输入输出确认 rows=2、total=10。前端 153 项测试、类型检查及生产构建通过；测试覆盖 randomUUID 存在及不存在时的任务提交、下载入口和重新运行使用新请求编号。此次未改后端，不重复后端全量回归。
+
+范围：容器验证网络客户端和 HTTP 业务链，浏览器验证页面加载和操作；不是容器内浏览器，也不是另一台物理电脑或手机。原生系统文件选择窗口仍未验证，multipart 模拟不能代替该交互；公共 Wi-Fi 的无线客户端隔离也不能由同机模拟排除。用户已选择以模拟完成本阶段跨设备验收，不再将取得第二台设备作为本阶段阻塞。

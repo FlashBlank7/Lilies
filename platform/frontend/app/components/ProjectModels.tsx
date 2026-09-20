@@ -1,5 +1,7 @@
 'use client'
 
+import { clientId } from '@/lib/client-id'
+
 import { useCallback, useEffect, useState } from 'react'
 import Papa from 'papaparse'
 import { api, withFrontendToken } from '@/lib/platform'
@@ -53,9 +55,9 @@ export default function ProjectModels({ projectId, onWorkflow, onTask, onTalk }:
     setDataset(data.id); setMessage(target?'数据已导入，可以开始训练。':'预测数据已导入，可在运行表单选择。')
   }
   async function train() {
-    const study = await api<Study>(base+'/modeling/studies', {method:'POST',body:JSON.stringify({dataset_id:dataset, request_key:crypto.randomUUID(), name:'模型训练', evaluation:{problem,metric:problem==='regression'?'mae':'macro_f1'}, budget:{seconds:600,trials:5,trial_seconds:120}})})
+    const study = await api<Study>(base+'/modeling/studies', {method:'POST',body:JSON.stringify({dataset_id:dataset, request_key:clientId(), name:'模型训练', evaluation:{problem,metric:problem==='regression'?'mae':'macro_f1'}, budget:{seconds:600,trials:5,trial_seconds:120}})})
     setStudyId(study.id)
-    const task = await api<{id:string}>(base+`/modeling/studies/${study.id}/train`, {method:'POST',body:JSON.stringify({request_key:crypto.randomUUID(),engine:'sklearn',models:[algorithm],batch_size:1})})
+    const task = await api<{id:string}>(base+`/modeling/studies/${study.id}/train`, {method:'POST',body:JSON.stringify({request_key:clientId(),engine:'sklearn',models:[algorithm],batch_size:1})})
     setMessage('训练已启动。你现在也可以创建预测工作流。'); onTask(task.id)
   }
   async function saveModel(bind:boolean) {
@@ -65,7 +67,7 @@ export default function ProjectModels({ projectId, onWorkflow, onTask, onTalk }:
     setMessage(bind?'模型已绑定。已有工作流下次运行使用此版本。':'模型引用已创建，可以稍后绑定。')
   }
   async function predict() {
-    const task=await api<{id:string}>(base+`/models/${modelRef}/predict`,{method:'POST',body:JSON.stringify({dataset_id:predictionDataset,request_key:crypto.randomUUID()})})
+    const task=await api<{id:string}>(base+`/models/${modelRef}/predict`,{method:'POST',body:JSON.stringify({dataset_id:predictionDataset,request_key:clientId()})})
     onTask(task.id)
   }
   async function createWorkflow() {

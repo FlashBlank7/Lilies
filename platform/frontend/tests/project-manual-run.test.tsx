@@ -4,12 +4,13 @@ import { api } from '@/lib/platform'
 import ProjectRunPanel, { ProjectRunEvents } from '@/app/components/ProjectRunPanel'
 
 vi.mock('@/lib/platform', () => ({ api: vi.fn(), withFrontendToken: (value: string) => value }))
-afterEach(cleanup)
+afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 beforeEach(() => { vi.mocked(api).mockReset() })
 const members = [{ id: 'member', name: '解析资料', description: '', revision: 1, purpose: 'business' }]
 const fields = [{ name: 'document', type: 'string', required: true }, { name: 'count', type: 'number', default: 2 }, { name: 'enabled', type: 'boolean', default: false }]
 
-it('runs a selected member with file inputs through project tasks and renders downloadable results without an agent', async () => {
+it.each(['secure', 'http'])('runs and downloads through project tasks on %s origins without an agent', async origin => {
+  if (origin === 'http') vi.stubGlobal('crypto', { getRandomValues: globalThis.crypto.getRandomValues.bind(globalThis.crypto) })
   vi.mocked(api).mockImplementation(async (path, options) => {
     if (path.endsWith('/draft')) return { snapshot: { workflow: { nodes: [{ type: 'start', config: { inputs: fields } }] } } } as never
     if (path.endsWith('/workspace/files')) return [{ path: 'requirement-package/design.pdf' }] as never
@@ -25,6 +26,12 @@ it('runs a selected member with file inputs through project tasks and renders do
   expect(JSON.parse(call[1]!.body as string)).toMatchObject({ mode: 'workflow', workflow_id: 'member', inputs: { document: 'requirement-package/design.pdf', count: 2, enabled: false }, purpose: 'customer_trial' })
   expect(screen.getByRole('link', { name: '报告 ↓' })).toHaveAttribute('href', '/api/platform/api/v1/applications/p/workspace/files/results/run/report.pdf')
   expect(vi.mocked(api).mock.calls.some(([path]) => path.includes('agent-session/messages'))).toBe(false)
+  const firstKey = JSON.parse(call[1]!.body as string).request_key
+  expect(firstKey).toMatch(/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/)
+  fireEvent.click(screen.getByRole('button', { name: '启动工作流' }))
+  await waitFor(() => expect(vi.mocked(api).mock.calls.filter(([, options]) => options?.method === 'POST')).toHaveLength(2))
+  const second = vi.mocked(api).mock.calls.filter(([, options]) => options?.method === 'POST')[1]
+  expect(JSON.parse(second[1]!.body as string).request_key).not.toBe(firstKey)
 })
 
 it('rejects missing required input before starting a task', async () => {

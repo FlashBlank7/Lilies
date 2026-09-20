@@ -1,5 +1,7 @@
 'use client'
 
+import { clientId } from '@/lib/client-id'
+
 import Link from 'next/link'
 import KnowledgeResults, {isKnowledgeSearchResult} from './KnowledgeResults'
 import { WorkflowValueField } from './WorkflowValueField'
@@ -112,7 +114,7 @@ export default function ProjectRunPanel({ projectId, members, initialWorkflowId,
           try { inputs[field.name] = JSON.parse(raw) } catch { throw new Error(`${field.name} 需要有效 JSON`) }
         } else inputs[field.name] = raw
       }
-      const next = await api<ProjectTask>(base + '/tasks', { method: 'POST', body: JSON.stringify({ request_key: crypto.randomUUID(), mode: 'workflow', workflow_id: workflowId, inputs, purpose: 'customer_trial' }) })
+      const next = await api<ProjectTask>(base + '/tasks', { method: 'POST', body: JSON.stringify({ request_key: clientId(), mode: 'workflow', workflow_id: workflowId, inputs, purpose: 'customer_trial' }) })
       setTask(next); onTask?.(next)
     } catch (cause) { setError(String(cause)) } finally { setBusy(false); lock.current = false }
   }
