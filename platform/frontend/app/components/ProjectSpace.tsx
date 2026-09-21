@@ -7,6 +7,7 @@ import styles from './workspace-tools.module.css'
 
 type Workflow = {id:string;name:string;description:string;revision:number;node_count:number;allowed:boolean;inputs:{name:string;description?:string}[]}
 type Space = {workflows:Workflow[];files:{path:string;size:number}[];files_truncated:boolean}
+type OfficialWorkflow = {id:string;name:string;description:string;version:number}
 export default function ProjectSpace({projectId,onWorkflow,onFile,onTalk,onChanged}:{projectId:string;onWorkflow:(id:string)=>void;onFile:(path:string)=>void;onTalk:(message:string,mode?:'task'|'workflow')=>void;onChanged:()=>unknown}) {
   const base=`/api/v1/projects/${projectId}`
   const [space,setSpace]=useState<Space>()
@@ -14,9 +15,18 @@ export default function ProjectSpace({projectId,onWorkflow,onFile,onTalk,onChang
   const [busy,setBusy]=useState(false)
   const [error,setError]=useState('')
   const [selected,setSelected]=useState<string[]>([])
+  const [official,setOfficial]=useState<OfficialWorkflow[]>([])
   const upload=useRef<HTMLInputElement>(null)
   const refresh=useCallback(async()=>{try{setSpace(await api<Space>(base+'/space'));setError('')}catch(e){setError(String(e))}},[base])
   useEffect(()=>{void refresh()},[refresh])
+  useEffect(()=>{let active=true;void api<OfficialWorkflow[]>(base+'/space/official-workflows').then(items=>{if(active)setOfficial(items)}).catch(e=>{if(active)setError(String(e))});return()=>{active=false}},[base])
+  async function install(template:OfficialWorkflow) {
+    setBusy(true);setError('')
+    try {
+      const result=await api<{workflow_id:string}>(base+'/space/official-workflows/'+template.id,{method:'POST'})
+      await refresh();void onChanged();onWorkflow(result.workflow_id)
+    }catch(e){setError(String(e))}finally{setBusy(false)}
+  }
   async function add(file?:File) {
     setBusy(true);setError('')
     try {
@@ -38,6 +48,9 @@ export default function ProjectSpace({projectId,onWorkflow,onFile,onTalk,onChang
   return <div aria-label="项目空间">
     <section className={styles.section}><h2>本项目的工作环境</h2><p>把工作流和资料放在这里，项目智能体就能发现并使用。每次处理产生独立运行结果，成员共享项目资源，各自对话独立。</p>
       <div className={styles.row}><button onClick={()=>onTalk('请查看项目空间中的已有工作流和资料，帮我选择合适的流程处理这次任务。'+fileContext)}>与智能体完成任务</button><button onClick={()=>onTalk('请根据当前项目已有能力，创建一条新的可复用工作流。'+fileContext,'workflow')}>通过对话创建工作流</button><button onClick={()=>void refresh()}>刷新空间</button></div>
+    </section>
+    <section className={styles.section}><h2>官方机器学习流程</h2><p>加入独立可编辑副本和使用说明。先配置数据、划分和业务目标；预测流程的模型可以稍后绑定。</p>
+      {official.map(item=><div key={item.id} className={styles.row}><div><strong>{item.name}</strong><p>{item.description}</p></div><button disabled={busy} onClick={()=>void install(item)}>加入项目 · {item.name}</button></div>)}
     </section>
     <section className={styles.section}><h2>可供调用的工作流</h2><p>加入后保存在当前项目，智能体按需查看输入并调用；模型或数据可以稍后配置。</p>
       <div className={styles.row}><label>工作流名称<input aria-label="加入空间的工作流名称" value={name} onChange={e=>setName(e.target.value)} maxLength={100}/></label><button disabled={busy||!name.trim()} onClick={()=>void add()}>添加空白流程</button><button disabled={busy} onClick={()=>upload.current?.click()}>导入已有工作流</button>

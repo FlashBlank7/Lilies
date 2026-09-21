@@ -58,6 +58,17 @@ async def add_workflow(services, project_id, body):
 
 
 def register_space_routes(router, services, invoke):
+    @router.get('/space/official-workflows')
+    async def official(project_id: str):
+        from .official_workflows import catalog
+        await services.projects.store.get(project_id)
+        return catalog()
+
+    @router.post('/space/official-workflows/{template_id}', status_code=201)
+    async def install_official(project_id: str, template_id: str):
+        from .official_workflows import install
+        return await invoke(install, services, project_id, template_id)
+
     @router.get('/space')
     async def listing(project_id: str):
         return await invoke(space, services, project_id)

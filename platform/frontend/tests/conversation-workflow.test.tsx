@@ -16,6 +16,8 @@ const card={id:'new',name:'质量分析与预测',revision:1,node_count:2,nodes:
 function setup(){
   let generated=false
   vi.mocked(api).mockImplementation(async(path,options)=>{
+    if(path.endsWith('/space/official-workflows'))return [{id:'tabular-classification',name:'表格分类训练',description:'分析、特征和独立测试',version:1}] as never
+    if(path.endsWith('/space/official-workflows/tabular-classification'))return {workflow_id:'installed'} as never
     if(path.endsWith('/space'))return {workflows:[{...member,node_count:2,allowed:true,inputs:[{name:'file'}]}],files:[{path:'requirement-package/data.csv',size:20}]} as never
     if(path.endsWith('/workflow-generation')){generated=true;return {workflow_id:'new',workflow_card:card,previous_workflow:{nodes:[],edges:[]},draft:{revision:1}} as never}
     return {provider:'api',status:'idle',revision:generated?2:1,has_more:false,first_cursor:'m',last_cursor:generated?'new-message':'m',events:generated?[{id:'new-message',kind:'assistant',text:'已保存',workflow:card}]:[{id:'m',kind:'assistant',text:'已经分析数据'}]} as never
@@ -71,4 +73,11 @@ it('shows shared files and callable workflows together and carries selected mate
   fireEvent.click(screen.getByRole('button',{name:'通过对话创建工作流'}))
   expect(talk).toHaveBeenLastCalledWith(expect.stringContaining('requirement-package/data.csv'),'workflow')
   expect(vi.mocked(api).mock.calls.some(([,o])=>o?.method==='POST')).toBe(false)
+})
+
+it('installs an editable official workflow and opens its canvas without running it',async()=>{
+  setup();const open=vi.fn();render(<ProjectSpace projectId="p" onWorkflow={open} onFile={vi.fn()} onTalk={vi.fn()} onChanged={vi.fn()}/>)
+  fireEvent.click(await screen.findByRole('button',{name:'加入项目 · 表格分类训练'}))
+  await waitFor(()=>expect(open).toHaveBeenCalledWith('installed'))
+  expect(vi.mocked(api).mock.calls.filter(([,o])=>o?.method==='POST').map(([path])=>path)).toEqual(['/api/v1/projects/p/space/official-workflows/tabular-classification'])
 })

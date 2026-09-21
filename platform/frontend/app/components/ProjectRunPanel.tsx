@@ -29,8 +29,8 @@ export function ProjectRunEvents({ runs, members }: { runs: ProjectTask['runs'];
 export function ProjectTaskOutput({ projectId, task }: { projectId: string; task: ProjectTask }) {
   const output = task.outputs || {}
   const markdown = task.presentation?.markdown || (typeof output.markdown === 'string' ? output.markdown : '') || task.presentation?.message || (typeof output.message === 'string' ? output.message : '')
-  const artifacts = task.presentation?.artifacts?.length ? task.presentation.artifacts : (Array.isArray(output.artifacts) ? output.artifacts : [])
   const results = [output, ...Object.values(output).map(v => typeof v==='string'?{artifact:v}:v)].filter((v):v is Record<string,unknown> => !!v && typeof v==='object' && !Array.isArray(v))
+  const artifacts = task.presentation?.artifacts?.length ? task.presentation.artifacts : results.flatMap(result => Array.isArray(result.artifacts) ? result.artifacts : typeof result.file === 'string' ? [{file_path:result.file}] : [])
   const predictions = [...results.reduce((files,result)=>{
     const path=result.artifact
     if(typeof path==='string' && /^datasets\/[\w-]+\/files\/[\w./-]+$/.test(path) && !path.split('/').includes('..') && (!files.has(path)||Array.isArray(result.preview))) files.set(path,result)
@@ -38,12 +38,18 @@ export function ProjectTaskOutput({ projectId, task }: { projectId: string; task
   },new Map<string,Record<string,unknown>>()).values()]
   const knowledgeResults = results.filter(isKnowledgeSearchResult)
   const knowledgeAnswer = knowledgeResults.length === 1 && typeof output.markdown === 'string' && isKnowledgeSearchResult((output.knowledge || {}) as Record<string, unknown>)
-  const trials = task.mode==='training' && Array.isArray(output.trials) ? output.trials as {slot:number;model:string;status:string;metrics?:Record<string,number>;error?:string}[] : []
+  const training = results.find(result => Array.isArray(result.trials) && typeof result.study_id === 'string')
+  const trials = training?.trials as {slot:number;model:string;status:string;metrics?:Record<string,number>;baseline?:Record<string,number>;error?:string}[] | undefined
+  const evaluation = results.find(result => typeof result.rows === 'number' && result.metrics && typeof result.label === 'string')
+  const classification = evaluation?.classification as {classes:{label:string;samples:number;precision:number;recall:number;f1:number}[];note:string} | undefined
   return <>
     {!knowledgeAnswer && <MarkdownDocument source={markdown} resolveLink={href => resolveProjectLink(projectId, href)} emptyLabel={['queued', 'running'].includes(task.status) ? '正在运行，结果会自动显示。' : '本次运行的输出见下方详情。'} />}
     {knowledgeResults.map((result, i) => <KnowledgeResults key={i} result={result} answer={knowledgeAnswer ? output.markdown as string : undefined} question={typeof output.question === 'string' ? output.question : undefined} />)}
-    {!!trials.length && <table><thead><tr><th>模型</th><th>验证指标</th><th>结果</th></tr></thead><tbody>{trials.map(t=><tr key={t.slot}><td>{t.model}</td><td>{Object.entries(t.metrics||{}).map(([k,v])=>`${k}: ${Number(v).toPrecision(5)}`).join(' / ')}</td><td>{t.error|| (t.status==='completed'?'已完成':t.status)}</td></tr>)}</tbody></table>}
-    {task.mode==='training' && typeof output.study_id==='string' && typeof output.id==='string' && <p><a download href={withFrontendToken(`/api/platform/api/v1/projects/${projectId}/modeling/studies/${encodeURIComponent(output.study_id)}/candidates/${encodeURIComponent(output.id)}/download`)}>下载模型与训练记录 ↓</a></p>}
+    {!!trials?.length && <section><h3>训练比较</h3><table><thead><tr><th>模型</th><th>验证指标</th><th>简单基线</th><th>结果</th></tr></thead><tbody>{trials.map(t=><tr key={t.slot}><td>{t.model}</td><td>{Object.entries(t.metrics||{}).map(([k,v])=>`${k}: ${v == null ? '无法计算' : Number(v).toPrecision(5)}`).join(' / ')}</td><td>{Object.entries(t.baseline||{}).map(([k,v])=>`${k}: ${v == null ? '无法计算' : Number(v).toPrecision(5)}`).join(' / ')}</td><td>{t.error|| (t.status==='completed'?'已完成':t.status)}</td></tr>)}</tbody></table></section>}
+    {training && typeof training.study_id==='string' && typeof training.id==='string' && <p><a download href={withFrontendToken(`/api/platform/api/v1/projects/${projectId}/modeling/studies/${encodeURIComponent(training.study_id)}/candidates/${encodeURIComponent(training.id)}/download`)}>下载模型与训练记录 ↓</a></p>}
+    {evaluation && <section><h3>独立测试</h3><p>{String(evaluation.rows)} 条样本 · {String(evaluation.label)}</p><p>{Object.entries(evaluation.metrics as Record<string,number|null>).map(([k,v])=>`${k}: ${v == null ? '无法计算' : Number(v).toPrecision(5)}`).join(' / ')}</p>
+      {classification && <><p>{classification.note}</p><table><thead><tr><th>类别</th><th>样本数</th><th>精确率</th><th>召回率</th><th>F1</th></tr></thead><tbody>{classification.classes.map(row=><tr key={row.label}><td>{row.label}</td><td>{row.samples}{row.samples===0?' · 缺少此类测试样本':''}</td><td>{row.precision.toFixed(3)}</td><td>{row.recall.toFixed(3)}</td><td>{row.f1.toFixed(3)}</td></tr>)}</tbody></table></>}
+    </section>}
     {predictions.map((result,i)=>{const rows=Array.isArray(result.preview)?result.preview.slice(0,20) as Record<string,unknown>[]:[];const columns=rows.length?Object.keys(rows[0]).slice(0,8):[]
       return <section key={i}><h3>预测结果</h3><p>结果已保存，本次使用的模型版本固定在运行记录中。</p>
         {!!rows.length&&<div style={{overflowX:'auto'}}><table><thead><tr>{columns.map(key=><th key={key}>{key==='prediction'?'预测值':key}</th>)}</tr></thead><tbody>{rows.map((row,j)=><tr key={j}>{columns.map(key=><td key={key}>{typeof row[key]==='number'?Number(row[key]).toPrecision(6):String(row[key]??'')}</td>)}</tr>)}</tbody></table><p>显示前 {rows.length} 行，完整结果见下载文件。</p></div>}

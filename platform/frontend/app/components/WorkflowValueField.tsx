@@ -8,7 +8,8 @@ export type WorkflowFieldProps = {
   value: string; onChange: (value: string) => void; nodes: FieldNode[]; edges?: FieldEdge[]; blocks?: Block[]
   nodeId: string; label: string; projectId?: string; field?: string; allowReference?: boolean; disabled?: boolean; modelRole?: string
 }
-const resourceFields = new Set(['model_ref', 'knowledge_ref', 'dataset_id', 'model', 'file_path'])
+const resourceFields = new Set(['model_ref', 'knowledge_ref', 'dataset_id', 'model', 'file_path', 'source_path', 'labels_path', 'features.transformer_path'])
+const fileFields = new Set(['file_path', 'source_path', 'labels_path', 'features.transformer_path'])
 
 export function WorkflowValueField({ value, onChange, nodes, edges = [], blocks = [], nodeId, label, projectId, field, allowReference = true, disabled = false, modelRole = 'main' }: WorkflowFieldProps) {
   const reference = valueReference(parseField(value))
@@ -23,7 +24,7 @@ export function WorkflowValueField({ value, onChange, nodes, edges = [], blocks 
     if (!projectId || !resource) return
     let active = true
     const route = field === 'knowledge_ref' ? '/knowledge' : field === 'model_ref' ? '/models' : field === 'dataset_id' ? '/datasets?limit=100' : field === 'model' ? (modelRole === 'vision' ? '/vision-model' : '/agent-session') : ''
-    const url = field === 'file_path' ? `/api/v1/applications/${projectId}/workspace/files` : `/api/v1/projects/${projectId}${route}`
+    const url = fileFields.has(field || '') ? `/api/v1/applications/${projectId}/workspace/files` : `/api/v1/projects/${projectId}${route}`
     setLoading(true)
     void api<unknown>(url).then(data => {
       if (!active) return
@@ -58,7 +59,7 @@ export function WorkflowValueField({ value, onChange, nodes, edges = [], blocks 
         {options.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
       </select>
       {!loading && !error && !options.length && <small className={styles.help}>尚无可选资源，可以先保存流程，稍后在项目中配置。</small>}
-      {field === 'file_path' && <details><summary>手动填写项目文件路径</summary><input disabled={disabled} aria-label={`${label}的项目路径`} value={value} onChange={event => onChange(event.target.value)} /></details>}
+      {fileFields.has(field || '') && <details><summary>手动填写项目文件路径</summary><input disabled={disabled} aria-label={`${label}的项目路径`} value={value} onChange={event => onChange(event.target.value)} /></details>}
     </> : <textarea disabled={disabled} aria-label={label} rows={2} value={value} onChange={event => onChange(event.target.value)} />}
     {error && <span role="alert">资源列表读取失败。<button type="button" disabled={disabled} onClick={() => setRetry(value => value + 1)}>重试</button></span>}
   </span>

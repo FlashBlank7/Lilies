@@ -1,0 +1,131 @@
+"""Employees run editable recipes without internal experiment identifiers."""
+import asyncio
+from copy import deepcopy
+
+import pytest
+from tests.test_modeling import modeling, real_compute, wait_task  # noqa: F401
+from tests.test_projects import configured, graph, start  # noqa: F401
+from agent_platform.official_workflows import CATALOG, RULE_CODE
+
+
+def install(client, base, key='tabular-classification'):
+    result = client.post(base + '/space/official-workflows/' + key)
+    assert result.status_code == 201, result.text
+    return result.json()['workflow_id']
+
+
+def test_install_editable_copies_and_skill_without_resources(configured):
+    client, app, project, _ = configured
+    base = '/api/v1/projects/' + project['id']
+    items = client.get(base + '/space/official-workflows').json()
+    for item in items:
+        first, second = install(client, base, item['id']), install(client, base, item['id'])
+        assert first != second
+        draft = client.get('/api/v1/applications/' + first + '/draft').json()['snapshot']['workflow']
+        assert len(draft['nodes']) >= 3
+        assert client.get(base + '/skills/official-' + first).json()['content'].find(first) >= 0
+    assert client.get(base + '/tasks').json() == []
+    assert client.post(base + '/space/official-workflows/missing').status_code == 404
+
+
+def test_rule_decisions_require_actual_model_probabilities(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    p = tmp_path / 'results/predictions.csv'; p.parent.mkdir()
+    p.write_text('prediction,probability_good\ngood,0.95\ngood,0.6\n')
+    namespace = {}; exec(RULE_CODE, namespace)
+    args = {'threshold': .9, 'prediction': {'project_path': 'results/predictions.csv',
+            'model_version': {'candidate_id': 'real-version'}, 'probability_columns': {'good': 'probability_good'}}}
+    result = namespace['main'](args)
+    assert (result['rows'], result['inherit'], result['measure']) == (2, 1, 1)
+    assert (tmp_path / result['file']).exists()
+    with pytest.raises(ValueError, match='模型版本'):
+        namespace['main']({'threshold': .9, 'prediction': {}})
+    with pytest.raises(ValueError, match='阈值'):
+        namespace['main']({**args, 'threshold': float('nan')})
+
+
+def test_file_snapshot_retries_and_new_runs_are_independent(modeling, monkeypatch):
+    (client, app, project, settings), service = modeling
+    pid = project['id']
+    source = settings.workspace_root / pid / 'requirement-package/table.csv'
+    source.parent.mkdir(exist_ok=True); source.write_text('x,y\n1,2\n')
+    async def profile(project_id, dataset_id):
+        return {'rows': 1}
+    monkeypatch.setattr(service, 'profile', profile)
+    args = {'source_path': 'requirement-package/table.csv', 'mapping': {'target': 'y'}}
+    async def run():
+        old = await service.run_block({'project_id': pid, 'task_id': 'first'}, 'data_analysis', args, 'r1', 'profile')
+        source.write_text('x,y\n3,4\n')
+        retry = await service.run_block({'project_id': pid, 'task_id': 'first'}, 'data_analysis', args, 'r2', 'profile')
+        new = await service.run_block({'project_id': pid, 'task_id': 'second'}, 'data_analysis', args, 'r3', 'profile')
+        assert retry['dataset_id'] == old['dataset_id'] != new['dataset_id']
+        assert (service.path(pid, old['dataset_id']) / 'source.csv').read_text() == 'x,y\n1,2\n'
+        assert (service.path(pid, new['dataset_id']) / 'source.csv').read_text() == 'x,y\n3,4\n'
+    asyncio.run(run())
+
+
+def test_real_file_training_holdout_prediction_and_changed_input(real_compute):
+    (client, app, project, settings), service = real_compute
+    pid = project['id']; base = '/api/v1/projects/' + pid
+    wid = install(client, base)
+    data = 'x,category,target\n' + '\n'.join(f'{i},{"a" if i%2 else "b"},{int(i%10 >= 5)}' for i in range(90))
+    upload = client.post(base + '/materials', files={'file': ('train.csv', data.encode(), 'text/csv')}).json()
+    first = wait_task(client, base, start(client, base, 'official-1', workflow_id=wid, inputs={'source_path': upload['path'], 'target': 'target', 'group_column': ''}))
+    assert first['status'] == 'succeeded', first.get('error')
+    result = first['outputs']; candidate = result['training']
+    assert len(candidate['trials']) == 3
+    assert result['test']['rows'] == 18
+    assert all('macro_f1' in t['metrics'] for t in candidate['trials'])
+    trial = next(t for t in candidate['trials'] if t['status'] == 'completed')
+    bind = client.put(base + '/models/quality', json={'name': '质量', 'study_id': candidate['study_id'], 'candidate_id': candidate['id'], 'slot': trial['slot']})
+    assert bind.status_code == 200, bind.text
+    predict_id = install(client, base, 'batch-prediction')
+    recipe = deepcopy(CATALOG['batch-prediction']['workflow']); recipe['nodes'][1]['config']['model_ref'] = 'quality'
+    graph(client, predict_id, **recipe)
+    fresh = client.post(base + '/materials', files={'file': ('new.csv', b'x,category\n2,never-seen\n8,a\n', 'text/csv')}).json()
+    prediction = wait_task(client, base, start(client, base, 'predict', workflow_id=predict_id, inputs={'source_path': fresh['path']}))
+    assert prediction['status'] == 'succeeded', prediction.get('error')
+    output = prediction['outputs']['result']
+    assert output['rows'] == 2 and output['probability_columns']
+    assert client.get(base + '/' + output['artifact']).status_code == 200
+    assert (settings.workspace_root / pid / output['project_path']).is_file()
+    registered = client.post(base + '/datasets', json={'source_path': fresh['path']}).json()
+    independent = client.post(base + '/models/quality/predict', json={'dataset_id': registered['id'], 'request_key': 'independent'})
+    assert independent.status_code == 202, independent.text
+    independent = wait_task(client, base, independent.json())
+    assert independent['status'] == 'succeeded', independent['error']
+    assert independent['outputs']['preview'] == output['preview']
+    assert independent['outputs']['model_version'] == output['model_version']
+    # Same filename but changed content is a new immutable input and experiment.
+    changed_data = 'x,category,target\n' + '\n'.join(f'{i},{"a" if i%2 else "b"},{int(i%10 < 5)}' for i in range(90))
+    changed = client.post(base + '/materials', files={'file': ('train.csv', changed_data.encode(), 'text/csv')}).json()
+    second = wait_task(client, base, start(client, base, 'official-2', workflow_id=wid, inputs={'source_path': changed['path'], 'target': 'missing', 'group_column': ''}))
+    assert second['status'] == 'failed'
+    assert 'missing' in second['error'] or '目标' in second['error']
+    old = client.get(base + '/tasks/' + first['id']).json()
+    assert old['outputs']['training']['id'] == candidate['id']
+    repaired = wait_task(client, base, start(client, base, 'official-repaired', workflow_id=wid,
+        inputs={'source_path': changed['path'], 'target': 'target', 'group_column': ''}))
+    assert repaired['status'] == 'succeeded', repaired.get('error')
+    assert repaired['outputs']['training']['id'] != candidate['id']
+    assert repaired['outputs']['data']['dataset_id'] != result['data']['dataset_id']
+
+
+@pytest.mark.parametrize('template', ['tabular-regression', 'process-regression'])
+def test_real_regression_recipes(real_compute, template):
+    (client, app, project, settings), service = real_compute
+    base = '/api/v1/projects/' + project['id']
+    workflow = install(client, base, template)
+    process = template == 'process-regression'
+    data = ('batch,t,temperature\n' + '\n'.join(f'{i},2026-01-01T00:00:0{j},{i+j/10}' for i in range(24) for j in range(3))
+            if process else 'x,y\n' + '\n'.join(f'{i},{i*2+1}' for i in range(60)))
+    uploaded = client.post(base + '/materials', files={'file': ('data.csv', data.encode(), 'text/csv')}).json()
+    inputs = {'source_path': uploaded['path'], 'target': 'y', 'group_column': 'batch' if process else ''}
+    if process:
+        labels = 'batch,at,y\n' + '\n'.join(f'{i},2026-01-01T00:00:03,{i*2+1}' for i in range(24))
+        uploaded_labels = client.post(base + '/materials', files={'file': ('labels.csv', labels.encode(), 'text/csv')}).json()
+        inputs.update(labels_path=uploaded_labels['path'], id_column='batch', time_column='t', prediction_time_column='at')
+    task = wait_task(client, base, start(client, base, template, workflow_id=workflow, inputs=inputs))
+    assert task['status'] == 'succeeded', task.get('error')
+    assert task['outputs']['test']['rows'] > 0
+    assert any(trial['metrics']['mae'] < trial['baseline']['mae'] for trial in task['outputs']['training']['trials'] if trial['status'] == 'completed')

@@ -29,6 +29,15 @@ def setup_split(config):
     return split
 
 
+def test_macro_f1_keeps_absent_training_classes_visible():
+    result = worker.scores([0, 0], [0, 0], 'classification', classes=[0, 1])
+    assert result['accuracy'] == 1
+    assert result['macro_f1'] == .5
+    details = worker.classification_details([0, 0], [0, 0], [0, 1])
+    assert details['classes'][1]['samples'] == 0
+    assert details['confusion_matrix'] == [[2, 0], [0, 0]]
+
+
 def test_group_split_no_subject_overlap_and_holdout(tmp_path):
     config = fixture_data(tmp_path)
     split = setup_split(config)

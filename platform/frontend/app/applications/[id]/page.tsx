@@ -479,7 +479,7 @@ function editorFieldsForBlock(block: Block | undefined): BlockEditorField[] {
   const hints = block.editor?.fields
   const schema = asRecord(block.config_schema)
   const properties = asRecord(schema.properties)
-  if (hints?.length) return hints.map(field => ({ ...field, default_value: asRecord(properties[field.path]).default }))
+  if (hints?.length) return hints.map(field => ({ ...field, default_value: field.default_value ?? asRecord(properties[field.path]).default }))
   const required = new Set(asStringArray(schema.required))
   return Object.entries(properties).map(([path, raw]) => {
     const fieldSchema = asRecord(raw)

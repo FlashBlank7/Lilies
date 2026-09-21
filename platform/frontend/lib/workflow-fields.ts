@@ -47,6 +47,10 @@ export function outputPaths(node: FieldNode | undefined, blocks: Block[] = []): 
   if (node.type === 'llm') dynamic = [['text'], ['structured'], ...schemaPaths(node.config.structured_output, ['structured'])]
   if (['end', 'answer'].includes(node.type)) dynamic = Object.keys(node.config.outputs || {}).map(key => [key])
   if (node.type === 'variable_assigner') dynamic = Object.keys(node.config.assignments || {}).map(key => ['output', key])
+  if (node.type === 'data_analysis') dynamic = ['dataset_id', 'rows', 'columns', 'duplicates'].map(key => ['output', key])
+  if (node.type === 'feature_extract') dynamic = ['dataset_id', 'feature_plan'].map(key => ['output', key])
+  if (node.type === 'model_train') dynamic = ['id', 'study_id', 'trials', 'status'].map(key => ['output', key])
+  if (node.type === 'model_predict') dynamic = ['rows', 'preview', 'artifact', 'project_path', 'model_version'].map(key => ['output', key])
   const values = [...ports, ...dynamic]
   return values.length ? [...new Map(values.map(path => [JSON.stringify(path), path])).values()] : [['output']]
 }

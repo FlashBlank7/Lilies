@@ -587,6 +587,23 @@ class Modeling:
 
     async def run_block(self, project, kind, args, run_id, node_id=''):
         project_id = project['project_id']
+        # The task identifies a retry; a new task always gets new data and experiments.
+        key = 'workflow-' + hashlib.sha256(encode([project.get('task_id', run_id), node_id]).encode()).hexdigest()
+        if kind in {'data_analysis', 'model_predict'} and args.get('source_path'):
+            body = DatasetRequest(source_path=args['source_path'], labels_path=args.get('labels_path', ''), mapping=args.get('mapping') or {})
+            async with self.locks.setdefault(key, asyncio.Lock()):
+                record = await self.services.projects.store.get_record(project_id, 'workflow_datasets', key)
+                saved = record['value']
+                if saved:
+                    if saved['request'] != body.model_dump():
+                        raise ProjectConflict('原运行的数据配置已固定；修改配置后请创建新运行')
+                    dataset_id = saved['dataset_id']
+                else:
+                    dataset = await self.dataset(project_id, body)
+                    dataset_id = dataset['id']
+                    await self.services.projects.store.put_record(project_id, 'workflow_datasets', key,
+                        {'dataset_id': dataset_id, 'request': body.model_dump()}, 0)
+                args = {**args, 'dataset_id': dataset_id}
         if kind == 'model_predict' and not args.get('model_ref') and not (args.get('study_id') and args.get('candidate_id')):
             raise ValueError('模型预测节点尚未选择模型，请配置模型引用后重新运行')
         if kind == 'model_predict' and args.get('model_ref'):
@@ -606,10 +623,20 @@ class Modeling:
                     return candidate
             raise ValueError('请先在研究任务中完成候选训练或最终评价；保存用例只回放已固定实验，并可真实运行预测')
         if kind == 'data_analysis':
+            if not args.get('dataset_id'):
+                raise ValueError('数据分析节点尚未选择项目文件或数据集')
             return {'dataset_id': args['dataset_id'], **await self.profile(project_id, args['dataset_id'])}
         if kind == 'model_train':
             if args.get('finalize'):
                 return await self.finalize(project_id, args['study_id'], run_id)
+            if not args.get('study_id') and not args.get('candidate_id'):
+                if not args.get('dataset_id'):
+                    raise ValueError('训练节点缺少数据集，请连接数据分析节点的 output.dataset_id')
+                study = await self.study(project_id, StudyRequest(dataset_id=args['dataset_id'], request_key=key,
+                    evaluation=args.get('evaluation') or {}, budget=args.get('budget') or {}))
+                candidate = await self.candidate(project_id, study['id'], CandidateRequest.model_validate({
+                    **(args.get('candidate') or {}), 'features': args.get('features') or {}, 'request_key': key}))
+                args = {**args, 'study_id': study['id'], 'candidate_id': candidate['id']}
             study = await self.get(project_id, 'study', args['study_id'])
             if args.get('dataset_id') and args['dataset_id'] != study['dataset_id']:
                 raise ValueError('上游数据集与研究固定版本不一致，请创建新研究')
@@ -617,7 +644,10 @@ class Modeling:
                 candidate = await self.get(project_id, 'candidate', args['candidate_id'])
                 if FeaturePlan.model_validate(args['features']).model_dump() != candidate['features']:
                     raise ValueError('上游特征方案已改变，请提交关联新候选后运行')
-            return await self.run_candidate(project_id, args['study_id'], args['candidate_id'], project['task_id'], run_id)
+            result = await self.run_candidate(project_id, args['study_id'], args['candidate_id'], project['task_id'], run_id, pause_when_done=True)
+            if not any(t['status'] == 'completed' for t in result.get('trials', [])):
+                raise ValueError('本批没有可用模型：' + str(result.get('error') or [t.get('error') for t in result.get('trials', [])]))
+            return result
         dataset = await self.get(project_id, 'dataset', args['dataset_id'])
         folder = self.path(project_id, dataset['id']) / ('run-' + run_id + '-' + hashlib.sha256(node_id.encode()).hexdigest()[:10])
         if kind == 'feature_extract':
@@ -649,13 +679,23 @@ class Modeling:
         # Only file location changes at inference; preserve trained field semantics.
         dataset = {**dataset, 'mapping': original['mapping']}
         model = self.path(project_id, candidate['id']) / 'output' / f'trial-{best["slot"]}'
-        config = {'action': 'predict', 'features': candidate['features'], 'engine': candidate['engine'], 'model': '/model', 'feature_columns': best['feature_columns']}
+        config = {'action': 'predict', 'features': candidate['features'], 'engine': candidate['engine'], 'model': '/model', 'feature_columns': best['feature_columns'], 'classes': best.get('classes')}
         mounts = [(model, '/model')]
         if candidate.get('code_sha256'):
             config['transformer'] = '/transformer.py'; mounts.append((model.parent.parent / 'transformer.py', '/transformer.py'))
         result = await self.compute(project_id, dataset, config, folder, image=candidate['image'], extra_mounts=mounts)
         result['model_version'] = {'study_id': study['id'], 'candidate_id': candidate['id'], 'slot': best['slot'], 'image': candidate['image']}
         result['artifact'] = f'datasets/{dataset["id"]}/files/{folder.name}/output/predictions.csv'
+        relative = Path('results/predictions') / dataset['id'] / folder.name / 'predictions.csv'
+        workspace = self.services.projects.workspace(project_id).resolve()
+        destination = workspace / relative
+        if any((workspace / Path(*relative.parts[:i])).is_symlink() for i in range(1, len(relative.parts) + 1)):
+            raise ValueError('预测导出目录不支持符号链接')
+        if not destination.resolve().is_relative_to(workspace) or (folder / 'output/predictions.csv').is_symlink():
+            raise ValueError('预测导出文件必须位于当前项目内')
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        copy_workspace_file(folder / 'output/predictions.csv', destination)
+        result['project_path'] = relative.as_posix()
         return result
 
     async def budget(self, project_id, study_id, budget):

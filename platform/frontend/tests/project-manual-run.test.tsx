@@ -1,13 +1,24 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { api } from '@/lib/platform'
-import ProjectRunPanel, { ProjectRunEvents } from '@/app/components/ProjectRunPanel'
+import ProjectRunPanel, { ProjectRunEvents, ProjectTaskOutput } from '@/app/components/ProjectRunPanel'
 
 vi.mock('@/lib/platform', () => ({ api: vi.fn(), withFrontendToken: (value: string) => value }))
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 beforeEach(() => { vi.mocked(api).mockReset() })
 const members = [{ id: 'member', name: '解析资料', description: '', revision: 1, purpose: 'business' }]
 const fields = [{ name: 'document', type: 'string', required: true }, { name: 'count', type: 'number', default: 2 }, { name: 'enabled', type: 'boolean', default: false }]
+
+it('shows workflow training, fixed-class test results and model download without JSON',()=>{
+  render(<ProjectTaskOutput projectId="p" task={{status:'succeeded',mode:'workflow',outputs:{
+    training:{id:'candidate',study_id:'study',trials:[{slot:0,model:'forest',status:'completed',metrics:{macro_f1:.5},baseline:{macro_f1:.2}}]},
+    test:{rows:10,label:'保留测试',metrics:{macro_f1:.5,roc_auc:null},classification:{note:'固定类别',classes:[{label:'rare',samples:0,precision:0,recall:0,f1:0}]}}
+  }} as never}/> )
+  expect(screen.getByRole('heading',{name:'训练比较'})).toBeInTheDocument()
+  expect(screen.getByText('0 · 缺少此类测试样本')).toBeInTheDocument()
+  expect(screen.getByText(/roc_auc: 无法计算/)).toBeInTheDocument()
+  expect(screen.getByRole('link',{name:'下载模型与训练记录 ↓'})).toHaveAttribute('href','/api/platform/api/v1/projects/p/modeling/studies/study/candidates/candidate/download')
+})
 
 it.each(['secure', 'http'])('runs and downloads through project tasks on %s origins without an agent', async origin => {
   if (origin === 'http') vi.stubGlobal('crypto', { getRandomValues: globalThis.crypto.getRandomValues.bind(globalThis.crypto) })

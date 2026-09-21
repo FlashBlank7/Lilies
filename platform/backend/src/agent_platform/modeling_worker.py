@@ -395,13 +395,26 @@ def scores(y, predictions, problem, probabilities=None, classes=None):
     from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score, f1_score, accuracy_score, roc_auc_score
     if problem == 'regression':
         return {'mae': mean_absolute_error(y, predictions), 'rmse': mean_squared_error(y, predictions) ** .5, 'r2': r2_score(y, predictions)}
-    result = {'macro_f1': f1_score(y, predictions, average='macro', zero_division=0), 'accuracy': accuracy_score(y, predictions)}
+    # Keep the trained class domain in macro averaging even when a small test
+    # split contains no examples of a rare class. Also expose unseen test labels.
+    labels = list(dict.fromkeys([*(classes if classes is not None else []), *y, *predictions]))
+    result = {'macro_f1': f1_score(y, predictions, labels=labels, average='macro', zero_division=0), 'accuracy': accuracy_score(y, predictions)}
     if probabilities is not None:
         try:
             result['roc_auc'] = roc_auc_score(y, probabilities[:, 1] if len(classes) == 2 else probabilities, labels=classes, multi_class='ovr')
         except ValueError:
             result['roc_auc'] = None
     return clean(result)
+
+
+def classification_details(y, predictions, classes):
+    from sklearn.metrics import precision_recall_fscore_support, confusion_matrix
+    labels = list(dict.fromkeys([*classes, *y, *predictions]))
+    precision, recall, f1, support = precision_recall_fscore_support(y, predictions, labels=labels, zero_division=0)
+    return {'classes': [{'label': str(label), 'precision': float(precision[i]), 'recall': float(recall[i]),
+                        'f1': float(f1[i]), 'samples': int(support[i])} for i, label in enumerate(labels)],
+            'confusion_matrix': confusion_matrix(y, predictions, labels=labels).tolist(),
+            'note': '宏平均使用固定类别范围；样本数为 0 的类别无法据此评价可靠性。'}
 
 
 def evaluate(config, x, frame, split, model_name, folder, trial=None):
@@ -615,8 +628,18 @@ def predict(config):
     predictions = model.predict(x)
     output = frame[[config['mapping']['id_column']]].copy() if config['mapping'].get('id_column') else frame[['_sample']].copy()
     output['prediction'] = predictions
+    probability_columns = {}
+    if config.get('classes'):
+        import numpy as np
+        probabilities = model.predict_proba(x)
+        classes = list(probabilities.columns) if hasattr(probabilities, 'columns') else list(model.classes_)
+        probabilities = np.asarray(probabilities)
+        for i, label in enumerate(classes):
+            column = 'probability_' + str(label)
+            output[column] = probabilities[:, i]
+            probability_columns[str(label)] = column
     output.to_csv(Path(config['output']) / 'predictions.csv', index=False)
-    return {'rows': len(output), 'preview': output.head(30).to_dict('records')}
+    return {'rows': len(output), 'preview': output.head(30).to_dict('records'), 'probability_columns': probability_columns}
 
 
 def holdout(config):
@@ -644,6 +667,8 @@ def holdout(config):
         proba = proba.reindex(columns=classes, fill_value=0).to_numpy()
     result = {'metrics': scores(y, pred, config['evaluation']['problem'], proba, classes), 'rows': len(indices),
               'label': '保留测试集结果；从此不再用于本研究搜索。未声明为未见数据的盲测。'}
+    if classes is not None:
+        result['classification'] = classification_details(y, pred, classes)
     import pandas as pd
     out = pd.DataFrame({'sample': frame['_sample'].iloc[indices], 'actual': y, 'prediction': pred})
     if classes is not None:
