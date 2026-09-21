@@ -42,6 +42,7 @@ export function ProjectTaskOutput({ projectId, task }: { projectId: string; task
   const trials = training?.trials as {slot:number;model:string;status:string;metrics?:Record<string,number>;baseline?:Record<string,number>;error?:string}[] | undefined
   const evaluation = results.find(result => typeof result.rows === 'number' && result.metrics && typeof result.label === 'string')
   const classification = evaluation?.classification as {classes:{label:string;samples:number;precision:number;recall:number;f1:number}[];note:string} | undefined
+  const acceptance = evaluation?.acceptance as {selection:{status:string;threshold:number|null;target_accuracy:number;validation:{accuracy:number;coverage:number;accepted:number}|null};test:{accepted:number;review:number;accuracy:number|null;coverage:number}} | undefined
   return <>
     {!knowledgeAnswer && <MarkdownDocument source={markdown} resolveLink={href => resolveProjectLink(projectId, href)} emptyLabel={['queued', 'running'].includes(task.status) ? '正在运行，结果会自动显示。' : '本次运行的输出见下方详情。'} />}
     {knowledgeResults.map((result, i) => <KnowledgeResults key={i} result={result} answer={knowledgeAnswer ? output.markdown as string : undefined} question={typeof output.question === 'string' ? output.question : undefined} />)}
@@ -49,6 +50,12 @@ export function ProjectTaskOutput({ projectId, task }: { projectId: string; task
     {training && typeof training.study_id==='string' && typeof training.id==='string' && <p><a download href={withFrontendToken(`/api/platform/api/v1/projects/${projectId}/modeling/studies/${encodeURIComponent(training.study_id)}/candidates/${encodeURIComponent(training.id)}/download`)}>下载模型与训练记录 ↓</a></p>}
     {evaluation && <section><h3>独立测试</h3><p>{String(evaluation.rows)} 条样本 · {String(evaluation.label)}</p><p>{Object.entries(evaluation.metrics as Record<string,number|null>).map(([k,v])=>`${k}: ${v == null ? '无法计算' : Number(v).toPrecision(5)}`).join(' / ')}</p>
       {classification && <><p>{classification.note}</p><table><thead><tr><th>类别</th><th>样本数</th><th>精确率</th><th>召回率</th><th>F1</th></tr></thead><tbody>{classification.classes.map(row=><tr key={row.label}><td>{row.label}</td><td>{row.samples}{row.samples===0?' · 缺少此类测试样本':''}</td><td>{row.precision.toFixed(3)}</td><td>{row.recall.toFixed(3)}</td><td>{row.f1.toFixed(3)}</td></tr>)}</tbody></table></>}
+    </section>}
+    {acceptance && <section><h3>自动采纳与人工复核</h3>
+      <p>{acceptance.selection.status==='selected'?`验证数据选择阈值 ${acceptance.selection.threshold?.toPrecision(5)}`:'验证数据未找到满足要求的阈值，全部交由复核。'} · 验证目标准确率 {acceptance.selection.target_accuracy}</p>
+      {acceptance.selection.validation && <p>阈值选择时：采纳 {acceptance.selection.validation.accepted} 条，准确率 {acceptance.selection.validation.accuracy.toFixed(3)}。这是选择依据，不是独立测试成绩。</p>}
+      <p>固定阈值的独立测试：采纳 {acceptance.test.accepted} 条，复核 {acceptance.test.review} 条；采纳部分准确率 {acceptance.test.accuracy==null?'无法计算':acceptance.test.accuracy.toFixed(3)}，覆盖率 {acceptance.test.coverage.toFixed(3)}。</p>
+      <p>自动采纳指采用模型的分类建议，不等同于产品放行；具体工艺规则仍需另行配置。</p>
     </section>}
     {predictions.map((result,i)=>{const rows=Array.isArray(result.preview)?result.preview.slice(0,20) as Record<string,unknown>[]:[];const columns=rows.length?Object.keys(rows[0]).slice(0,8):[]
       return <section key={i}><h3>预测结果</h3><p>结果已保存，本次使用的模型版本固定在运行记录中。</p>

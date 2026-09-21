@@ -42,6 +42,10 @@ def test_rule_decisions_require_actual_model_probabilities(tmp_path, monkeypatch
         namespace['main']({'threshold': .9, 'prediction': {}})
     with pytest.raises(ValueError, match='阈值'):
         namespace['main']({**args, 'threshold': float('nan')})
+    selected = {**args['prediction'], 'acceptance': {'status':'selected','threshold':.8}}
+    assert namespace['main']({'prediction': selected})['inherit'] == 1
+    unavailable = {**selected, 'acceptance': {'status':'unavailable','threshold':None}}
+    assert namespace['main']({'prediction': unavailable})['measure'] == 2
 
 
 def test_file_snapshot_retries_and_new_runs_are_independent(modeling, monkeypatch):
@@ -68,6 +72,9 @@ def test_real_file_training_holdout_prediction_and_changed_input(real_compute):
     (client, app, project, settings), service = real_compute
     pid = project['id']; base = '/api/v1/projects/' + pid
     wid = install(client, base)
+    recipe = deepcopy(CATALOG['tabular-classification']['workflow'])
+    next(n for n in recipe['nodes'] if n['id']=='train')['config']['evaluation'].update(acceptance_accuracy=.8, acceptance_min_samples=5)
+    graph(client, wid, **recipe)
     data = 'x,category,target\n' + '\n'.join(f'{i},{"a" if i%2 else "b"},{int(i%10 >= 5)}' for i in range(90))
     upload = client.post(base + '/materials', files={'file': ('train.csv', data.encode(), 'text/csv')}).json()
     first = wait_task(client, base, start(client, base, 'official-1', workflow_id=wid, inputs={'source_path': upload['path'], 'target': 'target', 'group_column': ''}))
@@ -75,6 +82,8 @@ def test_real_file_training_holdout_prediction_and_changed_input(real_compute):
     result = first['outputs']; candidate = result['training']
     assert len(candidate['trials']) == 3
     assert result['test']['rows'] == 18
+    assert result['test']['acceptance']['selection']['validation_rows'] == 72
+    assert result['test']['acceptance']['test']['rows'] == 18
     assert all('macro_f1' in t['metrics'] for t in candidate['trials'])
     trial = next(t for t in candidate['trials'] if t['status'] == 'completed')
     bind = client.put(base + '/models/quality', json={'name': '质量', 'study_id': candidate['study_id'], 'candidate_id': candidate['id'], 'slot': trial['slot']})
@@ -87,6 +96,8 @@ def test_real_file_training_holdout_prediction_and_changed_input(real_compute):
     assert prediction['status'] == 'succeeded', prediction.get('error')
     output = prediction['outputs']['result']
     assert output['rows'] == 2 and output['probability_columns']
+    assert output['acceptance']['rows'] == 2
+    assert all(row['decision'] in {'accept_prediction','review'} for row in output['preview'])
     assert client.get(base + '/' + output['artifact']).status_code == 200
     assert (settings.workspace_root / pid / output['project_path']).is_file()
     registered = client.post(base + '/datasets', json={'source_path': fresh['path']}).json()
@@ -96,6 +107,13 @@ def test_real_file_training_holdout_prediction_and_changed_input(real_compute):
     assert independent['status'] == 'succeeded', independent['error']
     assert independent['outputs']['preview'] == output['preview']
     assert independent['outputs']['model_version'] == output['model_version']
+    rules_id = install(client, base, 'model-rules-prediction')
+    rules = deepcopy(CATALOG['model-rules-prediction']['workflow'])
+    next(n for n in rules['nodes'] if n['id']=='predict')['config']['model_ref'] = 'quality'
+    graph(client, rules_id, **rules)
+    decided = wait_task(client, base, start(client, base, 'saved-threshold', workflow_id=rules_id, inputs={'source_path':fresh['path']}))
+    assert decided['status'] == 'succeeded', decided.get('error')
+    assert decided['outputs']['result']['rows'] == 2
     # Same filename but changed content is a new immutable input and experiment.
     changed_data = 'x,category,target\n' + '\n'.join(f'{i},{"a" if i%2 else "b"},{int(i%10 < 5)}' for i in range(90))
     changed = client.post(base + '/materials', files={'file': ('train.csv', changed_data.encode(), 'text/csv')}).json()

@@ -46,6 +46,8 @@ class Evaluation(Contract):
     seed: int = 42
     holdout_fraction: float = Field(default=0.2, ge=0, le=0.4)
     target_score: float | None = None
+    acceptance_accuracy: float | None = Field(default=None, gt=0, le=1, description='Optional validation accuracy target among automatically accepted predictions; not a production guarantee.')
+    acceptance_min_samples: int = Field(default=10, ge=1)
     gap_seconds: int = Field(default=0, ge=0, description='Fixed temporal separation. For overlapping time-series windows, set at least the largest candidate window; zero conservatively purges shared subjects.')
 
     @model_validator(mode='after')
@@ -53,6 +55,8 @@ class Evaluation(Contract):
         allowed = {'regression': {'mae', 'rmse', 'r2'}, 'classification': {'macro_f1', 'accuracy', 'roc_auc'}}
         if self.metric not in allowed[self.problem]:
             raise ValueError('评价指标与分类／回归任务不匹配')
+        if self.acceptance_accuracy is not None and self.problem != 'classification':
+            raise ValueError('自动采纳阈值只适用于分类任务')
         return self
 
 
@@ -249,6 +253,8 @@ def register_modeling_blocks(registry):
                 field('evaluation.folds', '交叉验证折数', 'number', default_value=3, minimum=2, maximum=5),
                 field('evaluation.holdout_fraction', '独立测试比例', 'number', default_value=.2, minimum=0, maximum=.4, step=.05),
                 field('evaluation.gap_seconds', '时间隔离间隔（秒）', 'number', default_value=0, minimum=0),
+                field('evaluation.acceptance_accuracy', '自动采纳最低验证准确率（留空不选阈值）', 'number', minimum=.01, maximum=1, step=.01),
+                field('evaluation.acceptance_min_samples', '阈值选择最少验证样本数', 'number', default_value=10, minimum=1),
                 field('candidate.engine', '训练引擎', 'enum', options=['sklearn', 'optuna', 'autogluon'], default_value='sklearn'),
                 field('candidate.models', '候选模型（linear、forest、hist_gradient、svm，每行一个）', 'string_list', default_value=['linear', 'forest']),
                 field('candidate.batch_size', '本批试验数', 'number', default_value=2, minimum=1, maximum=5),

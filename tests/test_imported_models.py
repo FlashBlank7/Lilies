@@ -11,8 +11,8 @@ def test_real_pipeline_import_prediction_and_version_isolation(real_compute):
     model_file = service.path(project['id'], candidate['id']) / 'output/trial-0/model.joblib'
     uploaded = client.post(base + '/materials', files={'file': ('model.joblib', model_file.read_bytes(), 'application/octet-stream')}).json()
     environments = client.get(base + '/model-environments').json()
-    assert 'lilies-modeling:20260922' in environments
-    request = {'name': '已有模型', 'source_path': uploaded['path'], 'environment': 'lilies-modeling:20260922', 'mapping': dataset['mapping']}
+    assert 'lilies-modeling:20260922-acceptance' in environments
+    request = {'name': '已有模型', 'source_path': uploaded['path'], 'environment': 'lilies-modeling:20260922-acceptance', 'mapping': dataset['mapping']}
     imported = client.post(base + '/models/imported/import', json=request)
     assert imported.status_code == 201, imported.text
     first = imported.json()['value']['import_id']
@@ -48,6 +48,6 @@ def test_real_pipeline_import_prediction_and_version_isolation(real_compute):
 def test_import_rejects_foreign_sources_without_rebinding(configured):
     client, app, project, _ = configured
     base = '/api/v1/projects/' + project['id']
-    response = client.post(base + '/models/test/import', json={'name': '模型', 'source_path': '../foreign/model.pkl', 'environment': 'lilies-modeling:20260922'})
+    response = client.post(base + '/models/test/import', json={'name': '模型', 'source_path': '../foreign/model.pkl', 'environment': 'lilies-modeling:20260922-acceptance'})
     assert response.status_code == 422
     assert client.get(base + '/models').json() == []

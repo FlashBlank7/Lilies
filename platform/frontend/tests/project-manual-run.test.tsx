@@ -84,3 +84,10 @@ it('loads persisted step input/output and errors from the selected run', async (
   expect(screen.getByText(/文档无法解析/)).toHaveTextContent('design.pdf')
   expect(api).toHaveBeenCalledWith('/api/v1/runs/run-1/events/list?after=0&limit=1000')
 })
+
+it('distinguishes threshold selection from independent test performance',()=>{
+  render(<ProjectTaskOutput projectId="p" task={{status:'succeeded',outputs:{test:{rows:2,label:'保留测试',metrics:{accuracy:.5},acceptance:{selection:{status:'selected',threshold:.8,target_accuracy:.9,validation:{accepted:20,accuracy:.95,coverage:.5}},test:{accepted:1,review:1,accuracy:0,coverage:.5}}}}} as never}/>)
+  expect(screen.getByRole('heading',{name:'自动采纳与人工复核'})).toBeInTheDocument()
+  expect(screen.getByText(/这是选择依据，不是独立测试成绩/)).toBeInTheDocument()
+  expect(screen.getByText(/采纳部分准确率 0.000/)).toBeInTheDocument()
+})

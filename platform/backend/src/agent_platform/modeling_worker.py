@@ -417,6 +417,45 @@ def classification_details(y, predictions, classes):
             'note': '宏平均使用固定类别范围；样本数为 0 的类别无法据此评价可靠性。'}
 
 
+def decision_confidence(predictions, probabilities, classes):
+    positions = {label: i for i, label in enumerate(classes)}
+    values = [float(row[positions[label]]) for label, row in zip(predictions, probabilities)]
+    if len(values) != len(predictions) or any(not math.isfinite(v) or not 0 <= v <= 1 for v in values):
+        raise ValueError('阈值选择需要完整且有效的分类概率')
+    return values
+
+
+def select_acceptance(truth, predictions, probabilities, classes, target, minimum):
+    """Select on out-of-fold predictions only; holdout never enters this function."""
+    confidence = decision_confidence(predictions, probabilities, classes)
+    if len(truth) != len(predictions) or not truth:
+        raise ValueError('阈值选择缺少验证样本')
+    ordered = sorted(zip(confidence, [a == b for a, b in zip(truth, predictions)]), reverse=True)
+    curve, correct, chosen = [], 0, None
+    for i, (value, matches) in enumerate(ordered):
+        correct += int(matches)
+        if i + 1 < len(ordered) and ordered[i + 1][0] == value:
+            continue  # All equal scores must receive the same decision.
+        point = {'threshold': value, 'accepted': i + 1, 'accuracy': correct / (i + 1), 'coverage': (i + 1) / len(ordered)}
+        curve.append(point)
+        if point['accepted'] >= minimum and point['accuracy'] >= target:
+            chosen = point
+    return {'status': 'selected' if chosen else 'unavailable', 'threshold': chosen['threshold'] if chosen else None,
+            'target_accuracy': target, 'minimum_samples': minimum, 'validation_rows': len(truth),
+            'validation': chosen, 'curve': curve,
+            'note': '仅用折外验证预测选阈值；验证准确率不是独立测试或生产保证。无可用阈值时全部交由复核。'}
+
+
+def acceptance_result(policy, predictions, probabilities, classes, truth=None):
+    confidence = decision_confidence(predictions, probabilities, classes)
+    accepted = [policy['status'] == 'selected' and value >= policy['threshold'] for value in confidence]
+    count = sum(accepted)
+    result = {'threshold': policy['threshold'], 'status': policy['status'], 'rows': len(accepted),
+              'accepted': count, 'review': len(accepted) - count, 'coverage': count / len(accepted) if accepted else 0,
+              'accuracy': sum(a == b for a, b, keep in zip(truth, predictions, accepted) if keep) / count if truth is not None and count else None}
+    return accepted, result
+
+
 def evaluate(config, x, frame, split, model_name, folder, trial=None):
     import numpy as np
     import pandas as pd
@@ -483,6 +522,11 @@ def evaluate(config, x, frame, split, model_name, folder, trial=None):
         for key, part in out.groupby('group:' + group):
             group_errors.append({'column': group, 'group': str(key), 'samples': len(part), 'error': float((part.actual - part.prediction).abs().mean()) if classes is None else float((part.actual != part.prediction).mean())})
     out.to_csv(folder / 'validation-predictions.csv', index=False)
+    acceptance = None
+    if rule.get('acceptance_accuracy') is not None:
+        acceptance = select_acceptance(truth, predictions, probabilities, classes,
+                                       rule['acceptance_accuracy'], rule.get('acceptance_min_samples', 10))
+        save(folder / 'acceptance.json', acceptance)
     development = split['development']
     importance = []
     if config['engine'] == 'autogluon':
@@ -513,7 +557,7 @@ def evaluate(config, x, frame, split, model_name, folder, trial=None):
     constant_folds = [d['fold'] for d in diagnostics if d['constant_prediction']]
     warnings = [f'第 {"、".join(map(str, constant_folds))} 折对不同实测值给出了相同预测；请检查样本量、特征和参数。此提示不代表算法方向无效。'] if constant_folds else []
     return {'metrics': metric, 'baseline': baseline, 'fold_metrics': fold_scores, 'diagnostics': diagnostics, 'warnings': warnings, 'group_errors': sorted(group_errors, key=lambda r: r['error'], reverse=True)[:50],
-            'effective_model': effective, 'importance': importance, 'validation_rows': len(rows), 'prediction_preview': out.head(30).to_dict('records'), 'feature_columns': list(x.columns), 'classes': classes.tolist() if classes is not None else None}
+            'acceptance': acceptance, 'effective_model': effective, 'importance': importance, 'validation_rows': len(rows), 'prediction_preview': out.head(30).to_dict('records'), 'feature_columns': list(x.columns), 'classes': classes.tolist() if classes is not None else None}
 
 
 def bounded_evaluate(config, name, folder, seconds, trial):
@@ -638,8 +682,14 @@ def predict(config):
             column = 'probability_' + str(label)
             output[column] = probabilities[:, i]
             probability_columns[str(label)] = column
+    acceptance = None
+    policy_path = Path(config['model']) / 'acceptance.json'
+    if policy_path.exists():
+        policy = json.loads(policy_path.read_text())
+        accepted, acceptance = acceptance_result(policy, list(predictions), probabilities, classes)
+        output['decision'] = ['accept_prediction' if keep else 'review' for keep in accepted]
     output.to_csv(Path(config['output']) / 'predictions.csv', index=False)
-    return {'rows': len(output), 'preview': output.head(30).to_dict('records'), 'probability_columns': probability_columns}
+    return {'rows': len(output), 'preview': output.head(30).to_dict('records'), 'probability_columns': probability_columns, 'acceptance': acceptance}
 
 
 def holdout(config):
@@ -674,6 +724,12 @@ def holdout(config):
     if classes is not None:
         for i in range(len(classes)):
             out[f'probability:{i}'] = proba[:, i]
+    policy_path = Path(config['model']) / 'acceptance.json'
+    if policy_path.exists():
+        policy = json.loads(policy_path.read_text())
+        accepted, details = acceptance_result(policy, list(pred), proba, classes, list(y))
+        result['acceptance'] = {'selection': policy, 'test': details}
+        out['decision'] = ['accept_prediction' if keep else 'review' for keep in accepted]
     out.to_csv(Path(config['output']) / 'holdout-predictions.csv', index=False)
     return result
 

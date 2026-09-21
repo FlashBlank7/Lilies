@@ -50,8 +50,13 @@ RULE_CODE = '''def main(inputs):
     import csv, json, math
     from pathlib import Path
     from uuid import uuid4
-    threshold = float(inputs['threshold'])
-    if not math.isfinite(threshold) or not 0 <= threshold <= 1:
+    raw_threshold = inputs.get('threshold')
+    result = inputs['prediction']
+    policy = result.get('acceptance')
+    if raw_threshold is None and not policy:
+        raise ValueError('模型未保存自动采纳阈值，请填写经业务验证的阈值')
+    threshold = float(raw_threshold) if raw_threshold is not None else policy['threshold']
+    if threshold is not None and (not math.isfinite(threshold) or not 0 <= threshold <= 1):
         raise ValueError('放行阈值必须在 0 和 1 之间')
     result = inputs['prediction']
     if not result.get('model_version'):
@@ -73,7 +78,7 @@ RULE_CODE = '''def main(inputs):
         for row in reader:
             column = columns.get(row['prediction'])
             probability = float(row[column]) if column and row.get(column) else float('nan')
-            allow = math.isfinite(probability) and probability >= threshold
+            allow = threshold is not None and math.isfinite(probability) and probability >= threshold
             row.update(action='inherit' if allow else 'measure', reason='达到放行阈值' if allow else '概率不足，返回测量')
             writer.writerow(row)
             count += 1
@@ -88,12 +93,12 @@ RULE_CODE = '''def main(inputs):
 def prediction(rules=False):
     inputs = [{'name': 'source_path', 'type': 'string', 'required': True, 'description': '字段语义须与训练一致的无标签数据'}]
     if rules:
-        inputs.append({'name': 'threshold', 'type': 'number', 'required': True, 'description': '由业务验证确定的放行概率阈值；不是通用推荐值'})
+        inputs.append({'name': 'threshold', 'type': 'number', 'required': False, 'description': '手动指定业务阈值；留空使用模型保存的验证阈值，无可用阈值时全部复核'})
     nodes = [node('start', 'start', '选择新数据', inputs=inputs),
              node('predict', 'model_predict', '使用固定模型版本批量预测', source_path=ref('$inputs', 'source_path'), model_ref='')]
     if rules:
         nodes.append(node('rules', 'code', '放行判断与返回测量', code=RULE_CODE,
-                          inputs={'prediction': ref('predict', 'output'), 'threshold': ref('$inputs', 'threshold')}))
+                          inputs={'prediction': ref('predict', 'output'), 'threshold': ref('start', 'threshold')}))
     nodes.append(node('end', 'end', '预测结果', outputs={'result': ref('rules' if rules else 'predict', 'output')}))
     return graph(nodes)
 
@@ -123,7 +128,7 @@ async def install(services, project_id, template_id):
 {item['description']}
 运行前明确样本单位、预测时点、标签来源。训练流程从 source_path 和 target 登记数据，不需要研究或候选编号。
 重复设备／炉次要用分组划分；面向未来使用要用时间划分并填写数据／标签可用时间，必要时设置窗口隔离间隔。不得以发布日期后的修订值冒充当时可用数据。
-在特征节点排除预测时未知的字段、标签衍生字段及不适合泛化的标识。缺失值拟合、编码、特征筛选在训练折内进行。测试结果只评价已固定方案；本流程没有自动业务阈值搜索，不把验证调参成绩当独立测试成绩。
+在特征节点排除预测时未知的字段、标签衍生字段及不适合泛化的标识。缺失值拟合、编码、特征筛选在训练折内进行。测试结果只评价已固定方案；可在训练评估表单填写自动采纳的最低验证准确率和最少样本数；只用折外预测选阈值，独立测试固定使用它。无满足条件的阈值时全部复核，不等同工艺放行规则。
 训练结果在项目建模记录中，包含实际候选、逐折指标、基线和独立测试；文件可从建模记录下载。绑定项目模型后使用单独预测流程，不重训。模型与规则流程必须绑定真实分类模型，阈值由验证数据和业务代价确定，不能自行声称某个阈值可靠。
 同一次运行继续时保留数据和模型快照。换文件、标签、字段或划分后创建新运行，旧结果保留。修改规则／报告时使用已有预测 CSV，不需要重训。
 缺字段、空窗口、批次不足、模型未绑定时读具体错误，修改相关节点后重新运行。数据不足就列缺项，不生成训练成绩。'''

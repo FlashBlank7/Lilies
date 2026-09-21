@@ -138,4 +138,4 @@ def test_example_configuration_keeps_provider_egress_closed(tmp_path: Path, monk
                         workspace_root=tmp_path / 'workspaces')
     assert settings.model_egress_enabled is False
     assert not settings.deepseek_api_key
-    assert settings.modeling_image == 'lilies-modeling:20260922'
+    assert settings.modeling_image == 'lilies-modeling:20260922-acceptance'
