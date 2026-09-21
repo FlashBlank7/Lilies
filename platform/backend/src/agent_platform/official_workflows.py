@@ -47,7 +47,7 @@ def training(problem, process=False):
 
 
 RULE_CODE = '''def main(inputs):
-    import csv, json, math
+    import csv, json, math, hashlib
     from pathlib import Path
     from uuid import uuid4
     raw_threshold = inputs.get('threshold')
@@ -73,21 +73,50 @@ RULE_CODE = '''def main(inputs):
         columns = result.get('probability_columns', {})
         if not columns:
             raise ValueError('此模型没有分类概率；请绑定分类模型，或修改规则节点处理回归结果')
-        writer = csv.DictWriter(dst, fieldnames=list(reader.fieldnames) + ['action', 'reason'])
+        fields = ['model_decision' if name=='decision' else name for name in reader.fieldnames]
+        writer = csv.DictWriter(dst, fieldnames=fields + ['action', 'reason'])
         writer.writeheader()
         for row in reader:
             column = columns.get(row['prediction'])
             probability = float(row[column]) if column and row.get(column) else float('nan')
             allow = threshold is not None and math.isfinite(probability) and probability >= threshold
-            row.update(action='inherit' if allow else 'measure', reason='达到放行阈值' if allow else '概率不足，返回测量')
+            if 'decision' in row: row['model_decision'] = row.pop('decision')
+            row.update(action='accept_prediction' if allow else 'review', reason='达到采纳阈值' if allow else '无可用阈值或概率不足，交由复核')
             writer.writerow(row)
             count += 1
             accepted += int(allow)
             if len(preview) < 20: preview.append(row)
     (folder/'model-version.json').write_text(json.dumps(result['model_version'], ensure_ascii=False), encoding='utf-8')
+    snapshot = folder/'prediction-input.json'
+    snapshot.write_text(json.dumps({'prediction':result,'sha256':hashlib.sha256(source.read_bytes()).hexdigest()}, ensure_ascii=False), encoding='utf-8')
+    markdown = '总计 '+str(count)+' 条；采纳分类建议 '+str(accepted)+' 条，交由复核 '+str(count-accepted)+' 条。使用阈值 '+str(threshold)+'（'+('手动指定' if raw_threshold is not None else '模型保存')+'）。自动采纳不等同产品放行，完整结果见下载。'
     return {'rows': count, 'inherit': accepted, 'measure': count-accepted, 'preview': preview,
-            'file': str(folder/'decisions.csv'), 'model_version': result['model_version']}
+            'markdown':markdown,
+            'file': str(folder/'decisions.csv'), 'model_version': result['model_version'], 'prediction_input':str(snapshot),
+            'applied_threshold':threshold, 'threshold_source':'manual' if raw_threshold is not None else 'model',
+            'artifacts':[{'file_path':str(folder/'decisions.csv'),'label':'逐条规则结果 CSV'}, {'file_path':str(snapshot),'label':'规则重算输入 JSON'}]}
 '''
+
+REPLAY_INPUT_CODE = '''def main(inputs):
+    import json, hashlib
+    from pathlib import Path
+    source=Path(inputs['source_path'])
+    if source.is_absolute() or '..' in source.parts:raise ValueError('请选择当前项目的规则重算输入文件')
+    snapshot=json.loads(source.read_text())
+    prediction=snapshot['prediction']; data=Path(prediction['project_path'])
+    if data.is_absolute() or '..' in data.parts or data.parts[0]!='results':raise ValueError('预测文件必须位于项目结果目录')
+    if hashlib.sha256(data.read_bytes()).hexdigest()!=snapshot['sha256']:raise ValueError('原预测文件内容改变，不能复用；请重新预测')
+    return prediction
+'''
+
+
+def replay_rules():
+    return graph([node('start','start','选择已有预测与新规则',inputs=[
+        {'name':'source_path','type':'string','required':True,'description':'前次模型与规则流程生成的规则重算输入 JSON'},
+        {'name':'threshold','type':'number','required':False,'description':'新业务阈值；留空沿用模型保存的阈值'}]),
+        node('load','code','读取固定预测结果',code=REPLAY_INPUT_CODE,inputs={'source_path':ref('start','source_path')}),
+        node('rules','code','只重算规则与报告',code=RULE_CODE,inputs={'prediction':ref('load','output'),'threshold':ref('start','threshold')}),
+        node('end','end','新规则结果',outputs={'result':ref('rules','output'),'markdown':ref('rules','output','markdown')})])
 
 
 def prediction(rules=False):
@@ -97,23 +126,26 @@ def prediction(rules=False):
     nodes = [node('start', 'start', '选择新数据', inputs=inputs),
              node('predict', 'model_predict', '使用固定模型版本批量预测', source_path=ref('$inputs', 'source_path'), model_ref='')]
     if rules:
-        nodes.append(node('rules', 'code', '放行判断与返回测量', code=RULE_CODE,
+        nodes.append(node('rules', 'code', '采纳分类建议或交由复核', code=RULE_CODE,
                           inputs={'prediction': ref('predict', 'output'), 'threshold': ref('start', 'threshold')}))
-    nodes.append(node('end', 'end', '预测结果', outputs={'result': ref('rules' if rules else 'predict', 'output')}))
+    outputs = {'result': ref('rules' if rules else 'predict', 'output')}
+    if rules: outputs['markdown'] = ref('rules','output','markdown')
+    nodes.append(node('end', 'end', '预测结果', outputs=outputs))
     return graph(nodes)
 
 
 CATALOG = {
     'tabular-classification': {'name': '表格分类训练', 'description': '质量类别、缺陷判别等已标注表格；分析、特征、三种基线候选与独立测试。', 'workflow': training('classification')},
-    'model-rules-prediction': {'name': '模型与规则批量预测', 'description': '使用已绑定分类模型；达到配置阈值才放行，否则返回测量。专有优先级和物理规则需编辑规则节点。', 'workflow': prediction(True)},
+    'model-rules-prediction': {'name': '模型与规则批量预测', 'description': '达到配置阈值才采纳分类建议，否则交由复核。产品放行、专有优先级和物理规则需另行编辑。', 'workflow': prediction(True)},
     'tabular-regression': {'name': '表格数值预测训练', 'description': '每行一个样本的连续质量目标；比较模型、简单基线及独立测试。', 'workflow': training('regression')},
     'process-regression': {'name': '工业过程窗口质量预测', 'description': '过程表加样本标签表，按预测时点截取窗口、按炉次隔离；需要真实标签与时间字段。', 'workflow': training('regression', True)},
     'batch-prediction': {'name': '已训练模型批量预测', 'description': '使用原模型、预处理和环境处理新数据，生成 CSV，不重新训练。', 'workflow': prediction()},
+    'prediction-rules-replay': {'name': '已有预测的规则重算', 'description': '选择前次规则重算输入文件，只修改规则和报告；不调用模型、不重新训练。', 'workflow': replay_rules()},
 }
 
 
 def catalog():
-    return [{'id': key, 'version': 1, 'name': value['name'], 'description': value['description']}
+    return [{'id': key, 'version': 2, 'name': value['name'], 'description': value['description']}
             for key, value in CATALOG.items()]
 
 
@@ -134,4 +166,4 @@ async def install(services, project_id, template_id):
 缺字段、空窗口、批次不足、模型未绑定时读具体错误，修改相关节点后重新运行。数据不足就列缺项，不生成训练成绩。'''
     await save_skill(services, project_id, 'official-' + workflow_id,
                      SkillDocument(name=item['name'] + '使用说明', description=item['description'], content=content))
-    return {**created, 'template_id': template_id, 'template_version': 1}
+    return {**created, 'template_id': template_id, 'template_version': 2}

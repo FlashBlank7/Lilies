@@ -5,7 +5,7 @@ from copy import deepcopy
 import pytest
 from tests.test_modeling import modeling, real_compute, wait_task  # noqa: F401
 from tests.test_projects import configured, graph, start  # noqa: F401
-from agent_platform.official_workflows import CATALOG, RULE_CODE
+from agent_platform.official_workflows import CATALOG, RULE_CODE, REPLAY_INPUT_CODE
 
 
 def install(client, base, key='tabular-classification'):
@@ -38,6 +38,10 @@ def test_rule_decisions_require_actual_model_probabilities(tmp_path, monkeypatch
     result = namespace['main'](args)
     assert (result['rows'], result['inherit'], result['measure']) == (2, 1, 1)
     assert (tmp_path / result['file']).exists()
+    loader = {}; exec(REPLAY_INPUT_CODE, loader)
+    saved = loader['main']({'source_path':result['prediction_input']})
+    recomputed = namespace['main']({'prediction':saved,'threshold':.5})
+    assert recomputed['inherit']==2 and recomputed['model_version']==result['model_version']
     with pytest.raises(ValueError, match='模型版本'):
         namespace['main']({'threshold': .9, 'prediction': {}})
     with pytest.raises(ValueError, match='阈值'):
@@ -46,6 +50,9 @@ def test_rule_decisions_require_actual_model_probabilities(tmp_path, monkeypatch
     assert namespace['main']({'prediction': selected})['inherit'] == 1
     unavailable = {**selected, 'acceptance': {'status':'unavailable','threshold':None}}
     assert namespace['main']({'prediction': unavailable})['measure'] == 2
+    p.write_text('changed')
+    with pytest.raises(ValueError, match='内容改变'):
+        loader['main']({'source_path':result['prediction_input']})
 
 
 def test_file_snapshot_retries_and_new_runs_are_independent(modeling, monkeypatch):
@@ -114,6 +121,13 @@ def test_real_file_training_holdout_prediction_and_changed_input(real_compute):
     decided = wait_task(client, base, start(client, base, 'saved-threshold', workflow_id=rules_id, inputs={'source_path':fresh['path']}))
     assert decided['status'] == 'succeeded', decided.get('error')
     assert decided['outputs']['result']['rows'] == 2
+    replay_id = install(client, base, 'prediction-rules-replay')
+    replayed = wait_task(client, base, start(client, base, 'rule-replay', workflow_id=replay_id,
+        inputs={'source_path':decided['outputs']['result']['prediction_input'],'threshold':1.0}))
+    assert replayed['status'] == 'succeeded', replayed.get('error')
+    assert replayed['outputs']['result']['model_version'] == decided['outputs']['result']['model_version']
+    assert replayed['outputs']['result']['threshold_source'] == 'manual'
+    assert replayed['outputs']['result']['inherit'] <= decided['outputs']['result']['inherit']
     # Same filename but changed content is a new immutable input and experiment.
     changed_data = 'x,category,target\n' + '\n'.join(f'{i},{"a" if i%2 else "b"},{int(i%10 < 5)}' for i in range(90))
     changed = client.post(base + '/materials', files={'file': ('train.csv', changed_data.encode(), 'text/csv')}).json()
