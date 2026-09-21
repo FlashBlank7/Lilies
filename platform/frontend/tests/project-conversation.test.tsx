@@ -258,6 +258,15 @@ it('shows a result card only with a persisted task link and carries feedback to 
   }))
 })
 
+it('opens an already completed result when the model has exhausted its request budget', async () => {
+  await setup({ status: 'error', error: '本次请求已达到 4 次对话模型调用上限',
+    events: [{ id: 'r1', kind: 'result', time: '', text: '运行完成', request_id: 'request-1', task_id: 't1' }] })
+  expect(screen.getByText('本次请求已达到 4 次对话模型调用上限')).toBeInTheDocument()
+  fireEvent.click(within(screen.getByRole('article', { name: '关联业务结果' })).getByRole('button', { name: '查看结果' }))
+  expect(await screen.findByRole('dialog')).toHaveTextContent('资源2')
+  expect(vi.mocked(api).mock.calls.some(([path, options]) => path.endsWith('/messages') && options?.method === 'POST')).toBe(false)
+})
+
 it('acknowledges a supplement without declaring the running task complete', async () => {
   await setup({ status: 'running', active_item_id: 'allocate', request_id: 'request-1' })
   fireEvent.change(screen.getByLabelText('给项目统筹的消息'), { target: { value: '补充：先检查已有分配' } })

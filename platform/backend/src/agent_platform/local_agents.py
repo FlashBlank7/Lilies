@@ -320,6 +320,25 @@ class LocalAgents:
 
     def track_project_task(self, application_id: str, task_id: str) -> None:
         self.project_test_tasks.setdefault(self.key(application_id), set()).add(task_id)
+        state = self.load(application_id)
+        if state.get('conversation_enabled') and state.get('request_id'):
+            request_id = state['request_id']
+            worker = self.services.projects.active.get(task_id)
+
+            async def show_result():
+                if worker:
+                    # Observing completion must not spend another model turn or
+                    # cancel computation if this observer is shut down.
+                    await asyncio.gather(asyncio.shield(worker), return_exceptions=True)
+                task = await self.services.projects.store.get_task(application_id, task_id)
+                labels = {'succeeded': '运行完成', 'failed': '运行失败',
+                          'waiting_input': '等待输入', 'interrupted': '运行已停止'}
+                if task['status'] in labels and task.get('purpose') != 'build_test':
+                    self.task_result_event(application_id, task, labels[task['status']], request_id=request_id)
+
+            observer = asyncio.create_task(show_result())
+            self.services.background_tasks.add(observer)
+            observer.add_done_callback(self.services.background_tasks.discard)
         operation_id = self.current_operation.get()
         if not operation_id:
             return
@@ -329,6 +348,15 @@ class LocalAgents:
             metadata = {k: v for k, v in operation.items() if k not in {'id', 'time', 'tool_name', 'duration_seconds'}}
             metadata.update(task_id=task_id, item_id=self.load(application_id).get('active_item_id', ''))
             self.event(application_id, 'tool_progress', operation['tool_name'], **metadata)
+
+    def task_result_event(self, application_id: str, task: dict, text: str, *, request_id: str | None = None) -> None:
+        state = self.load(application_id)
+        request_id = request_id if request_id is not None else state.get('request_id', '')
+        if any(e['kind'] == 'result' and e.get('task_id') == task['id'] and e.get('request_id') == request_id
+               for e in state['events']):
+            return
+        self.event(application_id, 'result', text, request_id=request_id, task_id=task['id'],
+                   item_id=task.get('item_id', ''), purpose=task.get('purpose', ''))
 
     async def stop_project_tests(self, application_id: str) -> None:
         for task_id in self.project_test_tasks.pop(self.key(application_id), set()):

@@ -412,8 +412,7 @@ class WorkspaceProjectTools(ProjectTools):
                 if task['mode'] == 'agent' and phase == 'operate' and target_id == state.get('project_task_id'):
                     await self.projects.store.update_task(task['id'], status=args.status,
                         outputs={**args.outputs, 'message': args.message})
-                self.manager.event(self.application_id, 'result', args.message, task_id=task['id'],
-                                   item_id=task.get('item_id', '') or state.get('active_item_id', ''), purpose=task.get('purpose', ''))
+                self.manager.task_result_event(self.application_id, task, args.message)
             else:
                 await self.projects.store.update_task(task['id'], status=args.status,
                     outputs={**args.outputs, 'message': args.message})

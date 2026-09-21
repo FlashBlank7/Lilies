@@ -4,9 +4,12 @@ import json
 import time
 from types import SimpleNamespace
 
+import pytest
+
 from agent_platform.connected_model import completion_events
 from agent_platform.conversation_scope import conversation_scope
 from tests.test_projects import configured  # noqa: F401
+from tests.test_projects import graph, node, edge
 from tests.test_users import platform, signup, project  # noqa: F401
 
 
@@ -29,6 +32,51 @@ def configure(client, base):
     result = client.put(base + '/agent-session', json={'provider': 'api', 'model': 'test',
         'base_url': 'https://example.test/v1', 'api_key': 'test'})
     assert result.status_code == 200, result.text
+
+
+@pytest.mark.parametrize('wait', [True, False])
+def test_workflow_result_reaches_own_chat_even_when_model_budget_ends(configured, monkeypatch, wait):
+    client, app, project, settings = configured
+    pid = project['id']; base = '/api/v1/projects/' + pid
+    settings.project_agent_max_model_calls = 1
+    configure(client, base)
+    graph(client, pid, [node('start', 'start'), node('end', 'end', outputs={'answer': 42})], [edge('start', 'end')])
+    calls = []
+
+    async def stream(**kwargs):
+        calls.append(1)
+        for event in completion_events([{'type': 'tool_use', 'id': 'run', 'name': 'workflow_run',
+                'input': {'action': 'start', 'workflow_id': pid, 'inputs': {}, 'wait': wait}}], stop_reason='tool_use'):
+            yield event
+
+    manager = app.state.services.local_agents
+    monkeypatch.setattr(manager.connections, 'provider', lambda *args, **kwargs: SimpleNamespace(stream=stream))
+    ca, cb = new(client, base, '调用已有流程'), new(client, base, '另一会话')
+    path = base + '/conversations/' + ca
+    assert client.post(path + '/messages', json={'message': '运行已有流程'}).status_code == 202
+    state = settled(client, path)
+    assert state['status'] == 'error' and '1 次' in state['error']
+    for _ in range(300):
+        state = client.get(path).json()
+        results = [e for e in state['events'] if e['kind'] == 'result']
+        if results:
+            break
+        time.sleep(.01)
+    assert len(results) == 1 and len(calls) == 1
+    event = results[0]
+    task = client.get(base + '/tasks/' + event['task_id']).json()
+    # A completed synchronous run survives. An unfinished background run still
+    # obeys the existing stop-on-budget policy and must not appear successful.
+    assert task['status'] == 'succeeded' if wait else task['status'] in {'succeeded', 'interrupted'}
+    if task['status'] == 'succeeded':
+        assert task['outputs'] == {'answer': 42}
+    assert event['request_id'] == state['request_id']
+    assert event['text'] == ('运行完成' if task['status'] == 'succeeded' else '运行已停止')
+    assert client.get(base + '/conversations/' + cb).json()['events'] == []
+    # Explicit model presentation and repeated observations share one result card.
+    with conversation_scope(pid, ca):
+        manager.task_result_event(pid, task, '已完成')
+    assert len([e for e in client.get(path).json()['events'] if e['kind'] == 'result']) == 1
 
 
 def test_personal_chats_preserve_legacy_and_share_only_project_resources(platform):
