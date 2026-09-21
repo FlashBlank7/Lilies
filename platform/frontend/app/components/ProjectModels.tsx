@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from 'react'
 import Papa from 'papaparse'
 import { api, withFrontendToken } from '@/lib/platform'
 import ModelingPanel from './ModelingPanel'
+import {WorkflowValueField} from './WorkflowValueField'
 import styles from './workspace-tools.module.css'
 
 type Dataset = { id: string; name: string; mapping: { target: string } }
@@ -37,6 +38,9 @@ export default function ProjectModels({ projectId, onWorkflow, onTask, onTalk }:
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
+  const [packagePath, setPackagePath] = useState('')
+  const [environments, setEnvironments] = useState<string[]>([])
+  const [environment, setEnvironment] = useState('')
   const refresh = useCallback(async () => {
     const [d, s, m] = await Promise.all([api<Dataset[]>(base+'/datasets?limit=100'), api<Study[]>(base+'/modeling/studies?limit=100&summary=true'), api<Model[]>(base+'/models')])
     setDatasets(d); setStudies(s); setModels(m)
@@ -66,6 +70,10 @@ export default function ProjectModels({ projectId, onWorkflow, onTask, onTalk }:
     await api(base+`/models/${modelRef}`,{method:'PUT',body:JSON.stringify({name:modelRef,expected_revision:models.find(m=>m.model_ref===modelRef)?.revision||0,study_id:bind?studyId:'',candidate_id:bind?chosen!.candidate:'',slot:bind?chosen!.trial.slot:0})})
     setMessage(bind?'模型已绑定。已有工作流下次运行使用此版本。':'模型引用已创建，可以稍后绑定。')
   }
+  async function importModel() {
+    await api(base+`/models/${modelRef}/import`,{method:'POST',body:JSON.stringify({name:modelRef,source_path:packagePath,environment,expected_revision:models.find(m=>m.model_ref===modelRef)?.revision||0})})
+    setMessage('模型包与预处理已验证并绑定。已有运行保留原版本，新运行使用本次版本。')
+  }
   async function predict() {
     const task=await api<{id:string}>(base+`/models/${modelRef}/predict`,{method:'POST',body:JSON.stringify({dataset_id:predictionDataset,request_key:clientId()})})
     onTask(task.id)
@@ -90,6 +98,11 @@ export default function ProjectModels({ projectId, onWorkflow, onTask, onTalk }:
       <div className={styles.row}><label>模型名称<input aria-label="模型引用名称" value={modelRef} onChange={e=>setModelRef(e.target.value)} /></label><button disabled={busy||!modelRef||models.some(m=>m.model_ref===modelRef)} onClick={()=>void act(()=>saveModel(false))}>创建待绑定模型</button><button disabled={busy||!modelRef} onClick={()=>void act(createWorkflow)}>创建预测工作流</button></div>
       <div className={styles.row}><label>训练记录<select aria-label="绑定训练记录" value={studyId} onChange={e=>setStudyId(e.target.value)}><option value="">选择训练记录</option>{studies.map(s=><option key={s.id} value={s.id}>{s.name} · {statusNames[s.status]||s.status}</option>)}</select></label>
         <label>模型版本<select aria-label="绑定模型版本" value={trial} onChange={e=>setTrial(e.target.value)}><option value="">选择已完成的版本</option>{trials.map(t=><option key={`${t.candidate}:${t.trial.slot}`} value={`${t.candidate}:${t.trial.slot}`}>{t.trial.model} · {Object.entries(t.trial.metrics).map(([k,v])=>`${k} ${v.toPrecision(4)}`).join(' / ')}</option>)}</select></label><button disabled={busy||!trial||!modelRef} onClick={()=>void act(()=>saveModel(true))}>绑定模型版本</button></div>
+      <details onToggle={event=>{if(event.currentTarget.open&&!environments.length)void api<string[]>(base+'/model-environments').then(setEnvironments).catch(e=>setError(String(e)))}}><summary>导入已有模型包</summary><p>先将模型上传到项目资料。模型包须包含预处理与预测器的 sklearn Pipeline；选择与原训练一致的本地环境，平台验证后绑定为独立版本。</p>
+        <WorkflowValueField label="已有模型包" projectId={projectId} field="file_path" value={packagePath} onChange={setPackagePath} nodes={[]} nodeId="import" allowReference={false}/>
+        <label>计算环境<select aria-label="模型包计算环境" value={environment} onChange={e=>setEnvironment(e.target.value)}><option value="">选择匹配的本地环境</option>{environments.map(name=><option key={name}>{name}</option>)}</select></label>
+        <button disabled={busy||!modelRef||!packagePath||!environment} onClick={()=>void act(importModel)}>验证并绑定已有模型包</button>
+      </details>
       {models.length ? <table className={styles.table}><thead><tr><th>模型名称</th><th>状态</th><th>绑定修订</th></tr></thead><tbody>{models.map(m=><tr key={m.model_ref}><td><button onClick={()=>setModelRef(m.model_ref)}>{m.name}</button></td><td>{statusNames[m.status]||m.status}</td><td>{m.revision}</td></tr>)}</tbody></table>:<p>尚未创建模型引用。</p>}
       <div className={styles.row}><label>新数据<select aria-label="直接预测的数据集" value={predictionDataset} onChange={e=>setPredictionDataset(e.target.value)}><option value="">选择无标签数据</option>{datasets.filter(d=>!d.mapping.target).map(d=><option key={d.id} value={d.id}>{d.name}</option>)}</select></label><button disabled={busy||!predictionDataset||!modelRef} onClick={()=>void act(predict)}>直接预测</button></div><p>直接预测使用所选模型，无需创建工作流；结果保存在运行记录中。</p>
       {message&&<p role="status">{message}</p>}{error&&<p role="alert">{error}</p>}

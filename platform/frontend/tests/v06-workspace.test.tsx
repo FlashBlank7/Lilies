@@ -45,6 +45,24 @@ it('creates a prediction workflow before training or credentials exist',async()=
  expect(JSON.parse(call[1]!.body as string).workflow.nodes[1].config.model_ref).toBe('prediction')
  expect(vi.mocked(api).mock.calls.some(([p])=>p.endsWith('/train'))).toBe(false)
 })
+it('binds an uploaded pipeline to a selected local environment through forms',async()=>{
+ vi.mocked(api).mockImplementation(async(p,o)=>{
+  if(p.endsWith('/model-environments'))return ['lilies-modeling:20260922'] as never
+  if(p.endsWith('/workspace/files'))return [{path:'requirement-package/model.joblib'}] as never
+  if(p.endsWith('/import'))return {revision:1} as never
+  return [] as never
+ });render(<ProjectModels projectId="p" onWorkflow={vi.fn()} onTask={vi.fn()} onTalk={vi.fn()}/>);
+ fireEvent.click(screen.getByText('导入已有模型包'))
+ await screen.findByRole('option',{name:'lilies-modeling:20260922'})
+ await screen.findByRole('option',{name:'requirement-package/model.joblib'})
+ fireEvent.change(screen.getByRole('combobox',{name:'已有模型包'}),{target:{value:'requirement-package/model.joblib'}})
+ fireEvent.change(screen.getByRole('combobox',{name:'模型包计算环境'}),{target:{value:'lilies-modeling:20260922'}})
+ fireEvent.click(screen.getByRole('button',{name:'验证并绑定已有模型包'}))
+ await screen.findByText('模型包与预处理已验证并绑定。已有运行保留原版本，新运行使用本次版本。')
+ const call=vi.mocked(api).mock.calls.find(([p])=>p.endsWith('/models/prediction/import'))!
+ expect(JSON.parse(call[1]!.body as string)).toMatchObject({source_path:'requirement-package/model.joblib',environment:'lilies-modeling:20260922',expected_revision:0})
+ expect(vi.mocked(api).mock.calls.some(([p])=>p.endsWith('/train'))).toBe(false)
+})
 it('downloads prediction output within its project and rejects path traversal',()=>{
  const task:ProjectTask={id:'t',request_key:'r',purpose:'business',item_id:'',feedback_task_id:'',message:'',error:'',created_at:'',updated_at:'',status:'succeeded',mode:'workflow',outputs:{csv_download:'datasets/d/files/run/output/predictions.csv',result:{artifact:'datasets/d/files/run/output/predictions.csv'},bad:{artifact:'datasets/d/files/../secret'}},presentation:{}}
  render(<ProjectTaskOutput projectId="p" task={task}/>);

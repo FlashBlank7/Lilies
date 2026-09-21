@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 from .modeling_models import CandidateRequest
+from .imported_models import ImportModel, import_model, environments
 
 
 class ModelResource(BaseModel):
@@ -42,7 +43,13 @@ async def model_resources(services, project_id):
         value = record['value']
         status = 'unbound'
         error = ''
-        if value.get('candidate_id'):
+        if value.get('import_id'):
+            try:
+                model = await services.modeling.get(project_id, 'imported_model', value['import_id'])
+                status = 'ready' if model['status'] == 'validated' else 'failed'
+            except KeyError as cause:
+                status, error = 'failed', str(cause)
+        elif value.get('candidate_id'):
             try:
                 candidate = await services.modeling.get(project_id, 'candidate', value['candidate_id'])
                 status = 'ready' if any(t['slot'] == value['slot'] and t['status'] == 'completed' for t in candidate['trials']) else candidate['status']
@@ -55,7 +62,7 @@ async def model_resources(services, project_id):
 def binding_from_context(project, model_ref):
     resources = project.get('model_resources', {})
     binding = resources.get(model_ref)
-    if not binding or not binding.get('candidate_id'):
+    if not binding or not (binding.get('candidate_id') or binding.get('import_id')):
         raise ValueError(f'模型“{model_ref or "未选择"}”尚未绑定可用版本，请在项目模型页面绑定后重新运行')
     return binding
 
@@ -124,6 +131,13 @@ async def start_prediction(services, project_id, model_ref, body):
 
 
 def register_resource_routes(router, services, invoke):
+    @router.get('/model-environments')
+    async def local_environments(project_id: str):
+        return await invoke(environments, services)
+
+    @router.post('/models/{model_ref}/import', status_code=201)
+    async def import_package(project_id: str, model_ref: str, body: ImportModel):
+        return await invoke(import_model, services, project_id, model_ref, body)
 
     @router.post('/models/{model_ref}/predict', status_code=202)
     async def predict(project_id: str, model_ref: str, body: PredictResource):

@@ -147,7 +147,7 @@ def register_modeling_routes(router, services, invoke):
                 for name in ('worker.py', 'requirements.lock', 'environment.json'):
                     z.write(environment / name, name)
                 prediction = {'action': 'predict', 'mapping': dataset['mapping'], 'features': candidate['features'],
-                    'engine': candidate['engine'], 'feature_columns': best['feature_columns'], 'source': 'input/input.csv',
+                    'engine': candidate['engine'], 'feature_columns': best['feature_columns'], 'classes': best.get('classes'), 'source': 'input/input.csv',
                     'labels': 'input/labels.csv' if dataset['mapping']['kind'] == 'timeseries' else '', 'model': 'model', 'output': 'output'}
                 if candidate.get('code_sha256'):
                     prediction['transformer'] = 'transformer.py'

@@ -229,8 +229,8 @@ class Modeling:
             shutil.rmtree(folder)
             raise
 
-    async def image(self):
-        image = self.services.settings.modeling_image
+    async def image(self, requested=''):
+        image = requested or self.services.settings.modeling_image
         process = await asyncio.create_subprocess_exec('docker', 'image', 'inspect', '--format', '{{.Id}}', image, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
         try:
             out, err = await asyncio.wait_for(process.communicate(), 20)
@@ -609,6 +609,9 @@ class Modeling:
         if kind == 'model_predict' and args.get('model_ref'):
             from .project_resources import binding_from_context
             binding = binding_from_context(project, args['model_ref'])
+            if binding.get('import_id'):
+                from .imported_models import predict_import
+                return await predict_import(self, project_id, args, binding, run_id, node_id)
             args = {**args, **{k: binding[k] for k in ('study_id', 'candidate_id', 'slot')}}
         if project.get('record_scope') and kind == 'model_train':
             if args.get('finalize'):
@@ -685,6 +688,9 @@ class Modeling:
             config['transformer'] = '/transformer.py'; mounts.append((model.parent.parent / 'transformer.py', '/transformer.py'))
         result = await self.compute(project_id, dataset, config, folder, image=candidate['image'], extra_mounts=mounts)
         result['model_version'] = {'study_id': study['id'], 'candidate_id': candidate['id'], 'slot': best['slot'], 'image': candidate['image']}
+        return self.export_prediction(project_id, dataset, folder, result)
+
+    def export_prediction(self, project_id, dataset, folder, result):
         result['artifact'] = f'datasets/{dataset["id"]}/files/{folder.name}/output/predictions.csv'
         relative = Path('results/predictions') / dataset['id'] / folder.name / 'predictions.csv'
         workspace = self.services.projects.workspace(project_id).resolve()

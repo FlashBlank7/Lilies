@@ -678,6 +678,25 @@ def holdout(config):
     return result
 
 
+def inspect_model(config):
+    import joblib
+    import warnings
+    from sklearn.exceptions import InconsistentVersionWarning
+    from sklearn.pipeline import Pipeline
+    with warnings.catch_warnings():
+        warnings.simplefilter('error', InconsistentVersionWarning)
+        model = joblib.load(config['model'])
+    if not isinstance(model, Pipeline) or len(model.steps) < 2:
+        raise ValueError('模型包必须是包含预处理与预测器的 sklearn Pipeline；单独权重请先配套预处理')
+    inferred = list(getattr(model, 'feature_names_in_', []))
+    columns = config.get('feature_columns') or inferred
+    if not columns or not all(isinstance(c, str) for c in columns) or len(set(columns)) != len(columns):
+        raise ValueError('模型没有可用字段名称，请明确填写训练时的输入字段')
+    if inferred and columns != inferred:
+        raise ValueError('声明字段与模型记录的训练字段顺序不一致')
+    return {'feature_columns': columns, 'classes': list(model.classes_) if hasattr(model, 'classes_') else None}
+
+
 def main():
     if sys.argv[1] == '--trial':
         config = json.loads(Path(sys.argv[2]).read_text())
@@ -693,7 +712,9 @@ def main():
     config = json.loads(Path(sys.argv[1]).read_text())
     started = time.monotonic()
     action = config['action']
-    if action == 'profile':
+    if action == 'inspect_model':
+        result = inspect_model(config)
+    elif action == 'profile':
         result = profile(config)
     elif action == 'prepare':
         result = prepare(config)
