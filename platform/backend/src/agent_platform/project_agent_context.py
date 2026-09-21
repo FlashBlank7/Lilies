@@ -89,7 +89,7 @@ async def conversation_context(services, project_id: str, state: dict, discussio
     related = set(item.get('workflow_ids', [])) | {project_id}
     workflows = []
     for member in project['members']:
-        if member['id'] in related or (not item and member.get('purpose') != 'test'):
+        if member.get('purpose') != 'test' or member['id'] in related:
             draft = await services.workflow_store.get_draft(member['id'])
             workflows.append({'id': member['id'], 'purpose': member.get('purpose'), **draft_summary(draft, nodes=False)})
     context = {'phase': state['phase'], 'user_message': message,
@@ -102,6 +102,12 @@ async def conversation_context(services, project_id: str, state: dict, discussio
         'instruction': 'Use the current item and revision summaries. Read relevant node/file details only when needed. '
                        'Keep existing customer answers and human edits. Solve the requested task using project tools. '
                        'Workflow generation only saves a draft; execute it when requested. Full data remains available via tools.'}
+    from .local_agent_tools import ProjectTools, ProjectFile
+    import asyncio
+    files = await asyncio.to_thread(ProjectTools(services, project_id, services.local_agents).file, ProjectFile(action='list'))
+    context['project_files'] = {'files': files['files'][:40],
+        'truncated': files['truncated'] or len(files['files']) > 40,
+        'detail': 'project_file(action="list") lists project files; read/profile loads only the selected material.'}
     task_id = state.get('project_task_id') or link.get('task_id')
     if task_id:
         context['business_task'] = task_summary(await services.projects.task(project_id, task_id))

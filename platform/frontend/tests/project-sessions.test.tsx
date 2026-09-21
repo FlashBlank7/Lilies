@@ -2,6 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import ProjectConversations from '@/app/components/ProjectConversations'
 import { api } from '@/lib/platform'
+import type { ConversationFocus } from '@/lib/project-progress'
 
 vi.mock('@/lib/platform', () => ({ api: vi.fn(), withFrontendToken: (path: string) => path }))
 vi.mock('@/app/components/AuthBoundary', () => ({ useAccount: () => ({ id: 'user' }) }))
@@ -12,7 +13,7 @@ const base = '/api/v1/projects/p/conversations'
 const a = { id: 'a', title: '设计分析', status: 'running' }
 const b = { id: 'b', title: '模型训练', status: 'idle' }
 const updated = vi.fn()
-function setup(rows = [a, b], onSent = vi.fn()) {
+function setup(rows = [a, b], onSent = vi.fn(), focus?: ConversationFocus) {
   vi.mocked(api).mockImplementation(async (path, options) => {
     if (path === base) return (options?.method === 'POST' ? { ...b, id: 'new', title: '新会话' } : rows) as never
     if (options?.method === 'PATCH') return { ...a, title: JSON.parse(options.body as string).title } as never
@@ -21,7 +22,7 @@ function setup(rows = [a, b], onSent = vi.fn()) {
       { id: current.id, kind: 'assistant', text: current.title + '的记录', time: '' }],
       has_more: false, first_cursor: current.id, last_cursor: current.id, error: '' } as never
   })
-  render(<ProjectConversations id="p" items={[]} canConfigureModel={false} onUpdated={updated} onSent={onSent} />)
+  render(<ProjectConversations id="p" items={[]} focus={focus} canConfigureModel={false} onUpdated={updated} onSent={onSent} />)
   return onSent
 }
 
@@ -52,6 +53,16 @@ it('creates and renames a conversation without starting a model turn', async () 
   fireEvent.click(screen.getByRole('button', { name: '重命名' }))
   await waitFor(() => expect(api).toHaveBeenCalledWith(base + '/new', { method: 'PATCH', body: JSON.stringify({ title: '新数据预测' }) }))
   expect(vi.mocked(api).mock.calls.some(([path]) => path.endsWith('/messages'))).toBe(false)
+})
+
+it('keeps the project space request and creation mode when creating the first conversation', async () => {
+  const sent = setup([], vi.fn(), {nonce: 1, label: '项目空间', mode: 'workflow', message: '用 requirement-package/data.csv 创建分析流程'})
+  await screen.findByText('新建会话，开始分析资料、训练模型或搭建工作流。')
+  fireEvent.click(screen.getByRole('button', {name: '新建会话'}))
+  await screen.findByText('模型训练的记录')
+  expect(screen.getByLabelText('给项目统筹的消息')).toHaveValue('用 requirement-package/data.csv 创建分析流程')
+  expect(screen.getByRole('button', {name: '创建工作流'})).toHaveAttribute('aria-pressed', 'true')
+  expect(sent).not.toHaveBeenCalled()
 })
 
 it('a slow send in the previous conversation cannot clear the newly selected draft', async () => {

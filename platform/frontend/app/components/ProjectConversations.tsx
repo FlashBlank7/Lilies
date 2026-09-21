@@ -42,15 +42,16 @@ export default function ProjectConversations(props: Props) {
     return () => { alive = false; window.clearInterval(timer) }
   }, [base, storageKey])
 
-  function choose(row: Conversation) {
-    selection.current = row.id; setSelected(row.id); setTitle(row.title); props.onSent()
+  function choose(row: Conversation, clearFocus = true) {
+    selection.current = row.id; setSelected(row.id); setTitle(row.title); if(clearFocus) props.onSent()
     try { sessionStorage.setItem(storageKey, row.id) } catch {}
   }
   async function create() {
     setBusy(true); setError('')
     try {
       const row = await api<Conversation>(base, { method: 'POST', body: JSON.stringify({ title: '新会话' }) })
-      setRows(previous => [row, ...previous]); choose(row)
+      const switching = Boolean(selection.current)
+      setRows(previous => [row, ...previous]); choose(row, switching)
     } catch (cause) { setError(String(cause)) }
     finally { setBusy(false) }
   }

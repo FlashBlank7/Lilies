@@ -13,6 +13,7 @@ import { projectFileFromLink, resolveProjectLink } from '@/lib/project-links'
 import { availabilityNames, workNames, taskNames, type ProjectProgress, type ProjectMember, type ProjectTask, type ConversationFocus, type ProgressItem, type ProjectTopology } from '@/lib/project-progress'
 import ProjectConversations from '@/app/components/ProjectConversations'
 import ProjectMaterials from '@/app/components/ProjectMaterials'
+import ProjectSpace from '@/app/components/ProjectSpace'
 import ProjectRunPanel, { ProjectTaskOutput, ProjectRunEvents } from '@/app/components/ProjectRunPanel'
 import ModelConnectionPanel from '@/app/components/ModelConnectionPanel'
 import ProjectCapabilities from '@/app/components/ProjectCapabilities'
@@ -110,7 +111,7 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
   const ready = items.filter(i => i.availability !== 'not_ready')
   const activeMember = project?.members.find(m => m.id === workflowId)
   return <AppShell projectName={project?.name} navigation={<nav className={styles.projectNav} role="tablist" aria-label="项目页面">
-      {([['overview', '对话', MessageSquare], ['flow', '工作流', Workflow], ['materials', '资料与知识', Files], ['models', '模型', ChartNoAxesCombined], ['results', '运行记录', ChartNoAxesCombined], ['settings', '设置', Wrench]] as const).map(([key, label, Icon]) =>
+      {([['overview', '对话', MessageSquare], ['space', '项目空间', Files], ['flow', '工作流', Workflow], ['materials', '资料与知识', Files], ['models', '模型', ChartNoAxesCombined], ['results', '运行记录', ChartNoAxesCombined], ['settings', '设置', Wrench]] as const).map(([key, label, Icon]) =>
         <button key={key} role="tab" aria-label={label} title={label} aria-selected={tab === key} onClick={() => key === 'flow' ? void showFlow() : setTab(key)}><Icon size={17} /><span>{label}</span></button>)}
     </nav>}><main className={styles.page} onClickCapture={event => {
       const anchor = (event.target as HTMLElement).closest('a')
@@ -127,8 +128,9 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
       {project.access_role === 'admin' && <ProjectCapabilities projectId={id} enabled={Boolean(project.agent_modules_enabled)} onSaved={() => { setEditingFlow(false); void refresh() }} />}
     </section>}
     {error && <p role="alert" className={styles.error}>{error}</p>}
+    {tab==='space' && <ProjectSpace projectId={id} onWorkflow={workflow=>{void refresh();void showFlow(undefined,workflow)}} onFile={showFile} onChanged={refresh} onTalk={(message,mode='task')=>{setFocus({nonce:Date.now(),label:'项目空间',message,mode});setTab('overview');setReader(false)}} />}
     {tab === 'models' && <ProjectModels projectId={id} onWorkflow={workflow => { void refresh(); void showFlow(undefined, workflow); setEditingFlow(true) }} onTask={taskId => { void refresh(); void showTask(taskId) }} onTalk={message => talk(undefined, message)} />}
-    <div hidden={tab !== 'overview' && tab !== 'flow'}><WorkflowComposer projectId={id} workflowId={tab === 'overview' ? '' : workflowId} onChanged={workflow => { void refresh(); void showFlow(undefined, workflow); setEditingFlow(true) }} /></div>
+    <div hidden={tab !== 'flow'}><WorkflowComposer projectId={id} workflowId={workflowId} onChanged={workflow => { void refresh(); void showFlow(undefined, workflow); setEditingFlow(true) }} /></div>
     {tab === 'run' && project && <ProjectRunPanel key={runWorkflowId} projectId={id} members={project.members} initialWorkflowId={runWorkflowId} onTask={updateManualTask} />}
     <div hidden={tab !== 'overview'} className={styles.projectHome}>
       <div><div className={styles.mobileProgress}><span>{ready.length} 项可试用 · {questions.length} 个待回答问题</span><button onClick={() => setProgressOpen(true)}>查看进展</button></div>
