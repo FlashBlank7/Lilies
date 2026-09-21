@@ -121,6 +121,26 @@ def test_temporal_windows_exclude_future_and_late_arrivals(tmp_path):
         worker.features(config)
 
 
+def test_feature_exports_preserve_source_rows_and_do_not_fit_imputation(tmp_path):
+    config = fixture_data(tmp_path)
+    raw = pd.read_csv(config['source']); raw.loc[5, 'y'] = np.nan
+    raw.to_csv(config['source'], index=False)
+    result = worker.export_features(config)
+    exported = pd.read_csv(Path(config['output']) / 'features.csv')
+    metadata = pd.read_csv(Path(config['output']) / 'samples.csv')
+    x, frame, _ = worker.cached_features(config)
+    assert result['source_rows'] == 100 and result['rows'] == 99
+    assert result['excluded'] == [{'reason': '目标标签缺失', 'rows': 1}]
+    assert exported[result['row_key']].tolist() == frame['_sample'].tolist()
+    assert 5 not in exported[result['row_key']].tolist()
+    assert exported[result['row_key']].tolist() == metadata[result['row_key']].tolist()
+    assert 'y' not in exported and 'y' in metadata
+    assert pd.isna(exported.loc[2, 'x'])  # No global fitting to improve the preview.
+    pd.testing.assert_frame_equal(exported.drop(columns=result['row_key']), x, check_dtype=False)
+    assert result['preview'][2]['x'] is None
+    assert len(result['preview']) == 12
+
+
 def test_preprocessing_fits_only_training_rows(tmp_path):
     from sklearn.linear_model import Ridge
     config = fixture_data(tmp_path)

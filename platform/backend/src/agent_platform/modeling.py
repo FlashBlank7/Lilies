@@ -665,6 +665,8 @@ class Modeling:
             if not cache.exists():
                 cache.parent.mkdir(exist_ok=True)
                 copy_workspace_file(folder / 'output/features.joblib', cache)
+            if result.get('stage') == 'before_fold_preprocessing':
+                result['artifacts'] = self.export_feature_files(project_id, dataset, folder)
             return {'dataset_id': dataset['id'], 'feature_plan': plan.model_dump(), **result}
         study = await self.get(project_id, 'study', args['study_id'])
         candidate = await self.get(project_id, 'candidate', args['candidate_id'])
@@ -703,6 +705,24 @@ class Modeling:
         copy_workspace_file(folder / 'output/predictions.csv', destination)
         result['project_path'] = relative.as_posix()
         return result
+
+    def export_feature_files(self, project_id, dataset, folder):
+        workspace = self.services.projects.workspace(project_id).resolve()
+        relative = Path('results/features') / dataset['id'] / folder.name
+        artifacts = []
+        for filename, label in [('features.csv', '下载完整特征表 CSV'),
+                                ('samples.csv', '下载样本标识与标签 CSV'),
+                                ('feature-summary.json', '下载特征定义与处理说明 JSON')]:
+            target = relative / filename
+            if any((workspace / Path(*target.parts[:i])).is_symlink() for i in range(1, len(target.parts) + 1)):
+                raise ValueError('特征导出目录不支持符号链接')
+            destination = workspace / target
+            if not destination.resolve().is_relative_to(workspace):
+                raise ValueError('特征导出文件必须位于当前项目内')
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            copy_workspace_file(folder / 'output' / filename, destination)
+            artifacts.append({'file_path': target.as_posix(), 'label': label})
+        return artifacts
 
     async def budget(self, project_id, study_id, budget):
         async with self.locks.setdefault(study_id, asyncio.Lock()):

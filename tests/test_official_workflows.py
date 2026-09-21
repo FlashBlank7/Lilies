@@ -82,11 +82,26 @@ def test_real_file_training_holdout_prediction_and_changed_input(real_compute):
     recipe = deepcopy(CATALOG['tabular-classification']['workflow'])
     next(n for n in recipe['nodes'] if n['id']=='train')['config']['evaluation'].update(acceptance_accuracy=.8, acceptance_min_samples=5)
     graph(client, wid, **recipe)
-    data = 'x,category,target\n' + '\n'.join(f'{i},{"a" if i%2 else "b"},{int(i%10 >= 5)}' for i in range(90))
+    data = 'x,category,target\n' + '\n'.join(f'{i},{"a" if i%2 else "b"},{int(i%10 >= 5)}' for i in range(90)) + '\n91,a,'
     upload = client.post(base + '/materials', files={'file': ('train.csv', data.encode(), 'text/csv')}).json()
     first = wait_task(client, base, start(client, base, 'official-1', workflow_id=wid, inputs={'source_path': upload['path'], 'target': 'target', 'group_column': ''}))
     assert first['status'] == 'succeeded', first.get('error')
     result = first['outputs']; candidate = result['training']
+    prepared = result['features']
+    assert prepared['stage'] == 'before_fold_preprocessing'
+    assert prepared['source_rows'] == 91 and prepared['rows'] == 90
+    assert prepared['excluded'] == [{'reason': '目标标签缺失', 'rows': 1}]
+    assert len(prepared['preview']) == 12
+    assert {a['file_path'].rsplit('/', 1)[1] for a in prepared['artifacts']} == {'features.csv', 'samples.csv', 'feature-summary.json'}
+    import csv, io
+    tables = {}
+    for artifact in prepared['artifacts']:
+        response = client.get('/api/v1/applications/' + pid + '/workspace/files/' + artifact['file_path'])
+        assert response.status_code == 200
+        if artifact['file_path'].endswith('.csv'):
+            tables[artifact['file_path'].rsplit('/', 1)[1]] = list(csv.DictReader(io.StringIO(response.content.decode('utf-8-sig'))))
+    assert len(tables['features.csv']) == len(tables['samples.csv']) == 90
+    assert 'target' not in tables['features.csv'][0] and 'target' in tables['samples.csv'][0]
     assert len(candidate['trials']) == 3
     assert result['test']['rows'] == 18
     assert result['test']['acceptance']['selection']['validation_rows'] == 72
@@ -177,4 +192,16 @@ def test_real_regression_recipes(real_compute, template):
     task = wait_task(client, base, start(client, base, template, workflow_id=workflow, inputs=inputs))
     assert task['status'] == 'succeeded', task.get('error')
     assert task['outputs']['test']['rows'] > 0
+    import csv, io
+    feature_result = task['outputs']['features']
+    path = next(a['file_path'] for a in feature_result['artifacts'] if a['file_path'].endswith('/features.csv'))
+    response = client.get('/api/v1/applications/' + project['id'] + '/workspace/files/' + path)
+    assert response.status_code == 200
+    rows = list(csv.DictReader(io.StringIO(response.content.decode('utf-8-sig'))))
+    assert len(rows) == (24 if process else 60)
+    assert 'y' not in rows[0]
+    if process:
+        assert all(float(row['temperature__mean']) == pytest.approx(i + .1) for i, row in enumerate(rows))
+    else:
+        assert [float(row['x']) for row in rows] == list(range(60))
     assert any(trial['metrics']['mae'] < trial['baseline']['mae'] for trial in task['outputs']['training']['trials'] if trial['status'] == 'completed')

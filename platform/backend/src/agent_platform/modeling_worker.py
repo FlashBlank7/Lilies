@@ -279,6 +279,33 @@ def cached_features(config):
     return result
 
 
+def export_features(config):
+    """Export the same deterministic feature cache consumed by training."""
+    x, frame, descriptions = cached_features(config)
+    row_key = '__sample_index'
+    while row_key in x or row_key in frame:
+        row_key += '_'
+    table = x.copy()
+    table.insert(0, row_key, frame['_sample'].to_numpy())
+    mapping = config['mapping']
+    metadata = list(dict.fromkeys(mapping.get(k) for k in ('id_column', 'group_column',
+        'prediction_time_column', 'label_available_time_column', 'target') if mapping.get(k) in frame))
+    samples_table = frame[metadata].copy()
+    samples_table.insert(0, row_key, frame['_sample'].to_numpy())
+    folder = Path(config['output'])
+    table.to_csv(folder / 'features.csv', index=False, encoding='utf-8-sig')
+    samples_table.to_csv(folder / 'samples.csv', index=False, encoding='utf-8-sig')
+    source_rows = len(read_table(config.get('labels') or config['source'], mapping))
+    result = {'rows': len(x), 'columns': len(x.columns), 'features': descriptions,
+        'row_key': row_key, 'source_rows': source_rows,
+        'excluded': [{'reason': '目标标签缺失', 'rows': source_rows - len(frame)}],
+        'preview': clean(table.iloc[:12, :11].to_dict('records')),
+        'stage': 'before_fold_preprocessing',
+        'note': '此表是确定性特征。缺失值填补、类别编码、标准化及特征筛选仍在每个训练折内拟合；标签只在样本表中。样本序号对应原始样本表从0开始的行序。'}
+    save(folder / 'feature-summary.json', result)
+    return result
+
+
 def pipeline(x, config, model):
     from sklearn.compose import ColumnTransformer
     from sklearn.pipeline import Pipeline
@@ -776,8 +803,7 @@ def main():
         result = prepare(config)
         save(Path(config['output']) / 'split.json', result)
     elif action == 'features':
-        x, _, descriptions = cached_features(config)
-        result = {'rows': len(x), 'columns': len(x.columns), 'features': descriptions}
+        result = export_features(config)
     elif action == 'train':
         result = train(config)
     elif action == 'predict':
