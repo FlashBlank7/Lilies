@@ -357,6 +357,7 @@ class WorkflowRuntime:
         allow_published_authority_rebind: bool = False,
         triggered_by: str = "",
         project_context: dict[str, Any] | None = None,
+        reuse_source_run_id: str | None = None,
     ) -> dict[str, Any]:
         ancestor_chain = [str(value) for value in (application_call_chain or ())]
         if application_id in ancestor_chain:
@@ -675,6 +676,9 @@ class WorkflowRuntime:
             session_id=session_id,
             application_call_chain=current_call_chain,
         )
+        if reuse_source_run_id:
+            from .workflow_reuse import seed
+            await seed(self, state, reuse_source_run_id)
         await self.workflow_store.create_run(
             state, version=version, draft_revision=draft_revision,
             triggered_by=triggered_by,
@@ -1577,6 +1581,9 @@ class WorkflowRuntime:
             node = node_map[node_id]
             scoped_id = f"{prefix}{node_id}"
             if node_id in completed or node_id in skipped:
+                if top_state and node_id in top_state.reused_nodes:
+                    await self._emit(run_id, 'node.reused', {'node_id': scoped_id, 'title': node.title,
+                        'source_run_id': top_state.reuse_source_run_id})
                 continue
             edges = incoming[node_id]
             if edges and not any(self._edge_active(edge, outputs, skipped) for edge in edges):
@@ -1593,6 +1600,8 @@ class WorkflowRuntime:
                     metadata={"node_id": scoped_id, "type": node.type, "title": node.title},
                 )
             await self._emit(run_id, "node.started", {"node_id": scoped_id, "type": node.type, "title": node.title})
+            from .workflow_reuse import checkpoint
+            before = await checkpoint(self, top_state, node) if top_state and not prefix else None
             try:
                 output = await self._execute_with_retry(
                     snapshot,
@@ -1640,6 +1649,9 @@ class WorkflowRuntime:
             outputs[node_id] = output
             completed.add(node_id)
             if top_state and not prefix:
+                after = await checkpoint(self, top_state, node, output) if before else None
+                if after and before['environment'] == after['environment'] and all(after['files'].get(p) == h for p, h in before['files'].items()):
+                    top_state.reuse_checkpoints[node_id] = after
                 top_state.outputs = outputs
                 top_state.completed = list(completed)
                 top_state.waiting_node_id = None

@@ -140,6 +140,10 @@ class Projects:
         for run in task['runs']:
             run.pop('outputs_json', None)
             state = json.loads(run.pop('state_json'))
+            run['reuse'] = {'source_run_id': state.get('reuse_source_run_id'),
+                           'nodes': state.get('reused_nodes', []),
+                           'titles': [n['title'] for n in state['snapshot']['workflow']['nodes']
+                                      if n['id'] in state.get('reused_nodes', [])]}
             run['waiting_node'] = next((n for n in state['snapshot']['workflow']['nodes']
                                         if n['id'] == state.get('waiting_node_id')), None)
         return task
@@ -147,6 +151,7 @@ class Projects:
     async def start(self, project_id: str, *, request_key: str, mode: str = 'workflow',
                     workflow_id: str = '', inputs: dict | None = None, message: str = '',
                     purpose: str = 'business', item_id: str = '', feedback_task_id: str = '',
+                    reuse_task_id: str = '',
                     validate_snapshots: Callable[[dict], None] | None = None) -> dict:
         workflow_id = workflow_id or project_id
         await self.member(project_id, workflow_id)
@@ -163,6 +168,18 @@ class Projects:
                 if self.services.local_agents.load(project_id).get('provider') != 'api':
                     raise ProjectConflict('请先连接项目模型')
             snapshots = await self.freeze(project_id)
+            if reuse_task_id and not existing:
+                source = await self.store.get_task(project_id, reuse_task_id)
+                if mode != 'workflow' or source['mode'] != 'workflow' or source['workflow_id'] != workflow_id:
+                    raise ValueError('请选择同一项目同一工作流的历史任务')
+                if source['status'] not in {'succeeded', 'failed', 'interrupted'}:
+                    raise ValueError('请先结束原任务，再按当前配置重算')
+                runs = await self.store.runs(reuse_task_id)
+                main = next((r for r in reversed(runs) if r['application_id'] == workflow_id
+                             and r['step_key'].startswith('main:')), None)
+                if not main:
+                    raise ValueError('原任务没有可供复用的工作流运行')
+                snapshots[workflow_id]['reuse_source_run_id'] = main['id']
             if not existing and validate_snapshots:
                 validate_snapshots(snapshots)
             task, created = await self.store.create_task(str(uuid4()), project_id, request_key, mode,
@@ -251,7 +268,9 @@ class Projects:
         creation = asyncio.create_task(runtime.create_run(workflow_id,
             WorkflowRunRequest(inputs=inputs, use_draft=True, workspace_path=str(workspace)),
             project_context=context, parent_task_id=parent_run_id, application_call_chain=call_chain,
-            origin='project', triggered_by='项目任务', **scope))
+            origin='project', triggered_by='项目任务',
+            reuse_source_run_id=(context['snapshots'][workflow_id].get('reuse_source_run_id') if step == 'main' else None),
+            **scope))
         try:
             run = await asyncio.shield(creation)
         except asyncio.CancelledError:

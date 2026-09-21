@@ -72,6 +72,7 @@ class NewTask(Body):
     purpose: Literal['build_test', 'customer_trial', 'business'] = 'business'
     item_id: str = ''
     feedback_task_id: str = ''
+    reuse_task_id: str = ''
 
 
 class RecordUpdate(Body):

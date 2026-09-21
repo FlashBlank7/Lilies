@@ -11,6 +11,8 @@ class CodeConfig(BaseModel):
     code: str = Field(default='def main(inputs):\n    return inputs', max_length=100000)
     inputs: Any = Field(default_factory=dict)
     timeout: int = Field(default=60, ge=1, le=300)
+    reuse_completed: bool = Field(default=False, title='允许复用已完成结果',
+        description='仅用于所有依赖文件通过输入声明、产物路径通过输出返回的代码。外部调用、隐藏文件依赖或需要每次执行的代码请勿开启。')
 
 
 async def execute_python(sandboxes, workspace, code, timeout):
@@ -54,5 +56,7 @@ def register_code_block(registry):
         {'path':'code','label':'Python 代码','label_zh':'Python 代码','control':'textarea'},
         {'path':'inputs','label':'输入字段','label_zh':'输入字段','control':'json'},
         {'path':'timeout','label':'超时（秒）','label_zh':'超时（秒）','control':'number','minimum':1,'maximum':300},
+        {'path':'reuse_completed','label':'允许复用已完成结果','label_zh':'允许复用已完成结果','control':'boolean',
+         'description':'所有依赖文件须通过输入声明，产物文件须返回路径。存在隐藏依赖或需要每次执行时保持关闭。'},
     ]
     registry.register(definition, CodeConfig)

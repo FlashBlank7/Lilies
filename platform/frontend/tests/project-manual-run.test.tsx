@@ -91,3 +91,18 @@ it('distinguishes threshold selection from independent test performance',()=>{
   expect(screen.getByText(/这是选择依据，不是独立测试成绩/)).toBeInTheDocument()
   expect(screen.getByText(/采纳部分准确率 0.000/)).toBeInTheDocument()
 })
+
+it('recomputes the current draft using historical inputs and a scoped reuse task', async () => {
+  vi.mocked(api).mockImplementation(async (path, options) => {
+    if (path.endsWith('/draft')) return {snapshot:{workflow:{nodes:[{type:'start',config:{inputs:[{name:'source_path',type:'string',default:'new-default.csv'}]}}]}}} as never
+    if (path.endsWith('/workspace/files')) return [] as never
+    if (options?.method==='POST') return {id:'new',status:'succeeded',outputs:{markdown:'新报告'},runs:[{id:'r',reuse:{source_run_id:'old-run',nodes:['train']}}]} as never
+    throw new Error(path)
+  })
+  await act(async () => {render(<ProjectRunPanel projectId="p" members={members} initialWorkflowId="member" reuseTask={{id:'old',workflow_id:'member',inputs:{source_path:'original.csv'}} as never}/>)})
+  expect(screen.getByRole('textbox',{name:'source_path'})).toHaveValue('original.csv')
+  fireEvent.click(screen.getByRole('button',{name:'启动工作流'}))
+  expect(await screen.findByText(/复用 1 个已完成步骤/)).toHaveTextContent('train')
+  const call=vi.mocked(api).mock.calls.find(([,options])=>options?.method==='POST')!
+  expect(JSON.parse(call[1]!.body as string)).toMatchObject({reuse_task_id:'old',workflow_id:'member',inputs:{source_path:'original.csv'}})
+})

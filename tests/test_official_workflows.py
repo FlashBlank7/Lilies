@@ -92,6 +92,23 @@ def test_real_file_training_holdout_prediction_and_changed_input(real_compute):
     assert result['test']['acceptance']['selection']['validation_rows'] == 72
     assert result['test']['acceptance']['test']['rows'] == 18
     assert all('macro_f1' in t['metrics'] for t in candidate['trials'])
+    # A new draft can change its report without launching another training job.
+    recipe['nodes'][-1]['config']['outputs']['note'] = 'Updated report'
+    graph(client, wid, **recipe)
+    reused = wait_task(client, base, start(client, base, 'report-only', workflow_id=wid,
+        reuse_task_id=first['id'], inputs=first['inputs']))
+    assert reused['status'] == 'succeeded', reused.get('error')
+    assert reused['outputs']['training']['id'] == candidate['id']
+    assert reused['outputs']['note'] == 'Updated report'
+    assert {'start', 'profile', 'features', 'train', 'test'} <= set(reused['runs'][0]['reuse']['nodes'])
+    assert 'end' not in reused['runs'][0]['reuse']['nodes']
+    next(n for n in recipe['nodes'] if n['id']=='train')['config']['evaluation']['acceptance_accuracy'] = .85
+    graph(client, wid, **recipe)
+    retrained = wait_task(client, base, start(client, base, 'changed-training', workflow_id=wid,
+        reuse_task_id=reused['id'], inputs=first['inputs']))
+    assert retrained['status'] == 'succeeded', retrained.get('error')
+    assert retrained['outputs']['training']['id'] != candidate['id']
+    assert set(retrained['runs'][0]['reuse']['nodes']) == {'start', 'profile', 'features'}
     trial = next(t for t in candidate['trials'] if t['status'] == 'completed')
     bind = client.put(base + '/models/quality', json={'name': '质量', 'study_id': candidate['study_id'], 'candidate_id': candidate['id'], 'slot': trial['slot']})
     assert bind.status_code == 200, bind.text

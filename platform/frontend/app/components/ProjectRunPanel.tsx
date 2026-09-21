@@ -44,6 +44,7 @@ export function ProjectTaskOutput({ projectId, task }: { projectId: string; task
   const classification = evaluation?.classification as {classes:{label:string;samples:number;precision:number;recall:number;f1:number}[];note:string} | undefined
   const acceptance = evaluation?.acceptance as {selection:{status:string;threshold:number|null;target_accuracy:number;validation:{accuracy:number;coverage:number;accepted:number}|null};test:{accepted:number;review:number;accuracy:number|null;coverage:number}} | undefined
   return <>
+    {task.runs?.filter(run => run.reuse?.source_run_id).map(run => <p key={run.id}>使用当前配置创建了新运行，复用 {run.reuse!.nodes.length} 个已完成步骤{run.reuse!.nodes.length ? `（${(run.reuse!.titles || run.reuse!.nodes).join('、')}）` : ''}。其他步骤重新执行，原运行保持不变。</p>)}
     {!knowledgeAnswer && <MarkdownDocument source={markdown} resolveLink={href => resolveProjectLink(projectId, href)} emptyLabel={['queued', 'running'].includes(task.status) ? '正在运行，结果会自动显示。' : '本次运行的输出见下方详情。'} />}
     {knowledgeResults.map((result, i) => <KnowledgeResults key={i} result={result} answer={knowledgeAnswer ? output.markdown as string : undefined} question={typeof output.question === 'string' ? output.question : undefined} />)}
     {!!trials?.length && <section><h3>训练比较</h3><table><thead><tr><th>模型</th><th>验证指标</th><th>简单基线</th><th>结果</th></tr></thead><tbody>{trials.map(t=><tr key={t.slot}><td>{t.model}</td><td>{Object.entries(t.metrics||{}).map(([k,v])=>`${k}: ${v == null ? '无法计算' : Number(v).toPrecision(5)}`).join(' / ')}</td><td>{Object.entries(t.baseline||{}).map(([k,v])=>`${k}: ${v == null ? '无法计算' : Number(v).toPrecision(5)}`).join(' / ')}</td><td>{t.error|| (t.status==='completed'?'已完成':t.status)}</td></tr>)}</tbody></table></section>}
@@ -70,8 +71,8 @@ export function ProjectTaskOutput({ projectId, task }: { projectId: string; task
   </>
 }
 
-export default function ProjectRunPanel({ projectId, members, initialWorkflowId, onTask }: {
-  projectId: string; members: ProjectMember[]; initialWorkflowId?: string; onTask?: (task: ProjectTask) => void
+export default function ProjectRunPanel({ projectId, members, initialWorkflowId, reuseTask, onTask }: {
+  projectId: string; members: ProjectMember[]; initialWorkflowId?: string; reuseTask?: ProjectTask; onTask?: (task: ProjectTask) => void
 }) {
   const [workflowId, setWorkflowId] = useState(initialWorkflowId || projectId)
   const [fields, setFields] = useState<Field[]>([])
@@ -90,11 +91,15 @@ export default function ProjectRunPanel({ projectId, members, initialWorkflowId,
     Promise.all([api<Draft>(`/api/v1/applications/${workflowId}/draft`), api<FileEntry[]>(`/api/v1/applications/${projectId}/workspace/files`)]).then(([draft, available]) => {
       if (!current) return
       const inputs = draft.snapshot.workflow.nodes.find(node => node.type === 'start')?.config.inputs || []
-      setFields(inputs); setValues(Object.fromEntries(inputs.map(field => [field.name, field.default == null ? '' : typeof field.default === 'string' ? field.default : JSON.stringify(field.default)])))
+      const previous = workflowId === reuseTask?.workflow_id ? reuseTask.inputs as Record<string, unknown> | undefined : undefined
+      setFields(inputs); setValues(Object.fromEntries(inputs.map(field => {
+        const value = previous && Object.hasOwn(previous, field.name) ? previous[field.name] : field.default
+        return [field.name, value == null ? '' : typeof value === 'string' ? value : JSON.stringify(value)]
+      })))
       setFiles(available); setLoading(false)
     }).catch(cause => { if (current) { setError(String(cause)); setLoading(false) } })
     return () => { current = false }
-  }, [projectId, workflowId])
+  }, [projectId, workflowId, reuseTask])
   useEffect(() => {
     if (!task || !active) return
     let current = true
@@ -127,12 +132,13 @@ export default function ProjectRunPanel({ projectId, members, initialWorkflowId,
           try { inputs[field.name] = JSON.parse(raw) } catch { throw new Error(`${field.name} 需要有效 JSON`) }
         } else inputs[field.name] = raw
       }
-      const next = await api<ProjectTask>(base + '/tasks', { method: 'POST', body: JSON.stringify({ request_key: clientId(), mode: 'workflow', workflow_id: workflowId, inputs, purpose: 'customer_trial' }) })
+      const next = await api<ProjectTask>(base + '/tasks', { method: 'POST', body: JSON.stringify({ request_key: clientId(), mode: 'workflow', workflow_id: workflowId, inputs, purpose: 'customer_trial', ...(reuseTask?.workflow_id === workflowId ? {reuse_task_id: reuseTask.id} : {}) }) })
       setTask(next); onTask?.(next)
     } catch (cause) { setError(String(cause)) } finally { setBusy(false); lock.current = false }
   }
   return <section className={styles.panel} aria-label="手动运行工作流">
     <h2>运行工作流</h2><p>选择工作流和本次资料，直接运行当前已保存的配置。</p>
+    {reuseTask?.workflow_id === workflowId && <p>按当前配置重算：尝试复用历史任务中依赖未变化的已完成步骤。输入变化、文件变化或缺少复用记录时会重新计算。代码默认重跑，可在代码积木配置中声明允许复用。</p>}
     <label>入口工作流<select aria-label="入口工作流" disabled={active || busy} value={workflowId} onChange={event => { setWorkflowId(event.target.value); setTask(null) }}>{members.map(member => <option key={member.id} value={member.id}>{member.id === projectId ? '主流程 · ' : ''}{member.name}</option>)}</select></label>
     <p><Link href={`/applications/${workflowId}?tab=edit`} target="_blank">编辑这条工作流 ↗</Link></p>
     {loading ? <p role="status">正在读取输入配置…</p> : fields.map(field => <div key={field.name}>

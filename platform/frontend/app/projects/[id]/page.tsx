@@ -51,6 +51,7 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
   const [error, setError] = useState('')
   const [moreResults, setMoreResults] = useState(false)
   const [runWorkflowId, setRunWorkflowId] = useState(id)
+  const [reuseTask, setReuseTask] = useState<ProjectTask | undefined>()
   const [memberName, setMemberName] = useState('')
   const [creatingMember, setCreatingMember] = useState(false)
   const [stopping, setStopping] = useState(false)
@@ -69,7 +70,7 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
     } catch (cause) { setError(String(cause)) }
   }, [base])
   useEffect(() => { void refresh() }, [refresh])
-  useEffect(() => { const selected = new URLSearchParams(window.location.search).get('run'); if (selected) { setRunWorkflowId(selected); setTab('run') } }, [id])
+  useEffect(() => { const selected = new URLSearchParams(window.location.search).get('run'); if (selected) { setReuseTask(undefined); setRunWorkflowId(selected); setTab('run') } }, [id])
   const updateManualTask = useCallback((next: ProjectTask) => setTasks(previous => [next, ...previous.filter(item => item.id !== next.id)]), [])
   useEffect(() => {
     if (!task || !reader || (!['running', 'queued'].includes(task.status) && (task.mode === 'workflow' || task.presentation?.markdown))) return
@@ -131,7 +132,7 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
     {tab==='space' && <ProjectSpace projectId={id} onWorkflow={workflow=>{void refresh();void showFlow(undefined,workflow)}} onFile={showFile} onChanged={refresh} onTalk={(message,mode='task')=>{setFocus({nonce:Date.now(),label:'项目空间',message,mode});setTab('overview');setReader(false)}} />}
     {tab === 'models' && <ProjectModels projectId={id} onWorkflow={workflow => { void refresh(); void showFlow(undefined, workflow); setEditingFlow(true) }} onTask={taskId => { void refresh(); void showTask(taskId) }} onTalk={message => talk(undefined, message)} />}
     <div hidden={tab !== 'flow'}><WorkflowComposer projectId={id} workflowId={workflowId} onChanged={workflow => { void refresh(); void showFlow(undefined, workflow); setEditingFlow(true) }} /></div>
-    {tab === 'run' && project && <ProjectRunPanel key={runWorkflowId} projectId={id} members={project.members} initialWorkflowId={runWorkflowId} onTask={updateManualTask} />}
+    {tab === 'run' && project && <ProjectRunPanel key={runWorkflowId + (reuseTask?.id || "")} reuseTask={reuseTask} projectId={id} members={project.members} initialWorkflowId={runWorkflowId} onTask={updateManualTask} />}
     <div hidden={tab !== 'overview'} className={styles.projectHome}>
       <div><div className={styles.mobileProgress}><span>{ready.length} 项可试用 · {questions.length} 个待回答问题</span><button onClick={() => setProgressOpen(true)}>查看进展</button></div>
         <ProjectConversations id={id} canConfigureModel={Boolean(project && project.access_role !== 'collaborator')} projectName={project?.name} items={items} tasks={tasks} members={project?.members} focus={focus} onUpdated={refresh} onSent={clearFocus} onTask={taskId => void showTask(taskId)} onWorkflow={workflow => void showFlow(undefined, workflow)} onFeedback={(itemId, taskId) => talk(items.find(i => i.id === itemId), '', taskId)} />
@@ -176,7 +177,8 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
     {reader && task && <ReadingDialog wide title={items.find(i => i.id === task.item_id)?.title || task.presentation?.message || '业务结果'} onClose={() => setReader(false)}>      <div className={styles.readerBody}>{task ? <><span className={styles.tag}>{taskNames[task.status] || task.status}</span>
         {task.error && <p className={styles.error}>{task.error}</p>}
         <ProjectTaskOutput projectId={id} task={task} />
-        <div className={styles.actions}>{['running', 'queued'].includes(task.status) ? <button disabled={stopping} onClick={async () => { setStopping(true); try { const next = await api<ProjectTask>(`${base}/tasks/${task.id}/stop`, { method: 'POST' }); setTask(next); updateManualTask(next) } catch (cause) { setError(String(cause)) } finally { setStopping(false) } }}>{stopping ? '正在停止…' : '停止运行'}</button> : task.mode === 'workflow' && <button onClick={() => { setRunWorkflowId(task.workflow_id || id); setReader(false); setTab('run') }}>再次运行此工作流</button>}
+        <div className={styles.actions}>{['running', 'queued'].includes(task.status) ? <button disabled={stopping} onClick={async () => { setStopping(true); try { const next = await api<ProjectTask>(`${base}/tasks/${task.id}/stop`, { method: 'POST' }); setTask(next); updateManualTask(next) } catch (cause) { setError(String(cause)) } finally { setStopping(false) } }}>{stopping ? '正在停止…' : '停止运行'}</button> : task.mode === 'workflow' && <button onClick={() => { setReuseTask(undefined); setRunWorkflowId(task.workflow_id || id); setReader(false); setTab('run') }}>再次运行此工作流</button>}
+          {task.mode === 'workflow' && ['succeeded','failed','interrupted'].includes(task.status) && <button onClick={() => {setReuseTask(task); setRunWorkflowId(task.workflow_id || id); setReader(false); setTab('run')}}>按当前配置重算</button>}
           <button onClick={() => talk(items.find(i => i.id === task.item_id), '', task.id)}>反馈这个结果</button>{['workflow','training','prediction'].includes(task.mode) && ['waiting_input','interrupted','failed'].includes(task.status) && <button disabled={stopping} onClick={async()=>{setStopping(true);try{const next=await api<ProjectTask>(`${base}/tasks/${task.id}/resume`,{method:'POST',body:JSON.stringify({message:'继续原任务'})});setTask(next);updateManualTask(next)}catch(cause){setError(String(cause))}finally{setStopping(false)}}}>继续原运行</button>}{task.mode === 'agent' && ['waiting_input', 'interrupted', 'failed'].includes(task.status) && <button onClick={() => talk(items.find(i => i.id === task.item_id), '继续这个任务，请先检查已有结果和待补条件。', task.id)}>继续处理</button>}</div>
         {task.feedback_task_id && <button onClick={() => void showTask(task.feedback_task_id)}>查看修改前的结果</button>}
         <details><summary>实际运行与原始输入输出</summary><p>请求标识：{task.request_key}</p><pre>{JSON.stringify({ inputs: task.inputs, outputs: task.outputs }, null, 2)}</pre>{task.runs?.map(run => <p key={run.id}>{project?.members.find(m => m.id === run.application_id)?.name} · r{run.draft_revision} · {taskNames[run.status] || run.status}</p>)}
@@ -186,7 +188,7 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
     {tab === 'flow' && topology && <><section className={styles.flowBar}><div className={styles.flowMembers}>{topology.members.filter(m => m.purpose === 'business').map(member => <button key={member.id} aria-label={member.name} title={member.name} aria-selected={workflowId === member.id} onClick={() => { setWorkflowId(member.id); setEditingFlow(true) }}>{member.id === id ? '主流程' : member.name}</button>)}</div></section>
       <div className={styles.actions}><input aria-label="新工作流名称" value={memberName} onChange={event => setMemberName(event.target.value)} placeholder="新工作流名称" />
         <button disabled={creatingMember || !memberName.trim()} onClick={async () => { setCreatingMember(true); try { const member = await api<ProjectMember>(base + '/members', { method: 'POST', body: JSON.stringify({ name: memberName.trim() }) }); setMemberName(''); await refresh(); await showFlow(undefined, member.id); setEditingFlow(true) } catch (cause) { setError(String(cause)) } finally { setCreatingMember(false) } }}>添加空白工作流</button>
-        <button onClick={() => { setRunWorkflowId(workflowId || id); setTab('run') }}>运行此工作流</button></div>
+        <button onClick={() => { setReuseTask(undefined); setRunWorkflowId(workflowId || id); setTab('run') }}>运行此工作流</button></div>
       {editingFlow ? <><div className={styles.canvasHeading}><button onClick={() => setEditingFlow(false)}>查看工作流说明</button><h2>{activeMember?.name || '工作流画布'}</h2><Link href={`/applications/${workflowId}?tab=edit`} target="_blank">打开完整编辑器 <ArrowUpRight size={13} /></Link></div><iframe key={workflowId+canvasRevision} title="业务工作流画布" className={styles.canvas} src={`/applications/${workflowId}?tab=edit&embedded=1`} /></>
         : <ProjectWorkflowOverview key={workflowId + flowItemId} initialItemId={flowItemId} projectId={id} selectedId={workflowId} progress={progress} topology={topology} onWorkflow={selected => { setWorkflowId(selected); setEditingFlow(false); window.scrollTo(0, 0) }} onTalk={talk} onTask={taskId => void showTask(taskId)} onFile={showFile} onRequirements={() => void showRequirements()} onEdit={() => setEditingFlow(true)} />}
     </>}
