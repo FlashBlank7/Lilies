@@ -6,6 +6,7 @@ Code opts in only when all read dependencies and output files are declared.
 import asyncio
 from copy import deepcopy
 import hashlib
+import json
 from pathlib import Path
 
 
@@ -13,7 +14,7 @@ ML_TYPES = {'data_analysis', 'feature_extract', 'model_train'}
 
 
 def eligible(node):
-    return (node.type in {'start', 'template', 'end'} | ML_TYPES
+    return (node.type in {'start', 'template_transform', 'end'} | ML_TYPES
             or node.type == 'code' and node.config.get('reuse_completed') is True)
 
 
@@ -62,7 +63,14 @@ async def checkpoint(runtime, state, node, output=None):
         workspace = Path(state.workspace_path)
         roots = [workspace, service.root / pid]
         args = runtime._resolve(node.config, {'inputs': state.inputs, 'nodes': state.outputs})
-        values = [args, state.inputs, output or {}]
+        # Start reads its declared inputs directly; all other eligible nodes
+        # receive only resolved config. Unrelated project inputs are not reads.
+        if node.type == 'start':
+            args = {**args, 'values': {f['name']: state.inputs.get(f['name'], f.get('default'))
+                                    for f in node.config.get('inputs', [])}}
+        argument_hash = hashlib.sha256(json.dumps(args, sort_keys=True, ensure_ascii=False,
+                                                  allow_nan=False).encode()).hexdigest()
+        values = [args, output or {}]
         paths = await asyncio.to_thread(workspace_files, values, workspace)
         environment = ''
         if node.type == 'code':
@@ -101,8 +109,8 @@ async def checkpoint(runtime, state, node, output=None):
                     ids.add(('dataset', doc['dataset_id']))
                     paths.add(folder / 'output/split.json')
         files = await asyncio.to_thread(lambda: {str(p): digest(p, roots) for p in paths})
-        return {'version': 1, 'files': files, 'environment': environment}
-    except (OSError, ValueError, KeyError, RuntimeError):
+        return {'version': 2, 'arguments': argument_hash, 'files': files, 'environment': environment}
+    except (OSError, ValueError, KeyError, RuntimeError, TypeError):
         # Reuse is optional; an unavailable fingerprint must not break a valid run.
         return None
 
@@ -120,7 +128,7 @@ def incoming(workflow, node):
     return sorted((e.source, e.source_port, e.target_port, e.branch or '') for e in workflow.edges if e.target == node.id)
 
 
-async def seed(runtime, state, source_run_id):
+async def source_state(runtime, state, source_run_id):
     source = await runtime.workflow_store.get_run(source_run_id)
     old = source['state']
     if (source['status'] not in {'succeeded', 'failed', 'cancelled'}
@@ -128,35 +136,44 @@ async def seed(runtime, state, source_run_id):
             or old.project_context['project_id'] != state.project_context['project_id']
             or old.application_id != state.application_id):
         raise ValueError('只能复用当前项目同一工作流已结束的运行')
+    return old
+
+
+async def seed(runtime, state, source_run_id):
+    # Resolve eligibility when each step is reached: a changed start/parent
+    # can still produce unchanged values for an independent downstream branch.
+    await source_state(runtime, state, source_run_id)
     state.reuse_source_run_id = source_run_id
-    if (state.inputs != old.inputs or state.workspace_path != old.workspace_path
-            or state.snapshot.model_dump(exclude={'workflow'}) != old.snapshot.model_dump(exclude={'workflow'})
-            or any(state.project_context.get(k) != old.project_context.get(k)
-                   for k in ('model_resources', 'knowledge_resources'))):
-        return
-    previous = {n.id: n for n in old.snapshot.workflow.nodes}
-    pending = list(state.snapshot.workflow.nodes)
-    while pending:
-        progressed = False
-        for node in pending[:]:
-            deps = dependencies(state.snapshot.workflow, node)
-            if not deps.issubset(set(state.reused_nodes)):
-                continue
-            pending.remove(node); progressed = True
-            saved = old.reuse_checkpoints.get(node.id)
-            output = old.outputs.get(node.id)
-            if (not saved or saved.get('version') != 1 or not eligible(node)
-                    or node.id not in old.completed or output is None
-                    or any(output.get(k) for k in ('error', 'degraded', 'fallback_used'))
-                    or node.id not in previous or definition(node) != definition(previous[node.id])
-                    or incoming(state.snapshot.workflow, node) != incoming(old.snapshot.workflow, previous[node.id])):
-                continue
-            current = await checkpoint(runtime, state, node, output)
-            if current != saved:
-                continue
-            state.outputs[node.id] = deepcopy(output)
-            state.completed.append(node.id)
-            state.reused_nodes.append(node.id)
-            state.reuse_checkpoints[node.id] = deepcopy(saved)
-        if not progressed:
-            break
+
+
+def blocked_nodes(workflow):
+    blocked = {n.id for n in workflow.nodes if not eligible(n)
+               or any(isinstance(v, dict) and v.get('node_id') == '$run' for v in walk(n.config))}
+    while True:
+        more = {n.id for n in workflow.nodes if dependencies(workflow, n) & blocked}
+        if more <= blocked:
+            return blocked
+        blocked.update(more)
+
+
+async def reuse_step(runtime, state, node, old):
+    if (state.workspace_path != old.workspace_path
+            or state.snapshot.model_dump(exclude={'workflow'}) != old.snapshot.model_dump(exclude={'workflow'})):
+        return False
+    previous = next((n for n in old.snapshot.workflow.nodes if n.id == node.id), None)
+    saved = old.reuse_checkpoints.get(node.id)
+    output = old.outputs.get(node.id)
+    if (not saved or saved.get('version') != 2 or not eligible(node)
+            or node.id not in old.completed or output is None
+            or any(output.get(k) for k in ('error', 'degraded', 'fallback_used'))
+            or previous is None or definition(node) != definition(previous)
+            or incoming(state.snapshot.workflow, node) != incoming(old.snapshot.workflow, previous)):
+        return False
+    current = await checkpoint(runtime, state, node, output)
+    if current != saved:
+        return False
+    state.outputs[node.id] = deepcopy(output)
+    state.completed.append(node.id)
+    state.reused_nodes.append(node.id)
+    state.reuse_checkpoints[node.id] = deepcopy(saved)
+    return True

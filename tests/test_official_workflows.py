@@ -4,7 +4,7 @@ from copy import deepcopy
 
 import pytest
 from tests.test_modeling import modeling, real_compute, wait_task  # noqa: F401
-from tests.test_projects import configured, graph, start  # noqa: F401
+from tests.test_projects import configured, graph, ref, start  # noqa: F401
 from agent_platform.official_workflows import CATALOG, RULE_CODE, REPLAY_INPUT_CODE
 
 
@@ -80,6 +80,8 @@ def test_real_file_training_holdout_prediction_and_changed_input(real_compute):
     pid = project['id']; base = '/api/v1/projects/' + pid
     wid = install(client, base)
     recipe = deepcopy(CATALOG['tabular-classification']['workflow'])
+    recipe['nodes'][0]['config']['inputs'].append({'name':'report_label', 'type':'string', 'default':'原报告'})
+    recipe['nodes'][-1]['config']['outputs']['report_label'] = ref('start', 'output', 'report_label')
     next(n for n in recipe['nodes'] if n['id']=='train')['config']['evaluation'].update(acceptance_accuracy=.8, acceptance_min_samples=5)
     graph(client, wid, **recipe)
     data = 'x,category,target\n' + '\n'.join(f'{i},{"a" if i%2 else "b"},{int(i%10 >= 5)}' for i in range(90)) + '\n91,a,'
@@ -117,6 +119,12 @@ def test_real_file_training_holdout_prediction_and_changed_input(real_compute):
     assert reused['outputs']['note'] == 'Updated report'
     assert {'start', 'profile', 'features', 'train', 'test'} <= set(reused['runs'][0]['reuse']['nodes'])
     assert 'end' not in reused['runs'][0]['reuse']['nodes']
+    renamed = wait_task(client, base, start(client, base, 'report-input-only', workflow_id=wid,
+        reuse_task_id=reused['id'], inputs={**first['inputs'], 'report_label':'新报告'}))
+    assert renamed['status'] == 'succeeded', renamed.get('error')
+    assert renamed['outputs']['report_label'] == '新报告'
+    assert renamed['outputs']['training']['id'] == candidate['id']
+    assert set(renamed['runs'][0]['reuse']['nodes']) == {'profile', 'features', 'train', 'test'}
     next(n for n in recipe['nodes'] if n['id']=='train')['config']['evaluation']['acceptance_accuracy'] = .85
     graph(client, wid, **recipe)
     retrained = wait_task(client, base, start(client, base, 'changed-training', workflow_id=wid,
@@ -160,6 +168,24 @@ def test_real_file_training_holdout_prediction_and_changed_input(real_compute):
     assert replayed['outputs']['result']['model_version'] == decided['outputs']['result']['model_version']
     assert replayed['outputs']['result']['threshold_source'] == 'manual'
     assert replayed['outputs']['result']['inherit'] <= decided['outputs']['result']['inherit']
+    # A changed model binding only affects its consumers, not independent training.
+    alternative = next(t for t in candidate['trials'] if t['status']=='completed' and t['slot'] != trial['slot'])
+    assert client.put(base + '/models/quality', json={'name':'质量', 'expected_revision':1,
+        'study_id':candidate['study_id'], 'candidate_id':candidate['id'], 'slot':alternative['slot']}).status_code == 200
+    unaffected = wait_task(client, base, start(client, base, 'unrelated-binding', workflow_id=wid,
+        reuse_task_id=retrained['id'], inputs=retrained['inputs']))
+    assert unaffected['status']=='succeeded', unaffected.get('error')
+    assert set(unaffected['runs'][0]['reuse']['nodes']) == {'start','profile','features','train','test','end'}
+    rebound = wait_task(client, base, start(client, base, 'changed-binding', workflow_id=predict_id,
+        reuse_task_id=prediction['id'], inputs=prediction['inputs']))
+    assert rebound['status']=='succeeded', rebound.get('error')
+    assert rebound['outputs']['result']['model_version']['slot'] == alternative['slot']
+    assert rebound['runs'][0]['reuse']['nodes'] == ['start']
+    assert client.get(base+'/tasks/'+prediction['id']).json()['outputs'] == prediction['outputs']
+    assert client.put(base+'/models/quality',json={'name':'质量','expected_revision':2}).status_code==200
+    missing = wait_task(client, base, start(client, base, 'removed-binding', workflow_id=predict_id,
+        reuse_task_id=rebound['id'], inputs=prediction['inputs']))
+    assert missing['status']=='failed' and '尚未绑定' in missing['error']
     # Same filename but changed content is a new immutable input and experiment.
     changed_data = 'x,category,target\n' + '\n'.join(f'{i},{"a" if i%2 else "b"},{int(i%10 < 5)}' for i in range(90))
     changed = client.post(base + '/materials', files={'file': ('train.csv', changed_data.encode(), 'text/csv')}).json()

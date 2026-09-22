@@ -140,7 +140,7 @@ export default function ProjectRunPanel({ projectId, members, initialWorkflowId,
   }
   return <section className={styles.panel} aria-label="手动运行工作流">
     <h2>运行工作流</h2><p>选择工作流和本次资料，直接运行当前已保存的配置。</p>
-    {reuseTask?.workflow_id === workflowId && <p>按当前配置重算：尝试复用历史任务中依赖未变化的已完成步骤。输入变化、文件变化或缺少复用记录时会重新计算。代码默认重跑，可在代码积木配置中声明允许复用。</p>}
+    {reuseTask?.workflow_id === workflowId && <p>按当前配置重算：按各步骤实际读取的输入和依赖判断能否复用。旧运行缺少复用记录时会重新计算。代码默认重跑，可在代码积木配置中声明允许复用。</p>}
     <label>入口工作流<select aria-label="入口工作流" disabled={active || busy} value={workflowId} onChange={event => { setWorkflowId(event.target.value); setTask(null) }}>{members.map(member => <option key={member.id} value={member.id}>{member.id === projectId ? '主流程 · ' : ''}{member.name}</option>)}</select></label>
     <p><Link href={`/applications/${workflowId}?tab=edit`} target="_blank">编辑这条工作流 ↗</Link></p>
     {loading ? <p role="status">正在读取输入配置…</p> : fields.map(field => <div key={field.name}>

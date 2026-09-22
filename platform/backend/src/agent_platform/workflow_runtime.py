@@ -1577,6 +1577,10 @@ class WorkflowRuntime:
         outputs = top_state.outputs if top_state and not prefix else {}
         completed = set(top_state.completed if top_state and not prefix else [])
         skipped = set(top_state.skipped if top_state and not prefix else [])
+        from .workflow_reuse import blocked_nodes, reuse_step, source_state
+        reuse_source = (await source_state(self, top_state, top_state.reuse_source_run_id)
+                        if top_state and not prefix and top_state.reuse_source_run_id else None)
+        reuse_blocked = blocked_nodes(workflow) if reuse_source else set()
         for node_id in order:
             node = node_map[node_id]
             scoped_id = f"{prefix}{node_id}"
@@ -1592,6 +1596,13 @@ class WorkflowRuntime:
                     top_state.skipped = list(skipped)
                     await self.workflow_store.update_run(run_id, status="running", state=top_state)
                 await self._emit(run_id, "node.skipped", {"node_id": scoped_id})
+                continue
+            if (reuse_source and node_id not in reuse_blocked
+                    and await reuse_step(self, top_state, node, reuse_source)):
+                completed.add(node_id)
+                await self.workflow_store.update_run(run_id, status="running", state=top_state)
+                await self._emit(run_id, 'node.reused', {'node_id': scoped_id, 'title': node.title,
+                    'source_run_id': top_state.reuse_source_run_id})
                 continue
             if top_state and not prefix:
                 await self.harness.record_usage(
