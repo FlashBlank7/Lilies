@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { MessageSquare, Workflow, Files, Wrench, ChartNoAxesCombined, ArrowUpRight, X } from 'lucide-react'
 import AppShell from '@/app/components/AppShell'
+import { useOnboarding, type GuideStep } from '@/app/components/Onboarding'
 import ProjectFileReader from '@/app/components/ProjectFileReader'
 import ProjectWorkflowOverview from '@/app/components/ProjectWorkflowOverview'
 import ReadingDialog from '@/app/components/ReadingDialog'
@@ -30,6 +31,7 @@ const emptyProgress: ProjectProgress = { revision: 0, value: { goal: '', summary
 
 export default function ProjectPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
+  const guide = useOnboarding()
   const base = '/api/v1/projects/' + id
   const [project, setProject] = useState<Project | null>(null)
   const [progress, setProgress] = useState<ProjectProgress>(emptyProgress)
@@ -67,9 +69,21 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
       setProject(p); setProgress(nextProgress)
       setTasks(previous => [...new Map([...previous, ...trials, ...business].map(t => [t.id, t])).values()].sort((a, b) => b.created_at.localeCompare(a.created_at)))
       setMoreResults(trials.length === 20 || business.length === 20); setError('')
-    } catch (cause) { setError(String(cause)) }
-  }, [base])
+    } catch (cause) { setError(String(cause)); if (cause && typeof cause === 'object' && 'status' in cause && cause.status === 404) guide.unavailable() }
+  }, [base, guide.unavailable])
   useEffect(() => { void refresh() }, [refresh])
+  useEffect(() => { if (project && guide.active) guide.mark('project', id) }, [project?.id, guide.active, guide.mark, id])
+  useEffect(() => {
+    const navigate = (step: string) => {
+      const tabs: Record<string, string> = { materials: 'space', workflow: 'space', conversation: 'space', results: 'results', next: 'overview', settings: 'settings' }
+      if (tabs[step]) { setTab(tabs[step]); setReader(false) }
+    }
+    const requested = new URLSearchParams(window.location.search).get('guide')
+    if (requested) navigate(requested)
+    const listener = (event: Event) => navigate((event as CustomEvent<GuideStep>).detail)
+    window.addEventListener('lilies:guide-navigate', listener)
+    return () => window.removeEventListener('lilies:guide-navigate', listener)
+  }, [id])
   useEffect(() => { const selected = new URLSearchParams(window.location.search).get('run'); if (selected) { setReuseTask(undefined); setRunWorkflowId(selected); setTab('run') } }, [id])
   const updateManualTask = useCallback((next: ProjectTask) => setTasks(previous => [next, ...previous.filter(item => item.id !== next.id)]), [])
   useEffect(() => {
@@ -84,13 +98,13 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
     setFocus(next); try { sessionStorage.setItem('lilies:project:' + id + ':focus', JSON.stringify(next)) } catch {}; setTab('overview'); setReader(false); setProgressOpen(false)
   }
   async function showTask(taskId: string) {
-    try { setTask(await api<ProjectTask>(base + '/tasks/' + taskId)); setReader(true) } catch (cause) { setError(String(cause)) }
+    try { setTask(await api<ProjectTask>(base + '/tasks/' + taskId)); setReader(true); guide.mark('results', id) } catch (cause) { setError(String(cause)) }
   }
   function showFile(path: string, taskId = '') {
     setFile(path); setFileTaskId(taskId)
   }
   async function showFlow(item?: ProgressItem, selectedId?: string) {
-    try { setTopology(await api<ProjectTopology>(base + '/topology')); setWorkflowId(selectedId || item?.workflow_ids[0] || id); setEditingFlow(true); setCanvasRevision(n=>n+1); setFlowItemId(item?.id || ''); setTab('flow') } catch (cause) { setError(String(cause)) }
+    try { setTopology(await api<ProjectTopology>(base + '/topology')); setWorkflowId(selectedId || item?.workflow_ids[0] || id); setEditingFlow(true); setCanvasRevision(n=>n+1); setFlowItemId(item?.id || ''); setTab('flow'); guide.mark('workflow', id) } catch (cause) { setError(String(cause)) }
   }
   async function showRequirements() {
     try { const doc = await api<{ document: string }>(base + '/requirements'); setRequirements(doc.document) } catch (cause) { setError(String(cause)) }
@@ -168,7 +182,7 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
         <section className={styles.panel}><h2>最近结果</h2>{tasks.length ? tasks.slice(0, 3).map(t => <div key={t.id} className={styles.resultLinks}><button onClick={() => void showTask(t.id)}>{taskTitle(t)} · {taskNames[t.status] || t.status}</button></div>) : <p>试用后，结果会保留在这里。</p>}</section>
       </aside>
     </div>
-    {tab === 'results' && <div>
+    {tab === 'results' && <div tabIndex={-1} data-guide="results">
       <section className={styles.panel}><h2>运行记录</h2><p>查看训练、预测和工作流的结果，也可以停止或继续原任务。</p>
         <ul className={styles.list}>{tasks.map(t => <li key={t.id}><button onClick={() => void showTask(t.id)}>{taskTitle(t)} · {taskNames[t.status] || t.status}<small className={styles.taskTime}>{new Date(t.created_at).toLocaleString()}</small></button></li>)}</ul>
         {!tasks.length && <p>尚无运行记录。可以开始训练、运行工作流，或通过对话执行任务。</p>}{moreResults && <button onClick={() => void olderResults()}>加载更早的结果</button>}

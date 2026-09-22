@@ -63,7 +63,7 @@ export default function ProjectConversations(props: Props) {
     } catch (cause) { setError(String(cause)) }
     finally { setBusy(false) }
   }
-  return <div>
+  return <div tabIndex={-1} data-guide-fallback="next">
     <section className={styles.panel} aria-label="我的项目会话">
       <div className={styles.controls}>
         <label>我的会话<select aria-label="选择会话" value={selected} disabled={loading || busy || !rows.length}

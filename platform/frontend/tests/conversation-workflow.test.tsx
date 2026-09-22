@@ -4,12 +4,14 @@ import {api} from '@/lib/platform'
 import ProjectConversation from '@/app/components/ProjectConversation'
 import ProjectSpace from '@/app/components/ProjectSpace'
 
+const { mark } = vi.hoisted(() => ({ mark: vi.fn() }))
+vi.mock('@/app/components/Onboarding', () => ({ useOnboarding: () => ({ mark, active: true }) }))
 vi.mock('@/lib/platform',()=>({api:vi.fn(),withFrontendToken:(p:string)=>p}))
 vi.mock('@/app/components/AuthBoundary',()=>({useAccount:()=>({id:'user'})}))
 vi.mock('@/app/components/ModelingPanel',()=>({default:()=>null}))
 vi.mock('@/app/components/ModelConnectionPanel',()=>({default:()=>null}))
 vi.mock('@/app/components/ProjectMaterials',()=>({default:()=> <div>项目文件上传</div>}))
-beforeEach(()=>{vi.mocked(api).mockReset();sessionStorage.clear()})
+beforeEach(()=>{mark.mockClear();vi.mocked(api).mockReset();sessionStorage.clear()})
 afterEach(()=>cleanup())
 const member={id:'old',name:'质量分析',description:'分析质量数据',purpose:'business',revision:1}
 const card={id:'new',name:'质量分析与预测',revision:1,node_count:2,nodes:[{id:'s',title:'输入',type:'start'},{id:'e',title:'输出',type:'end'}]}
@@ -80,4 +82,40 @@ it('installs an editable official workflow and opens its canvas without running 
   fireEvent.click(await screen.findByRole('button',{name:'加入项目 · 表格分类训练'}))
   await waitFor(()=>expect(open).toHaveBeenCalledWith('installed'))
   expect(vi.mocked(api).mock.calls.filter(([,o])=>o?.method==='POST').map(([path])=>path)).toEqual(['/api/v1/projects/p/space/official-workflows/tabular-classification'])
+})
+
+
+it('keeps an unsent draft when the project space supplies a workflow request', async () => {
+  setup(); const view = render(<ProjectConversation {...props} />)
+  await screen.findByText('已经分析数据')
+  fireEvent.change(screen.getByLabelText('给项目统筹的消息'), {target: {value: '保留我的额外要求'}})
+  view.rerender(<ProjectConversation {...props} focus={{nonce: 1, label: '项目空间', message: '请调用质量分析流程'}} />)
+  expect(screen.getByLabelText('给项目统筹的消息')).toHaveValue('保留我的额外要求\n\n请调用质量分析流程')
+  expect(vi.mocked(api).mock.calls.some(([, options]) => options?.method === 'POST')).toBe(false)
+  expect(mark).not.toHaveBeenCalledWith('conversation', 'p')
+  fireEvent.click(screen.getByRole('button', {name: '发送'}))
+  await waitFor(() => expect(mark).toHaveBeenCalledWith('conversation', 'p'))
+})
+
+it('marks actual file selection and workflow selection without running the workflow', async () => {
+  setup(); render(<ProjectSpace projectId="p" onWorkflow={vi.fn()} onFile={vi.fn()} onTalk={vi.fn()} onChanged={vi.fn()} />)
+  fireEvent.click(await screen.findByLabelText('requirement-package/data.csv'))
+  expect(mark).toHaveBeenCalledWith('materials', 'p')
+  fireEvent.click(screen.getByRole('button', {name: '让智能体调用'}))
+  expect(mark).toHaveBeenCalledWith('workflow', 'p')
+  expect(vi.mocked(api).mock.calls.some(([, options]) => options?.method === 'POST')).toBe(false)
+})
+
+it('does not mark a failed task request as completed', async () => {
+  setup(); const healthy = vi.mocked(api).getMockImplementation()!
+  vi.mocked(api).mockImplementation(async (path, options) => {
+    if (path.endsWith('/messages')) throw new Error('模型未配置')
+    return healthy(path, options)
+  })
+  render(<ProjectConversation {...props} />); await screen.findByText('已经分析数据')
+  fireEvent.change(screen.getByLabelText('给项目统筹的消息'), {target: {value: '请使用流程'}})
+  fireEvent.click(screen.getByRole('button', {name: '发送'}))
+  await screen.findByText('Error: 模型未配置')
+  expect(mark).not.toHaveBeenCalledWith('conversation', 'p')
+  expect(screen.getByLabelText('给项目统筹的消息')).toHaveValue('请使用流程')
 })

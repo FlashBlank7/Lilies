@@ -1,0 +1,15 @@
+.panel { position: fixed; right: 24px; bottom: 20px; width: min(370px, calc(100vw - 32px)); max-height: 70dvh; overflow-y: auto; box-sizing: border-box; padding: 20px; background: #fff; color: #243349; border: 1px solid #cbd9e9; border-radius: 16px; box-shadow: 0 12px 44px #172e5026; z-index: 45; font-size: 14px; line-height: 1.65; }
+.panel header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.panel h2 { font-size: 19px; margin: 12px 0 8px; }
+.panel p { margin: 10px 0; }
+.panel small { color: #52627b; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0; }
+.panel button, .collapsed button { cursor: pointer; border: 1px solid #c5d1e2; border-radius: 8px; background: #f4f7fc; padding: 7px 12px; color: #254769; font: inherit; }
+.panel button:disabled { opacity: .5; cursor: default; }
+.panel button:focus-visible, .panel summary:focus-visible, .collapsed button:focus-visible { outline: 3px solid #497dc7; outline-offset: 3px; }
+.checklist { list-style: none; padding: 0; margin: 8px 0; }
+.checklist li { padding: 3px 0; }
+.checklist span { color: #176754; }
+.highlight { outline: 3px solid #5488cb !important; outline-offset: 5px; scroll-margin-block: 100px; border-radius: 8px; }
+.collapsed { position: fixed; top: 56px; right: 16px; z-index: 40; }
+@media (max-width: 640px) { .panel { bottom: 8px; right: 8px; width: calc(100vw - 16px); max-height: 44dvh; padding: 16px; border-radius: 14px; } .collapsed { top: 52px; right: 8px; font-size: 13px; } }

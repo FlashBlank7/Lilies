@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
 from .db import connect
+from .onboarding import OnboardingPatch, onboarding
 
 
 def password_hash(password: str) -> str:
@@ -295,6 +296,14 @@ def account_router(accounts: Accounts, require_token):
     @router.get('/me', dependencies=[Depends(require_token)])
     async def me(request: Request):
         return {'user': public_user(request.state.user)}
+
+    @router.get('/me/onboarding', dependencies=[Depends(require_token)])
+    async def get_onboarding(request: Request):
+        return await onboarding(accounts, request.state.user)
+
+    @router.patch('/me/onboarding', dependencies=[Depends(require_token)])
+    async def update_onboarding(body: OnboardingPatch, request: Request):
+        return await onboarding(accounts, request.state.user, body)
 
     @router.post('/auth/logout', dependencies=[Depends(require_token)])
     async def logout(request: Request):

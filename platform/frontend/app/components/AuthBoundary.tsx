@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 import { api, clearClientToken } from '@/lib/platform'
 import styles from '../auth.module.css'
+import Onboarding, { TutorialLauncher } from './Onboarding'
 
 export type AccountUser = { id: string; name: string; role: 'admin' | 'member'; status: string }
 const AccountContext = createContext<AccountUser | null>(null)
@@ -54,12 +55,14 @@ export default function AuthBoundary({ children }: { children: ReactNode }) {
   if (!user) return <main className={styles.loading}>
     {error ? <><p role="alert">{error}</p><button onClick={() => setRetry(n => n + 1)}>重新连接</button><Link href="/login">前往登录</Link></> : <p role="status">正在打开平台…</p>}
   </main>
-  return <AccountContext.Provider key={user.id} value={user}>
-    {!embedded && <nav className={styles.accountBar} aria-label="账号导航">
+  const content = <>{!embedded && <nav className={styles.accountBar} aria-label="账号导航">
       <Link href="/projects">Lilies</Link><span className={styles.spacer} />
+      <TutorialLauncher />
       {user.role === 'admin' && <Link href="/users">账号管理</Link>}
       <Link href="/account">{user.name}</Link><button onClick={() => void logout()}>退出登录</button>
     </nav>}
-    {error && <p role="alert" className={styles.error}>{error}</p>}{children}
+    {error && <p role="alert" className={styles.error}>{error}</p>}{children}</>
+  return <AccountContext.Provider key={user.id} value={user}>
+    {embedded ? content : <Onboarding>{content}</Onboarding>}
   </AccountContext.Provider>
 }

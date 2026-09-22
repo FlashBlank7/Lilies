@@ -8,6 +8,7 @@ import { taskNames, type ProjectActivity as Activity, type ProjectTask, type Pro
 import ProjectActivity from './ProjectActivity'
 import ModelConnectionPanel from './ModelConnectionPanel'
 import { useAccount } from './AuthBoundary'
+import { useOnboarding } from './Onboarding'
 import ReadingDialog from './ReadingDialog'
 import ModelingPanel, { type ModelingContext } from './ModelingPanel'
 import ConversationWorkflowCreator, {type WorkflowCard} from './ConversationWorkflowCreator'
@@ -28,6 +29,7 @@ export default function ProjectConversation({ id, conversationId, projectName, c
   id: string; conversationId?: string; projectName?: string; canConfigureModel?: boolean; tasks?: ProjectTask[]; members?: ProjectMember[]; onTask?: (id: string) => void; onWorkflow?: (id: string) => void; onFeedback?: (itemId: string, taskId: string) => void; items: ProgressItem[]; focus?: ConversationFocus; onUpdated: () => unknown; onSent: () => void
 }) {
   const account = useAccount()
+  const guide = useOnboarding()
   const base = '/api/v1/projects/' + id
   const conversationBase = base + (conversationId ? '/conversations/' + conversationId : '/conversation')
   const mounted = useRef(true)
@@ -80,7 +82,7 @@ export default function ProjectConversation({ id, conversationId, projectName, c
   }, [conversationBase, onUpdated])
   useEffect(() => { try { const saved = sessionStorage.getItem(draftKey); if (saved) {setMessage(saved);messageRef.current=saved} const context = sessionStorage.getItem(draftKey + ':modeling'); if (context) setModelingContext(JSON.parse(context)); if(sessionStorage.getItem(draftKey+':mode')==='workflow')setMode('workflow') } catch {} }, [draftKey])
   useEffect(() => { void refresh(); const timer = window.setInterval(() => void refresh(), 1500); return () => window.clearInterval(timer) }, [refresh])
-  useEffect(() => { if (focus) { if (focus.message !== undefined) updateDraft(focus.message); changeMode(focus.mode || 'task'); composer.current?.focus() } }, [focus])
+  useEffect(() => { if (focus) { if (focus.message !== undefined) { const previous = messageRef.current; updateDraft(focus.label === '项目空间' && previous.trim() && !previous.includes(focus.message) ? previous + '\n\n' + focus.message : focus.label === '项目空间' && previous.includes(focus.message) ? previous : focus.message); } changeMode(focus.mode || 'task'); composer.current?.focus() } }, [focus])
   useEffect(() => {
     const el = historyElement.current
     if (!el || !events.length) return
@@ -105,7 +107,7 @@ export default function ProjectConversation({ id, conversationId, projectName, c
         task_id: focus?.task_id || modelingContext?.task_id || (resume ? session?.conversation_context?.task_id || session?.project_task_id : '') || '',
         ...(modelingContext ? { dataset_id: modelingContext.dataset_id || '', study_id: modelingContext.study_id || '', candidate_id: modelingContext.candidate_id || '' } : {}) }) })
       if (!mounted.current) return
-      updateDraft(''); updateModelingContext(null); onSent(); followBottom.current = true; setSentNotice(running ? '补充已发送，统筹会接着处理。' : '请求已发送。')
+      guide.mark('conversation', id); updateDraft(''); updateModelingContext(null); onSent(); followBottom.current = true; setSentNotice(running ? '补充已发送，统筹会接着处理。' : '请求已发送。')
     })
   }
   async function history() {
@@ -160,9 +162,9 @@ export default function ProjectConversation({ id, conversationId, projectName, c
     {session?.status === 'interrupted' && !session.error && <p className={`${styles.focus} ${styles.notice}`}>已停止，进展和结果已保留。{activeItem?.next_action ? '继续后：' + activeItem.next_action : '点击继续推进接着处理。'}</p>}
     {!running && activeItem?.status === 'waiting' && <p className={`${styles.focus} ${styles.notice}`}>等待补充：{activeItem.questions.find(q => !q.answer)?.text || activeItem.blocker?.reason} {activeItem.next_action}</p>}
     <div className={styles.composer}>
-      <div className={workflowStyles.modes} role="group" aria-label="对话用途">
-        <button aria-pressed={mode==='task'} onClick={()=>changeMode('task')}>完成任务</button>
-        <button aria-pressed={mode==='workflow'} onClick={()=>changeMode('workflow')}>创建工作流</button>
+      <div className={workflowStyles.modes} role="group" aria-label="对话用途" tabIndex={-1} data-guide="next">
+        <button aria-pressed={mode==='task'} onClick={()=>{if(mode!=='task')guide.mark('next',id);changeMode('task')}}>完成任务</button>
+        <button aria-pressed={mode==='workflow'} onClick={()=>{if(mode!=='workflow')guide.mark('next',id);changeMode('workflow')}}>创建工作流</button>
       </div>
       {modelingContext && <div className={styles.focus}><span>关于建模：{modelingContext.label}</span><button onClick={() => updateModelingContext(null)}>取消建模关联</button></div>}
       {running && !focus && <div className={styles.focus}>补充将发送到：{activeItem?.title || '当前处理的请求'}</div>}

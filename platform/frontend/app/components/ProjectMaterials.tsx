@@ -3,8 +3,10 @@
 import { useRef, useState } from 'react'
 import { api } from '@/lib/platform'
 import RequirementPackageMaterials from './RequirementPackageMaterials'
+import { useOnboarding } from './Onboarding'
 
 export default function ProjectMaterials({ id, onOpenFile, onChanged }: { id: string; onOpenFile: (path: string) => void; onChanged?: () => void }) {
+  const guide = useOnboarding()
   const input = useRef<HTMLInputElement>(null)
   const [revision, setRevision] = useState(0)
   const [busy, setBusy] = useState(false)
@@ -32,7 +34,7 @@ export default function ProjectMaterials({ id, onOpenFile, onChanged }: { id: st
           method: 'POST', body: JSON.stringify({ source_project_id: sourceProject, source_path: path }),
         })
         setAdded(previous => [...previous, result.name]); setRevision(previous => previous + 1)
-        onChanged?.()
+        guide.mark('materials', id); onChanged?.()
         setSelected(previous => previous.filter(item => item !== path))
       }
     } catch (cause) { setError(String(cause)) } finally { setBusy(false) }
@@ -45,7 +47,7 @@ export default function ProjectMaterials({ id, onOpenFile, onChanged }: { id: st
         const form = new FormData(); form.append('file', file)
         const result = await api<{ name: string }>(`/api/v1/projects/${id}/materials`, { method: 'POST', body: form })
         setAdded(previous => [...previous, result.name]); setRevision(previous => previous + 1)
-        onChanged?.()
+        guide.mark('materials', id); onChanged?.()
       }
     } catch (cause) { setError(String(cause)) } finally { setBusy(false) }
   }

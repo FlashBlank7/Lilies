@@ -25,7 +25,7 @@ def authorization_dependency(services):
         request.state.user, request.state.auth_token = user, token
         if user['role'] == 'admin':
             return
-        if path in {'/api/v1/me', '/api/v1/auth/logout', '/api/v1/auth/password',
+        if path in {'/api/v1/me', '/api/v1/me/onboarding', '/api/v1/auth/logout', '/api/v1/auth/password',
                     '/api/v1/projects', '/api/v1/projects/requirement-packages/import'}:
             return
 

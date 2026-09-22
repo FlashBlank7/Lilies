@@ -110,6 +110,10 @@ class Storage:
                   status TEXT NOT NULL DEFAULT 'active',
                   created_at TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS user_onboarding (
+                  user_id TEXT PRIMARY KEY,
+                  state_json TEXT NOT NULL
+                );
                 CREATE TABLE IF NOT EXISTS events (
                   stream_id TEXT NOT NULL,
                   seq INTEGER NOT NULL,
@@ -1026,11 +1030,14 @@ class Storage:
             "role": role, "status": "active", "created_at": utc_now(),
         }
         await asyncio.to_thread(self._ensure_user_columns)
-        await asyncio.to_thread(
-            self._execute,
-            "INSERT INTO users(id,name,token_hash,role,status,created_at,password_hash) VALUES(?,?,?,?,?,?,?)",
-            (user["id"], user["name"], user["token_hash"], user["role"], user["status"], user["created_at"], password_hash),
-        )
+        def save():
+            with self._connect() as conn:
+                conn.execute(
+                    "INSERT INTO users(id,name,token_hash,role,status,created_at,password_hash) VALUES(?,?,?,?,?,?,?)",
+                    (user["id"], user["name"], user["token_hash"], user["role"], user["status"], user["created_at"], password_hash),
+                )
+                conn.execute("INSERT INTO user_onboarding VALUES(?,?)", (user['id'], '{"status":"new"}'))
+        await asyncio.to_thread(save)
         return user
 
 

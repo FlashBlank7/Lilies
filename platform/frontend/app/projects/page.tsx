@@ -48,7 +48,7 @@ export default function Projects() {
       {error && <p role="alert" className={styles.error}>{error}</p>}</section></ReadingDialog>}
     {dialog === 'import' && <ReadingDialog title="导入项目资料" onClose={() => setDialog(null)}><RequirementPackageImport disabled={busy || authRequired} onImported={id => router.push('/projects/' + id)} /></ReadingDialog>}
     {error && <p role="alert" className={styles.error}>{error}</p>}
-    <section aria-label="已有项目"><div className={styles.sectionHeading}><h2>继续已有项目 <small>{projects.length}</small></h2><label className={styles.search}><Search size={17} /><input aria-label="搜索项目" placeholder="搜索项目…" value={search} onChange={e => setSearch(e.target.value)} /></label></div>
+    <section aria-label="已有项目" tabIndex={-1} data-guide="project"><div className={styles.sectionHeading}><h2>继续已有项目 <small>{projects.length}</small></h2><label className={styles.search}><Search size={17} /><input aria-label="搜索项目" placeholder="搜索项目…" value={search} onChange={e => setSearch(e.target.value)} /></label></div>
       {loading && <p role="status">正在读取项目…</p>}
       <div className={styles.cards}>{visible.map(project => <article className={styles.card} key={project.id}>
         <div className={styles.projectIcon}><FolderOpen size={24} /></div><h2><Link href={'/projects/' + project.id}>{project.name}</Link></h2><p>{project.description || '打开项目，继续需求沟通、试用与改进。'}</p>
