@@ -58,6 +58,8 @@ async def add_workflow(services, project_id, body):
 
 
 def register_space_routes(router, services, invoke):
+    from .shared_methods import register_shared_routes
+    register_shared_routes(router, services, invoke)
     @router.get('/space/official-workflows')
     async def official(project_id: str):
         from .official_workflows import catalog

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { api } from '@/lib/platform'
+import {useWorkflowGeneration} from '@/lib/use-workflow-generation'
 import type { ModelingContext } from './ModelingPanel'
 import type { ProjectMember } from '@/lib/project-progress'
 import styles from './conversation-workflow.module.css'
@@ -36,20 +37,19 @@ export default function ConversationWorkflowCreator({projectId, conversationId, 
     return () => { active = false }
   }, [projectId, visible])
   const base = `/api/v1/projects/${projectId}`
+  const generation=useWorkflowGeneration<Generation>(projectId,storageKey,(result,submitted)=>{setLast(result);onSaved(submitted)})
   async function generate() {
     if (lock.current) return
     lock.current = true; setBusy(true); setError('')
     const submitted = message
     try {
       const draft = target ? await api<{revision: number}>(`/api/v1/applications/${target.id}/draft`) : undefined
-      const result = await api<Generation>(`${base}/conversations/${conversationId || 'legacy'}/workflow-generation`, {method: 'POST', body: JSON.stringify({
+      await generation.start(`${base}/conversations/${conversationId || 'legacy'}/workflow-generation`, {
         instruction: submitted, name: target?.name || name.trim() || submitted.slice(0, 60),
         workflow_id: target?.id || '', expected_revision: draft?.revision,
         reference_workflow_ids: references, file_paths: selectedFiles,
         dataset_id: context?.dataset_id || '', study_id: context?.study_id || '', candidate_id: context?.candidate_id || '', task_id: taskId || context?.task_id || '',
-      })})
-      if (!mounted.current) return
-      setLast(result); onSaved(submitted)
+      },submitted)
     } catch(cause) { if(mounted.current) setError(String(cause)) }
     finally { lock.current = false; if(mounted.current) setBusy(false) }
   }
@@ -62,19 +62,22 @@ export default function ConversationWorkflowCreator({projectId, conversationId, 
     } catch(cause) { setError(String(cause)) } finally {lock.current=false;setBusy(false)}
   }
   return <div hidden={!visible} className={styles.creator} aria-label="对话创建工作流">
-    <p>{target ? `正在修改：${target.name}` : '根据当前对话创建新工作流，保存到本项目。参考流程保持原样。'}{target && <button disabled={busy} onClick={onClearTarget}>改为创建新流程</button>}</p>
-    {!target && <label>新工作流名称<input aria-label="对话中的新工作流名称" maxLength={100} value={name} disabled={busy} placeholder="可选，留空时按描述命名" onChange={e=>{setName(e.target.value);remember(e.target.value)}} /></label>}
+    <p>{target ? `正在修改：${target.name}` : '根据当前对话创建新工作流，保存到本项目。参考流程保持原样。'}{target && <button disabled={busy||generation.busy} onClick={onClearTarget}>改为创建新流程</button>}</p>
+    {!target && <label>新工作流名称<input aria-label="对话中的新工作流名称" maxLength={100} value={name} disabled={busy||generation.busy} placeholder="可选，留空时按描述命名" onChange={e=>{setName(e.target.value);remember(e.target.value)}} /></label>}
     <details><summary>参考已有工作流（已选 {references.length}）</summary>
       <p>可选择一条或多条作为只读参考，也可以从空白创建。</p>
-      {members.filter(m=>m.purpose !== 'test').map(m=><label key={m.id} className={styles.choice}><input type="checkbox" checked={references.includes(m.id)} disabled={busy || (!references.includes(m.id) && references.length >= 8)} onChange={e=>{const next=e.target.checked?[...references,m.id]:references.filter(id=>id!==m.id);setReferences(next);remember(name,next)}} />{m.name}</label>)}
+      {members.filter(m=>m.purpose !== 'test').map(m=><label key={m.id} className={styles.choice}><input type="checkbox" checked={references.includes(m.id)} disabled={busy||generation.busy || (!references.includes(m.id) && references.length >= 8)} onChange={e=>{const next=e.target.checked?[...references,m.id]:references.filter(id=>id!==m.id);setReferences(next);remember(name,next)}} />{m.name}</label>)}
     </details>
     <details><summary>关联项目文件（已选 {selectedFiles.length}）</summary>
       {!files.length && <p>项目空间中尚无文件，可先创建流程，稍后上传资料。</p>}
-      {files.map(file=><label key={file.path} className={styles.choice}><input type="checkbox" checked={selectedFiles.includes(file.path)} disabled={busy || (!selectedFiles.includes(file.path) && selectedFiles.length>=20)} onChange={e=>{const next=e.target.checked?[...selectedFiles,file.path]:selectedFiles.filter(p=>p!==file.path);setSelectedFiles(next);remember(name,references,next)}} />{file.path}</label>)}
+      {files.map(file=><label key={file.path} className={styles.choice}><input type="checkbox" checked={selectedFiles.includes(file.path)} disabled={busy||generation.busy || (!selectedFiles.includes(file.path) && selectedFiles.length>=20)} onChange={e=>{const next=e.target.checked?[...selectedFiles,file.path]:selectedFiles.filter(p=>p!==file.path);setSelectedFiles(next);remember(name,references,next)}} />{file.path}</label>)}
     </details>
-    <div className={styles.actions}><button disabled={busy || !message.trim()} onClick={()=>void generate()}>{busy?'正在生成…':target?'保存工作流修改':'生成新工作流'}</button>
-      {last && <><button disabled={busy} onClick={()=>onWorkflow?.(last.workflow_id)}>查看已保存流程</button><button disabled={busy} onClick={()=>void undo()}>撤销本次生成修改</button></>}
+    <div className={styles.actions}><button disabled={busy||generation.busy || !message.trim()} onClick={()=>void generate()}>{busy||generation.busy?'正在生成…':target?'保存工作流修改':'生成新工作流'}</button>
+      {last && <><button disabled={busy||generation.busy} onClick={()=>onWorkflow?.(last.workflow_id)}>查看已保存流程</button><button disabled={busy||generation.busy} onClick={()=>void undo()}>撤销本次生成修改</button></>}
     </div>
+    {generation.jobId && <button onClick={()=>void generation.stop().catch(e=>setError(String(e)))}>停止生成</button>}
+    {generation.error && <p role="alert">{generation.error}</p>}
+    {generation.status && <p role="status">{generation.status}</p>}
     {busy && <p role="status">正在生成并保存，完成后显示在对话中。不会启动业务运行。</p>}
     {last && <p role="status">已保存：{last.workflow_card.name}。可以在对话中查看、继续修改或调用。</p>}
     {error && <p role="alert">{error}</p>}

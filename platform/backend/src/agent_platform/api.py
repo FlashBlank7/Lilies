@@ -534,6 +534,8 @@ class Services:
     modeling: Any | None = None
     accounts: Any | None = None
     project_sessions: Any | None = None
+    official_agent: Any | None = None
+    product_usage: Any | None = None
 
 
 class ResumeBuildRequest(BaseModel):
@@ -1956,6 +1958,10 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
     services.accounts = Accounts(services.storage, settings)
     from .project_sessions import ProjectSessions
     services.project_sessions = ProjectSessions(services)
+    from .official_agent import OfficialAgent
+    services.official_agent = OfficialAgent(services)
+    from .product_usage import ProductUsage
+    services.product_usage = ProductUsage(services)
     discussion_locks: dict[str, asyncio.Lock] = {}
 
     @asynccontextmanager
@@ -1970,7 +1976,12 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         await services.accounts.initialize()
         await services.project_sessions.initialize()
         await services.modeling.initialize()
+        from .shared_methods import initialize as initialize_shared_methods
+        initialize_shared_methods(services.projects.store.db_path)
+        services.product_usage.initialize()
+        await services.official_agent.initialize()
         await services.local_agents.initialize()
+        await services.official_agent.recover()
         await services.durable_jobs.initialize()
         await services.connectors.initialize()
         await services.openapi_connectors.initialize()
@@ -2092,7 +2103,9 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         adaptive_refresh_task: asyncio.Task[Any] | None = None
         lifespan_ready.set()
         yield
+        services.official_agent.shutting_down = True
         await services.local_agents.close()
+        await services.official_agent.close()
         await services.projects.close()
         await services.modeling.close()
         # 维护可能还在跑（真机上一次要几十分钟）：关停时取消，别拖着不退。
@@ -6054,6 +6067,10 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
 
     from .auth import account_router
     app.include_router(account_router(services.accounts, require_token))
+    from .official_agent import official_router
+    app.include_router(official_router(services))
+    from .product_usage import install_usage
+    install_usage(app, services)
 
     @app.get("/api/v1/overview", dependencies=[Depends(require_token)])
     async def platform_overview() -> dict[str, Any]:

@@ -5,6 +5,7 @@ import asyncio
 import hashlib
 import json
 import re
+import time
 from contextvars import ContextVar
 from pathlib import Path
 from uuid import uuid4
@@ -21,7 +22,7 @@ from .conversation_scope import conversation_for, conversation_scope
 from .project_activity import activity_title, latest_operations
 from .project_metrics import is_read_call, payload_measurement
 from .project_agent_context import conversation_context
-from .project_store import ProjectConflict
+from .project_store import ProjectConflict, connect
 from .requirement_discussion import load_discussion, save_discussion
 
 
@@ -92,6 +93,16 @@ class LocalAgents:
             state.update(self.connections.public(connection) if connection else {"provider": None})
             state.update(conversation_id=conversation_id, conversation_enabled=True)
             state['session_id'] = state.get('session_id') or str(uuid4())
+        official = getattr(self.services, 'official_agent', None)
+        if official and official.selected(application_id):
+            state.update(official.public_connection())
+            state['session_id'] = state.get('session_id') or str(uuid4())
+            with connect(official.db) as db:
+                job = db.execute('SELECT status,error FROM official_agent_jobs WHERE id=?', (state.get('request_id', ''),)).fetchone()
+            state['queue_reason'] = job['error'] if job and job['status'] == 'queued' else ''
+        elif state.get('provider') == 'official':
+            connection = self.connections.load(application_id)
+            state.update(self.connections.public(connection) if connection else {'provider': None})
         return state
 
     def save(self, application_id: str, state: dict) -> None:
@@ -108,6 +119,13 @@ class LocalAgents:
         state["events"].append({"id": str(uuid4()), "kind": kind, "text": text[:30_000],
                                 "time": utc_now(), "request_id": state.get('request_id', ''), **extra})
         self.save(application_id, state)
+        if kind == 'tool' and extra.get('operation_id'):
+            from .official_agent import actor_id
+            usage = getattr(self.services, 'product_usage', None)
+            if usage:
+                usage.record(key=extra['operation_id'], user_id=actor_id.get(), project_id=application_id,
+                             conversation_id=conversation_for(application_id), root_id=state.get('request_id', ''),
+                             actor='agent', feature=text, outcome=extra.get('status', 'unknown'))
 
     def interrupt_operations(self, application_id: str, reason: str) -> None:
         for operation in latest_operations(self.load(application_id)['events']):
@@ -167,6 +185,9 @@ class LocalAgents:
             elif provider != "classic":
                 raise ValueError("不支持的模型连接")
             public = self.connections.save(application_id, connection)
+            official = getattr(self.services, 'official_agent', None)
+            if provider == 'api' and official and official.selected(application_id):
+                return self.load(application_id)
             for key in list(self.clients):
                 if key == application_id or key.startswith(application_id + ':'):
                     await self.clients.pop(key).close()
@@ -204,6 +225,9 @@ class LocalAgents:
             return state
 
     async def require_project_model(self, application_id: str, provider: str | None) -> None:
+        if provider == 'official':
+            await self.services.official_agent.authorize(application_id)
+            return
         if provider != 'api' and await self.services.projects.store.membership(application_id):
             raise ValueError('请连接模型 API；项目由平台智能体运行，不能使用外部 Agent 会话代替')
 
@@ -213,11 +237,23 @@ class LocalAgents:
         async with self.locks.setdefault(application_id, asyncio.Lock()):
             state = self.load(application_id)
             await self.require_project_model(application_id, state['provider'])
-            if state["provider"] not in AGENT_PROVIDERS:
+            if state["provider"] not in AGENT_PROVIDERS | {"official"}:
                 raise ValueError("请先连接项目模型")
             unified = intent == 'coordinate'
             if unified and not self.services.projects.store.exists(application_id):
                 raise ValueError('统一对话仅用于项目')
+            official = state['provider'] == 'official'
+            request_key = (conversation_context or {}).get('request_key')
+            request_id = str(uuid4())
+            if official and request_key:
+                if any(e.get('kind') == 'user' and e.get('request_key') == request_key for e in state['events']):
+                    return state
+                from uuid import uuid5, NAMESPACE_URL
+                from .official_agent import actor_id
+                request_id = str(uuid5(NAMESPACE_URL, self.key(application_id) + ':' + actor_id.get() + ':' + request_key))
+                with connect(self.services.official_agent.db) as db:
+                    if db.execute('SELECT 1 FROM official_agent_jobs WHERE id=?', (request_id,)).fetchone():
+                        return state
             if self.running(application_id):
                 if intent != state["phase"] and not unified:
                     raise ValueError("请先停止当前轮次，再切换需求沟通或搭建阶段")
@@ -250,7 +286,9 @@ class LocalAgents:
             if intent == "discuss" and discussion["status"] == "confirmed":
                 discussion.update(status="discussing", revision=discussion["revision"] + 1)
                 save_discussion(workspace, discussion)
-            state.update(phase=intent, status="connecting", error="", request_id=str(uuid4()))
+            if official:
+                await self.services.official_agent.enqueue(application_id, request_id)
+            state.update(phase=intent, status='queued' if official else 'connecting', error='', request_id=request_id)
             state.update(conversation_enabled=unified, continue_work=False, blocked_this_request=[],
                          conversation_context=conversation_context or {}, active_item_id='')
             if intent != 'operate':
@@ -282,7 +320,7 @@ class LocalAgents:
         build = await self.services.workflow_store.get_build(build_id)
         application_id = build["application_id"]
         state = self.load(application_id)
-        if state["provider"] not in AGENT_PROVIDERS:
+        if state["provider"] not in AGENT_PROVIDERS | {"official"}:
             await self.services.workflow_store.update_build(build_id, status="needs_attention", error="请先连接项目模型")
             return {"status": "needs_attention"}
         current = self.tasks.get(self.key(application_id))
@@ -380,13 +418,17 @@ class LocalAgents:
         from .project_agent_tools import WorkspaceProjectTools, PROJECT_INSTRUCTIONS, project_tool_specs
         from .project_conversation import CONVERSATION_INSTRUCTIONS
         initial_state = self.load(application_id)
+        official = initial_state.get('provider') == 'official'
+        job_id = initial_state.get('request_id', '')
         project_task_id = initial_state.get('project_task_id') if initial_state['phase'] == 'operate' else None
         try:
             state = self.load(application_id)
             await self.require_project_model(application_id, state['provider'])
             if not client:
                 runtime_dir = self.folder(application_id) / state["session_id"]
-                if not is_project and state['provider'] == 'codex':
+                if official:
+                    client = self.services.official_agent.client(application_id, runtime_dir)
+                elif not is_project and state['provider'] == 'codex':
                     client = self.client_factory(state["executable"], runtime_dir,
                         model=state.get("model", ""), thinking=state.get('thinking', 'medium'))
                 else:
@@ -407,10 +449,12 @@ class LocalAgents:
                 contract = hashlib.sha256(json.dumps(specs, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
                 if is_project:
                     instructions = PROJECT_INSTRUCTIONS
+                    if official:
+                        instructions += '\n长时间计算使用 wait=false；收到任务编号后结束当前回合。平台会等待实际计算完成后接续，不必反复轮询。'
                 previous_thread = state.get('thread_id')
                 # Codex's thread/resume cannot replace dynamicTools. Keep the
                 # application conversation while renewing only its provider thread.
-                renew = bool(state['provider'] == 'codex' and previous_thread and state.get('tool_contract') != contract)
+                renew = bool(state['provider'] in {'codex', 'official'} and previous_thread and state.get('tool_contract') != contract)
                 try:
                     thread_id = await client.start(specs, instructions, None if renew else previous_thread)
                 except FileNotFoundError as cause:
@@ -440,6 +484,7 @@ class LocalAgents:
                 if renew:
                     state.setdefault('previous_threads', []).append(previous_thread)
                     state['context_handoff'] = True
+                    state['official_total_tokens'] = 0
                 self.save(application_id, state)
             if reset_budget := getattr(client, 'reset_budget', None):
                 reset_budget()
@@ -564,6 +609,10 @@ class LocalAgents:
                         metadata['task_id'] = task['id']
                         if task['status'] in {'queued', 'running'} and arguments.get('wait') is False:
                             pending_workers.add(task['id'])
+                            if official:
+                                active = self.load(application_id)
+                                active['continue_work'] = True
+                                self.save(application_id, active)
                         elif task['status'] not in {'queued', 'running'}:
                             pending_workers.discard(task['id'])
                     except (ValueError, KeyError):
@@ -618,7 +667,11 @@ class LocalAgents:
                            context_bytes=payload_measurement(context)['bytes'],
                            context_parts={k: payload_measurement(v) for k, v in context.items()})
                 try:
-                    turn = await client.turn(json.dumps(context, ensure_ascii=False), on_event, on_tool, timeout=900)
+                    if official:
+                        turn = await self.services.official_agent.run_turn(application_id, job_id, client,
+                            json.dumps(context, ensure_ascii=False), on_event, on_tool)
+                    else:
+                        turn = await client.turn(json.dumps(context, ensure_ascii=False), on_event, on_tool, timeout=900)
                 finally:
                     self.event(application_id, 'agent_turn_ended', 'Agent 回合结束', agent_turn_id=turn_key)
                 if turn.get('status') == 'failed':
@@ -639,6 +692,9 @@ class LocalAgents:
                     if not pending_workers or not current.get('continue_work'):
                         break
                     self.event(application_id, 'status', '正在等待已启动的任务完成')
+                    if official:
+                        current['status'] = 'waiting_compute'
+                        self.save(application_id, current)
                     completed = []
                     while pending_workers:
                         current = self.load(application_id)
@@ -707,6 +763,18 @@ class LocalAgents:
         except Exception as cause:
             status, error = "error", str(cause)[:4000]
         finally:
+            if official:
+                service = self.services.official_agent
+                rows = service.jobs('queued') if service.shutting_down else []
+                if not any(r['id'] == job_id for r in rows):
+                    service.update(job_id, status='completed' if status == 'idle' else status,
+                                   error=error, ended=time.time())
+                    row = service.job(job_id)
+                    if row:
+                        self.services.product_usage.record(key=job_id + ':result', user_id=row['user_id'],
+                            project_id=application_id, conversation_id=conversation_for(application_id), root_id=job_id,
+                            feature='chat_result', outcome=row['status'], tokens=row['tokens'],
+                            seconds=max(0, (row['ended'] or time.time()) - (row['started'] or row['created'])))
             if project_task_id:
                 await self.services.projects.finish_agent(application_id, project_task_id, status, error)
             if status in {"interrupted", "error"}:

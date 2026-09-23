@@ -56,7 +56,11 @@ class CodexAppServer:
     Only the installed CLI's existing login is linked, never read by the model.
     """
 
-    def __init__(self, executable: str, runtime_dir: Path, *, model: str = "", thinking: str = "medium") -> None:
+    def __init__(self, executable: str, runtime_dir: Path, *, model: str = "", thinking: str = "medium",
+                 auth_file: Path | None = None, subscription_only: bool = False, allow_model_calls: bool = True) -> None:
+        self.allow_model_calls = allow_model_calls
+        self.auth_file = auth_file
+        self.subscription_only = subscription_only
         self.executable = executable
         self.runtime_dir = runtime_dir
         self.model = model
@@ -74,26 +78,31 @@ class CodexAppServer:
         self.on_tool: Callable[[str, dict], Awaitable[Any]] | None = None
         self.last_activity = 0.0
 
-    async def start(self, tools: list[dict], instructions: str, thread_id: str | None = None) -> str:
+    async def connect(self) -> None:
+        """Initialize transport without creating a thread or spending model tokens."""
+        if self.process and self.process.returncode is None:
+            return
         self.runtime_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
         codex_home = self.runtime_dir / "codex-home"
         codex_home.mkdir(exist_ok=True, mode=0o700)
-        login = Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex"))) / "auth.json"
+        login = self.auth_file or Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex"))) / "auth.json"
         target = codex_home / "auth.json"
+        if self.subscription_only and login.is_file() and target.exists() and not target.is_symlink() and login.absolute() != target.absolute():
+            target.unlink()
         if login.is_file() and target.is_symlink() and target.resolve() != login.resolve():
             # A restored project may still point to the previous machine's login.
             target.unlink()
-        if login.is_file() and not target.exists():
+        if login.is_file() and not target.exists() and login.absolute() != target.absolute():
             target.symlink_to(login.resolve())
         cwd = self.runtime_dir / "empty-workspace"
         cwd.mkdir(exist_ok=True)
         env = {k: v for k, v in os.environ.items() if k in {
             "HOME", "USER", "LOGNAME", "PATH", "TMPDIR", "SYSTEMROOT",
             "HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY", "NO_PROXY", "SSL_CERT_FILE",
-            "https_proxy", "http_proxy", "all_proxy", "no_proxy", "OPENAI_API_KEY",
+            "https_proxy", "http_proxy", "all_proxy", "no_proxy",
         }}
         env["CODEX_HOME"] = str(codex_home.resolve())
-        config = {
+        config = self.config = {
             "web_search": "disabled", "project_doc_max_bytes": 0,
             "features.apps": False, "features.plugins": False,
             "features.remote_plugin": False, "features.multi_agent": False,
@@ -101,6 +110,8 @@ class CodexAppServer:
             "features.unified_exec": False, "tools.view_image": False,
             "features.code_mode.enabled": False,
             "check_for_update_on_startup": False,
+            **({"forced_login_method": "chatgpt", "cli_auth_credentials_store": "file"}
+               if self.subscription_only else {}),
         }
         argv = [self.executable, "app-server", "--stdio"]
         for key, value in config.items():
@@ -116,6 +127,16 @@ class CodexAppServer:
             "capabilities": {"experimentalApi": True},
         })
         await self._send({"method": "initialized"})
+
+    async def start(self, tools: list[dict], instructions: str, thread_id: str | None = None) -> str:
+        await self.connect()
+        if self.subscription_only:
+            account = (await self.request('account/read', {'refreshToken': False})).get('account')
+            if not account or account.get('type') != 'chatgpt':
+                raise CodexError('官方智能体需要订阅账号登录，不能使用 API Key')
+        cwd = self.runtime_dir / 'empty-workspace'
+        codex_home = self.runtime_dir / 'codex-home'
+        config = self.config
         params = {"cwd": str(cwd.resolve()), "approvalPolicy": "never", "sandbox": "read-only",
                   "baseInstructions": instructions, "developerInstructions": instructions,
                   "modelProvider": "openai", "config": config}
@@ -226,6 +247,8 @@ class CodexAppServer:
         continued protocol activity must not terminate productive building work.
         Explicit stop still cancels this coroutine and its owned tool calls.
         """
+        if not self.allow_model_calls:
+            raise CodexError('模型出口已关闭；请管理员在获准环境中启用后再运行')
         self.on_event, self.on_tool = on_event, on_tool
         loop = asyncio.get_running_loop()
         self.finished = loop.create_future()
@@ -258,6 +281,10 @@ class CodexAppServer:
             raise CodexError("Agent 正在连接，请稍后发送")
         await self.request("turn/steer", {"threadId": self.thread_id, "expectedTurnId": self.turn_id,
                                         "input": [{"type": "text", "text": message}]})
+
+    async def interrupt(self) -> None:
+        if self.turn_id and self.thread_id:
+            await self.request('turn/interrupt', {'threadId': self.thread_id, 'turnId': self.turn_id}, timeout=5)
 
     async def close(self) -> None:
         for task in self.requests:

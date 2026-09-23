@@ -4,6 +4,7 @@ import { clientId } from '@/lib/client-id'
 
 import { useEffect, useRef, useState } from 'react'
 import { api, type WorkflowNode } from '@/lib/platform'
+import {useWorkflowGeneration} from '@/lib/use-workflow-generation'
 import styles from './workspace-tools.module.css'
 
 type Graph = { nodes: unknown[]; edges: unknown[] }
@@ -37,12 +38,12 @@ export default function WorkflowComposer({ projectId, workflowId = '', onChanged
   const [error, setError] = useState('')
   const [last, setLast] = useState<Edit>()
   const base = `/api/v1/projects/${projectId}`
+  const generation=useWorkflowGeneration<Edit>(projectId,`composer:${projectId}:${workflowId}`,(result)=>{setLast(result);onChanged(result.workflow_id)})
   async function generate() {
     setBusy(true); setError('')
     try {
       const draft = revision !== undefined ? { revision } : workflowId ? await api<{ revision: number }>(`/api/v1/applications/${workflowId}/draft`) : undefined
-      const result = await api<Edit>(base + '/workflow-generation', { method: 'POST', body: JSON.stringify({ instruction, node_ids: scope === 'selection' ? selectedNodeIds : [], workflow_path: scope === 'selection' ? selectionPath : scope !== 'whole' ? JSON.parse(scope) : [], advanced_blocks: advanced, workflow_id: workflowId, expected_revision: draft?.revision, name: instruction.slice(0,60) }) })
-      setLast(result); onChanged(result.workflow_id)
+      await generation.start(base + '/workflow-generation', { instruction, node_ids: scope === 'selection' ? selectedNodeIds : [], workflow_path: scope === 'selection' ? selectionPath : scope !== 'whole' ? JSON.parse(scope) : [], advanced_blocks: advanced, workflow_id: workflowId, expected_revision: draft?.revision, name: instruction.slice(0,60) },instruction)
     } catch (cause) { setError(String(cause)) } finally { setBusy(false) }
   }
   async function undo() {
@@ -59,9 +60,11 @@ export default function WorkflowComposer({ projectId, workflowId = '', onChanged
     {scope === 'selection' && <p>只修改选区，保留与外部节点的连接。需要改变连接端点时，请扩大选区。</p>}
     {disabled && <p>先保存当前节点配置，再应用 AI 修改。</p>}
     <div className={styles.row}><input ref={inputRef} aria-label="工作流描述" placeholder="例如：读取数据，调用预测模型，导出结果" value={instruction} onChange={e => setInstruction(e.target.value)} />
-      <button disabled={disabled || busy || !instruction.trim() || !scopeValid} onClick={() => void generate()}>{busy ? '正在处理…' : workflowId ? '应用修改' : '生成工作流'}</button>
-      {last?.workflow_id === workflowId && <button disabled={disabled || busy} onClick={() => void undo()}>撤销 AI 修改</button>}</div>
+      <button disabled={disabled || busy || generation.busy || !instruction.trim() || !scopeValid} onClick={() => void generate()}>{busy || generation.busy ? '正在处理…' : workflowId ? '应用修改' : '生成工作流'}</button>
+      {last?.workflow_id === workflowId && <button disabled={disabled || busy || generation.busy} onClick={() => void undo()}>撤销 AI 修改</button>}</div>
     <details><summary>生成选项</summary><label><input type="checkbox" checked={advanced} onChange={e=>setAdvanced(e.target.checked)}/>使用高级积木（仍受项目权限限制）</label></details>
+    {generation.jobId && <button onClick={()=>void generation.stop().catch(e=>setError(String(e)))}>停止生成</button>}
+    {generation.status && <p role="status">{generation.status}</p>}{generation.error&&<p role="alert">{generation.error}</p>}
     {last && <p role="status">已保存到画布，可继续编辑或运行。</p>}{error && <p role="alert">{error}</p>}
   </section>
 }

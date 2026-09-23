@@ -266,7 +266,8 @@ def project_router(services, require_token):
     @scoped.get('/agent-session')
     async def session(project_id: str, request: Request):
         if await services.project_sessions.legacy_allowed(project_id, request.state.user):
-            return {**manager.load(project_id), 'requirements': load_discussion(projects.workspace(project_id))}
+            return {**manager.load(project_id), 'requirements': load_discussion(projects.workspace(project_id)),
+                    'raw_connection': manager.connections.public(manager.connections.load(project_id)) if manager.connections.load(project_id) else None}
         connection = manager.connections.load(project_id)
         return {**(manager.connections.public(connection) if connection else {'provider': None}),
                 'status': 'idle', 'events': [], 'revision': 0, 'error': ''}

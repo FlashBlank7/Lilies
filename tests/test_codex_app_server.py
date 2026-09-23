@@ -213,3 +213,38 @@ for line in sys.stdin:
             assert called == (['workflow_run'] if activity == 'tool' else [])
     finally:
         await client.close()
+
+@pytest.mark.asyncio
+async def test_subscription_transport_excludes_api_key_and_personal_home(tmp_path, monkeypatch):
+    import os
+    private = tmp_path / 'account' / 'auth.json'
+    private.parent.mkdir(); private.write_text('service-auth')
+    monkeypatch.setenv('OPENAI_API_KEY', 'must-not-inherit')
+    monkeypatch.setenv('OPENAI_BASE_URL', 'https://must-not-inherit.invalid')
+    executable = tmp_path/'codex'
+    executable.write_text(f'#!{sys.executable}\n' + '''
+import json, sys, os
+from pathlib import Path
+assert 'OPENAI_API_KEY' not in os.environ and 'OPENAI_BASE_URL' not in os.environ
+assert (Path(os.environ['CODEX_HOME'])/'auth.json').read_text() == 'service-auth'
+for line in sys.stdin:
+    msg=json.loads(line); method=msg.get('method')
+    if method=='initialize':result={}
+    elif method=='account/read':result={'account':{'type':'chatgpt'}}
+    elif method=='thread/start':
+        p=msg['params'];assert p['model']=='gpt-5.6-luna'
+        assert p['config']['forced_login_method']=='chatgpt'
+        result={'thread':{'id':'isolated'}}
+    elif method=='turn/start':raise AssertionError('Egress disabled')
+    else:continue
+    print(json.dumps({'id':msg['id'],'result':result}),flush=True)
+''')
+    executable.chmod(0o700)
+    client=CodexAppServer(str(executable),tmp_path/'session',model='gpt-5.6-luna',thinking='max',
+                          auth_file=private,subscription_only=True,allow_model_calls=False)
+    try:
+        assert await client.start([], 'project only') == 'isolated'
+        with pytest.raises(CodexError,match='模型出口已关闭'):
+            await client.turn('hello',None,None)
+    finally:
+        await client.close()

@@ -3,6 +3,7 @@
 import {useCallback, useEffect, useRef, useState} from 'react'
 import {api} from '@/lib/platform'
 import ProjectMaterials from './ProjectMaterials'
+import SharedMethods from './SharedMethods'
 import { useOnboarding } from './Onboarding'
 import styles from './workspace-tools.module.css'
 
@@ -54,6 +55,7 @@ export default function ProjectSpace({projectId,onWorkflow,onFile,onTalk,onChang
     <section className={styles.section}><h2>官方机器学习流程</h2><p>加入独立可编辑副本和使用说明。先配置数据、划分和业务目标；预测流程的模型可以稍后绑定。</p>
       {official.map(item=><div key={item.id} className={styles.row}><div><strong>{item.name}</strong><p>{item.description}</p></div><button disabled={busy} onClick={()=>void install(item)}>加入项目 · {item.name}</button></div>)}
     </section>
+    <SharedMethods projectId={projectId} onChanged={()=>{void refresh();void onChanged()}}/>
     <section className={styles.section} tabIndex={-1} data-guide="workflow" data-guide-fallback={!space?.workflows.length ? 'conversation' : undefined}><h2>可供调用的工作流</h2><p>加入后保存在当前项目，智能体按需查看输入并调用；模型或数据可以稍后配置。</p>
       <div className={styles.row}><label>工作流名称<input aria-label="加入空间的工作流名称" value={name} onChange={e=>setName(e.target.value)} maxLength={100}/></label><button disabled={busy||!name.trim()} onClick={()=>void add()}>添加空白流程</button><button disabled={busy} onClick={()=>upload.current?.click()}>导入已有工作流</button>
         <input hidden type="file" accept=".json,application/json" ref={upload} aria-label="导入工作流定义" onChange={e=>{const file=e.target.files?.[0];e.target.value='';if(file)void add(file)}}/></div>

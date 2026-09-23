@@ -23,6 +23,8 @@ def authorization_dependency(services):
         token = request_token(request)
         user = await accounts.authenticate(token)
         request.state.user, request.state.auth_token = user, token
+        from .official_agent import actor_id
+        actor_id.set(user['id'])
         if user['role'] == 'admin':
             return
         if path in {'/api/v1/me', '/api/v1/me/onboarding', '/api/v1/auth/logout', '/api/v1/auth/password',

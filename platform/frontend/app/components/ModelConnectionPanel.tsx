@@ -7,6 +7,7 @@ import styles from '@/app/projects/projects.module.css'
 
 type ModelRole = 'main' | 'vision' | 'generation'
 type Connection = {
+  raw_connection?: Connection | null
   mode?: 'inherit' | 'independent'
   provider: string | null; model?: string; thinking?: string
   protocol?: string; base_url?: string; runtime_enabled?: boolean; has_api_key?: boolean
@@ -32,7 +33,8 @@ export default function ModelConnectionPanel({ base, connected, running, onSaved
   async function edit() {
     setBusy(true); setError('')
     try {
-      const saved = await api<Connection>(endpoint)
+      const response = await api<Connection>(endpoint)
+      const saved = role === 'main' && response.raw_connection ? response.raw_connection : response
       setMode(saved.mode || 'inherit')
       setInheritedModel(saved.mode === 'inherit' ? saved.model || '尚未配置主模型' : '')
       if (saved.provider === 'api' && !(role === 'generation' && saved.mode === 'inherit')) setValue({ provider: 'api', model: saved.model || '',

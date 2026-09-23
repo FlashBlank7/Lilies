@@ -7,6 +7,9 @@ import { resolveProjectLink } from '@/lib/project-links'
 import { taskNames, type ProjectActivity as Activity, type ProjectTask, type ProjectMember, type ConversationFocus, type ProgressItem } from '@/lib/project-progress'
 import ProjectActivity from './ProjectActivity'
 import ModelConnectionPanel from './ModelConnectionPanel'
+import AssistantSourcePanel from './AssistantSourcePanel'
+import SaveMethod from './SaveMethod'
+import ResultFeedback from './ResultFeedback'
 import { useAccount } from './AuthBoundary'
 import { useOnboarding } from './Onboarding'
 import ReadingDialog from './ReadingDialog'
@@ -18,7 +21,7 @@ import styles from '@/app/projects/projects.module.css'
 
 type Event = { id: string; kind: string; text: string; time: string; result?: string; arguments?: string; success?: boolean; request_id?: string; item_id?: string; task_id?: string; purpose?: string; workflow?: WorkflowCard }
 type Session = {
-  provider: string | null; status: string; error: string; revision: number; events: Event[]
+  provider: string | null; queue_reason?: string; status: string; error: string; revision: number; events: Event[]
   has_more: boolean; first_cursor: string; last_cursor: string; active_item_id?: string
   project_task_id?: string; conversation_context?: { item_id?: string; task_id?: string }
   request_id?: string; current_activity?: Activity | null; request_activity?: Record<string, Activity>
@@ -101,11 +104,18 @@ export default function ProjectConversation({ id, conversationId, projectName, c
   }
   function send(text = message, resume = false) {
     void act(async () => {
-      await api(conversationBase + '/messages', { method: 'POST', body: JSON.stringify({ message: text,
+      const requestBody = { message: text,
         item_id: focus?.item_id || modelingContext?.item_id || (resume ? session?.active_item_id || session?.conversation_context?.item_id : '') || '',
         question_id: resume ? '' : focus?.question_id || '',
         task_id: focus?.task_id || modelingContext?.task_id || (resume ? session?.conversation_context?.task_id || session?.project_task_id : '') || '',
-        ...(modelingContext ? { dataset_id: modelingContext.dataset_id || '', study_id: modelingContext.study_id || '', candidate_id: modelingContext.candidate_id || '' } : {}) }) })
+        ...(modelingContext ? { dataset_id: modelingContext.dataset_id || '', study_id: modelingContext.study_id || '', candidate_id: modelingContext.candidate_id || '' } : {}) }
+      const signature = JSON.stringify(requestBody)
+      let pending: {signature:string;key:string} | null = null
+      try { pending = JSON.parse(sessionStorage.getItem(draftKey + ':request') || 'null') } catch {}
+      const request_key = pending?.signature === signature ? pending.key : (globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`)
+      try { sessionStorage.setItem(draftKey + ':request', JSON.stringify({signature,key:request_key})) } catch {}
+      await api(conversationBase + '/messages', {method:'POST',body:JSON.stringify({...requestBody,...(session?.provider === 'official' ? {request_key} : {})})})
+      try { sessionStorage.removeItem(draftKey + ':request') } catch {}
       if (!mounted.current) return
       guide.mark('conversation', id); updateDraft(''); updateModelingContext(null); onSent(); followBottom.current = true; setSentNotice(running ? '补充已发送，统筹会接着处理。' : '请求已发送。')
     })
@@ -118,13 +128,15 @@ export default function ProjectConversation({ id, conversationId, projectName, c
     const page = await api<Session>(conversationBase + '?kind=tools' + (before ? '&before=' + encodeURIComponent(before) : ''))
     setTools(previous => before ? merge(page.events, previous) : page.events); setMoreTools(page.has_more); setShowTools(true)
   }
-  const running = session && ['connecting', 'running'].includes(session.status)
+  const running = session && ['connecting', 'running', 'queued', 'waiting_compute'].includes(session.status)
   const activeItem = items.find(i => i.id === session?.active_item_id)
   return <section className={styles.conversation} aria-label="项目统筹对话">
     <div className={styles.conversationHeader}><div><h2>{projectName || '和统筹继续沟通'}</h2><small>{running ? activeItem ? '正在处理：' + activeItem.title : '统筹正在处理你的请求' : '查看进度、试用已有能力，或告诉我哪里需要调整'}</small></div>
       {running && <button disabled={busy} onClick={() => void act(() => api(conversationId ? conversationBase + '/stop' : base + '/agent-session/stop', { method: 'POST' }))}>停止</button>}</div>
+    {canConfigureModel && <AssistantSourcePanel base={base} running={Boolean(running)} onSaved={refresh} />}
+    {session?.provider === 'official' && <p>官方智能体 · {session.status === 'queued' ? session.queue_reason || '排队中' : session.status === 'waiting_compute' ? '等待计算完成' : '已连接'}</p>}
     {canConfigureModel ? <ModelConnectionPanel base={base} connected={Boolean(session?.provider)} running={Boolean(running)} onSaved={refresh} /> : !session?.provider && <p>请联系项目负责人配置模型连接，随后即可使用项目对话。</p>}
-    {session?.provider && session.provider !== 'api' && <p>此项目的旧会话使用外部 Agent。请在模型设置中连接模型 API，由 Lilies 继续处理；原有记录会保留。</p>}
+    {session?.provider && !['api', 'official'].includes(session.provider) && <p>此项目的旧会话使用外部 Agent。请在模型设置中连接模型 API，由 Lilies 继续处理；原有记录会保留。</p>}
     {session?.requirements?.document && <div className={styles.requirements}><FileText size={14} />
       <button onClick={() => setReader({ title: '当前需求文档', text: session.requirements.document })}>当前需求文档</button>
       <small>第 {session.requirements.revision} 版</small>
@@ -151,6 +163,7 @@ export default function ProjectConversation({ id, conversationId, projectName, c
               <button onClick={()=>{setEditWorkflow(event.workflow);changeMode('workflow');composer.current?.focus()}}>继续修改此流程</button>
               <button onClick={()=>{changeMode('task');updateDraft(`请调用项目工作流「${event.workflow!.name}」（${event.workflow!.id}），使用项目空间中的资料完成任务。先查看输入要求，有不明确的信息再向我询问。`);composer.current?.focus()}}>通过智能体使用</button></div>
           </article>}
+          {event.kind === 'assistant' && event.text && <><SaveMethod projectId={id} text={event.text}/>{lastInRequest && event.request_id && <ResultFeedback base={conversationBase} requestId={event.request_id}/>}</>}
           {lastInRequest && summaries[event.request_id!] && <ProjectActivity projectId={id} conversationId={conversationId} workflowNames={Object.fromEntries(members.map(m => [m.id, m.name]))} active={Boolean(running) && session?.request_id === event.request_id} requestId={event.request_id} current={summaries[event.request_id!]} onTask={onTask} onWorkflow={onWorkflow} />}
         </div>
       })}
@@ -172,8 +185,8 @@ export default function ProjectConversation({ id, conversationId, projectName, c
       <textarea ref={composer} aria-label="给项目统筹的消息" value={message} onChange={e => updateDraft(e.target.value)} placeholder={mode==='workflow'?'例如：把刚才的数据分析和模型预测组合成一条新工作流':'例如：调用项目里的质量预测流程，处理刚上传的数据'} />
       {sentNotice && <small role="status">{sentNotice}</small>}
       <ConversationWorkflowCreator projectId={id} conversationId={conversationId} visible={mode==='workflow'} storageKey={draftKey} message={message} members={members} context={modelingContext} taskId={focus?.task_id} target={editWorkflow} onClearTarget={()=>setEditWorkflow(undefined)} onWorkflow={onWorkflow} onSaved={submitted=>{if(submitted && messageRef.current===submitted)updateDraft('');void refresh();void onUpdated();followBottom.current=true}} />
-      {mode==='task' && <div className={styles.actions}><button className={styles.primary} disabled={busy || session?.provider !== 'api' || !message.trim()} onClick={() => send()}>{running ? '发送补充' : '发送'}</button>
-        {!running && <button disabled={busy || session?.provider !== 'api'} onClick={() => send('继续推进已授权的剩余工作；先读取当前进展与最近反馈。', true)}>继续推进</button>}</div>
+      {mode==='task' && <div className={styles.actions}><button className={styles.primary} disabled={busy || !['api', 'official'].includes(session?.provider || '') || !message.trim()} onClick={() => send()}>{running ? '发送补充' : '发送'}</button>
+        {!running && <button disabled={busy || !['api', 'official'].includes(session?.provider || '')} onClick={() => send('继续推进已授权的剩余工作；先读取当前进展与最近反馈。', true)}>继续推进</button>}</div>
       }
     </div>
     <details className={styles.tools} onToggle={e => { if (e.currentTarget.open && !showTools) void act(() => loadTools()) }}><summary>查看操作记录</summary>

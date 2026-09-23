@@ -121,6 +121,7 @@ class ProgressTool(Arguments):
 
 
 class ConversationMessage(Arguments):
+    request_key: str = Field(default='', max_length=100)
     message: str = Field(default='', max_length=8000)
     item_id: str = ''
     question_id: str = ''
