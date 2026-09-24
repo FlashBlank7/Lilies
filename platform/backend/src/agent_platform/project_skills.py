@@ -1,8 +1,10 @@
 """Small project instructions, loaded only when requested."""
 from pydantic import BaseModel, ConfigDict, Field
 from .presentation_workflow import GUIDE as PRESENTATION_GUIDE, source_code
+from .research_guidance import RESEARCH_SKILL
 
 DEFAULT_SKILLS = {
+    'research': RESEARCH_SKILL,
     'presentation': {'name':'报告与演示文稿','description':'把已有分析整理为可编辑PPTX和PDF，保留数字、出处与限制；可以直接制作，也可以使用工作流。',
         'content':PRESENTATION_GUIDE,'references':{'render.py':source_code()}},
     'knowledge': {'name': '项目知识与引用问答', 'description': '检索共享知识、查阅原文出处并复用引用问答工作流。',
