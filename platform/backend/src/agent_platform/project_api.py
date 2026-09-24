@@ -363,8 +363,9 @@ def project_router(services, require_token):
 
     @scoped.get('/tasks')
     async def tasks(project_id: str, purpose: Literal['', 'business', 'customer_trial', 'build_test', 'unclassified'] = '',
-                    item_id: str = '', before: str = '', limit: int = Query(default=100, ge=1, le=100), compact: bool = False):
-        result = await invoke(projects.store.tasks, project_id, purpose=purpose, item_id=item_id, before=before, limit=limit)
+                    item_id: str = '', before: str = '', limit: int = Query(default=100, ge=1, le=100), compact: bool = False,
+                    status: Literal['', 'queued', 'running', 'waiting_input', 'interrupted', 'succeeded', 'failed'] = ''):
+        result = await invoke(projects.store.tasks, project_id, purpose=purpose, item_id=item_id, before=before, limit=limit, status=status)
         if compact:
             return [{k: v for k, v in task.items() if k not in {'inputs', 'outputs'}} for task in result]
         return result

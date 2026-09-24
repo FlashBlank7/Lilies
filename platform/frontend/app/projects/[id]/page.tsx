@@ -37,6 +37,8 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
   const [project, setProject] = useState<Project | null>(null)
   const [progress, setProgress] = useState<ProjectProgress>(emptyProgress)
   const [tasks, setTasks] = useState<ProjectTask[]>([])
+  const [pendingTasks, setPendingTasks] = useState<ProjectTask[]>([])
+  const [morePending, setMorePending] = useState(false)
   const [task, setTask] = useState<ProjectTask | null>(null)
   const [file, setFile] = useState('')
   const [fileTaskId, setFileTaskId] = useState('')
@@ -62,13 +64,15 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
 
   const refresh = useCallback(async () => {
     try {
-      const [p, nextProgress, trials, business] = await Promise.all([
+      const [p, nextProgress, trials, business, pending] = await Promise.all([
         api<Project>(base), api<ProjectProgress>(base + '/progress'),
         api<ProjectTask[]>(base + '/tasks?purpose=customer_trial&compact=true&limit=20'),
         api<ProjectTask[]>(base + '/tasks?compact=true&limit=20'),
+        api<ProjectTask[]>(base + '/tasks?compact=true&status=waiting_input&limit=100'),
       ])
       setProject(p); setProgress(nextProgress)
-      setTasks(previous => [...new Map([...previous, ...trials, ...business].map(t => [t.id, t])).values()].sort((a, b) => b.created_at.localeCompare(a.created_at)))
+      setTasks(previous => [...new Map([...previous, ...trials, ...business, ...pending].map(t => [t.id, t])).values()].sort((a, b) => b.created_at.localeCompare(a.created_at)))
+      setPendingTasks(pending); setMorePending(pending.length===100)
       setMoreResults(trials.length === 20 || business.length === 20); setError('')
     } catch (cause) { setError(String(cause)); if (cause && typeof cause === 'object' && 'status' in cause && cause.status === 404) guide.unavailable() }
   }, [base, guide.unavailable])
@@ -86,7 +90,10 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
     return () => window.removeEventListener('lilies:guide-navigate', listener)
   }, [id])
   useEffect(() => { const selected = new URLSearchParams(window.location.search).get('run'); if (selected) { setReuseTask(undefined); setRunWorkflowId(selected); setTab('run') } }, [id])
-  const updateManualTask = useCallback((next: ProjectTask) => setTasks(previous => [next, ...previous.filter(item => item.id !== next.id)]), [])
+  const updateManualTask = useCallback((next: ProjectTask) => {
+    setTasks(previous => [next, ...previous.filter(item => item.id !== next.id)])
+    setPendingTasks(previous => [...(next.status==='waiting_input'?[next]:[]), ...previous.filter(item => item.id !== next.id)])
+  }, [])
   useEffect(() => {
     if (!task || !reader || (!['running', 'queued'].includes(task.status) && (task.mode === 'workflow' || task.presentation?.markdown))) return
     const timer = window.setInterval(() => { void api<ProjectTask>(base + '/tasks/' + task.id).then(setTask).catch(e => setError(String(e))) }, 1500)
@@ -125,6 +132,7 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
   const questions = items.flatMap(item => item.questions.filter(q => !q.answer).map(question => ({ item, question })))
   const actionable = items.filter(i => ['planned', 'working'].includes(i.status) && !i.blocker && !i.questions.some(q => !q.answer))
   const ready = items.filter(i => i.availability !== 'not_ready')
+  const workflowCount = project?.members.filter(member=>member.purpose==='business').length || 0
   const activeMember = project?.members.find(m => m.id === workflowId)
   return <AppShell projectName={project?.name} navigation={<nav className={styles.projectNav} role="tablist" aria-label="项目页面">
       {([['overview', '对话', MessageSquare], ['space', '项目空间', Files], ['flow', '工作流', Workflow], ['materials', '资料与知识', Files], ['models', '模型', ChartNoAxesCombined], ['results', '运行记录', ChartNoAxesCombined], ['settings', '设置', Wrench]] as const).map(([key, label, Icon]) =>
@@ -150,17 +158,23 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
     <div hidden={tab !== 'flow'}><WorkflowComposer projectId={id} workflowId={workflowId} onChanged={workflow => { void refresh(); void showFlow(undefined, workflow); setEditingFlow(true) }} /></div>
     {tab === 'run' && project && <ProjectRunPanel key={runWorkflowId + (reuseTask?.id || "")} reuseTask={reuseTask} projectId={id} members={project.members} initialWorkflowId={runWorkflowId} onTask={updateManualTask} />}
     <div hidden={tab !== 'overview'} className={styles.projectHome}>
-      <div><div className={styles.mobileProgress}><span>{ready.length} 项可试用 · {questions.length} 个待回答问题</span><button onClick={() => setProgressOpen(true)}>查看进展</button></div>
+      <div><div className={styles.mobileProgress}><span>{workflowCount} 条工作流 · {pendingTasks.length}{morePending?'+':''} 次运行等待补充</span><button onClick={() => setProgressOpen(true)}>查看进展</button></div>
         <ProjectConversations id={id} canConfigureModel={Boolean(project && project.access_role !== 'collaborator')} projectName={project?.name} items={items} tasks={tasks} members={project?.members} focus={focus} onUpdated={refresh} onSent={clearFocus} onTask={taskId => void showTask(taskId)} onWorkflow={workflow => void showFlow(undefined, workflow)} onFeedback={(itemId, taskId) => talk(items.find(i => i.id === itemId), '', taskId)} />
       </div>
       <aside className={styles.progressRail} data-open={progressOpen} aria-label="项目进展摘要">
         <div className={styles.mobileProgress}><strong>项目进展</strong><button aria-label="关闭进展面板" onClick={() => setProgressOpen(false)}><X size={16} /></button></div>
-        <section className={styles.panel} aria-label="当前项目进展"><h2>项目目标</h2><p>{progress.value.goal || '等待与你一起明确目标'}</p><h2>当前进展</h2>
-          <p>{progress.value.summary || '尚未整理进展。可以直接问统筹“目前做到哪了”，由它读取本项目材料和已有结果。'}</p>
-          <div className={styles.overviewFacts}><div><strong>{ready.length}</strong><span>项能力可以试用</span></div><div><strong>{actionable.length}</strong><span>项工作可继续推进</span></div><div><strong>{questions.length}</strong><span>个问题需要你的回答</span></div></div>
+        <section className={styles.panel} aria-label="当前项目进展"><h2>项目目标</h2><p>{progress.value.goal || '可以直接在对话中提出任务，或使用项目工作流。'}</p><h2>当前进展</h2>
+          <p>{progress.value.summary || '从工作流查看已有流程，从运行记录查看实际结果。'}</p>
+          <div className={styles.overviewFacts}><div><strong>{workflowCount}</strong><span>条项目工作流</span></div><div><strong>{pendingTasks.length}{morePending?'+':''}</strong><span>次运行等待补充</span></div></div>
+          <p>工作流可查看和编辑，运行时会检查所需资料与模型。</p>
+          {!!items.length && <p>事项记录：{ready.length}项标记可试用，{actionable.length}项可推进，{questions.length}个待确认问题。</p>}
           {actionable.length > 0 && <p>下一步：{actionable[0].next_action}</p>}
-          <button onClick={() => void showFlow()}>查看能力与需求对照</button>
+          <button onClick={() => void showFlow()}>查看项目工作流</button><button onClick={() => void refresh()}>刷新状态</button>
         </section>
+        {!!pendingTasks.length && <section className={styles.panel} aria-label="等待补充的运行"><h2>运行等待补充</h2>
+          {pendingTasks.map(t=><p key={t.id}><button onClick={()=>void showTask(t.id)}>补充：{taskTitle(t)}</button><small className={styles.taskTime}>{new Date(t.created_at).toLocaleString()}</small></p>)}
+          {morePending && <button onClick={async()=>{try{const page=await api<ProjectTask[]>(base+'/tasks?compact=true&status=waiting_input&limit=100&before='+pendingTasks.at(-1)!.id);setPendingTasks(previous=>[...new Map([...previous,...page].map(t=>[t.id,t])).values()]);setMorePending(page.length===100)}catch(cause){setError(String(cause))}}}>加载更早的待补充运行</button>}
+        </section>}
         {!!questions.length && <section className={styles.panel}><h2>待回答 · {questions.length}</h2>{questions.map(({ item, question }) => <details key={item.id + ':' + question.id} open={questions.length === 1 || undefined} className={styles.pendingQuestion}><summary>{question.text}</summary><small>{item.title} · {question.impact}</small><p>回答后：{question.next_action}</p><button onClick={() => talk(item, '', '', question.id)}>回答这个问题</button></details>)}</section>}
         {items.map(item => <section key={item.id} className={styles.capability} aria-label={item.title}>
           <div className={styles.capabilityHeading}><h2>{item.title}</h2><span className={styles.tag}>{availabilityNames[item.availability]}</span><span className={styles.tag}>{workNames[item.status]}</span></div>
@@ -191,7 +205,6 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
       </section>
     </div>}
     {reader && task && <ReadingDialog wide title={items.find(i => i.id === task.item_id)?.title || task.presentation?.message || '业务结果'} onClose={() => setReader(false)}>      <div className={styles.readerBody}>{task ? <><span className={styles.tag}>{taskNames[task.status] || task.status}</span>
-        {task.error && <p className={styles.error}>{task.error}</p>}
         <ProjectTaskOutput projectId={id} task={task} onTask={next=>{setTask(next);updateManualTask(next)}} />
         <div className={styles.actions}>{['running', 'queued', 'waiting_input'].includes(task.status) ? <button disabled={stopping} onClick={async () => { setStopping(true); try { const next = await api<ProjectTask>(`${base}/tasks/${task.id}/stop`, { method: 'POST' }); setTask(next); updateManualTask(next) } catch (cause) { setError(String(cause)) } finally { setStopping(false) } }}>{stopping ? '正在停止…' : '停止运行'}</button> : task.mode === 'workflow' && <button onClick={() => { setReuseTask(undefined); setRunWorkflowId(task.workflow_id || id); setReader(false); setTab('run') }}>再次运行此工作流</button>}
           {task.mode === 'workflow' && ['succeeded','failed','interrupted'].includes(task.status) && <button onClick={() => {setReuseTask(task); setRunWorkflowId(task.workflow_id || id); setReader(false); setTab('run')}}>按当前配置重算</button>}

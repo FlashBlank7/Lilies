@@ -352,10 +352,13 @@ class ProjectStore:
         return await asyncio.to_thread(access)
 
     async def tasks(self, project_id: str, *, purpose: str = '', item_id: str = '',
-                    before: str = '', limit: int = 100) -> list[dict]:
+                    before: str = '', limit: int = 100, status: str = '') -> list[dict]:
         def read():
             with connect(self.db_path) as c:
                 query, args = 'SELECT * FROM project_tasks WHERE project_id=?', [project_id]
+                if status:
+                    query += ' AND status=?'
+                    args.append(status)
                 if purpose:
                     query += ' AND purpose=?'
                     args.append(purpose)

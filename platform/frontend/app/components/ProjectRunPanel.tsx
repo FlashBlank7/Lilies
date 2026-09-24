@@ -4,6 +4,7 @@ import { clientId } from '@/lib/client-id'
 
 import Link from 'next/link'
 import ProjectTaskInput from './ProjectTaskInput'
+import TaskError from './TaskError'
 import WorkflowInputTable, {type InputColumn} from './WorkflowInputTable'
 import KnowledgeResults, {isKnowledgeSearchResult} from './KnowledgeResults'
 import FeatureResults from './FeatureResults'
@@ -47,6 +48,7 @@ export function ProjectTaskOutput({ projectId, task, onTask }: { projectId: stri
   const classification = evaluation?.classification as {classes:{label:string;samples:number;precision:number;recall:number;f1:number}[];note:string} | undefined
   const acceptance = evaluation?.acceptance as {selection:{status:string;threshold:number|null;target_accuracy:number;validation:{accuracy:number;coverage:number;accepted:number}|null};test:{accepted:number;review:number;accuracy:number|null;coverage:number}} | undefined
   return <>
+    <TaskError error={task.error}/>
     {task.id && ['waiting_input','running','queued'].includes(task.status) && <ProjectTaskInput projectId={projectId} taskId={task.id} initialTask={task} onTask={onTask}/>}
     {results.filter(result => result.stage === 'before_fold_preprocessing').map((result, i) => <FeatureResults key={i} result={result as unknown as Parameters<typeof FeatureResults>[0]['result']} />)}
     {task.runs?.filter(run => run.reuse?.source_run_id).map(run => <p key={run.id}>使用当前配置创建了新运行，复用 {run.reuse!.nodes.length} 个已完成步骤{run.reuse!.nodes.length ? `（${(run.reuse!.titles || run.reuse!.nodes).join('、')}）` : ''}。其他步骤重新执行，原运行保持不变。</p>)}
@@ -166,7 +168,7 @@ export default function ProjectRunPanel({ projectId, members, initialWorkflowId,
       {(active || task?.status === 'waiting_input') && task && <button disabled={busy} onClick={async () => { setBusy(true); try { const next = await api<ProjectTask>(`${base}/tasks/${task.id}/stop`, { method: 'POST' }); setTask(next); onTask?.(next) } catch (cause) { setError(String(cause)) } finally { setBusy(false) } }}>停止运行</button>}
     </div>
     {error && <p role="alert" className={styles.error}>{error}</p>}
-    {task && <section aria-label="本次运行结果"><h3>{taskNames[task.status] || task.status}</h3>{task.error && <p role="alert">{task.error}</p>}<ProjectTaskOutput projectId={projectId} task={task} onTask={next=>{setTask(next);onTask?.(next)}} />
+    {task && <section aria-label="本次运行结果"><h3>{taskNames[task.status] || task.status}</h3><ProjectTaskOutput projectId={projectId} task={task} onTask={next=>{setTask(next);onTask?.(next)}} />
       <details><summary>实际输入输出与运行详情</summary><pre>{JSON.stringify({ inputs: task.inputs, outputs: task.outputs }, null, 2)}</pre><ProjectRunEvents key={task.id} runs={task.runs} members={members} />
       </details>
     </section>}
