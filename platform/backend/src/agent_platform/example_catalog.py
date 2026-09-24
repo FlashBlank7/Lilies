@@ -262,7 +262,18 @@ def catalog():
         ['查看扫描表和字段说明，核对分数方向、条件及数值来源。','填写实际允许的相邻间隔、近最佳容差和区间宽度，不需要JSON。',
          '查看各组区间、孤立点与原因，下载逐点表和区间表。','改变参数或换资料重算；需要补充测量或预测时另行调用，不自动执行。'])
     items[-1]['guide']=parameter_intervals.GUIDE
-    order=['meeting','weekly','expenses','profile','data-guidance','sample-preparation','point-in-time','prediction-feedback','candidate-comparison','parameter-intervals','email','diff','writing','learning','planning','join','summary','classification','regression','group-training','process','prediction','rules','extraction','knowledge','composition']
+    from . import rolling_forecast
+    forecasting=rolling_forecast.workflow()
+    for f in forecasting['nodes'][0]['config']['inputs']:
+        if f['name'] in rolling_forecast.example_defaults():f['default']=rolling_forecast.example_defaults()[f['name']]
+    add('rolling-forecast',rolling_forecast.NAME,'机器学习',rolling_forecast.DESCRIPTION,
+        '请用项目中的滚动回测流程预测后续三个时段，比较模型是否超过简单基线，解释不同步数的误差。',
+        '把预测步数改为5或训练窗口改为30再比较；换history-late.csv并启用最后时点预测，核对迟到记录没有提前成为特征。',
+        rolling_forecast.example_files(),[dict(key='main',name=rolling_forecast.NAME,workflow=forecasting)],['Python代码执行及平台机器学习计算环境；无需大模型'],
+        ['核对观测时间、实际可用时间和数值列；示例为自编日序列。','设置实际频率、少量回测起点、预测步数和历史长度。',
+         '运行后比较相同记录上的模型与两种基线，下载逐步评价和来源。','修改输入或参数重新运行，历史报告和模型版本保留；未来预测不计入回测。'])
+    items[-1]['guide']=rolling_forecast.GUIDE
+    order=['meeting','weekly','expenses','profile','data-guidance','sample-preparation','point-in-time','prediction-feedback','candidate-comparison','parameter-intervals','rolling-forecast','email','diff','writing','learning','planning','join','summary','classification','regression','group-training','process','prediction','rules','extraction','knowledge','composition']
     return sorted(items,key=lambda x:order.index(x['id']))
 
 

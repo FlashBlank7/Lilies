@@ -180,3 +180,73 @@ def test_legacy_v1_fingerprints_recompute_instead_of_assuming_field_dependencies
     client.portal.call(downgrade)
     new=run('legacy-v1',old)
     assert new['status']=='succeeded' and new['runs'][0]['reuse']['nodes']==[] and len(calls)==4
+
+
+def test_existing_scalar_environment_fingerprints_still_reuse(recipe):
+    client,app,pid,base,nodes,edges,run,calls,source=recipe
+    old=run('before-environment-update')
+    async def existing_format():
+        store=app.state.services.workflow_store;state=(await store.get_run(old['runs'][0]['id']))['state']
+        state.reuse_checkpoints['start']['environment']=''
+        state.reuse_checkpoints['prepare']['environment']='test-image'
+        await store.update_run(state.run_id,status='succeeded',state=state)
+    client.portal.call(existing_format)
+    new=run('after-environment-update',old)
+    assert new['status']=='succeeded' and new['runs'][0]['reuse']['nodes']==['start','prepare'] and len(calls)==3
+
+
+def test_completed_iteration_reuse_checks_inner_code_input_and_artifacts(recipe):
+    client,app,pid,base,_,_,run,calls,source=recipe
+    artifact=source.parent.parent/'results/inner.csv';artifact.parent.mkdir(exist_ok=True)
+    inner_code=f'from pathlib import Path\ndef main(inputs):\n Path({str(artifact)!r}).write_text("data")\n return {{"n":inputs["item"],"file":"results/inner.csv"}}'
+    inner_nodes=[node('begin','start',inputs=[{'name':'item'},{'name':'file'}]),
+        node('work','code',code=inner_code,reuse_completed=True,inputs={'item':ref('begin','item'),'file':ref('begin','file')}),
+        node('done','end',outputs={'value':ref('work','output')})]
+    nodes=[node('start','start',inputs=[{'name':'file'}]),
+        node('loop','iteration',items=[1,2],variables={'file':ref('start','file')},workflow={'nodes':inner_nodes,'edges':[edge('begin','work'),edge('work','done')]},
+             item_name='item',output_node_id='done',output_path=['value'],parallelism=1,reuse_completed=True),
+        node('report','code',code='def main(inputs):\n return inputs',inputs={'values':ref('loop','items')}),
+        node('end','end',outputs={'result':ref('report','output')})]
+    edges=[edge('start','loop'),edge('loop','report'),edge('report','end')];graph(client,pid,nodes,edges)
+    old=run('first-iteration');assert old['status']=='succeeded',old['error'];assert len(calls)==3
+    nodes[2]['config']['code']='def main(inputs):\n return {**inputs,"note":"new"}'
+    graph(client,pid,nodes,edges);new=run('new-report',old)
+    assert new['status']=='succeeded' and new['outputs']['result']['note']=='new'
+    assert new['runs'][0]['reuse']['nodes']==['start','loop'] and len(calls)==4
+    artifact.unlink();missing=run('missing-output',new)
+    assert missing['status']=='succeeded' and len(calls)==7
+    inner_nodes[1]['config']['code']=inner_code.replace('inputs["item"]','inputs["item"]*10')
+    graph(client,pid,nodes,edges);changed=run('changed-inner',missing)
+    assert changed['outputs']['result']['values'][0]['n']==10 and len(calls)==10
+    source.write_text('changed source');latest=run('changed-source',changed)
+    assert latest['status']=='succeeded' and len(calls)==13
+    literal=source.with_name('constant.csv');literal.write_text('v1')
+    inner_nodes[1]['config']['inputs']['literal']='requirement-package/constant.csv'
+    graph(client,pid,nodes,edges);declared=run('literal-dependency',latest)
+    assert declared['status']=='succeeded' and len(calls)==16
+    literal.write_text('v2');mutated=run('changed-literal',declared)
+    assert mutated['status']=='succeeded' and len(calls)==19
+    nodes[1]['config']['reuse_completed']=False;graph(client,pid,nodes,edges)
+    disabled=run('explicitly-disabled',mutated)
+    assert disabled['status']=='succeeded' and len(calls)==22
+
+
+def test_iteration_waiting_keeps_completed_work_per_occurrence(recipe):
+    client,app,pid,base,_,_,run,calls,source=recipe
+    inner_nodes=[node('begin','start',inputs=[{'name':'item'}]),
+        node('work','code',code='def main(inputs):\n return inputs',inputs={'item':ref('begin','item')}),
+        node('ask','human_input',fields=[{'name':'answer','label':'补充回答','type':'string','required':True}]),
+        node('done','end',outputs={'value':ref('work','output'),'answer':ref('ask','answer')})]
+    nodes=[node('start','start'),node('loop','iteration',items=[1,2],workflow={'nodes':inner_nodes,
+        'edges':[edge('begin','work'),edge('work','ask'),edge('ask','done')]},item_name='item',output_node_id='done',parallelism=1),
+        node('end','end',outputs={'items':ref('loop','items')})]
+    graph(client,pid,nodes,[edge('start','loop'),edge('loop','end')]);task=run('wait-iteration')
+    for count,answer in [(1,'first'),(2,'second')]:
+        assert task['status']=='waiting_input',task['error'];assert len(calls)==count
+        run_id=task['runs'][0]['id']
+        response=client.post(base+'/tasks/'+task['id']+'/runs/'+run_id+'/input',json={'values':{'answer':answer}})
+        assert response.status_code==200,response.text
+        client.post(base+'/tasks/'+task['id']+'/resume',json={}).raise_for_status()
+        task=settled(client,base,task)
+    assert task['status']=='succeeded' and len(calls)==2
+    assert [r['answer'] for r in task['outputs']['items']]==['first','second']

@@ -8,14 +8,32 @@ from copy import deepcopy
 import hashlib
 import json
 from pathlib import Path
+from .workflow_models import WorkflowSpec
 
 
 ML_TYPES = {'data_analysis', 'feature_extract', 'model_train'}
 
 
 def eligible(node):
+    if node.type == 'iteration':
+        return (node.config.get('reuse_completed') is True
+                and not any(isinstance(v,dict) and v.get('node_id') in ('$run','$secret') for v in walk(node.config))
+                and all(eligible(child) for child in WorkflowSpec.model_validate(node.config['workflow']).nodes))
     return (node.type in {'start', 'template_transform', 'end'} | ML_TYPES
+            or node.type == 'model_predict' and node.config.get('study_id') and node.config.get('candidate_id') and not node.config.get('model_ref')
             or node.type == 'code' and node.config.get('reuse_completed') is True)
+
+
+def direct_config(node):
+    # References inside a nested graph resolve in that graph, not the parent.
+    return {k:v for k,v in node.config.items() if k != 'workflow'} if node.type == 'iteration' else node.config
+
+
+def execution_types(node):
+    kinds={node.type}
+    if node.type == 'iteration':
+        for child in WorkflowSpec.model_validate(node.config['workflow']).nodes:kinds.update(execution_types(child))
+    return kinds
 
 
 def walk(value):
@@ -62,7 +80,8 @@ async def checkpoint(runtime, state, node, output=None):
         pid = state.project_context['project_id']
         workspace = Path(state.workspace_path)
         roots = [workspace, service.root / pid]
-        args = runtime._resolve(node.config, {'inputs': state.inputs, 'nodes': state.outputs})
+        args = runtime._resolve(direct_config(node), {'inputs': state.inputs, 'nodes': state.outputs})
+        if node.type == 'iteration':args={**args, 'inherited_inputs': state.inputs}
         # Start reads its declared inputs directly; all other eligible nodes
         # receive only resolved config. Unrelated project inputs are not reads.
         if node.type == 'start':
@@ -71,12 +90,13 @@ async def checkpoint(runtime, state, node, output=None):
         argument_hash = hashlib.sha256(json.dumps(args, sort_keys=True, ensure_ascii=False,
                                                   allow_nan=False).encode()).hexdigest()
         values = [args, output or {}]
-        paths = await asyncio.to_thread(workspace_files, values, workspace)
-        environment = ''
-        if node.type == 'code':
-            environment = await service.image(service.services.settings.sandbox_image)
-        if node.type in ML_TYPES:
-            environment = await service.image()
+        file_values=values+[node.config['workflow']] if node.type=='iteration' else values
+        paths = await asyncio.to_thread(workspace_files, file_values, workspace)
+        kinds=execution_types(node);environments={}
+        if 'code' in kinds:
+            environments['code'] = await service.image(service.services.settings.sandbox_image)
+        if kinds & (ML_TYPES | {'model_predict'}):
+            environments['model'] = await service.image()
             # Scoped DB reads resolve IDs before any model storage path is used.
             ids = set()
             for value in walk(values):
@@ -109,6 +129,9 @@ async def checkpoint(runtime, state, node, output=None):
                     ids.add(('dataset', doc['dataset_id']))
                     paths.add(folder / 'output/split.json')
         files = await asyncio.to_thread(lambda: {str(p): digest(p, roots) for p in paths})
+        # Keep existing single-step fingerprints compatible with saved runs.
+        environment=(json.dumps(environments,sort_keys=True) if node.type=='iteration'
+                     else next(iter(environments.values()),''))
         return {'version': 2, 'arguments': argument_hash, 'files': files, 'environment': environment}
     except (OSError, ValueError, KeyError, RuntimeError, TypeError):
         # Reuse is optional; an unavailable fingerprint must not break a valid run.
@@ -120,7 +143,7 @@ def definition(node):
 
 
 def dependencies(workflow, node):
-    refs = {str(v['node_id']) for v in walk(node.config) if isinstance(v, dict) and 'node_id' in v}
+    refs = {str(v['node_id']) for v in walk(direct_config(node)) if isinstance(v, dict) and 'node_id' in v}
     return {e.source for e in workflow.edges if e.target == node.id} | {r for r in refs if not r.startswith('$')}
 
 

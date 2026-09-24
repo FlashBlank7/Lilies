@@ -1577,6 +1577,15 @@ class WorkflowRuntime:
         outputs = top_state.outputs if top_state and not prefix else {}
         completed = set(top_state.completed if top_state and not prefix else [])
         skipped = set(top_state.skipped if top_state and not prefix else [])
+        nested_progress = None
+        if top_state and prefix:
+            nested_progress = top_state.nested_progress.setdefault(prefix, {
+                'inputs': inputs, 'outputs': {}, 'completed': [], 'skipped': []})
+            if nested_progress['inputs'] != inputs:
+                raise ValueError('循环恢复的输入与原步骤不同，请创建新运行')
+            outputs = nested_progress['outputs']
+            completed = set(nested_progress['completed'])
+            skipped = set(nested_progress['skipped'])
         from .workflow_reuse import blocked_nodes, reuse_step, source_state
         reuse_source = (await source_state(self, top_state, top_state.reuse_source_run_id)
                         if top_state and not prefix and top_state.reuse_source_run_id else None)
@@ -1594,6 +1603,9 @@ class WorkflowRuntime:
                 skipped.add(node_id)
                 if top_state and not prefix:
                     top_state.skipped = list(skipped)
+                    await self.workflow_store.update_run(run_id, status="running", state=top_state)
+                elif nested_progress is not None:
+                    nested_progress['skipped'] = list(skipped)
                     await self.workflow_store.update_run(run_id, status="running", state=top_state)
                 await self._emit(run_id, "node.skipped", {"node_id": scoped_id})
                 continue
@@ -1667,6 +1679,9 @@ class WorkflowRuntime:
                 top_state.completed = list(completed)
                 top_state.waiting_node_id = None
                 top_state.resumed_values = None
+                await self.workflow_store.update_run(run_id, status="running", state=top_state)
+            elif nested_progress is not None:
+                nested_progress['completed'] = list(completed)
                 await self.workflow_store.update_run(run_id, status="running", state=top_state)
             await self._emit(run_id, "node.completed", {"node_id": scoped_id, "outputs": self._redact(output)})
         return outputs

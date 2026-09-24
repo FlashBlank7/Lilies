@@ -161,6 +161,9 @@ CATALOG['sample-preparation'] = {'name':sample_preparation.NAME,'description':sa
 from . import parameter_intervals
 CATALOG['parameter-intervals'] = {'name':parameter_intervals.NAME,'description':parameter_intervals.DESCRIPTION,
                                 'workflow':parameter_intervals.workflow(),'guide':parameter_intervals.GUIDE}
+from . import rolling_forecast
+CATALOG['rolling-forecast'] = {'name':rolling_forecast.NAME,'description':rolling_forecast.DESCRIPTION,
+                             'workflow':rolling_forecast.workflow(),'guide':rolling_forecast.GUIDE}
 
 
 def catalog():

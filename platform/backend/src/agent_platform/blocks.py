@@ -296,6 +296,7 @@ class IterationConfig(BaseModel):
     output_node_id: str
     output_path: list[str] = Field(default_factory=list)
     parallelism: int = Field(default=4, ge=1, le=20)
+    reuse_completed: bool = Field(default=False, description="复用已完成结果；仅在内部步骤可复用且输入、文件、模型和环境均未改变时生效。")
 
 
 class LoopConfig(BaseModel):

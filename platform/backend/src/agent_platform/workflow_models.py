@@ -437,6 +437,8 @@ class WorkflowRunState(BaseModel):
     reuse_source_run_id: str | None = None
     reused_nodes: list[str] = Field(default_factory=list)
     skipped: list[str] = Field(default_factory=list)
+    # Each loop/iteration occurrence keeps its own completed steps on resume.
+    nested_progress: dict[str, dict[str, Any]] = Field(default_factory=dict)
     waiting_node_id: str | None = None
     waiting_form: dict[str, Any] | None = None
     resumed_values: dict[str, Any] | None = None
