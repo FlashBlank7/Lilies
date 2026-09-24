@@ -71,7 +71,7 @@ export function ProjectTaskOutput({ projectId, task, onTask }: { projectId: stri
       if (!entry || typeof entry !== 'object') return null
       const item = entry as { file_path?: string; label?: string }
       if (!item.file_path || !/^(results|solution)\//.test(item.file_path) || item.file_path.split('/').includes('..')) return null
-      return <p key={i}><a download href={withFrontendToken(`/api/platform/api/v1/applications/${projectId}/workspace/files/${item.file_path.split('/').map(encodeURIComponent).join('/')}`)}>{item.label || item.file_path.split('/').pop()} ↓</a></p>
+      return <p key={i}><a download href={withFrontendToken(`/api/platform/api/v1/applications/${projectId}/workspace/files/${item.file_path.split('/').map(encodeURIComponent).join('/')}?download=1`)}>{item.label || item.file_path.split('/').pop()} ↓</a></p>
     })}
   </>
 }

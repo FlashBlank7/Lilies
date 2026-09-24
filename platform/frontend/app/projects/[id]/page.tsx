@@ -58,7 +58,7 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
   const [memberName, setMemberName] = useState('')
   const [creatingMember, setCreatingMember] = useState(false)
   const [stopping, setStopping] = useState(false)
-  const download = (path: string) => withFrontendToken(`/api/platform/api/v1/applications/${id}/workspace/files/${path.split('/').map(encodeURIComponent).join('/')}`)
+  const download = (path: string) => withFrontendToken(`/api/platform/api/v1/applications/${id}/workspace/files/${path.split('/').map(encodeURIComponent).join('/')}?download=1`)
 
   const refresh = useCallback(async () => {
     try {

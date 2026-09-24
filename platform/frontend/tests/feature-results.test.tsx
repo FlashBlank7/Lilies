@@ -9,5 +9,5 @@ it('shows actual features, exclusions, missing values and downloadable stage art
  expect(screen.getByRole('region',{name:'制备后的样本与特征'})).toHaveTextContent('保留 9 条')
  expect(screen.getByText('目标标签缺失：排除 1 条。')).toBeInTheDocument()
  expect(screen.getByRole('cell',{name:'缺失'})).toBeInTheDocument()
- expect(screen.getByRole('link',{name:'下载完整特征表 CSV ↓'})).toHaveAttribute('href','/api/platform/api/v1/applications/p/workspace/files/results/features/d/run/features.csv')
+ expect(screen.getByRole('link',{name:'下载完整特征表 CSV ↓'})).toHaveAttribute('href','/api/platform/api/v1/applications/p/workspace/files/results/features/d/run/features.csv?download=1')
 })

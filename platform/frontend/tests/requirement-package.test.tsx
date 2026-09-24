@@ -53,7 +53,7 @@ describe('requirement package', () => {
     render(<RequirementPackageMaterials applicationId="test" requirement="需求正文" />)
     expect(await screen.findByText('企业资料 · 1 个文件')).toBeInTheDocument()
     expect(screen.queryByText('需求正文')).not.toBeInTheDocument()
-    expect(screen.getByText('需求.md')).toHaveAttribute('href', '/api/platform/api/v1/applications/test/workspace/files/requirement-package%2F%E9%9C%80%E6%B1%82.md')
+    expect(screen.getByText('需求.md')).toHaveAttribute('href', '/api/platform/api/v1/applications/test/workspace/files/requirement-package%2F%E9%9C%80%E6%B1%82.md?download=1')
     expect(screen.queryByText('outputs/log.txt')).not.toBeInTheDocument()
   })
 })

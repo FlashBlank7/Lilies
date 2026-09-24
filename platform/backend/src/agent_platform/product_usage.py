@@ -71,6 +71,7 @@ class ProductUsage:
 
 def classify(path, method, query):
     if method=='POST':
+        if path.endswith('/draft') and '/applications/' in path:return 'edit'
         if path.endswith('/messages') and '/conversations/' in path:return 'chat'
         if path.endswith('/workflow-generation'):return 'generate'
         if path.endswith(('/materials','/materials/copy','/datasets/upload','/datasets/uploaded')):return 'upload'
@@ -83,7 +84,7 @@ def classify(path, method, query):
     if method=='PUT':
         if '/skills/' in path:return 'save_method'
         if path.endswith('/draft'):return 'edit'
-    if method=='GET' and (path.endswith('/download') or query.get('download') in {'true','1'}):return 'download'
+    if method=='GET' and (path.endswith(('/download','/delivery-package','/export')) or query.get('download') in {'true','1'}):return 'download'
     return ''
 
 
@@ -98,6 +99,8 @@ def install_usage(app, services):
             if feature and user and response.status_code<400:
                 params=request.path_params
                 pid=params.get('project_id','')
+                if not pid and params.get('application_id'):
+                    pid=await services.projects.store.membership(params['application_id']) or ''
                 cid=params.get('conversation_id','')
                 root_id=str(uuid4())
                 if pid and feature=='chat':

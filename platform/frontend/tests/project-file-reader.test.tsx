@@ -13,6 +13,8 @@ it('previews quoted Chinese CSV without changing identifiers or losing the downl
   expect(table).toHaveTextContent('余料102毫米，未纳入200毫米')
   expect(table).toHaveTextContent('多行 说明')
   expect(screen.getByRole('link', { name:'下载原文件' })).toHaveAttribute('download')
+  expect(screen.getByRole('link', { name:'下载原文件' }).getAttribute('href')).toContain('?download=1')
+  expect(fetcher.mock.calls[0][0]).not.toContain('download=')
 })
 
 it('refuses traversal before fetching any file', () => {
@@ -42,7 +44,7 @@ it('opens generated training note links through the frontend API proxy', async (
 it.each(['pdf','docx','zip'])('offers the original %s download without decoding binary bytes as text', extension => {
   const fetcher=vi.fn();vi.stubGlobal('fetch',fetcher)
   render(<ProjectFileReader projectId="p" path={`requirement-package/original.${extension}`} onClose={() => {}} />)
-  expect(screen.getByRole('link',{name:'下载原文件'})).toHaveAttribute('href',`/api/platform/api/v1/applications/p/workspace/files/requirement-package/original.${extension}`)
+  expect(screen.getByRole('link',{name:'下载原文件'})).toHaveAttribute('href',`/api/platform/api/v1/applications/p/workspace/files/requirement-package/original.${extension}?download=1`)
   expect(screen.getByText('此文件格式暂不支持页面预览，请下载原文件查看。')).toBeInTheDocument()
   expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   expect(fetcher).not.toHaveBeenCalled()

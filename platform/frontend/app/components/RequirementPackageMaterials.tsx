@@ -28,7 +28,7 @@ export default function RequirementPackageMaterials({ applicationId, requirement
     <p>这是企业提供的输入资料，需求文档将在沟通后由平台整理。</p>
     <details><summary>查看资料文件</summary>
       <ul>{files.map(file => <li key={file.path}>
-        <a href={withFrontendToken(`/api/platform/api/v1/applications/${applicationId}/workspace/files/${encodeURIComponent(file.path)}`)}
+        <a href={withFrontendToken(`/api/platform/api/v1/applications/${applicationId}/workspace/files/${encodeURIComponent(file.path)}?download=1`)}
           download={onOpenFile && /\.(md|txt|csv|json|html?)$/i.test(file.path) ? undefined : file.path.split('/').pop()} onClick={event => { if (onOpenFile && /\.(md|txt|csv|json|html?)$/i.test(file.path)) { event.preventDefault(); onOpenFile(file.path) } }}>{file.path.slice('requirement-package/'.length)}</a>
         <small>{file.size < 1024 * 1024 ? `${Math.ceil(file.size / 1024)} KB` : `${(file.size / 1024 / 1024).toFixed(1)} MB`}</small>
       </li>)}</ul>

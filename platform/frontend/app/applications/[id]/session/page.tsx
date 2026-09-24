@@ -429,7 +429,7 @@ export default function Session({ params }: { params: Promise<{ id: string }> })
                 : workspaceFiles.map(file => <a
                     className={styles.exportFile}
                     download
-                    href={withFrontendToken(`/api/platform/api/v1/applications/${id}/workspace/files/${encodeURIComponent(file.path)}`)}
+                    href={withFrontendToken(`/api/platform/api/v1/applications/${id}/workspace/files/${encodeURIComponent(file.path)}?download=1`)}
                     key={file.path}
                   >
                     <span>{file.path}</span>

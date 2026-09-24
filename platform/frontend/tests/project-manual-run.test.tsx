@@ -73,7 +73,7 @@ it.each(['secure', 'http'])('runs and downloads through project tasks on %s orig
   const call = vi.mocked(api).mock.calls.find(([, options]) => options?.method === 'POST')!
   expect(call[0]).toBe('/api/v1/projects/p/tasks')
   expect(JSON.parse(call[1]!.body as string)).toMatchObject({ mode: 'workflow', workflow_id: 'member', inputs: { document: 'requirement-package/design.pdf', count: 2, enabled: false }, purpose: 'customer_trial' })
-  expect(screen.getByRole('link', { name: '报告 ↓' })).toHaveAttribute('href', '/api/platform/api/v1/applications/p/workspace/files/results/run/report.pdf')
+  expect(screen.getByRole('link', { name: '报告 ↓' })).toHaveAttribute('href', '/api/platform/api/v1/applications/p/workspace/files/results/run/report.pdf?download=1')
   expect(vi.mocked(api).mock.calls.some(([path]) => path.includes('agent-session/messages'))).toBe(false)
   const firstKey = JSON.parse(call[1]!.body as string).request_key
   expect(firstKey).toMatch(/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/)
