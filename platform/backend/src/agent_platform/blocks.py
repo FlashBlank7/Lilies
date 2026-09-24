@@ -76,7 +76,7 @@ def _zh_pydantic(message: str) -> str:
 class InputColumn(BaseModel):
     name: str
     label: str = ''
-    type: Literal['string', 'number', 'boolean'] = 'string'
+    type: Literal['string', 'number', 'boolean', 'file'] = 'string'
     options: list[str] = Field(default_factory=list)
     default: Any = ''
 

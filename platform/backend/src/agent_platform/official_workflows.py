@@ -164,6 +164,9 @@ CATALOG['parameter-intervals'] = {'name':parameter_intervals.NAME,'description':
 from . import rolling_forecast
 CATALOG['rolling-forecast'] = {'name':rolling_forecast.NAME,'description':rolling_forecast.DESCRIPTION,
                              'workflow':rolling_forecast.workflow(),'guide':rolling_forecast.GUIDE}
+from . import source_comparison
+CATALOG['source-comparison'] = {'name':source_comparison.NAME,'description':source_comparison.DESCRIPTION,
+                              'workflow':source_comparison.workflow(),'guide':source_comparison.GUIDE}
 
 
 def catalog():

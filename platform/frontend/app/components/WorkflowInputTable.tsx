@@ -1,9 +1,9 @@
 'use client'
 
-export type InputColumn = {name: string; label?: string; type?: 'string' | 'number' | 'boolean'; options?: string[]; default?: unknown}
+export type InputColumn = {name: string; label?: string; type?: 'string' | 'number' | 'boolean' | 'file'; options?: string[]; default?: unknown}
 
-export default function WorkflowInputTable({name, label, columns, value, disabled, onChange}: {
-  name: string; label: string; columns: InputColumn[]; value: string; disabled?: boolean; onChange: (value: string) => void
+export default function WorkflowInputTable({name, label, columns, value, disabled, files=[], onChange}: {
+  name: string; label: string; columns: InputColumn[]; value: string; disabled?: boolean; files?: {path:string}[]; onChange: (value: string) => void
 }) {
   let rows: Record<string,unknown>[]
   try {
@@ -27,7 +27,9 @@ export default function WorkflowInputTable({name, label, columns, value, disable
       <legend>第 {i+1} 行</legend>
       <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(min(100%,180px),1fr))',gap:12}}>
         {columns.map(column=>{const title=`${label}第${i+1}行${column.label||column.name}`;return <label key={column.name} style={{display:'grid',gap:6}}>{column.label||column.name}
-          {column.options?.length || column.type==='boolean'
+          {column.type==='file'
+            ? <select aria-label={title} value={String(row[column.name]??'')} onChange={e=>update(i,column,e.target.value)}><option value="">选择项目文件…</option>{Boolean(row[column.name])&&!files.some(f=>f.path===row[column.name])&&<option value={String(row[column.name])}>{String(row[column.name])}（当前文件列表中未找到）</option>}{files.map(file=><option key={file.path} value={file.path}>{file.path}</option>)}</select>
+            : column.options?.length || column.type==='boolean'
             ? <select aria-label={title} value={String(row[column.name]??'')} onChange={e=>update(i,column,e.target.value)}><option value="">请选择</option>{(column.type==='boolean'?['true','false']:column.options!).map(v=><option key={v} value={v}>{column.type==='boolean'?(v==='true'?'是':'否'):v}</option>)}</select>
             : <input aria-label={title} type={column.type==='number'?'number':'text'} step={column.type==='number'?'any':undefined} value={String(row[column.name]??'')} onChange={e=>update(i,column,e.target.value)}/>}</label>})}
       </div>

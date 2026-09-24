@@ -273,7 +273,18 @@ def catalog():
         ['核对观测时间、实际可用时间和数值列；示例为自编日序列。','设置实际频率、少量回测起点、预测步数和历史长度。',
          '运行后比较相同记录上的模型与两种基线，下载逐步评价和来源。','修改输入或参数重新运行，历史报告和模型版本保留；未来预测不计入回测。'])
     items[-1]['guide']=rolling_forecast.GUIDE
-    order=['meeting','weekly','expenses','profile','data-guidance','sample-preparation','point-in-time','prediction-feedback','candidate-comparison','parameter-intervals','rolling-forecast','email','diff','writing','learning','planning','join','summary','classification','regression','group-training','process','prediction','rules','extraction','knowledge','composition']
+    from . import source_comparison
+    comparison=source_comparison.workflow()
+    for f in comparison['nodes'][0]['config']['inputs']:
+        if f['name'] in source_comparison.example_defaults():f['default']=source_comparison.example_defaults()[f['name']]
+    add('source-comparison',source_comparison.NAME,'知识问答',source_comparison.DESCRIPTION,
+        source_comparison.example_defaults()['question'],
+        '把测试记录换成修正版，重新比较批次A；再选择旧analysis.json按关键词筛选，确认不重复调用模型，也不改变旧报告。',
+        source_comparison.example_files(),[dict(key='main',name=source_comparison.NAME,workflow=comparison)],['原始大模型连接','Python代码执行；PDF需pypdf，Excel需openpyxl'],
+        ['在材料清单选择文件，可填写用途、日期和范围。','说明关心的事项，运行后并列查看陈述、理由和真实引用。',
+         '引用不符、资料不足和口径不同分别保留，不自动断言哪方正确。','换资料重新分析，或沿用已有分析文件筛选下载；后续任务由员工决定。'])
+    items[-1]['guide']=source_comparison.GUIDE
+    order=['meeting','weekly','expenses','profile','data-guidance','sample-preparation','point-in-time','prediction-feedback','candidate-comparison','parameter-intervals','rolling-forecast','source-comparison','email','diff','writing','learning','planning','join','summary','classification','regression','group-training','process','prediction','rules','extraction','knowledge','composition']
     return sorted(items,key=lambda x:order.index(x['id']))
 
 
