@@ -169,6 +169,11 @@ CATALOG['source-comparison'] = {'name':source_comparison.NAME,'description':sour
                               'workflow':source_comparison.workflow(),'guide':source_comparison.GUIDE}
 
 
+from . import answer_comparison
+CATALOG['answer-comparison']={'id':'answer-comparison','name':answer_comparison.NAME,'description':answer_comparison.DESCRIPTION,
+    'workflow':answer_comparison.workflow(),'guide':answer_comparison.GUIDE}
+
+
 def catalog():
     return [{'id': key, 'version': 2, 'name': value['name'], 'description': value['description']}
             for key, value in CATALOG.items()]

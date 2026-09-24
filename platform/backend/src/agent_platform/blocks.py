@@ -2796,7 +2796,7 @@ def build_block_registry() -> BlockRegistry:
             ),
             EventSubscriptionTriggerConfig,
         ),
-        (_definition("llm", "LLM", "Make one provider-neutral model call.", "model", LLMConfig, inputs=[("input", ValueType.any)], outputs=[("text", ValueType.string), ("structured", ValueType.object), ("usage", ValueType.object)], retry=True, error_branch=True), LLMConfig),
+        (_definition("llm", "LLM", "Make one provider-neutral model call.", "model", LLMConfig, inputs=[("input", ValueType.any)], outputs=[("text", ValueType.string), ("structured", ValueType.object), ("usage", ValueType.object), ("model", ValueType.string), ("seconds", ValueType.number), ("input_sha256", ValueType.string)], retry=True, error_branch=True), LLMConfig),
         (_definition(
             "claude_agent",
             "Claude Agent (Legacy)",

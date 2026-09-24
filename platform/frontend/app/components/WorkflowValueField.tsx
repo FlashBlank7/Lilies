@@ -59,6 +59,7 @@ export function WorkflowValueField({ value, onChange, nodes, edges = [], blocks 
         {options.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
       </select>
       {!loading && !error && !options.length && <small className={styles.help}>尚无可选资源，可以先保存流程，稍后在项目中配置。</small>}
+      {field === 'model' && <details><summary>指定同一 API 的其他模型</summary><input disabled={disabled} aria-label={`${label}的模型名称`} value={value} placeholder="填写服务支持的模型名；留空沿用项目配置" onChange={event => onChange(event.target.value)} /><small>使用当前项目连接的地址与凭据；模型不可用时会报错，不会换成其他模型。</small></details>}
       {fileFields.has(field || '') && <details><summary>手动填写项目文件路径</summary><input disabled={disabled} aria-label={`${label}的项目路径`} value={value} onChange={event => onChange(event.target.value)} /></details>}
     </> : <textarea disabled={disabled} aria-label={label} rows={2} value={value} onChange={event => onChange(event.target.value)} />}
     {error && <span role="alert">资源列表读取失败。<button type="button" disabled={disabled} onClick={() => setRetry(value => value + 1)}>重试</button></span>}

@@ -54,6 +54,18 @@ it('switches model choices with the unsaved LLM role and ignores stale connectio
   expect(vi.mocked(api).mock.calls.map(c=>c[0])).toEqual(['/api/v1/projects/p/agent-session','/api/v1/projects/p/vision-model'])
 })
 
+it('can select a model on the same API without JSON and clear it to inherit',async()=>{
+  vi.mocked(api).mockResolvedValue({model:'project-default'} as never)
+  function ModelChoice(){const [value,setValue]=useState('');return <WorkflowValueField {...props} projectId="p" field="model" allowReference={false} value={value} onChange={setValue}/>}
+  render(<ModelChoice/>);await screen.findByRole('option',{name:'project-default'})
+  fireEvent.click(screen.getByText('指定同一 API 的其他模型'))
+  fireEvent.change(screen.getByLabelText('测试字段的模型名称'),{target:{value:'second-model'}})
+  expect(screen.getByLabelText('测试字段')).toHaveValue('second-model')
+  expect(screen.getByText('second-model · 当前配置')).toBeInTheDocument()
+  fireEvent.change(screen.getByLabelText('测试字段'),{target:{value:''}})
+  expect(screen.getByLabelText('测试字段的模型名称')).toHaveValue('')
+})
+
 it('retries resource loading and retains an unbound logical model selection',async()=>{
   vi.mocked(api).mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce([{model_ref:'quality',name:'质量预测',status:'unbound'}] as never)
   render(<WorkflowValueField {...props} projectId="p" field="model_ref" value="quality" onChange={vi.fn()}/>)

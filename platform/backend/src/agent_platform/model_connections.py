@@ -18,6 +18,7 @@ LOCAL_PROVIDERS = {"codex", "claude", "kimi"}
 AGENT_PROVIDERS = LOCAL_PROVIDERS | {"api"}
 project_model: ContextVar[str | None] = ContextVar("project_model", default=None)
 project_model_role: ContextVar[str] = ContextVar("project_model_role", default="main")
+project_model_override: ContextVar[str | None] = ContextVar("project_model_override", default=None)
 
 
 class ModelConnection(BaseModel):
@@ -149,7 +150,12 @@ class ProjectModelProvider(ModelProvider):
         role = project_model_role.get()
         if not self.connections.enabled(project_id, role):
             raise ProviderError("本项目尚未配置或启用视觉模型" if role == 'vision' else "本项目尚未启用工作流模型调用")
-        return self.connections.provider(project_id, role='vision') if role == 'vision' else self.connections.provider(project_id)
+        provider = self.connections.provider(project_id, role='vision') if role == 'vision' else self.connections.provider(project_id)
+        if override := project_model_override.get():
+            # The node selects a model on the same authorized API connection.
+            # Do not persist this choice or leak it into another node/session.
+            provider.connection = provider.connection.model_copy(update={'model': override})
+        return provider
 
     def capabilities(self, model):
         return self.current().capabilities(model)

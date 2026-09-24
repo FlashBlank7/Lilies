@@ -284,7 +284,18 @@ def catalog():
         ['在材料清单选择文件，可填写用途、日期和范围。','说明关心的事项，运行后并列查看陈述、理由和真实引用。',
          '引用不符、资料不足和口径不同分别保留，不自动断言哪方正确。','换资料重新分析，或沿用已有分析文件筛选下载；后续任务由员工决定。'])
     items[-1]['guide']=source_comparison.GUIDE
-    order=['meeting','weekly','expenses','profile','data-guidance','sample-preparation','point-in-time','prediction-feedback','candidate-comparison','parameter-intervals','rolling-forecast','source-comparison','email','diff','writing','learning','planning','join','summary','classification','regression','group-training','process','prediction','rules','extraction','knowledge','composition']
+    from . import answer_comparison
+    answer_graph=answer_comparison.workflow()
+    for f in answer_graph['nodes'][0]['config']['inputs']:
+        if f['name']=='source_path':f['default']='@file:试用说明.txt'
+    add('answer-comparison',answer_comparison.NAME,'日常办公',answer_comparison.DESCRIPTION,
+        '请用项目里的同题回答对照流程分析试用说明，给我两份回答和用量，不额外请模型评分。',
+        '在画布给回答B指定同一API支持的另一个模型，再用相同问题比较；换修正版材料另开运行，最后重新导出旧answers.json。',
+        answer_comparison.example_files(),[dict(key='main',name=answer_comparison.NAME,workflow=answer_graph)],['原始大模型API（最多两次调用）','Python代码执行'],
+        ['选择问题和可选文字资料。','默认两次沿用项目模型；负责人可在两块LLM上配置不同模型。',
+         '查看回答、请求模型、实际输入是否一致、用量及失败原因。','下载或只重新导出已有回答，不自动再次调用模型。'])
+    items[-1]['guide']=answer_comparison.GUIDE
+    order=['meeting','weekly','expenses','profile','data-guidance','sample-preparation','point-in-time','prediction-feedback','candidate-comparison','parameter-intervals','rolling-forecast','source-comparison','answer-comparison','email','diff','writing','learning','planning','join','summary','classification','regression','group-training','process','prediction','rules','extraction','knowledge','composition']
     return sorted(items,key=lambda x:order.index(x['id']))
 
 

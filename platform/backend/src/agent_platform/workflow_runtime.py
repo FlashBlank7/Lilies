@@ -9,6 +9,7 @@ import os
 import re
 import shutil
 import stat
+import time
 from collections import defaultdict, deque
 from collections.abc import Awaitable, Callable, Collection
 from dataclasses import dataclass
@@ -1828,7 +1829,7 @@ class WorkflowRuntime:
                 "This runtime instruction overrides any earlier output-format instruction."
             )
         diagnostics: dict[str, Any] = {}
-        from .model_connections import project_model, project_model_role
+        from .model_connections import project_model, project_model_role, project_model_override
         from .model_images import image_blocks
         images = self._resolve(config.images, context)
         if not isinstance(images, list):
@@ -1839,6 +1840,8 @@ class WorkflowRuntime:
             raise ValueError('包含图片时请选择 vision 模型用途并配置视觉连接')
         blocks = image_blocks(self.sandboxes.resolve_workspace(run.workspace_path), images) if images else []
         role_token = project_model_role.set(config.model_role)
+        model_token = project_model_override.set(config.model or None)
+        started = time.perf_counter()
         try:
             text, usage = await self._model_text(
                 run_id, config.model or self.runtime_model, system, prompt, scoped_id,
@@ -1846,8 +1849,13 @@ class WorkflowRuntime:
                 **({'images': blocks} if blocks else {}),
             )
         finally:
+            project_model_override.reset(model_token)
             project_model_role.reset(role_token)
-        result = {"text": text, "usage": usage.model_dump(mode="json")}
+        result = {"text": text, "usage": usage.model_dump(mode="json"),
+                  "model": diagnostics.get('model', config.model or self.runtime_model),
+                  "seconds": time.perf_counter() - started,
+                  "input_sha256": hashlib.sha256(json.dumps({'system': system, 'prompt': prompt,
+                      'images': [b.model_dump(mode='json') for b in blocks]}, ensure_ascii=False, sort_keys=True).encode()).hexdigest()}
         if config.structured_output is not None:
             result["structured"] = self._json_from_text(text, stop_reason=diagnostics.get("stop_reason"))
             from jsonschema.exceptions import ValidationError
@@ -3878,6 +3886,8 @@ class WorkflowRuntime:
     ) -> tuple[str, Usage]:
         if hasattr(self.provider, 'selected_model'):
             model = self.provider.selected_model(model)
+        if diagnostics is not None:
+            diagnostics['model'] = model
         await self.harness.record_usage(
             run_id,
             "model_call",
