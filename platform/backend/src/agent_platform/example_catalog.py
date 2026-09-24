@@ -238,7 +238,19 @@ def catalog():
         ['查看候选表及字段说明，区分必须满足的条件和比较偏好。','在行表中调整条件和目标，默认按从上到下优先级比较。',
          '运行并查看每组结论、失败原因及并列方案，下载完整检查表。','换资料或修改条件重算；本流程不会训练、生成候选或回写生产。'])
     items[-1]['guide']=candidate_comparison.GUIDE
-    order=['meeting','weekly','expenses','profile','data-guidance','point-in-time','prediction-feedback','candidate-comparison','email','diff','writing','learning','planning','join','summary','classification','regression','group-training','process','prediction','rules','extraction','knowledge','composition']
+    from . import sample_preparation
+    preparation=sample_preparation.workflow()
+    defaults={'source_path':'@file:samples.csv',**sample_preparation.example_defaults()}
+    for f in preparation['nodes'][0]['config']['inputs']:
+        if f['name'] in defaults:f['default']=defaults[f['name']]
+    add('sample-preparation',sample_preparation.NAME,'数据处理',sample_preparation.DESCRIPTION,
+        '请用项目里的样本处理流程整理这份数据，解释排除了哪些记录、为什么，以及两个特征怎么算；不要开始训练。',
+        '改为排除有转换问题的记录并比较数量；换new-samples.csv，沿用前次method.json，选择新数据模式，再检查特征是否一致。',
+        sample_preparation.example_files(),[dict(key='main',name=sample_preparation.NAME,workflow=preparation)],['Python 代码执行；Excel需openpyxl'],
+        ['阅读字段说明，核对标签对应关系和预测时点。','选择必填、数值、标识及排除列；按需编辑特征行表。',
+         '运行后查看逐条原因与标签数量，下载处理后的表、排除记录及方法。','换资料或方法重跑；后续分析、训练和预测仍由员工按需调用。'])
+    items[-1]['guide']=sample_preparation.GUIDE
+    order=['meeting','weekly','expenses','profile','data-guidance','sample-preparation','point-in-time','prediction-feedback','candidate-comparison','email','diff','writing','learning','planning','join','summary','classification','regression','group-training','process','prediction','rules','extraction','knowledge','composition']
     return sorted(items,key=lambda x:order.index(x['id']))
 
 

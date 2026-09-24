@@ -155,6 +155,9 @@ CATALOG['prediction-feedback'] = {'name': prediction_feedback.NAME, 'description
 from . import candidate_comparison
 CATALOG['candidate-comparison'] = {'name':candidate_comparison.NAME,'description':candidate_comparison.DESCRIPTION,
                                    'workflow':candidate_comparison.workflow(),'guide':candidate_comparison.GUIDE}
+from . import sample_preparation
+CATALOG['sample-preparation'] = {'name':sample_preparation.NAME,'description':sample_preparation.DESCRIPTION,
+                                'workflow':sample_preparation.workflow(),'guide':sample_preparation.GUIDE}
 
 
 def catalog():

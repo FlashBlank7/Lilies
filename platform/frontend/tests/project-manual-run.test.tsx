@@ -9,6 +9,26 @@ beforeEach(() => { vi.mocked(api).mockReset() })
 const members = [{ id: 'member', name: '解析资料', description: '', revision: 1, purpose: 'business' }]
 const fields = [{ name: 'document', type: 'string', required: true }, { name: 'count', type: 'number', default: 2 }, { name: 'enabled', type: 'boolean', default: false }]
 
+it('offers newly created files after completion without resetting edited inputs or starting another run', async () => {
+  let finished=false
+  vi.mocked(api).mockImplementation(async (path,options)=>{
+    if(path.endsWith('/draft'))return {snapshot:{workflow:{nodes:[{type:'start',config:{inputs:[{name:'source_path',type:'file',default:'requirement-package/source.csv'},{name:'method_path',type:'file',default:''},{name:'note',type:'string',default:'原说明'}]}}]}}} as never
+    if(path.endsWith('/workspace/files'))return [{path:'requirement-package/source.csv'},...(finished?[{path:'results/run/method.json'}]:[])] as never
+    if(options?.method==='POST'){finished=true;return {id:'done',status:'succeeded',outputs:{markdown:'方法已保存'}} as never}
+    throw new Error(path)
+  })
+  await act(async()=>{render(<ProjectRunPanel projectId="p" members={members} initialWorkflowId="member"/>)})
+  fireEvent.change(screen.getByRole('textbox',{name:'note'}),{target:{value:'本次修改保留'}})
+  fireEvent.click(screen.getByRole('button',{name:'启动工作流'}))
+  await screen.findByText('方法已保存')
+  await waitFor(()=>expect(screen.getByRole('combobox',{name:'为 method_path 选择项目文件'})).toHaveTextContent('results/run/method.json'))
+  fireEvent.change(screen.getByRole('combobox',{name:'为 method_path 选择项目文件'}),{target:{value:'results/run/method.json'}})
+  expect(screen.getByRole('textbox',{name:'method_path'})).toHaveValue('results/run/method.json')
+  expect(screen.getByRole('textbox',{name:'note'})).toHaveValue('本次修改保留')
+  expect(vi.mocked(api).mock.calls.filter(([path])=>path.endsWith('/draft'))).toHaveLength(1)
+  expect(vi.mocked(api).mock.calls.filter(([,options])=>options?.method==='POST')).toHaveLength(1)
+})
+
 it('selects a declared workflow option without JSON or automatically starting a task', async () => {
   vi.mocked(api).mockImplementation(async (path, options) => {
     if (path.endsWith('/draft')) return {snapshot:{workflow:{nodes:[{type:'start',config:{inputs:[{name:'mode',label:'评价方式',type:'string',required:true,default:'数值预测',options:['数值预测','类别判断']}]}}]}}} as never

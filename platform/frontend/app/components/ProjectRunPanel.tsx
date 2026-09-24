@@ -113,6 +113,14 @@ export default function ProjectRunPanel({ projectId, members, initialWorkflowId,
     }, 1500)
     return () => { current = false; window.clearInterval(timer) }
   }, [base, task?.id, active, onTask])
+  useEffect(() => {
+    if (!task || active) return
+    let current = true
+    void api<FileEntry[]>(`/api/v1/applications/${projectId}/workspace/files`).then(available => {
+      if (current) setFiles(available)
+    }).catch(cause => { if (current) setError(`结果仍已保存，但文件列表更新失败：${String(cause)}`) })
+    return () => { current = false }
+  }, [projectId, task?.id, task?.status, active])
   async function start() {
     if (lock.current) return
     lock.current = true; setBusy(true); setError('')

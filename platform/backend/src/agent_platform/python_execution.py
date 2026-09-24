@@ -1,5 +1,6 @@
 """Shared offline Python execution for project conversations and code nodes."""
 import asyncio
+import hashlib
 import json
 from uuid import uuid4
 from pydantic import BaseModel, ConfigDict, Field
@@ -32,7 +33,9 @@ async def execute_python(sandboxes, workspace, code, timeout):
 
 async def execute_function(sandboxes, workspace, config, inputs):
     # Only JSON literals enter the wrapper; user source runs inside Docker.
-    program = ('import contextlib, json, sys\nnamespace = {}\n'
+    code_hash = hashlib.sha256(config.code.encode('utf-8')).hexdigest()
+    program = ('import contextlib, json, sys\n'
+        f'namespace = {{"__workflow_code_sha256__": {code_hash!r}}}\n'
         'with contextlib.redirect_stdout(sys.stderr):\n'
         f'    exec(compile({config.code!r}, "workflow.py", "exec"), namespace)\n'
         f'    result = namespace["main"](json.loads({json.dumps(inputs, ensure_ascii=False)!r}))\n'
