@@ -153,9 +153,9 @@ export default function ProjectConversation({ id, conversationId, projectName, c
         const suggestions = Array.isArray(proposed) ? proposed.filter((s):s is string=>typeof s==='string') : []
         const lastInRequest = event.request_id && !events.slice(index + 1).some(e => e.request_id === event.request_id)
         return <div key={event.id}>
-          {event.kind === 'result' && event.task_id ? <article className={styles.resultCard} aria-label="关联业务结果"><h3><FileText size={15} /> {event.text || '业务结果'}</h3>
+          {event.kind === 'result' && event.task_id ? <article className={styles.resultCard} aria-label="关联业务结果"><h3><FileText size={15} /> {result ? members.find(m=>m.id===result.workflow_id)?.name || '工作流结果' : event.text || '业务结果'}</h3>
             {result && <span className={styles.tag}>{taskNames[result.status] || result.status}</span>}
-            <ProjectTaskInput projectId={id} taskId={event.task_id} initialTask={result} onTask={next=>setLiveResults(previous=>({...previous,[next.id]:next}))}/>
+            <ProjectTaskInput projectId={id} taskId={event.task_id} initialTask={result} onTask={next=>{setLiveResults(previous=>({...previous,[next.id]:next}));if(result?.status!==next.status)void onUpdated()}}/>
             {suggestions.map((suggestion,i)=><button key={i} onClick={()=>{updateDraft(messageRef.current.trim()?messageRef.current+'\n\n'+suggestion:suggestion);composer.current?.focus()}}>准备下一步：{suggestion}</button>)}
             <div className={styles.actions}><button onClick={() => onTask?.(event.task_id!)}>查看结果 <ArrowUpRight size={13} /></button><button onClick={() => onFeedback?.(event.item_id || result?.item_id || '', event.task_id!)}>反馈这个结果</button>
               {result?.feedback_task_id && <button onClick={() => onTask?.(result.feedback_task_id)}>查看修改前的结果</button>}</div>

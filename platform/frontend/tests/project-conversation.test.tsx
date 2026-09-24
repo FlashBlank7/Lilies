@@ -314,3 +314,15 @@ it('appends an example question without replacing an unsent draft or sending a m
   expect((screen.getByLabelText('给项目统筹的消息') as HTMLTextAreaElement).value.split('整理这份会议记录')).toHaveLength(2)
   expect(vi.mocked(api).mock.calls.some(([path,options])=>path.endsWith('/messages')&&options?.method==='POST')).toBe(false)
 })
+
+it('prepares a workflow next step without sending it or replacing the current draft', async () => {
+  const old=task.outputs
+  task.outputs={result:{suggestions:['使用已有分类流程，按批次隔离。']}} as never
+  try {
+    await setup({events:[{id:'r1',kind:'result',time:'',text:'分析完成',request_id:'request-1',task_id:'t1'}]})
+    fireEvent.change(screen.getByLabelText('给项目统筹的消息'),{target:{value:'尚未发送的目标说明'}})
+    fireEvent.click(await screen.findByRole('button',{name:'准备下一步：使用已有分类流程，按批次隔离。'}))
+    expect(screen.getByLabelText('给项目统筹的消息')).toHaveValue('尚未发送的目标说明\n\n使用已有分类流程，按批次隔离。')
+    expect(vi.mocked(api).mock.calls.some(([path,options])=>options?.method==='POST'&&(path.endsWith('/messages')||path.endsWith('/tasks')))).toBe(false)
+  } finally {task.outputs=old}
+})

@@ -201,6 +201,42 @@ def test_real_file_training_holdout_prediction_and_changed_input(real_compute):
     assert repaired['outputs']['data']['dataset_id'] != result['data']['dataset_id']
 
 
+def test_grouped_training_predicts_without_training_only_batch(real_compute):
+    (client, app, project, settings), service = real_compute
+    base = '/api/v1/projects/' + project['id']
+    wid = install(client, base)
+    recipe = deepcopy(CATALOG['tabular-classification']['workflow'])
+    train = next(n for n in recipe['nodes'] if n['id'] == 'train')['config']
+    train['evaluation']['split'] = 'group'
+    train['candidate'].update(models=['linear'], batch_size=1)
+    train['budget']['trials'] = 1
+    graph(client, wid, **recipe)
+    data = 'batch,x,category,target\n' + '\n'.join(f'{i//5},{i%5},{"a" if i%2 else "b"},{int(i%5>2)}' for i in range(100))
+    uploaded = client.post(base + '/materials', files={'file': ('train.csv', data.encode(), 'text/csv')}).json()
+    trained = wait_task(client, base, start(client, base, 'group-train', workflow_id=wid,
+        inputs={'source_path':uploaded['path'], 'target':'target', 'group_column':'batch'}))
+    assert trained['status'] == 'succeeded', trained.get('error')
+    candidate = trained['outputs']['training']
+    version = next(t for t in candidate['trials'] if t['status']=='completed')
+    assert client.put(base+'/models/quality', json={'name':'Quality', 'study_id':candidate['study_id'],
+        'candidate_id':candidate['id'], 'slot':version['slot']}).status_code == 200
+    predict_id = install(client, base, 'batch-prediction')
+    recipe = deepcopy(CATALOG['batch-prediction']['workflow']); recipe['nodes'][1]['config']['model_ref'] = 'quality'
+    graph(client, predict_id, **recipe)
+    outputs = []
+    for key, content in [('no-batch', 'x,category\n2,new\n4,a\n'), ('with-batch','batch,x,category\n999,2,new\n999,4,a\n')]:
+        uploaded = client.post(base+'/materials', files={'file': ('new.csv', content.encode(), 'text/csv')}).json()
+        task = wait_task(client, base, start(client, base, key, workflow_id=predict_id, inputs={'source_path':uploaded['path']}))
+        assert task['status'] == 'succeeded', task.get('error')
+        outputs.append(task['outputs']['result'])
+    assert outputs[0]['preview'] == outputs[1]['preview']
+    assert outputs[0]['model_version'] == outputs[1]['model_version']
+    uploaded = client.post(base+'/materials', files={'file': ('missing.csv', b'category\na\n', 'text/csv')}).json()
+    failed = wait_task(client, base, start(client, base, 'missing-feature', workflow_id=predict_id, inputs={'source_path':uploaded['path']}))
+    assert failed['status']=='failed' and '字段' in failed['error']
+    assert client.get(base+'/tasks/'+trained['id']).json()['outputs'] == trained['outputs']
+
+
 @pytest.mark.parametrize('template', ['tabular-regression', 'process-regression'])
 def test_real_regression_recipes(real_compute, template):
     (client, app, project, settings), service = real_compute

@@ -681,10 +681,18 @@ class Modeling:
         if best is None:
             raise ValueError('指定模型版本不可用，请重新绑定')
         original = await self.get(project_id, 'dataset', study['dataset_id'])
-        # Only file location changes at inference; preserve trained field semantics.
+        # Preserve trained field semantics and the pinned model environment.
         dataset = {**dataset, 'mapping': original['mapping']}
         model = self.path(project_id, candidate['id']) / 'output' / f'trial-{best["slot"]}'
         config = {'action': 'predict', 'features': candidate['features'], 'engine': candidate['engine'], 'model': '/model', 'feature_columns': best['feature_columns'], 'classes': best.get('classes')}
+        group = original['mapping'].get('group_column')
+        if original['mapping']['kind'] == 'tabular' and group:
+            # Grouping is for evaluation, not a prediction input. Adapt the job
+            # contract so previously saved worker images also accept new rows
+            # without this column; exclude it if the caller does provide it.
+            dataset = {**dataset, 'mapping': {**original['mapping'], 'group_column': ''}}
+            config['features'] = {**candidate['features'], 'exclude': list(dict.fromkeys(
+                [*candidate['features'].get('exclude', []), group]))}
         mounts = [(model, '/model')]
         if candidate.get('code_sha256'):
             config['transformer'] = '/transformer.py'; mounts.append((model.parent.parent / 'transformer.py', '/transformer.py'))
