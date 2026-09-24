@@ -306,7 +306,19 @@ def catalog():
         visual_review.example_files(),[dict(key='main',name=visual_review.NAME,workflow=visual)],['Python代码执行及Pillow；无需大模型'],
         ['选择清单和适用判定说明。','在等待表单查看图片，填写结论、理由或无法判断。','查看机器原判断与人工复判的区别，下载记录和参考候选。','新资料另开复核；原review.json可直接重新导出。'])
     items[-1]['guide']=visual_review.GUIDE
-    order=['meeting','weekly','expenses','profile','data-guidance','sample-preparation','point-in-time','prediction-feedback','visual-review','candidate-comparison','parameter-intervals','rolling-forecast','source-comparison','answer-comparison','email','diff','writing','learning','planning','join','summary','classification','regression','group-training','process','prediction','rules','extraction','knowledge','composition']
+    from . import cutting_candidates
+    cutting=cutting_candidates.workflow()
+    cutting_defaults={'stock_path':'@file:物料.csv','demand_path':'@file:需求.csv','kerf':1,'max_pieces':3}
+    for f in cutting['nodes'][0]['config']['inputs']:
+        if f['name'] in cutting_defaults:f['default']=cutting_defaults[f['name']]
+    add('cutting-candidates',cutting_candidates.NAME,'数据处理',cutting_candidates.DESCRIPTION,
+        '请根据物料和需求生成单料组合，解释哪些物料无方案、余量怎么计算，先不替我决定整体排程。',
+        '换需求-变更.csv生成新候选；再将产物交给项目里的比较流程，明确产出与余量的优先顺序。',
+        cutting_candidates.example_files(),[dict(key='main',name=cutting_candidates.NAME,workflow=cutting),
+            dict(key='compare',name=candidate_comparison.NAME,workflow=candidate_comparison.workflow())],['Python代码执行；Excel需openpyxl；无需模型'],
+        ['阅读自编尺寸及单位说明，选择物料和定长需求。','填写实际损耗、预留和枚举范围。','查看组合、余量及无候选原因，下载需求数量表。','明确目标后调用同项目的比较流程；不能直接合并各根首选。'])
+    items[-1]['guide']=cutting_candidates.GUIDE
+    order=['meeting','weekly','expenses','profile','data-guidance','sample-preparation','point-in-time','prediction-feedback','visual-review','cutting-candidates','candidate-comparison','parameter-intervals','rolling-forecast','source-comparison','answer-comparison','email','diff','writing','learning','planning','join','summary','classification','regression','group-training','process','prediction','rules','extraction','knowledge','composition']
     return sorted(items,key=lambda x:order.index(x['id']))
 
 

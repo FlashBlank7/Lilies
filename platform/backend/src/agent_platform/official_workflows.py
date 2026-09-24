@@ -178,6 +178,10 @@ from . import visual_review
 CATALOG['visual-review'] = {'name':visual_review.NAME,'description':visual_review.DESCRIPTION,
                           'workflow':visual_review.workflow(),'guide':visual_review.GUIDE}
 
+from . import cutting_candidates
+CATALOG['cutting-candidates'] = {'name':cutting_candidates.NAME,'description':cutting_candidates.DESCRIPTION,
+                               'workflow':cutting_candidates.workflow(),'guide':cutting_candidates.GUIDE}
+
 
 def catalog():
     return [{'id': key, 'version': 2, 'name': value['name'], 'description': value['description']}
