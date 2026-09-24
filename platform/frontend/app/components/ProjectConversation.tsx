@@ -174,7 +174,7 @@ export default function ProjectConversation({ id, conversationId, projectName, c
     {connectionError && <div role="alert" className={`${styles.error} ${styles.notice}`}>连接暂时中断，已保存的对话和结果仍保留。<button onClick={() => void refresh()}>重新连接</button><details><summary>连接详情</summary>{connectionError}</details></div>}
     {session?.status === 'interrupted' && !session.error && <p className={`${styles.focus} ${styles.notice}`}>已停止，进展和结果已保留。{activeItem?.next_action ? '继续后：' + activeItem.next_action : '点击继续推进接着处理。'}</p>}
     {!running && activeItem?.status === 'waiting' && <p className={`${styles.focus} ${styles.notice}`}>等待补充：{activeItem.questions.find(q => !q.answer)?.text || activeItem.blocker?.reason} {activeItem.next_action}</p>}
-    <div className={styles.composer}>
+    <div className={styles.composer} data-guide-anchor="conversation-compose">
       <div className={workflowStyles.modes} role="group" aria-label="对话用途" tabIndex={-1} data-guide="next">
         <button aria-pressed={mode==='task'} onClick={()=>{if(mode!=='task')guide.mark('next',id);changeMode('task')}}>完成任务</button>
         <button aria-pressed={mode==='workflow'} onClick={()=>{if(mode!=='workflow')guide.mark('next',id);changeMode('workflow')}}>创建工作流</button>

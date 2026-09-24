@@ -103,7 +103,7 @@ it('marks actual file selection and workflow selection without running the workf
   fireEvent.click(await screen.findByLabelText('requirement-package/data.csv'))
   expect(mark).toHaveBeenCalledWith('materials', 'p')
   fireEvent.click(screen.getByRole('button', {name: '让智能体调用'}))
-  expect(mark).toHaveBeenCalledWith('workflow', 'p')
+  expect(mark).toHaveBeenCalledWith('workflow', 'p', 'conversation')
   expect(vi.mocked(api).mock.calls.some(([, options]) => options?.method === 'POST')).toBe(false)
 })
 

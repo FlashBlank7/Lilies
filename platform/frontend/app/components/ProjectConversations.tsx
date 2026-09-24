@@ -71,7 +71,7 @@ export default function ProjectConversations(props: Props) {
           {!rows.length && <option value="">{loading ? '正在读取…' : '尚无会话'}</option>}
           {rows.map(row => <option key={row.id} value={row.id}>{row.title}{['running', 'connecting'].includes(row.status) ? ' · 运行中' : row.status === 'interrupted' ? ' · 已中断' : ''}</option>)}
         </select></label>
-        <button disabled={busy || loading} onClick={() => void create()}>新建会话</button>
+        <button data-guide-anchor="conversation-new" disabled={busy || loading} onClick={() => void create()}>新建会话</button>
         {selected && selected !== 'legacy' && <form onSubmit={event => { event.preventDefault(); void rename() }}>
           <input aria-label="会话名称" value={title} maxLength={100} disabled={busy} onChange={event => setTitle(event.target.value)} />
           <button disabled={busy || !title.trim() || title.trim() === rows.find(row => row.id === selected)?.title}>重命名</button>
