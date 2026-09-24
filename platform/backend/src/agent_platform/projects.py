@@ -146,6 +146,9 @@ class Projects:
                                       if n['id'] in state.get('reused_nodes', [])]}
             run['waiting_node'] = next((n for n in state['snapshot']['workflow']['nodes']
                                         if n['id'] == state.get('waiting_node_id')), None)
+            run['waiting_input'] = state.get('waiting_form')
+            if not run['waiting_input'] and run['waiting_node'] and run['waiting_node']['type'] == 'human_input':
+                run['waiting_input'] = {'node_id': run['waiting_node']['id'], **run['waiting_node']['config']}
         return task
 
     async def start(self, project_id: str, *, request_key: str, mode: str = 'workflow',
@@ -377,13 +380,24 @@ class Projects:
             await self.store.supplement(task_id, message, inputs)
             return await self.task(project_id, task_id)
 
-    async def respond(self, project_id: str, task_id: str, run_id: str, values: dict):
-        task = await self.task(project_id, task_id)
-        run = next((r for r in task['runs'] if r['id'] == run_id), None)
-        if not run or run['status'] != 'paused' or not run['waiting_node']:
-            raise ProjectConflict('此任务的成员运行没有等待输入')
-        await self.store.response(task_id, run_id, run['waiting_node']['id'], values)
-        return {'saved': True, 'message': '输入已保存，点击继续后执行'}
+    async def respond(self, project_id: str, task_id: str, run_id: str, values: dict,
+                      node_id: str = '', resume: bool = False):
+        from .blocks import HumanInputConfig, validate_human_values
+        async with self.locks.setdefault(project_id, asyncio.Lock()):
+            task = await self.task(project_id, task_id)
+            self.require_task_scope(project_id, task)
+            run = next((r for r in task['runs'] if r['id'] == run_id), None)
+            form = run.get('waiting_input') if run else None
+            if task['status'] != 'waiting_input' or not run or run['status'] != 'paused' or not form:
+                raise ProjectConflict('此任务当前没有等待回答；可能已提交或已停止，请刷新查看')
+            if node_id and node_id != form['node_id']:
+                raise ProjectConflict('问题已变化，请刷新后回答当前问题')
+            validate_human_values(HumanInputConfig.model_validate(form), values)
+            await self.store.response(task_id, run_id, form['node_id'], values)
+            if resume:
+                await self._launch(task)
+                return await self.task(project_id, task_id)
+            return {'saved': True, 'message': '输入已保存，点击继续后执行'}
 
     async def finish_agent(self, project_id: str, task_id: str, status: str, error: str):
         if status in {'interrupted', 'error'}:

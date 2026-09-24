@@ -91,16 +91,17 @@ export function WorkflowObjectFields(props: WorkflowFieldProps) {
   })}<button disabled={props.disabled} type="button" onClick={() => { let index = entries.length + 1; while (entries.some(([name]) => name === 'field_' + index)) index++; props.onChange(JSON.stringify({ ...Object.fromEntries(entries), ['field_' + index]: '' })) }}>添加字段</button></span>
 }
 
-export function WorkflowInputFields({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+export function WorkflowInputFields({ value, onChange, human = false }: { value: string; onChange: (value: string) => void; human?: boolean }) {
   const parsed = parseField(value), items = Array.isArray(parsed) ? parsed as { name: string; type: string; required?: boolean; [key: string]: unknown }[] : []
   const labels: Record<string, string> = { string: '文本', number: '数字', boolean: '是 / 否', file: '文件', file_list: '文件列表', object: '对象', array: '数组', any: '任意类型' }
   function update(index: number, patch: Record<string, unknown>) { onChange(JSON.stringify(items.map((item, i) => i === index ? { ...item, ...patch } : item))) }
   return <span className={styles.entries}>{items.map((item, index) => <span key={index} className={styles.entry}>
     <label>名称<input aria-label={`输入名称 ${index + 1}`} value={item.name} onChange={event => update(index, { name: event.target.value })} /></label>
+    {human && <><label>显示名称<input aria-label={`回答名称 ${index + 1}`} value={String(item.label || "")} onChange={e=>update(index,{label:e.target.value})}/></label><label>可选答案（每行一个，留空自由填写）<textarea aria-label={`回答选项 ${index + 1}`} value={Array.isArray(item.options)?item.options.join("\n"):""} onChange={e=>update(index,{options:e.target.value.split("\n").filter(Boolean)})}/></label></>}
     <label>类型<select aria-label={`输入类型 ${index + 1}`} value={item.type} onChange={event => update(index, { type: event.target.value })}>{Object.entries(labels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
     <span className={styles.row}><label className={styles.checkbox}><input aria-label={`必填 ${index + 1}`} type="checkbox" checked={!!item.required} onChange={event => update(index, { required: event.target.checked })} />必填</label></span>
     <button type="button" onClick={() => onChange(JSON.stringify(items.filter((_, i) => i !== index)))}>删除输入</button>
-  </span>)}<button type="button" onClick={() => { let index = items.length + 1; while (items.some(item => item.name === 'input_' + index)) index++; onChange(JSON.stringify([...items, { name: 'input_' + index, type: 'string', required: false }])) }}>添加输入</button></span>
+  </span>)}<button type="button" onClick={() => { let index = items.length + 1; while (items.some(item => item.name === 'input_' + index)) index++; onChange(JSON.stringify([...items, { name: 'input_' + index, type: 'string', required: false, ...(human ? {label:'补充说明',options:[]} : {}) }])) }}>添加输入</button></span>
 }
 
 export function WorkflowArrayFields(props: WorkflowFieldProps) {

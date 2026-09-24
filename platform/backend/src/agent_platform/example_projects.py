@@ -118,6 +118,8 @@ async def instantiate(services,user,item,body):
         if item['category']=='机器学习':
             text+='\n\n温度 temperature 与压力 pressure 为合成连续特征，material 为类别特征；target 是生成的标签，batch/furnace 是隔离分组，不能作为可泛化特征。过程 time 为观测时间，prediction_time 为预测时点，窗口仅取预测前记录。特征与预处理在训练折内拟合；测试集仅评价固定方案。没有真实工业效果结论。'
         text+='\n\n## 工作流\n'+'\n'.join(f'- {w["name"]}：{w["id"]}' for w in guide['workflows'])
+        if item.get('guide'):
+            text+='\n\n## 方法与调用\n'+item['guide']
         text+='\n\n智能体可用 project_workflows inspect 查看当前输入和默认值，再用 workflow_run 调用。一次性问题可直接回答。流程创建不运行任务，连接缺失时请配置，不自动换服务商。结果在运行记录查看；未实际运行不得报告已完成。新输入创建新运行，保留原结果。'
         manual=await add_material(services,pid,UploadFile(file=io.BytesIO(text.encode()),filename='使用说明.md'))
         guide['manual_path']=manual['path']

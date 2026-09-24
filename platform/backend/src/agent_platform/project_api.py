@@ -87,6 +87,8 @@ class Supplement(Body):
 
 class HumanResponse(Body):
     values: dict[str, Any]
+    node_id: str = ''
+    resume: bool = False
 
 
 async def invoke(fn, *args, **kwargs):
@@ -400,7 +402,7 @@ def project_router(services, require_token):
     @scoped.post('/tasks/{task_id}/runs/{run_id}/input')
     async def project_task_run_input(project_id: str, task_id: str, request: Request, run_id: str, body: HumanResponse):
         await require_task_conversation(project_id, task_id, request)
-        return await invoke(projects.respond, project_id, task_id, run_id, body.values)
+        return await invoke(projects.respond, project_id, task_id, run_id, body.values, body.node_id, body.resume)
 
     from .modeling_api import register_modeling_routes
     register_modeling_routes(scoped, services, invoke)

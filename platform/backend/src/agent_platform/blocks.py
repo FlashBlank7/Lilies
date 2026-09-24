@@ -316,7 +316,32 @@ class HumanField(BaseModel):
 class HumanInputConfig(BaseModel):
     title: str = "Input required"
     description: str = ""
+    context: Any = None
     fields: list[HumanField] = Field(min_length=1)
+
+
+def validate_human_values(config: HumanInputConfig, values: dict) -> dict:
+    """Validate a real response before saving it or advancing a paused run."""
+    import math
+    fields = {field.name: field for field in config.fields}
+    if set(values) - fields.keys():
+        raise ValueError('回答包含未提出的字段')
+    for name, field in fields.items():
+        value = values.get(name)
+        if value is None or value == '':
+            if field.required:
+                raise ValueError('请填写：' + field.label)
+            continue
+        kind = field.type.value
+        valid = (kind == 'any' or
+                 kind in {'string', 'file'} and isinstance(value, str) or
+                 kind == 'number' and type(value) in {int, float} and math.isfinite(value) or
+                 kind == 'boolean' and isinstance(value, bool) or
+                 kind == 'object' and isinstance(value, dict) or
+                 kind in {'array', 'file_list'} and isinstance(value, list))
+        if not valid or (field.options and value not in field.options):
+            raise ValueError('回答格式或选项不正确：' + field.label)
+    return values
 
 
 class EndConfig(BaseModel):
@@ -500,6 +525,12 @@ _ZH_BLOCKS = {
 
 
 _EDITOR_FIELDS: dict[str, list[dict[str, Any]]] = {
+    "human_input": [
+        {"path": "title", "label": "Title", "label_zh": "问题标题", "control": "text"},
+        {"path": "description", "label": "Description", "label_zh": "填写说明", "control": "textarea"},
+        {"path": "context", "label": "Question context", "label_zh": "上游分析与问题", "control": "reference_or_text"},
+        {"path": "fields", "label": "Form fields", "label_zh": "回答字段", "control": "json", "required": True},
+    ],
     "schedule_trigger": [
         {"path": "timezone", "label": "Timezone", "label_zh": "时区", "control": "text", "description": "IANA timezone such as Asia/Tokyo.", "required": True},
         {"path": "hour", "label": "Hour", "label_zh": "小时", "control": "number", "minimum": 0, "maximum": 23, "step": 1, "required": True},

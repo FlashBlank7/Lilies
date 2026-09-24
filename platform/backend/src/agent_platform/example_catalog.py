@@ -180,7 +180,29 @@ def catalog():
         deepcopy(tables),[dict(key='main',name='数据检查与汇总',workflow=combined),
          dict(key='profile',name='数据体检',workflow=code_graph('profile',[field('source_path','数据表','@file:data.csv')])),
          dict(key='summary',name='汇总报告',workflow=code_graph('summary',[field('source_path','数据表','@file:data.csv'),field('group','分组字段','device'),field('value','数值字段','value')]))],['Python 代码执行；AI 修改需智能体连接'])
-    order=['meeting','weekly','expenses','profile','email','diff','writing','learning','planning','join','summary','classification','regression','group-training','process','prediction','rules','extraction','knowledge','composition']
+    from .data_guidance import workflow as guidance_workflow, GUIDE
+    guidance=guidance_workflow()
+    guidance['nodes'][0]['config']['inputs'][0]['default']='@file:classification.csv'
+    train=training('classification')
+    for f in train['nodes'][0]['config']['inputs']:
+        f['default']={'source_path':'@file:classification.csv','target':'target','group_column':'batch'}.get(f['name'],'')
+    next(n for n in train['nodes'] if n['id']=='features')['config']['features']['exclude']=['batch']
+    next(n for n in train['nodes'] if n['id']=='train')['config']['evaluation']['split']='group'
+    predict=prediction(True)
+    predict['nodes'][0]['config']['inputs'][0]['default']='@file:new-data.csv'
+    predict['nodes'][1]['config']['model_ref']='example-model'
+    add('data-guidance','数据入门：从看懂资料到选择方法','机器学习',
+        '不知道如何开始时先理解数据；有明确目标时直接调用已有训练、预测或规则流程。',
+        '我刚接触数据分析，请用项目中的数据摸底流程看看 classification.csv，帮我理解它能做什么。',
+        '先回答一次“不清楚”；再补充字段含义并重新分析。明确目标后要求训练，比较分组划分和简单基线。',
+        {'classification.csv':data['classification.csv'],'classification-2.csv':alternate['classification.csv'],
+         'new-data.csv':data['new-data.csv'],
+         '字段说明.txt':'自编合成数据，不代表生产效果。每行一个产品；temperature、pressure、material是生产时已知的特征。target是之后得到的质量类别。batch是批次标识，同批次样本需要一起划分，不作为输入特征。可以先不了解这些含义，再读本说明继续练习。'},
+        [dict(key='main',name='数据摸底与分析建议',workflow=guidance),dict(key='train',name='质量分类训练与评价',workflow=train),
+         dict(key='predict',name='已有模型预测与复核',workflow=predict),dict(key='rules',name='只改规则重新计算',workflow=replay_rules())],
+        ['原始大模型 API（分析解释）','Python 代码执行','CPU / Docker（仅训练预测时）'])
+    items[-1]['guide']=GUIDE+'\n训练可直接调用，示例target的含义见字段说明；group_column=batch。预测前绑定example-model，手动阈值须明确指定，不能虚构业务可靠性。'
+    order=['meeting','weekly','expenses','profile','data-guidance','email','diff','writing','learning','planning','join','summary','classification','regression','group-training','process','prediction','rules','extraction','knowledge','composition']
     return sorted(items,key=lambda x:order.index(x['id']))
 
 

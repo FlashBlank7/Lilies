@@ -54,7 +54,7 @@ def task_summary(task: dict) -> dict:
     result['inputs'] = preview(inputs) if result['inputs_truncated'] else inputs
     result['presentation'] = {k: task.get('presentation', {}).get(k) for k in ('message', 'artifacts')}
     if 'runs' in task:
-        result['runs'] = [{k: r[k] for k in ('id', 'application_id', 'status', 'error', 'parent_run_id', 'draft_revision', 'waiting_node') if k in r}
+        result['runs'] = [{k: r[k] for k in ('id', 'application_id', 'status', 'error', 'parent_run_id', 'draft_revision', 'waiting_node', 'waiting_input') if k in r}
                           for r in task['runs']]
     result['view'] = 'summary'
     result['detail'] = 'workflow_run(action="inspect", task_id="' + task.get('id', '') + '", view="full") returns all inputs, outputs and member runs.'

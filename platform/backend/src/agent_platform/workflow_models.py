@@ -438,6 +438,7 @@ class WorkflowRunState(BaseModel):
     reused_nodes: list[str] = Field(default_factory=list)
     skipped: list[str] = Field(default_factory=list)
     waiting_node_id: str | None = None
+    waiting_form: dict[str, Any] | None = None
     resumed_values: dict[str, Any] | None = None
     human_input_values: dict[str, dict[str, Any]] = Field(
         default_factory=dict,

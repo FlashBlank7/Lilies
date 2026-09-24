@@ -28,7 +28,7 @@ export type ProjectTask = {
   id: string; request_key: string; status: string; mode: string; purpose: string; item_id: string; workflow_id?: string
   feedback_task_id: string; message: string; error: string; inputs?: object; outputs?: Record<string, unknown>
   presentation: { message?: string; markdown?: string; artifacts?: { label: string; file_path: string }[] }
-  created_at: string; updated_at: string; runs?: { id: string; status: string; application_id: string; draft_revision: number; reuse?: {source_run_id: string | null; nodes: string[]; titles?: string[]} }[]
+  created_at: string; updated_at: string; runs?: { id: string; status: string; application_id: string; draft_revision: number; waiting_input?: {node_id:string;title:string;description?:string;context?:unknown;fields:{name:string;label:string;type:string;required?:boolean;options?:string[]}[]}; reuse?: {source_run_id: string | null; nodes: string[]; titles?: string[]} }[]
 }
 export type ProjectActivity = {
   id: string; operation_id: string; request_id: string; title: string; status: string

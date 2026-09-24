@@ -9,6 +9,7 @@ import ProjectActivity from './ProjectActivity'
 import ModelConnectionPanel from './ModelConnectionPanel'
 import AssistantSourcePanel from './AssistantSourcePanel'
 import SaveMethod from './SaveMethod'
+import ProjectTaskInput from './ProjectTaskInput'
 import ResultFeedback from './ResultFeedback'
 import { useAccount } from './AuthBoundary'
 import { useOnboarding } from './Onboarding'
@@ -37,6 +38,7 @@ export default function ProjectConversation({ id, conversationId, projectName, c
   const conversationBase = base + (conversationId ? '/conversations/' + conversationId : '/conversation')
   const mounted = useRef(true)
   useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
+  const [liveResults,setLiveResults]=useState<Record<string,ProjectTask>>({})
   const [reader, setReader] = useState<{ title: string; text: string } | null>(null)
   const [modelingContext, setModelingContext] = useState<ModelingContext | null>(null)
   const [summaries, setSummaries] = useState<Record<string, Activity>>({})
@@ -146,11 +148,15 @@ export default function ProjectConversation({ id, conversationId, projectName, c
       {!events.length && <p>从“请分析这些资料”开始；已有项目可以直接问“现在做到哪了”。</p>}
       {events.map((event, index) => {
         if (event.kind === 'result' && event.purpose === 'build_test') return null
-        const result = event.task_id ? tasks.find(t => t.id === event.task_id) : undefined
+        const result = event.task_id ? (liveResults[event.task_id] || tasks.find(t => t.id === event.task_id)) : undefined
+        const proposed = (result?.outputs?.result as {suggestions?:unknown} | undefined)?.suggestions
+        const suggestions = Array.isArray(proposed) ? proposed.filter((s):s is string=>typeof s==='string') : []
         const lastInRequest = event.request_id && !events.slice(index + 1).some(e => e.request_id === event.request_id)
         return <div key={event.id}>
           {event.kind === 'result' && event.task_id ? <article className={styles.resultCard} aria-label="关联业务结果"><h3><FileText size={15} /> {event.text || '业务结果'}</h3>
             {result && <span className={styles.tag}>{taskNames[result.status] || result.status}</span>}
+            <ProjectTaskInput projectId={id} taskId={event.task_id} initialTask={result} onTask={next=>setLiveResults(previous=>({...previous,[next.id]:next}))}/>
+            {suggestions.map((suggestion,i)=><button key={i} onClick={()=>{updateDraft(messageRef.current.trim()?messageRef.current+'\n\n'+suggestion:suggestion);composer.current?.focus()}}>准备下一步：{suggestion}</button>)}
             <div className={styles.actions}><button onClick={() => onTask?.(event.task_id!)}>查看结果 <ArrowUpRight size={13} /></button><button onClick={() => onFeedback?.(event.item_id || result?.item_id || '', event.task_id!)}>反馈这个结果</button>
               {result?.feedback_task_id && <button onClick={() => onTask?.(result.feedback_task_id)}>查看修改前的结果</button>}</div>
           </article> : <article className={event.kind === 'user' ? styles.chatUser : styles.chatAssistant}><small>{event.kind === 'user' ? '你' : '项目统筹'}</small><MarkdownDocument source={event.text} emptyLabel="" resolveLink={href => resolveProjectLink(id, href)} />

@@ -3,6 +3,7 @@
 import { clientId } from '@/lib/client-id'
 
 import Link from 'next/link'
+import ProjectTaskInput from './ProjectTaskInput'
 import KnowledgeResults, {isKnowledgeSearchResult} from './KnowledgeResults'
 import FeatureResults from './FeatureResults'
 import { WorkflowValueField } from './WorkflowValueField'
@@ -27,7 +28,7 @@ export function ProjectRunEvents({ runs, members }: { runs: ProjectTask['runs'];
   </>
 }
 
-export function ProjectTaskOutput({ projectId, task }: { projectId: string; task: ProjectTask }) {
+export function ProjectTaskOutput({ projectId, task, onTask }: { projectId: string; task: ProjectTask; onTask?: (task: ProjectTask) => void }) {
   const output = task.outputs || {}
   const markdown = task.presentation?.markdown || (typeof output.markdown === 'string' ? output.markdown : '') || task.presentation?.message || (typeof output.message === 'string' ? output.message : '')
   const results = [output, ...Object.values(output).map(v => typeof v==='string'?{artifact:v}:v)].filter((v):v is Record<string,unknown> => !!v && typeof v==='object' && !Array.isArray(v))
@@ -45,6 +46,7 @@ export function ProjectTaskOutput({ projectId, task }: { projectId: string; task
   const classification = evaluation?.classification as {classes:{label:string;samples:number;precision:number;recall:number;f1:number}[];note:string} | undefined
   const acceptance = evaluation?.acceptance as {selection:{status:string;threshold:number|null;target_accuracy:number;validation:{accuracy:number;coverage:number;accepted:number}|null};test:{accepted:number;review:number;accuracy:number|null;coverage:number}} | undefined
   return <>
+    {task.id && ['waiting_input','running','queued'].includes(task.status) && <ProjectTaskInput projectId={projectId} taskId={task.id} initialTask={task} onTask={onTask}/>}
     {results.filter(result => result.stage === 'before_fold_preprocessing').map((result, i) => <FeatureResults key={i} result={result as unknown as Parameters<typeof FeatureResults>[0]['result']} />)}
     {task.runs?.filter(run => run.reuse?.source_run_id).map(run => <p key={run.id}>使用当前配置创建了新运行，复用 {run.reuse!.nodes.length} 个已完成步骤{run.reuse!.nodes.length ? `（${(run.reuse!.titles || run.reuse!.nodes).join('、')}）` : ''}。其他步骤重新执行，原运行保持不变。</p>)}
     {!knowledgeAnswer && <MarkdownDocument source={markdown} resolveLink={href => resolveProjectLink(projectId, href)} emptyLabel={['queued', 'running'].includes(task.status) ? '正在运行，结果会自动显示。' : '本次运行的输出见下方详情。'} />}
@@ -154,7 +156,7 @@ export default function ProjectRunPanel({ projectId, members, initialWorkflowId,
       {active && task && <button disabled={busy} onClick={async () => { setBusy(true); try { const next = await api<ProjectTask>(`${base}/tasks/${task.id}/stop`, { method: 'POST' }); setTask(next); onTask?.(next) } catch (cause) { setError(String(cause)) } finally { setBusy(false) } }}>停止运行</button>}
     </div>
     {error && <p role="alert" className={styles.error}>{error}</p>}
-    {task && <section aria-label="本次运行结果"><h3>{taskNames[task.status] || task.status}</h3>{task.error && <p role="alert">{task.error}</p>}<ProjectTaskOutput projectId={projectId} task={task} />
+    {task && <section aria-label="本次运行结果"><h3>{taskNames[task.status] || task.status}</h3>{task.error && <p role="alert">{task.error}</p>}<ProjectTaskOutput projectId={projectId} task={task} onTask={next=>{setTask(next);onTask?.(next)}} />
       <details><summary>实际输入输出与运行详情</summary><pre>{JSON.stringify({ inputs: task.inputs, outputs: task.outputs }, null, 2)}</pre><ProjectRunEvents key={task.id} runs={task.runs} members={members} />
       </details>
     </section>}

@@ -2855,6 +2855,7 @@ class WorkflowRuntime:
 
     @_node_executor("human_input")
     async def _exec_human_input(self, run: NodeRun) -> dict[str, Any]:
+        from .blocks import validate_human_values
         node, config, inputs, run_id, scoped_id, state = run.node, run.config, run.inputs, run.run_id, run.scoped_id, run.state
         preset = inputs.get("__human__", {}).get(node.id) if isinstance(inputs.get("__human__"), dict) else None
         if preset is not None:
@@ -2867,25 +2868,25 @@ class WorkflowRuntime:
             and state.waiting_node_id in {node.id, scoped_id}
             and state.resumed_values is not None
         ):
-            values = dict(state.resumed_values)
-            for field in config.fields:
-                if field.required and values.get(field.name) is None:
-                    raise ValueError(f"missing required human input: {field.name}")
+            values = validate_human_values(config, dict(state.resumed_values))
             state.human_input_values[scoped_id] = values
             state.waiting_node_id = None
+            state.waiting_form = None
             state.resumed_values = None
             await self.workflow_store.update_run(run_id, status="running", state=state)
             return {"output": values, **values}
         if not state:
             raise RuntimeError("human input is only supported in persisted top-level runs")
         state.waiting_node_id = scoped_id
-        await self._emit(run_id, "human_input.required", {
+        state.waiting_form = {
             "node_id": scoped_id,
             "block_node_id": node.id,
             "title": config.title,
             "description": config.description,
+            "context": self._resolve(config.context, run.context),
             "fields": [field.model_dump(mode="json") for field in config.fields],
-        })
+        }
+        await self._emit(run_id, "human_input.required", state.waiting_form)
         raise HumanInputPause()
 
     @_node_executor("end")
