@@ -214,7 +214,19 @@ def catalog():
         ['查看字段与练习说明，分清统计期、实际可用时间和预测时点。','选择两份资料；表头不同可以在表单中修改字段映射。',
          '运行并下载样本表和匹配明细，核对空值、修订值及不同实体。','输出的样本表可继续交给分析或训练流程，不自动启动后续任务。'])
     items[-1]['guide']=point_in_time.GUIDE
-    order=['meeting','weekly','expenses','profile','data-guidance','point-in-time','email','diff','writing','learning','planning','join','summary','classification','regression','group-training','process','prediction','rules','extraction','knowledge','composition']
+    from . import prediction_feedback
+    feedback=prediction_feedback.workflow()
+    defaults={'source_path':'@file:predictions.csv','actual_path':'@file:measurements.csv','group_columns':'batch','baseline_column':'baseline'}
+    for f in feedback['nodes'][0]['config']['inputs']:
+        if f['name'] in defaults:f['default']=defaults[f['name']]
+    add('prediction-feedback',prediction_feedback.NAME,'机器学习',prediction_feedback.DESCRIPTION,
+        '请用项目里的反馈对照流程比较预测和实测，解释哪些批次偏差较大、哪些还不能评价，不重新训练。',
+        '更换 measurements-2.csv，比较变化；再用 review-labels.csv 单表、类别判断模式查看复核结果。',
+        prediction_feedback.example_files(),[dict(key='main',name=prediction_feedback.NAME,workflow=feedback)],['Python 代码执行；Excel需openpyxl'],
+        ['阅读字段与练习说明，选择已有预测及实测资料。','选择评价方式、对应标识及分组列；没有业务容差可以留空。',
+         '查看有效样本数量、未匹配记录、分组误差并下载对照表。','换实测表或改为类别判断再次运行，确认旧结果保留；不需要训练环境或模型连接。'])
+    items[-1]['guide']=prediction_feedback.GUIDE
+    order=['meeting','weekly','expenses','profile','data-guidance','point-in-time','prediction-feedback','email','diff','writing','learning','planning','join','summary','classification','regression','group-training','process','prediction','rules','extraction','knowledge','composition']
     return sorted(items,key=lambda x:order.index(x['id']))
 
 

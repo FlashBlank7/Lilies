@@ -81,6 +81,7 @@ class InputField(BaseModel):
     default: Any = None
     # 给普通使用者看的示例值：使用页拿它当占位提示（"长这样就对了"）。
     example: Any = None
+    options: list[str] = Field(default_factory=list)
 
 
 class StartConfig(BaseModel):

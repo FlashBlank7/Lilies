@@ -14,7 +14,7 @@ import { resolveProjectLink } from '@/lib/project-links'
 import { taskNames, type ProjectMember, type ProjectTask } from '@/lib/project-progress'
 import styles from '@/app/projects/projects.module.css'
 
-type Field = { name: string; label?: string; type: string; required?: boolean; default?: unknown; description?: string }
+type Field = { name: string; label?: string; type: string; required?: boolean; default?: unknown; description?: string; options?: string[] }
 type Draft = { snapshot: { workflow: { nodes: { type: string; config: { inputs?: Field[] } }[] } } }
 type FileEntry = { path: string }
 
@@ -148,6 +148,7 @@ export default function ProjectRunPanel({ projectId, members, initialWorkflowId,
     {loading ? <p role="status">正在读取输入配置…</p> : fields.map(field => <div key={field.name}>
       <label>{field.label || field.name}{field.required ? ' *' : ''}
         {field.name === 'dataset_id' ? <WorkflowValueField allowReference={false} disabled={active || busy} projectId={projectId} field="dataset_id" nodeId="run" nodes={[]} label="预测数据集" value={values[field.name] || ''} onChange={next => setValues(previous => ({...previous, [field.name]: next}))} /> : field.type === 'boolean' ? <select aria-label={field.name} disabled={active || busy} value={values[field.name] || ''} onChange={event => setValues(previous => ({ ...previous, [field.name]: event.target.value }))}><option value="">请选择</option><option value="true">是</option><option value="false">否</option></select>
+          : field.type === 'string' && field.options?.length ? <select aria-label={field.name} disabled={active || busy} value={values[field.name] || ''} onChange={event => setValues(previous => ({ ...previous, [field.name]: event.target.value }))}><option value="">请选择</option>{field.options.map(option => <option key={option} value={option}>{option}</option>)}</select>
           : <textarea aria-label={field.name} rows={['object', 'array', 'any'].includes(field.type) ? 4 : 2} disabled={active || busy} value={values[field.name] || ''} onChange={event => setValues(previous => ({ ...previous, [field.name]: event.target.value }))} />}
       </label>{field.description && <p>{field.description}</p>}
       {(field.type === 'file' || /(?:path|file|document|attachment)$/i.test(field.name)) && files.length > 0 && <label>选择项目文件<select aria-label={`为 ${field.name} 选择项目文件`} disabled={active || busy} value="" onChange={event => setValues(previous => ({ ...previous, [field.name]: event.target.value }))}><option value="">从已上传资料或结果中选择…</option>{files.map(file => <option key={file.path} value={file.path}>{file.path}</option>)}</select></label>}

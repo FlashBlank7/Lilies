@@ -149,6 +149,9 @@ CATALOG['data-guidance'] = {'name': '数据摸底与分析建议', 'description'
 from . import point_in_time
 CATALOG['point-in-time'] = {'name': point_in_time.NAME, 'description': point_in_time.DESCRIPTION,
                            'workflow': point_in_time.workflow(), 'guide': point_in_time.GUIDE}
+from . import prediction_feedback
+CATALOG['prediction-feedback'] = {'name': prediction_feedback.NAME, 'description': prediction_feedback.DESCRIPTION,
+                                 'workflow': prediction_feedback.workflow(), 'guide': prediction_feedback.GUIDE}
 
 
 def catalog():

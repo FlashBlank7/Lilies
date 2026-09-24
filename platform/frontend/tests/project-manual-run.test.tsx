@@ -9,6 +9,24 @@ beforeEach(() => { vi.mocked(api).mockReset() })
 const members = [{ id: 'member', name: '解析资料', description: '', revision: 1, purpose: 'business' }]
 const fields = [{ name: 'document', type: 'string', required: true }, { name: 'count', type: 'number', default: 2 }, { name: 'enabled', type: 'boolean', default: false }]
 
+it('selects a declared workflow option without JSON or automatically starting a task', async () => {
+  vi.mocked(api).mockImplementation(async (path, options) => {
+    if (path.endsWith('/draft')) return {snapshot:{workflow:{nodes:[{type:'start',config:{inputs:[{name:'mode',label:'评价方式',type:'string',required:true,default:'数值预测',options:['数值预测','类别判断']}]}}]}}} as never
+    if (path.endsWith('/workspace/files')) return [] as never
+    if (options?.method==='POST') return {id:'t',status:'succeeded',outputs:{markdown:'已评价'}} as never
+    throw new Error(path)
+  })
+  await act(async()=>{render(<ProjectRunPanel projectId="p" members={members} initialWorkflowId="member"/>)})
+  const select=screen.getByRole('combobox',{name:'mode'})
+  expect(select).toHaveValue('数值预测')
+  fireEvent.change(select,{target:{value:'类别判断'}})
+  expect(vi.mocked(api).mock.calls.some(([,options])=>options?.method==='POST')).toBe(false)
+  fireEvent.click(screen.getByRole('button',{name:'启动工作流'}))
+  await screen.findByText('已评价')
+  const call=vi.mocked(api).mock.calls.find(([,options])=>options?.method==='POST')!
+  expect(JSON.parse(call[1]!.body as string).inputs).toEqual({mode:'类别判断'})
+})
+
 it('shows workflow training, fixed-class test results and model download without JSON',()=>{
   render(<ProjectTaskOutput projectId="p" task={{status:'succeeded',mode:'workflow',outputs:{
     training:{id:'candidate',study_id:'study',trials:[{slot:0,model:'forest',status:'completed',metrics:{macro_f1:.5},baseline:{macro_f1:.2}}]},
