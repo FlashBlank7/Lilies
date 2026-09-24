@@ -1,5 +1,7 @@
 .dialog { border:1px solid var(--ui-line); padding:0; border-radius:16px; width:min(600px,calc(100vw - 32px)); max-height:90dvh; color:var(--ui-ink); background:var(--ui-panel); box-shadow:0 24px 90px #202b3d24; }
 .dialog[data-wide=true] { width:min(1120px,calc(100vw - 48px)); }
+.dialog[data-guide-reserve] { max-height:calc(100dvh - min(400px,46dvh) - 36px); margin-top:12px; margin-bottom:auto; }
+.dialog[data-guide-reserve] .inner { max-height:inherit; }
 .dialog::backdrop { background:#202b3d55; backdrop-filter:blur(3px); }
 .inner { display:flex; flex-direction:column; max-height:88dvh; }
 .inner header { display:flex; align-items:center; justify-content:space-between; gap:20px; padding:20px 26px; border-bottom:1px solid var(--ui-line); flex-shrink:0; }

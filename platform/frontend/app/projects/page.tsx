@@ -7,6 +7,7 @@ import { api, isAuthError } from '@/lib/platform'
 import RequirementPackageImport from '@/app/components/RequirementPackageImport'
 import AppShell from '@/app/components/AppShell'
 import ReadingDialog from '@/app/components/ReadingDialog'
+import ExampleProjects from '@/app/components/ExampleProjects'
 import { ArrowUpRight, FolderOpen, Plus, Search, Upload } from 'lucide-react'
 import styles from './projects.module.css'
 
@@ -21,7 +22,7 @@ export default function Projects() {
   const [loading, setLoading] = useState(true)
   const [authRequired, setAuthRequired] = useState(false)
   const [search, setSearch] = useState('')
-  const [dialog, setDialog] = useState<'new' | 'import' | null>(null)
+  const [dialog, setDialog] = useState<'new' | 'import' | 'examples' | 'existing' | null>(null)
   const refresh = useCallback(async () => {
     setLoading(true); setError('')
     try { setProjects(await api<Project[]>('/api/v1/projects')); setAuthRequired(false) }
@@ -40,8 +41,10 @@ export default function Projects() {
   const visible = projects.filter(p => (p.name + ' ' + p.description).toLocaleLowerCase().includes(search.toLocaleLowerCase()))
   return <AppShell><main className={`${styles.page} ${styles.projectIndex}`}>
     <header className={styles.header}><div><span className={styles.eyebrow}>你的工作空间</span><h1>打开项目</h1><p>从想法到可以使用的工作流，在项目里一起推进。</p></div>
-      <div className={styles.actions}><button onClick={() => setDialog('import')}><Upload size={16} />导入需求包</button><button data-guide-anchor="project-create" className={styles.primary} onClick={() => setDialog('new')}><Plus size={17} />打开新项目</button></div></header>
+      <div className={styles.actions} data-guide-anchor="project-entry">{!!projects.length && <button onClick={() => setDialog('existing')}>选择已有项目</button>}<button onClick={() => setDialog('examples')}>从示例创建</button><button onClick={() => setDialog('import')}><Upload size={16} />导入需求包</button><button data-guide-anchor="project-create" className={styles.primary} onClick={() => setDialog('new')}><Plus size={17} />打开新项目</button></div></header>
     {authRequired && <p role="alert">登录已失效，<Link href="/login">请重新登录</Link>。</p>}
+    {dialog === 'existing' && <ReadingDialog title="选择已有项目" onClose={() => setDialog(null)}><div className={styles.cards}>{projects.map(project => <button key={project.id} onClick={() => router.push('/projects/' + project.id)}>{project.name}</button>)}</div></ReadingDialog>}
+    {dialog === 'examples' && <ReadingDialog title="从示例创建项目" wide onClose={() => setDialog(null)}><ExampleProjects onCreated={id => router.push('/projects/' + id)} /></ReadingDialog>}
     {dialog === 'new' && <ReadingDialog title="打开新项目" onClose={() => setDialog(null)}><section aria-label="打开新项目"><p>先给项目起个名字，打开后再说明需求或补充资料。</p>
       <form className={styles.actions} onSubmit={e => { e.preventDefault(); void create() }}><input aria-label="新项目名称" placeholder="例如：库存分配改进" maxLength={100} value={name} onChange={e => setName(e.target.value)} />
         <button className={styles.primary} disabled={busy || authRequired || !name.trim()}>{busy ? '正在打开…' : '创建并打开'}</button></form>

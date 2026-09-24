@@ -30,6 +30,8 @@ def authorization_dependency(services):
         if path in {'/api/v1/me', '/api/v1/me/onboarding', '/api/v1/auth/logout', '/api/v1/auth/password',
                     '/api/v1/projects', '/api/v1/projects/requirement-packages/import'}:
             return
+        if path == '/api/v1/example-projects' or path.startswith('/api/v1/example-projects/'):
+            return
 
         params = request.path_params
         project_ids = set()

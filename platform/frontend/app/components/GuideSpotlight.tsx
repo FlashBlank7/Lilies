@@ -15,10 +15,14 @@ export default function GuideSpotlight({selectors,paused,children,onSkip}:{selec
   const [viewport,setViewport]=useState({width:0,height:0}),[panelHeight,setPanelHeight]=useState(260)
   const signature=selectors.join(',')
   useEffect(()=>{
-    let frame=0,previous:HTMLElement|null=null
+    let frame=0,previous:HTMLElement|null=null,reserved:HTMLDialogElement|null=null
     const measure=()=>{
       frame=0
       const dialog=Array.from(document.querySelectorAll<HTMLDialogElement>('dialog[open]')).filter(visible).at(-1)
+      if(reserved!==dialog){reserved?.removeAttribute('data-guide-reserve');reserved=dialog||null}
+      // A native modal fills most of a small viewport. Reserve a separate area
+      // for the guide instead of covering the modal's form and submit button.
+      dialog?.setAttribute('data-guide-reserve','true')
       setHost(dialog||document.body)
       const candidates=selectors.flatMap(selector=>Array.from(document.querySelectorAll<HTMLElement>(selector)))
       const next=paused?null:dialog||candidates.find(visible)||null
@@ -44,7 +48,7 @@ export default function GuideSpotlight({selectors,paused,children,onSkip}:{selec
     const resize=typeof ResizeObserver!=='undefined'?new ResizeObserver(schedule):null
     resize?.observe(document.body);if(panel.current)resize?.observe(panel.current)
     window.addEventListener('resize',schedule);document.addEventListener('scroll',schedule,true)
-    return()=>{observer.disconnect();resize?.disconnect();cancelAnimationFrame(frame);previous?.classList.remove(styles.highlight);document.removeEventListener('scroll',schedule,true);window.removeEventListener('resize',schedule)}
+    return()=>{observer.disconnect();resize?.disconnect();cancelAnimationFrame(frame);previous?.classList.remove(styles.highlight);reserved?.removeAttribute('data-guide-reserve');document.removeEventListener('scroll',schedule,true);window.removeEventListener('resize',schedule)}
   },[signature,paused]) // selectors are represented by their stable signature
   useEffect(()=>{
     const allowed=(node:HTMLElement)=>panel.current?.contains(node)||(!paused&&target.current?.contains(node))
@@ -65,7 +69,8 @@ export default function GuideSpotlight({selectors,paused,children,onSkip}:{selec
   if(!host)return null
   const {width,height}=viewport, gap=14, cardWidth=Math.min(352,width-24)
   let left=Math.max(12,(width-cardWidth)/2),top=Math.max(12,height-panelHeight-12),maxHeight=Math.min(400,height*.46)
-  if(rect){
+  if(host instanceof HTMLDialogElement){top=height-Math.min(panelHeight,maxHeight)-12}
+  else if(rect){
     if(width-rect.left-rect.width>cardWidth+gap+12){left=rect.left+rect.width+gap;top=Math.max(12,Math.min(rect.top,height-panelHeight-12))}
     else if(rect.left>cardWidth+gap+12){left=rect.left-cardWidth-gap;top=Math.max(12,Math.min(rect.top,height-panelHeight-12))}
     else if(rect.top>panelHeight+gap+12){top=rect.top-panelHeight-gap}

@@ -13,6 +13,7 @@ afterEach(() => { cleanup(); vi.mocked(api).mockReset() })
 it('reopens and stops a persisted manual run, then returns to its member input form without starting an agent', async () => {
   const task = { id: 't', request_key: 'request', status: 'running', mode: 'workflow', workflow_id: 'member', purpose: 'customer_trial', item_id: '', created_at: '2026-09-17T00:00:00Z', presentation: {}, inputs: {}, outputs: {} }
   vi.mocked(api).mockImplementation(async (path, options) => {
+    if (path.endsWith('/example')) return null as never
     if (path.endsWith('/conversations')) return [] as never
     if (path.endsWith('/stop')) return { ...task, status: 'interrupted' } as never
     if (path.endsWith('/tasks/t')) return task as never

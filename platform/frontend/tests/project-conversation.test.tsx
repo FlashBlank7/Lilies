@@ -24,8 +24,9 @@ const task = { id: 't1', request_key: 'trial-1', mode: 'workflow', purpose: 'cus
 const session = { provider: 'api', status: 'idle', error: '', revision: 1, events: [{ id: 'm1', kind: 'assistant', text: '可以先试用申请分配。', time: '' }],
   has_more: false, first_cursor: 'm1', last_cursor: 'm1', requirements: { status: 'confirmed', document: '# 当前需求', revision: 2 } }
 
-async function setup(sessionOverride: Record<string, unknown> = {}, currentProgress = progress) {
+async function setup(sessionOverride: Record<string, unknown> = {}, currentProgress = progress, example: unknown = null) {
   vi.mocked(api).mockImplementation(async (path, options) => {
+    if (path.endsWith('/example')) return example as never
     if (path.endsWith('/conversations')) return [{ id: 'chat', title: '我的会话', status: 'idle' }] as never
     if (path.endsWith('/progress')) return currentProgress as never
     if (path.endsWith('/topology')) return { members: project.members, calls: [] } as never
@@ -300,4 +301,16 @@ it('reads shared requirements without requiring a confirmation step before talki
   fireEvent.click(screen.getByRole('button',{name:'发送'}))
   await waitFor(()=>expect(api).toHaveBeenCalledWith('/api/v1/projects/p/conversations/chat/messages',expect.objectContaining({method:'POST'})))
   expect(vi.mocked(api).mock.calls.some(([path])=>path.endsWith('/requirements/confirm'))).toBe(false)
+})
+
+
+it('appends an example question without replacing an unsent draft or sending a message', async () => {
+  await setup({}, progress, {name:'会议纪要',question:'整理这份会议记录',requires:['大模型连接'],steps:['查看资料'],exercise:'更换资料',files:[],workflows:[]})
+  fireEvent.change(screen.getByLabelText('给项目统筹的消息'), {target:{value:'这是我正在写的草稿'}})
+  fireEvent.click(screen.getByRole('button',{name:'准备这条消息'}))
+  expect((screen.getByLabelText('给项目统筹的消息') as HTMLTextAreaElement).value).toContain('这是我正在写的草稿')
+  expect((screen.getByLabelText('给项目统筹的消息') as HTMLTextAreaElement).value).toContain('整理这份会议记录')
+  fireEvent.click(screen.getByRole('button',{name:'准备这条消息'}))
+  expect((screen.getByLabelText('给项目统筹的消息') as HTMLTextAreaElement).value.split('整理这份会议记录')).toHaveLength(2)
+  expect(vi.mocked(api).mock.calls.some(([path,options])=>path.endsWith('/messages')&&options?.method==='POST')).toBe(false)
 })

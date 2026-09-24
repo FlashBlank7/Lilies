@@ -7,7 +7,7 @@ import styles from './onboarding.module.css'
 import GuideSpotlight from './GuideSpotlight'
 
 export const guideSteps = [
-  { id: 'project', title: '进入项目', text: '项目集中保存资料、工作流、模型和结果。成员共享资源，各自对话独立。没有公司项目时，请让负责人在「设置 → 项目成员」添加你的用户名；也可以自行创建项目。', action: '已打开项目' },
+  { id: 'project', title: '进入项目', text: '项目集中保存资料、工作流、模型和结果。成员共享资源，各自对话独立。没有公司项目时，请让负责人在「设置 → 项目成员」添加你的用户名；也可以点击「从示例创建」，获得资料齐全、可编辑的练习项目。', action: '已打开项目' },
   { id: 'materials', title: '准备资料', text: '在亮起的区域选择已有文件，或点击「添加资料」。完成后会继续介绍工作流。暂时没有资料，也可以先了解下一步。', action: '已选择或添加资料' },
   { id: 'workflow', title: '找到工作流', text: '点击「查看与编辑」了解已有流程，也可以从官方目录加入流程。进入画布后引导会保留；看完点击下一步，准备通过对话调用。', action: '已查看或加入工作流' },
   { id: 'conversation', title: '通过对话调用', text: '若尚无会话，先在对话页点击「新建会话」。在项目空间点击「让智能体调用」，检查带入的流程和资料，再亲自点击发送。模型未连接时，负责人可在设置中配置，普通成员需联系负责人；无需配置也能继续阅读教程。', action: '已发送任务请求' },
@@ -99,7 +99,7 @@ export default function Onboarding({ children }: { children: ReactNode }) {
     else router.push(`/projects/${encodeURIComponent(projectId)}?guide=${step.id}`)
   },[expanded,step.id,value.status,pathname]) // Preserve navigation within a step.
   const selectors:Record<GuideStep,string[]>={
-    project:['[data-guide-anchor="project-open"]','[data-guide-anchor="project-create"]','[data-guide="project"]'],
+    project:['[data-guide-anchor="project-entry"]','[data-guide-anchor="project-open"]','[data-guide-anchor="project-create"]','[data-guide="project"]'],
     materials:['[data-guide="materials"]'],
     workflow:['[data-guide-anchor="workflow-canvas"]','[data-guide-anchor="workflow-view"]','[data-guide-anchor="workflow-install"]','[data-guide="workflow"]'],
     conversation:['[data-guide-anchor="conversation-compose"]','[data-guide-anchor="conversation-new"]','[data-guide-anchor="workflow-call"]','[data-guide="conversation"]'],

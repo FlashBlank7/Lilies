@@ -108,6 +108,8 @@ def project_router(services, require_token):
         return await invoke(projects.store.get, project_id)
 
     scoped = APIRouter(prefix='/projects/{project_id}', dependencies=[Depends(require_project)])
+    from .example_projects import register_example_routes
+    register_example_routes(router, scoped, services, invoke)
 
     @router.get('/projects')
     async def list_projects(request: Request):
