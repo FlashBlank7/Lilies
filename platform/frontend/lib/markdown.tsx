@@ -92,10 +92,12 @@ function parseMarkdownBlocks(source: string): MarkdownBlock[] {
     }
 
     if (isFence(line)) {
-      const language = line.trim().replace(/^```/, '').trim()
+      const opening = line.trim().match(/^(`{3,})(.*)$/)!
+      const language = opening[2].trim()
+      const closing = new RegExp('^`{' + opening[1].length + ',}\\s*$')
       const code: string[] = []
       index += 1
-      while (index < lines.length && !isFence(lines[index])) {
+      while (index < lines.length && !closing.test(lines[index].trim())) {
         code.push(lines[index])
         index += 1
       }
