@@ -250,7 +250,19 @@ def catalog():
         ['阅读字段说明，核对标签对应关系和预测时点。','选择必填、数值、标识及排除列；按需编辑特征行表。',
          '运行后查看逐条原因与标签数量，下载处理后的表、排除记录及方法。','换资料或方法重跑；后续分析、训练和预测仍由员工按需调用。'])
     items[-1]['guide']=sample_preparation.GUIDE
-    order=['meeting','weekly','expenses','profile','data-guidance','sample-preparation','point-in-time','prediction-feedback','candidate-comparison','email','diff','writing','learning','planning','join','summary','classification','regression','group-training','process','prediction','rules','extraction','knowledge','composition']
+    from . import parameter_intervals
+    intervals=parameter_intervals.workflow()
+    defaults={'source_path':'@file:scan.csv',**parameter_intervals.example_defaults()}
+    for f in intervals['nodes'][0]['config']['inputs']:
+        if f['name'] in defaults:f['default']=defaults[f['name']]
+    add('parameter-intervals',parameter_intervals.NAME,'数据处理',parameter_intervals.DESCRIPTION,
+        '请分析这张参数扫描表，告诉我哪些区间值得继续验证，解释扫描缺口、条件不通过和孤立最高分的影响。',
+        '将最小宽度改为2，比较哪些片段不再符合要求；再换scan-2.csv，确认中间条件修正后区间变化，旧结果保留。',
+        parameter_intervals.example_files(),[dict(key='main',name=parameter_intervals.NAME,workflow=intervals)],['Python代码执行；Excel需openpyxl'],
+        ['查看扫描表和字段说明，核对分数方向、条件及数值来源。','填写实际允许的相邻间隔、近最佳容差和区间宽度，不需要JSON。',
+         '查看各组区间、孤立点与原因，下载逐点表和区间表。','改变参数或换资料重算；需要补充测量或预测时另行调用，不自动执行。'])
+    items[-1]['guide']=parameter_intervals.GUIDE
+    order=['meeting','weekly','expenses','profile','data-guidance','sample-preparation','point-in-time','prediction-feedback','candidate-comparison','parameter-intervals','email','diff','writing','learning','planning','join','summary','classification','regression','group-training','process','prediction','rules','extraction','knowledge','composition']
     return sorted(items,key=lambda x:order.index(x['id']))
 
 

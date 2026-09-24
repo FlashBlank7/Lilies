@@ -158,6 +158,9 @@ CATALOG['candidate-comparison'] = {'name':candidate_comparison.NAME,'description
 from . import sample_preparation
 CATALOG['sample-preparation'] = {'name':sample_preparation.NAME,'description':sample_preparation.DESCRIPTION,
                                 'workflow':sample_preparation.workflow(),'guide':sample_preparation.GUIDE}
+from . import parameter_intervals
+CATALOG['parameter-intervals'] = {'name':parameter_intervals.NAME,'description':parameter_intervals.DESCRIPTION,
+                                'workflow':parameter_intervals.workflow(),'guide':parameter_intervals.GUIDE}
 
 
 def catalog():
