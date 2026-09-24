@@ -73,6 +73,14 @@ def _zh_pydantic(message: str) -> str:
     return message
 
 
+class InputColumn(BaseModel):
+    name: str
+    label: str = ''
+    type: Literal['string', 'number', 'boolean'] = 'string'
+    options: list[str] = Field(default_factory=list)
+    default: Any = ''
+
+
 class InputField(BaseModel):
     name: str
     label: str = ""
@@ -82,6 +90,7 @@ class InputField(BaseModel):
     # 给普通使用者看的示例值：使用页拿它当占位提示（"长这样就对了"）。
     example: Any = None
     options: list[str] = Field(default_factory=list)
+    columns: list[InputColumn] = Field(default_factory=list)
 
 
 class StartConfig(BaseModel):

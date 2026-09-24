@@ -4,6 +4,7 @@ import { clientId } from '@/lib/client-id'
 
 import Link from 'next/link'
 import ProjectTaskInput from './ProjectTaskInput'
+import WorkflowInputTable, {type InputColumn} from './WorkflowInputTable'
 import KnowledgeResults, {isKnowledgeSearchResult} from './KnowledgeResults'
 import FeatureResults from './FeatureResults'
 import { WorkflowValueField } from './WorkflowValueField'
@@ -14,7 +15,7 @@ import { resolveProjectLink } from '@/lib/project-links'
 import { taskNames, type ProjectMember, type ProjectTask } from '@/lib/project-progress'
 import styles from '@/app/projects/projects.module.css'
 
-type Field = { name: string; label?: string; type: string; required?: boolean; default?: unknown; description?: string; options?: string[] }
+type Field = { name: string; label?: string; type: string; required?: boolean; default?: unknown; description?: string; options?: string[]; columns?: InputColumn[] }
 type Draft = { snapshot: { workflow: { nodes: { type: string; config: { inputs?: Field[] } }[] } } }
 type FileEntry = { path: string }
 
@@ -146,11 +147,11 @@ export default function ProjectRunPanel({ projectId, members, initialWorkflowId,
     <label>入口工作流<select aria-label="入口工作流" disabled={active || busy} value={workflowId} onChange={event => { setWorkflowId(event.target.value); setTask(null) }}>{members.map(member => <option key={member.id} value={member.id}>{member.id === projectId ? '主流程 · ' : ''}{member.name}</option>)}</select></label>
     <p><Link href={`/applications/${workflowId}?tab=edit`} target="_blank">编辑这条工作流 ↗</Link></p>
     {loading ? <p role="status">正在读取输入配置…</p> : fields.map(field => <div key={field.name}>
-      <label>{field.label || field.name}{field.required ? ' *' : ''}
+      {field.type==='array' && field.columns?.length ? <WorkflowInputTable name={field.name} label={field.label||field.name} columns={field.columns} value={values[field.name]||'[]'} disabled={active||busy} onChange={value=>setValues(previous=>({...previous,[field.name]:value}))}/> : <label>{field.label || field.name}{field.required ? ' *' : ''}
         {field.name === 'dataset_id' ? <WorkflowValueField allowReference={false} disabled={active || busy} projectId={projectId} field="dataset_id" nodeId="run" nodes={[]} label="预测数据集" value={values[field.name] || ''} onChange={next => setValues(previous => ({...previous, [field.name]: next}))} /> : field.type === 'boolean' ? <select aria-label={field.name} disabled={active || busy} value={values[field.name] || ''} onChange={event => setValues(previous => ({ ...previous, [field.name]: event.target.value }))}><option value="">请选择</option><option value="true">是</option><option value="false">否</option></select>
           : field.type === 'string' && field.options?.length ? <select aria-label={field.name} disabled={active || busy} value={values[field.name] || ''} onChange={event => setValues(previous => ({ ...previous, [field.name]: event.target.value }))}><option value="">请选择</option>{field.options.map(option => <option key={option} value={option}>{option}</option>)}</select>
           : <textarea aria-label={field.name} rows={['object', 'array', 'any'].includes(field.type) ? 4 : 2} disabled={active || busy} value={values[field.name] || ''} onChange={event => setValues(previous => ({ ...previous, [field.name]: event.target.value }))} />}
-      </label>{field.description && <p>{field.description}</p>}
+      </label>}{field.description && <p>{field.description}</p>}
       {(field.type === 'file' || /(?:path|file|document|attachment)$/i.test(field.name)) && files.length > 0 && <label>选择项目文件<select aria-label={`为 ${field.name} 选择项目文件`} disabled={active || busy} value="" onChange={event => setValues(previous => ({ ...previous, [field.name]: event.target.value }))}><option value="">从已上传资料或结果中选择…</option>{files.map(file => <option key={file.path} value={file.path}>{file.path}</option>)}</select></label>}
     </div>)}
     <div className={styles.actions}><button className={styles.primary} disabled={loading || busy || active} onClick={() => void start()}>{busy ? '正在启动…' : active ? '正在运行…' : '启动工作流'}</button>

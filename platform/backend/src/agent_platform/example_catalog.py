@@ -226,7 +226,19 @@ def catalog():
         ['阅读字段与练习说明，选择已有预测及实测资料。','选择评价方式、对应标识及分组列；没有业务容差可以留空。',
          '查看有效样本数量、未匹配记录、分组误差并下载对照表。','换实测表或改为类别判断再次运行，确认旧结果保留；不需要训练环境或模型连接。'])
     items[-1]['guide']=prediction_feedback.GUIDE
-    order=['meeting','weekly','expenses','profile','data-guidance','point-in-time','prediction-feedback','email','diff','writing','learning','planning','join','summary','classification','regression','group-training','process','prediction','rules','extraction','knowledge','composition']
+    from . import candidate_comparison
+    candidates=candidate_comparison.workflow()
+    defaults={'source_path':'@file:candidates.csv',**candidate_comparison.example_defaults()}
+    for f in candidates['nodes'][0]['config']['inputs']:
+        if f['name'] in defaults:f['default']=defaults[f['name']]
+    add('candidate-comparison',candidate_comparison.NAME,'数据处理',candidate_comparison.DESCRIPTION,
+        '请比较项目里的候选方案，先检查资源和配对条件，再解释产出和损失的取舍；没有满足条件的方案就明确告诉我。',
+        '增加损失不大于6的条件，查看变化；再换 candidates-2.csv，确认各任务独立比较、旧结果保留。',
+        candidate_comparison.example_files(),[dict(key='main',name=candidate_comparison.NAME,workflow=candidates)],['Python 代码执行；Excel需openpyxl'],
+        ['查看候选表及字段说明，区分必须满足的条件和比较偏好。','在行表中调整条件和目标，默认按从上到下优先级比较。',
+         '运行并查看每组结论、失败原因及并列方案，下载完整检查表。','换资料或修改条件重算；本流程不会训练、生成候选或回写生产。'])
+    items[-1]['guide']=candidate_comparison.GUIDE
+    order=['meeting','weekly','expenses','profile','data-guidance','point-in-time','prediction-feedback','candidate-comparison','email','diff','writing','learning','planning','join','summary','classification','regression','group-training','process','prediction','rules','extraction','knowledge','composition']
     return sorted(items,key=lambda x:order.index(x['id']))
 
 

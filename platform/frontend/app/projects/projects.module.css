@@ -98,6 +98,8 @@
 .taskTime { display:block; font-size:11px; margin-top:5px; }
 .page :global(.markdown-document) { color:var(--ui-ink); font-size:14px; }
 .page :global(.markdown-table-wrap) { max-width:100%; overflow:auto; }
+.page :global(.markdown-table-wrap table) { width:max-content; min-width:100%; }
+.page :global(.markdown-table-wrap th),.page :global(.markdown-table-wrap td) { min-width:80px; max-width:360px; white-space:normal; overflow-wrap:break-word; }
 .activity { background:var(--ui-bg); border:1px solid var(--ui-line); border-radius:9px; font-size:12px; padding:4px 12px; }
 .activity > summary,.activityStep > summary { display:flex; align-items:center; gap:9px; list-style:none; }
 .activity > summary::after,.activityStep > summary::after { content:'⌄'; margin-left:auto; color:var(--ui-muted); }

@@ -152,6 +152,9 @@ CATALOG['point-in-time'] = {'name': point_in_time.NAME, 'description': point_in_
 from . import prediction_feedback
 CATALOG['prediction-feedback'] = {'name': prediction_feedback.NAME, 'description': prediction_feedback.DESCRIPTION,
                                  'workflow': prediction_feedback.workflow(), 'guide': prediction_feedback.GUIDE}
+from . import candidate_comparison
+CATALOG['candidate-comparison'] = {'name':candidate_comparison.NAME,'description':candidate_comparison.DESCRIPTION,
+                                   'workflow':candidate_comparison.workflow(),'guide':candidate_comparison.GUIDE}
 
 
 def catalog():
