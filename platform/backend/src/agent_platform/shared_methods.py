@@ -32,6 +32,23 @@ def initialize(db_path):
                    'project_id TEXT NOT NULL,method_id TEXT NOT NULL,result TEXT NOT NULL,PRIMARY KEY(project_id,method_id))')
 
 
+_RESOURCE_FIELDS = {
+    'api_key', 'authorization', 'password', 'secret', 'access_token', 'refresh_token', 'bearer_token',
+    'dataset_id', 'study_id', 'candidate_id', 'trial_id', 'source_path', 'file_path', 'labels_path',
+    'transformer_path', 'model_ref', 'knowledge_ref', 'credential_id',
+}
+
+
+def _unbound_default(field, value):
+    if isinstance(value, dict) and '$ref' in value:
+        return deepcopy(value)
+    return [] if field.get('type') == 'file_list' else ''
+
+
+def _resource_input(field):
+    return field.get('type') in ('file', 'file_list') or str(field.get('name', '')).lower() in _RESOURCE_FIELDS
+
+
 def unbind(value):
     """Strip resource bindings and credential-bearing fields from the copy.
 
@@ -45,13 +62,22 @@ def unbind(value):
     result = {}
     for key, item in value.items():
         lower = key.lower()
-        if lower in {'api_key', 'authorization', 'password', 'secret', 'access_token', 'refresh_token', 'bearer_token',
-                     'dataset_id', 'study_id', 'candidate_id', 'trial_id', 'source_path', 'model_ref', 'knowledge_ref', 'credential_id'}:
+        if lower in _RESOURCE_FIELDS:
             result[key] = deepcopy(item) if isinstance(item, dict) and '$ref' in item else ''
         elif lower in {'headers', 'cookies'}:
             result[key] = {} if isinstance(item, dict) else []
         else:
             result[key] = unbind(item)
+    # Form schemas store selected resources under `default`, rather than a
+    # resource key. Keep the form and ordinary parameters, not the source binding.
+    if 'default' in result and _resource_input(value):
+        result['default'] = _unbound_default(value, result['default'])
+    elif isinstance(value.get('columns'), list) and isinstance(result.get('default'), list):
+        for row in result['default']:
+            if isinstance(row, dict):
+                for column in value['columns']:
+                    if isinstance(column, dict) and _resource_input(column) and column.get('name') in row:
+                        row[column['name']] = _unbound_default(column, row[column['name']])
     return result
 
 
@@ -123,7 +149,7 @@ async def install(services, project_id, method_id):
     payload = json.loads(row['payload'])
     blocks = await services.projects.blocks_for(project_id)
     for item in payload['workflows']:
-        graph = WorkflowSpec.model_validate(item['workflow'])
+        graph = WorkflowSpec.model_validate(unbind(item['workflow']))
         blocks.validate_workflow(graph)
         if errors := services.blocks.validate_draft(graph):
             raise ValueError('共享定义需要修正：' + '; '.join(errors))
@@ -140,7 +166,7 @@ async def install(services, project_id, method_id):
         elif isinstance(obj,list):
             for value in obj:rewrite(value)
     for item in payload['workflows']:
-        graph = deepcopy(item['workflow']); rewrite(graph)
+        graph = unbind(item['workflow']); rewrite(graph)
         wid = remap[item['id']]
         draft = await services.workflow_store.get_draft(wid)
         await save_workflow(services,project_id,wid,SaveWorkflow(expected_revision=draft['revision'],workflow=WorkflowSpec.model_validate(graph)))

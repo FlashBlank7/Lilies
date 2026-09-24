@@ -59,3 +59,59 @@ def test_resource_unbinding_does_not_touch_variable_references():
     assert after['api_key']==after['dataset_id']==after['model_ref']==after['source_path']==''
     assert after['headers']=={}
     assert after['input']==before['input']
+
+
+def test_shared_input_defaults_require_target_project_files(platform, monkeypatch):
+    client,app=platform
+    _,auth=signup(client,'Author');source,target=project(client,auth,'Source'),project(client,auth,'Target')
+    base='/api/v1/projects/'+source
+    installed=client.post(base+'/space/official-workflows/cutting-candidates',headers=auth)
+    assert installed.status_code==201,installed.text
+    wid=installed.json()['workflow_id']
+    draft=client.get('/api/v1/applications/'+wid+'/draft',headers=auth).json()
+    graph=draft['snapshot']['workflow']
+    inputs=graph['nodes'][0]['config']['inputs']
+    for field in inputs:
+        if field['type']=='file':field['default']='requirement-package/private/'+field['name']+'.csv'
+        if field['name']=='kerf':field['default']=1
+    inputs.extend([
+        {'name':'other_files','type':'file_list','default':['requirement-package/private/extra.csv']},
+        {'name':'model_ref','type':'string','default':'source-model'},
+        {'name':'materials','type':'array','columns':[{'name':'document','type':'file','default':'private.md'},{'name':'label','type':'string'}],
+         'default':[{'document':'requirement-package/private/design.pdf','label':'Reference A'}]},
+    ])
+    assert client.put(base+'/workflows/'+wid+'/draft',headers=auth,json={'expected_revision':draft['revision'],'workflow':graph}).status_code==200
+    body={'workflow_id':wid,'name':'Portable method','target_project_ids':[target]}
+    preview=client.post(base+'/space/shared-methods/preview',headers=auth,json=body)
+    assert preview.status_code==200,preview.text
+    def fields(value):return {f['name']:f for f in value['nodes'][0]['config']['inputs']}
+    copied=fields(preview.json()['workflows'][0]['workflow'])
+    assert copied['stock_path']['default']==copied['demand_path']['default']==''
+    assert copied['other_files']['default']==[]
+    assert copied['model_ref']['default']==''
+    assert copied['materials']['default']==[{'document':'','label':'Reference A'}]
+    assert copied['materials']['columns'][0]['default']==''
+    assert copied['unit']['default']=='mm' and copied['kerf']['default']==1
+    assert 'requirement-package/private/' not in preview.text
+    # Existing shares may have been published before schema defaults were cleared.
+    with monkeypatch.context() as old:
+        old.setattr('agent_platform.shared_methods.unbind',lambda value:value)
+        ident=client.post(base+'/space/shared-methods',headers=auth,json=body).json()['id']
+    result=client.post('/api/v1/projects/'+target+'/space/shared-methods/'+ident+'/install',headers=auth)
+    assert result.status_code==201,result.text
+    saved=client.get('/api/v1/applications/'+result.json()['workflow_id']+'/draft',headers=auth).json()
+    assert fields(saved['snapshot']['workflow'])==copied
+    original=client.get('/api/v1/applications/'+wid+'/draft',headers=auth).json()
+    assert fields(original['snapshot']['workflow'])['stock_path']['default'].startswith('requirement-package/private/')
+
+
+def test_resource_defaults_keep_upstream_references_and_regular_parameters():
+    from agent_platform.shared_methods import unbind
+    ref={'$ref':{'node_id':'start','path':['file']}}
+    value={'fields':[{'name':'file','type':'file','default':ref},{'name':'files','type':'file_list','default':ref}],
+           'labels_path':ref,'file_path':'requirement-package/data.csv','transformer_path':'models/process.py',
+           'notes':'Use the same units','code':'source_path = user_input'}
+    result=unbind(value)
+    assert result['fields']==value['fields'] and result['labels_path']==ref
+    assert result['file_path']==result['transformer_path']==''
+    assert result['notes']==value['notes'] and result['code']==value['code']
