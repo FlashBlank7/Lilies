@@ -17,6 +17,8 @@ class ShareMethod(BaseModel):
     model_config = ConfigDict(extra='forbid')
     workflow_id: str = ''
     skill_id: str = ''
+    reference_names: list[str] = Field(default_factory=list, max_length=100)
+    skill_revision: int | None = Field(default=None, ge=0)
     name: str = Field(min_length=1, max_length=100)
     description: str = Field(default='', max_length=1000)
     limitations: str = Field(default='', max_length=2000)
@@ -84,6 +86,8 @@ def unbind(value):
 async def make_share(services, project_id, body, user, *, preview=False):
     if bool(body.workflow_id) == bool(body.skill_id):
         raise ValueError('请选择一个工作流或一篇方法说明')
+    if body.workflow_id and (body.reference_names or body.skill_revision is not None):
+        raise ValueError('引用文件只能随对应的方法说明分享')
     for target in body.target_project_ids:
         await services.accounts.require_project(user, target)
     payload = {'workflows': [], 'skill': None}
@@ -116,8 +120,16 @@ async def make_share(services, project_id, body, user, *, preview=False):
         payload['root'] = body.workflow_id
     else:
         original = await skills(services, project_id, body.skill_id)
-        # Referenced source documents are not silently made shared documents.
+        if body.skill_revision is not None and body.skill_revision != original['revision']:
+            raise HTTPException(409, '方法已被修改，请重新选择并检查要分享的内容')
+        references = original.get('references', {})
+        names = list(dict.fromkeys(body.reference_names))
+        if any(name not in references for name in names):
+            raise ValueError('所选引用文件已不存在，请重新选择方法说明')
+        # Only explicitly selected Skill references are frozen into the share.
+        # Never follow project file paths, links, or references in the content.
         payload['skill'] = {k:original[k] for k in ('name','description','content','revision')}
+        payload['skill']['references'] = {name: references[name] for name in names}
     if preview:
         return payload
     ident = str(uuid4())
@@ -173,7 +185,8 @@ async def install(services, project_id, method_id):
     skill_id = 'shared-' + method_id
     if payload['skill']:
         item = payload['skill']
-        await save_skill(services,project_id,skill_id,SkillDocument(**{k:item[k] for k in ('name','description','content')}))
+        await save_skill(services,project_id,skill_id,SkillDocument(
+            **{k:item[k] for k in ('name','description','content')}, references=item.get('references', {})))
     else:
         await save_skill(services,project_id,skill_id,SkillDocument(name=row['name']+'使用说明',description=row['description'],
             content=f"用途：{row['description']}\n限制：{row['limitations']}\n工作流：{remap[payload['root']]}。使用 project_workflows inspect 查看当前输入，再通过 workflow_run 调用。模型、数据及连接需要在本项目配置。"))

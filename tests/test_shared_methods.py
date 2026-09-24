@@ -49,6 +49,57 @@ def test_skill_share_does_not_include_referenced_customer_documents(platform):
     assert payload.status_code==200,payload.text
     assert 'private raw data' not in payload.text
     assert payload.json()['skill']['revision']==1
+    ident=client.post(base+'/space/shared-methods',headers=a,json=body).json()['id']
+    result=client.post('/api/v1/projects/'+target+'/space/shared-methods/'+ident+'/install',headers=a).json()
+    copied=client.get('/api/v1/projects/'+target+'/skills/'+result['skill_id'],headers=a).json()
+    assert copied['references']=={}
+
+
+def test_selected_skill_references_are_frozen_and_independently_editable(platform):
+    client,_=platform
+    _,a=signup(client,'Author');source,target=project(client,a),project(client,a)
+    base='/api/v1/projects/'+source;dest='/api/v1/projects/'+target
+    value={'name':'Check measurements','content':'Read check.py and use explicit units.',
+           'references':{'check.py':'print(2 + 3)','private.txt':'customer content'}}
+    assert client.put(base+'/skills/method',headers=a,json=value).status_code==200
+    body={'skill_id':'method','skill_revision':1,'reference_names':['check.py','check.py'],
+          'name':'Portable check','target_project_ids':[target]}
+    preview=client.post(base+'/space/shared-methods/preview',headers=a,json=body)
+    assert preview.status_code==200,preview.text
+    assert preview.json()['skill']['references']=={'check.py':'print(2 + 3)'}
+    assert 'customer content' not in preview.text
+    ident=client.post(base+'/space/shared-methods',headers=a,json=body).json()['id']
+    updated={**value,'expected_revision':1,'references':{'check.py':'print(9)','private.txt':'new customer content'}}
+    assert client.put(base+'/skills/method',headers=a,json=updated).status_code==200
+    copied=client.post(dest+'/space/shared-methods/'+ident+'/install',headers=a)
+    assert copied.status_code==201,copied.text
+    assert client.post(dest+'/space/shared-methods/'+ident+'/install',headers=a).json()==copied.json()
+    sid=copied.json()['skill_id']
+    skill=client.get(dest+'/skills/'+sid,headers=a).json()
+    assert skill['references']=={'check.py':'print(2 + 3)'}
+    read=client.post(dest+'/agent-tools',headers=a,json={'name':'project_skills',
+        'arguments':{'action':'read','skill_id':sid,'reference':'check.py'}})
+    assert read.status_code==200,read.text
+    assert read.json()['content']=='print(2 + 3)'
+    assert client.put(dest+'/skills/'+sid,headers=a,json={'name':skill['name'],
+        'content':skill['content'],'expected_revision':skill['revision'],'references':{'check.py':'print(6)'}}).status_code==200
+    assert client.get(base+'/skills/method',headers=a).json()['references']==updated['references']
+
+
+def test_stale_or_missing_skill_reference_cannot_be_shared(platform):
+    client,_=platform
+    _,a=signup(client,'Author');source,target=project(client,a),project(client,a)
+    base='/api/v1/projects/'+source
+    value={'name':'Method','content':'Use code.py','references':{'code.py':'print(1)'}}
+    client.put(base+'/skills/method',headers=a,json=value)
+    body={'skill_id':'method','skill_revision':1,'reference_names':['missing.py'],
+          'name':'Method','target_project_ids':[target]}
+    missing=client.post(base+'/space/shared-methods',headers=a,json=body)
+    assert missing.status_code==422 and '引用文件已不存在' in missing.text
+    client.put(base+'/skills/method',headers=a,json={**value,'expected_revision':1})
+    stale=client.post(base+'/space/shared-methods',headers=a,json={**body,'reference_names':['code.py']})
+    assert stale.status_code==409 and '方法已被修改' in stale.text
+    assert client.get('/api/v1/projects/'+target+'/space/shared-methods',headers=a).json()==[]
 
 
 def test_resource_unbinding_does_not_touch_variable_references():
