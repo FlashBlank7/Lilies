@@ -90,7 +90,7 @@ async def instantiate(services,user,item,body):
             db.execute('UPDATE example_project_installs SET project_id=? WHERE user_id=? AND request_key=?',(pid,user['id'],body.request_key))
         files={}
         for name,content in item['files'].items():
-            files[name]=await add_material(services,pid,UploadFile(file=io.BytesIO(content.encode('utf-8')),filename=name))
+            files[name]=await add_material(services,pid,UploadFile(file=io.BytesIO(content if isinstance(content,bytes) else content.encode('utf-8')),filename=name))
         workflows={'main':pid}
         for flow in item['workflows']:
             if flow['key']!='main':

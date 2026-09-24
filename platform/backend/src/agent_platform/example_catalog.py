@@ -295,13 +295,24 @@ def catalog():
         ['选择问题和可选文字资料。','默认两次沿用项目模型；负责人可在两块LLM上配置不同模型。',
          '查看回答、请求模型、实际输入是否一致、用量及失败原因。','下载或只重新导出已有回答，不自动再次调用模型。'])
     items[-1]['guide']=answer_comparison.GUIDE
-    order=['meeting','weekly','expenses','profile','data-guidance','sample-preparation','point-in-time','prediction-feedback','candidate-comparison','parameter-intervals','rolling-forecast','source-comparison','answer-comparison','email','diff','writing','learning','planning','join','summary','classification','regression','group-training','process','prediction','rules','extraction','knowledge','composition']
+    from . import visual_review
+    visual=visual_review.workflow()
+    for f in visual['nodes'][0]['config']['inputs']:
+        if f['name']=='source_path':f['default']='@file:待复核.csv'
+        if f['name']=='criteria':f['default']='仅对演示线条：框内蓝线连续且不越过灰色边界为合格。这是教学规则，不适用于其他产品。'
+    add('visual-review',visual_review.NAME,'数据处理',visual_review.DESCRIPTION,
+        '请调用项目里的看图复核流程，用待复核清单让我逐张判断并记录理由，暂时不要训练。',
+        '给两张图填写结论和理由；换其他对象清单，解释为什么原规则不能直接套用。最后只导出原review.json，不重新复判。',
+        visual_review.example_files(),[dict(key='main',name=visual_review.NAME,workflow=visual)],['Python代码执行及Pillow；无需大模型'],
+        ['选择清单和适用判定说明。','在等待表单查看图片，填写结论、理由或无法判断。','查看机器原判断与人工复判的区别，下载记录和参考候选。','新资料另开复核；原review.json可直接重新导出。'])
+    items[-1]['guide']=visual_review.GUIDE
+    order=['meeting','weekly','expenses','profile','data-guidance','sample-preparation','point-in-time','prediction-feedback','visual-review','candidate-comparison','parameter-intervals','rolling-forecast','source-comparison','answer-comparison','email','diff','writing','learning','planning','join','summary','classification','regression','group-training','process','prediction','rules','extraction','knowledge','composition']
     return sorted(items,key=lambda x:order.index(x['id']))
 
 
 def public_item(item, detail=False):
     result={k:deepcopy(v) for k,v in item.items() if k not in ('files','workflows')}
-    result['files']=[{'name':name,'size':len(content.encode())} for name,content in item['files'].items()]
+    result['files']=[{'name':name,'size':len(content if isinstance(content,bytes) else content.encode())} for name,content in item['files'].items()]
     result['workflow_count']=len(item['workflows'])
     if detail:result['workflows']=[{'key':w['key'],'name':w['name']} for w in item['workflows']]
     return result

@@ -5,9 +5,9 @@
 .dialog::backdrop { background:#202b3d55; backdrop-filter:blur(3px); }
 .inner { display:flex; flex-direction:column; max-height:88dvh; }
 .inner header { display:flex; align-items:center; justify-content:space-between; gap:20px; padding:20px 26px; border-bottom:1px solid var(--ui-line); flex-shrink:0; }
-.inner h2 { font:600 21px var(--ui-serif); margin:0; }
-.inner header button { display:grid; place-items:center; padding:7px; background:transparent; border:0; color:var(--ui-muted); border-radius:7px; cursor:pointer; }
-.body { padding:26px; overflow:auto; min-height:0; }
+.inner h2 { font:600 21px var(--ui-serif); margin:0; min-width:0; overflow-wrap:anywhere; }
+.inner header button { display:grid; place-items:center; padding:7px; background:transparent; border:0; color:var(--ui-muted); border-radius:7px; cursor:pointer; flex-shrink:0; }
+.body { padding:26px; overflow:auto; min-height:0; overflow-wrap:anywhere; }
 .body p { line-height:1.75; }
 .body form { display:flex; gap:12px; flex-wrap:wrap; }
 .body input { flex:1; min-width:180px; }

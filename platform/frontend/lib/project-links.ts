@@ -25,6 +25,11 @@ export function projectFileFromLink(projectId: string, href: string): string | n
   return path && /\.(md|txt|csv|json|html?)$/i.test(path) ? path : null
 }
 
+export function projectPreviewFromLink(projectId: string, href: string): string | null {
+  const path=projectFilePathFromLink(projectId,href)
+  return path&&/\.(md|txt|csv|json|html?|png|jpe?g|webp)$/i.test(path)?path:null
+}
+
 export function resolveProjectFileLink(projectId: string, sourcePath: string, href: string): string {
   const target = href.trim()
   if (/^(results|solution|requirement-package|requirements)\//.test(target) || /^(\w+:|\/|#)/.test(target))

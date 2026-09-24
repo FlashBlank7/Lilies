@@ -327,7 +327,7 @@ class HumanField(BaseModel):
 class HumanInputConfig(BaseModel):
     title: str = "Input required"
     description: str = ""
-    context: Any = None
+    context: Any = Field(default=None, description='上游文字，或包含markdown和images（项目path、label）的对象；页面只显示当前项目图片。')
     fields: list[HumanField] = Field(min_length=1)
 
 

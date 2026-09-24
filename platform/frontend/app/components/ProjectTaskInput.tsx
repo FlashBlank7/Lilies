@@ -4,9 +4,20 @@ import {api} from '@/lib/platform'
 import {MarkdownDocument} from '@/lib/markdown'
 import {resolveProjectLink} from '@/lib/project-links'
 import {taskNames,type ProjectTask} from '@/lib/project-progress'
+import ProjectImage from './ProjectImage'
 import styles from './workspace-tools.module.css'
 
 type Form={node_id:string;title:string;description?:string;context?:unknown;fields:{name:string;label:string;type:string;required?:boolean;options?:string[]}[]}
+function QuestionContext({projectId,value}:{projectId:string;value:unknown}){
+  const rich=value&&typeof value==='object'&&!Array.isArray(value)?value as {markdown?:unknown;images?:unknown}:null
+  const images=rich&&Array.isArray(rich.images)?rich.images:[]
+  const text=rich&&typeof rich.markdown==='string'?rich.markdown:typeof value==='string'?value:JSON.stringify(value,null,2)
+  return <div className={styles.questionContext}><MarkdownDocument source={text||''} resolveLink={href=>resolveProjectLink(projectId,href)} emptyLabel=""/>
+    <div className={styles.questionImages}>
+    {images.slice(0,8).map((image,index)=>image&&typeof image==='object'&&typeof image.path==='string'
+      ?<ProjectImage key={index+image.path} projectId={projectId} path={image.path} label={typeof image.label==='string'?image.label:'相关图片 '+(index+1)}/>:null)}
+    </div>{images.length>8&&<p>一次最多展示8张相关图片，其余请从项目资料查看。</p>}</div>
+}
 function AnswerForm({projectId,taskId,runId,form,onSubmitted}:{projectId:string;taskId:string;runId:string;form:Form;onSubmitted:(task:ProjectTask)=>void}){
   const [values,setValues]=useState<Record<string,string>>({}),[busy,setBusy]=useState(false),[error,setError]=useState('')
   const lock=useRef(false)
@@ -27,9 +38,9 @@ function AnswerForm({projectId,taskId,runId,form,onSubmitted}:{projectId:string;
       onSubmitted(next)
     }catch(e){setError(String(e))}finally{lock.current=false;setBusy(false)}
   }
-  return <form className={styles.section} onSubmit={submit} aria-label="补充工作流信息">
+  return <form className={`${styles.section} ${styles.answerForm}`} onSubmit={submit} aria-label="补充工作流信息">
     <h3>{form.title||'需要你的补充'}</h3>{form.description&&<p>{form.description}</p>}
-    {form.context!=null&&<MarkdownDocument source={typeof form.context==='string'?form.context:JSON.stringify(form.context,null,2)} resolveLink={href=>resolveProjectLink(projectId,href)} emptyLabel=""/>}
+    {form.context!=null&&<QuestionContext projectId={projectId} value={form.context}/>}
     {form.fields.map(field=><label key={field.name}>{field.label}{field.required?' *':''}
       {field.options?.length||field.type==='boolean'?<select aria-label={field.label} required={field.required} disabled={busy} value={values[field.name]||''} onChange={e=>setValues(v=>({...v,[field.name]:e.target.value}))}>
         <option value="">请选择</option>{field.type==='boolean'?<><option value="true">是</option><option value="false">否</option></>:field.options?.map(v=><option key={v} value={v}>{v}</option>)}

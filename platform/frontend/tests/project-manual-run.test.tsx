@@ -9,6 +9,23 @@ beforeEach(() => { vi.mocked(api).mockReset() })
 const members = [{ id: 'member', name: '解析资料', description: '', revision: 1, purpose: 'business' }]
 const fields = [{ name: 'document', type: 'string', required: true }, { name: 'count', type: 'number', default: 2 }, { name: 'enabled', type: 'boolean', default: false }]
 
+it('can stop a waiting question from the manual run page without submitting an answer',async()=>{
+  let task={id:'t',status:'waiting_input',outputs:{},runs:[{id:'r',status:'paused',waiting_input:{node_id:'ask',title:'补充',context:'查看图片',fields:[{name:'label',label:'结论',type:'string'}]}}]}
+  vi.mocked(api).mockImplementation(async(path,options)=>{
+    if(path.endsWith('/draft'))return {snapshot:{workflow:{nodes:[{type:'start',config:{inputs:[]}}]}}} as never
+    if(path.endsWith('/workspace/files'))return [] as never
+    if(path.endsWith('/stop')){task={...task,status:'interrupted'};return task as never}
+    if(path.endsWith('/tasks/t')||options?.method==='POST')return task as never
+    throw Error(path)
+  })
+  await act(async()=>{render(<ProjectRunPanel projectId="p" members={members} initialWorkflowId="member"/> )})
+  fireEvent.click(screen.getByRole('button',{name:'启动工作流'}))
+  await screen.findByRole('form',{name:'补充工作流信息'})
+  fireEvent.click(screen.getByRole('button',{name:'停止运行'}))
+  await waitFor(()=>expect(screen.queryByRole('form')).not.toBeInTheDocument())
+  expect(vi.mocked(api).mock.calls.some(([path])=>path.endsWith('/input')||path.endsWith('/resume'))).toBe(false)
+})
+
 it('offers newly created files after completion without resetting edited inputs or starting another run', async () => {
   let finished=false
   vi.mocked(api).mockImplementation(async (path,options)=>{

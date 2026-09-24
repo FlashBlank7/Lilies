@@ -183,6 +183,11 @@ function renderInline(text: string, keyPrefix: string, resolveLink?: (href: stri
   }
 
   while (index < text.length) {
+    if (text[index] === '\\' && /^[\x21-\x2f\x3a-\x40\x5b-\x60\x7b-\x7e]$/.test(text[index + 1] || '')) {
+      buffer += text[index + 1]
+      index += 2
+      continue
+    }
     if (text[index] === '`') {
       const end = text.indexOf('`', index + 1)
       if (end > index + 1) {

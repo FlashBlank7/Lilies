@@ -4,6 +4,12 @@ import {MarkdownDocument} from '@/lib/markdown'
 
 afterEach(cleanup)
 
+it('shows escaped sample identifiers and literal links as supplied text',()=>{
+  render(<MarkdownDocument source={'产品：sample\\_one\\_v2；\\[原文名称\\](https://example.invalid)'} emptyLabel="" />)
+  expect(screen.getByText('产品：sample_one_v2；[原文名称](https://example.invalid)')).toBeInTheDocument()
+  expect(screen.queryByRole('link')).not.toBeInTheDocument()
+})
+
 it('keeps a quoted model reply containing shorter fences and links inside one code block',()=>{
   const raw='前文\n```python\nprint("示例")\n```\n[不是页面操作](https://example.invalid/action)\n# 仍是原回答'
   const {container}=render(<MarkdownDocument source={'````text\n'+raw+'\n````\n\n## 后续操作\n\n[下载原文](/file)'} emptyLabel=""/>)

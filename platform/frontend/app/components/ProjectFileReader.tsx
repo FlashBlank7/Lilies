@@ -5,6 +5,7 @@ import Papa from 'papaparse'
 import { MarkdownDocument } from '@/lib/markdown'
 import { projectFileFromLink, projectFilePathFromLink, resolveProjectFileLink, resolveProjectLink } from '@/lib/project-links'
 import ReadingDialog from './ReadingDialog'
+import ProjectImage from './ProjectImage'
 import styles from '@/app/projects/projects.module.css'
 
 export default function ProjectFileReader({ projectId, path, onClose, onTask }: { projectId: string; path: string; onClose: () => void; onTask?: () => void }) {
@@ -14,6 +15,7 @@ export default function ProjectFileReader({ projectId, path, onClose, onTask }: 
   const url = resolveProjectLink(projectId, path)
   const valid = projectFilePathFromLink(projectId, url) === path
   const previewText = projectFileFromLink(projectId, url) === path
+  const previewImage = valid && /\.(png|jpe?g|webp)$/i.test(path)
   useEffect(() => {
     setText(null); setError('')
     if (!previewText) return
@@ -33,7 +35,8 @@ export default function ProjectFileReader({ projectId, path, onClose, onTask }: 
     {!valid ? <p role="alert">只能预览当前项目的资料与结果文件。</p> : <>
       <div className={styles.actions}><a href={`${url}${url.includes('?') ? '&' : '?'}download=1`} download>下载原文件</a>{onTask && <button onClick={onTask}>查看关联结果</button>}<small>{path}</small></div>
       {previewText && error && <p role="alert" className={styles.error}>{error} <button onClick={() => setAttempt(v => v + 1)}>重新读取</button></p>}
-      {!previewText && <p>此文件格式暂不支持页面预览，请下载原文件查看。</p>}
+      {previewImage && <ProjectImage projectId={projectId} path={path} label={path.split('/').pop() || '项目图片'} />}
+      {!previewText && !previewImage && <p>此文件格式暂不支持页面预览，请下载原文件查看。</p>}
       {previewText && text === null && !error && <p role="status">正在读取文件…</p>}
       {previewText && text !== null && (csv ? <>
         {csv.errors.length > 0 && <p role="alert">表格格式存在问题：{csv.errors[0].message}。可下载原文件核对。</p>}

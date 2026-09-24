@@ -2,7 +2,7 @@ import {act,cleanup,fireEvent,render,screen,waitFor} from '@testing-library/reac
 import {afterEach,expect,it,vi} from 'vitest'
 import ProjectTaskInput from '@/app/components/ProjectTaskInput'
 import {api} from '@/lib/platform'
-vi.mock('@/lib/platform',()=>({api:vi.fn()}))
+vi.mock('@/lib/platform',()=>({api:vi.fn(),withFrontendToken:(value:string)=>value}))
 afterEach(()=>{cleanup();vi.clearAllMocks()})
 const paused={id:'t',status:'waiting_input',runs:[{id:'r',status:'paused',waiting_input:{node_id:'ask',title:'理解标签',context:'target 代表什么？',fields:[
   {name:'choice',label:'是否了解',type:'string',required:true,options:['可以补充','不清楚']},
@@ -37,4 +37,28 @@ it('restores waiting forms after remount, preserves answers on conflict and neve
   second.unmount();current={...paused,status:'interrupted'}
   await act(async()=>{render(<ProjectTaskInput projectId="p" taskId="t"/>)})
   expect(screen.queryByRole('form')).not.toBeInTheDocument()
+})
+
+it('shows project pictures with the persisted question, handles a broken image and submits only explicit answers',async()=>{
+  vi.mocked(api).mockResolvedValue({...paused,runs:[{...paused.runs[0],waiting_input:{...paused.runs[0].waiting_input,
+    context:{markdown:'## 样本 A\n\n机器原判断仍保留。',images:[{path:'results/frozen/image.png',label:'待复核图片'}]}}}]} as never)
+  render(<ProjectTaskInput projectId="p" taskId="t"/>)
+  const image=await screen.findByRole('img',{name:'待复核图片'})
+  expect(image).toHaveAttribute('src','/api/platform/api/v1/applications/p/workspace/files/results/frozen/image.png')
+  expect(screen.getByRole('heading',{name:'样本 A'})).toBeInTheDocument()
+  expect(vi.mocked(api).mock.calls.filter(([,o])=>o?.method==='POST')).toHaveLength(0)
+  fireEvent.error(image)
+  expect(screen.getByRole('alert')).toHaveTextContent('不要凭缺失图片猜测结论')
+  expect(screen.getByRole('link',{name:'下载图片：待复核图片'})).toHaveAttribute('download')
+  expect(screen.getByLabelText('是否了解')).toHaveValue('')
+})
+
+it('never renders external, cross-project or traversal images from workflow context',async()=>{
+  vi.mocked(api).mockResolvedValue({...paused,runs:[{...paused.runs[0],waiting_input:{...paused.runs[0].waiting_input,
+    context:{markdown:'需要核对图片',images:[{path:'https://example.invalid/a.png'},{path:'/api/platform/api/v1/applications/other/workspace/files/results/a.png'},{path:'results/../private/a.png'}]}}}]} as never)
+  render(<ProjectTaskInput projectId="p" taskId="t"/>)
+  await screen.findByText('需要核对图片')
+  expect(screen.queryByRole('img')).not.toBeInTheDocument()
+  expect(screen.queryByRole('link')).not.toBeInTheDocument()
+  expect(screen.getAllByRole('alert')).toHaveLength(3)
 })

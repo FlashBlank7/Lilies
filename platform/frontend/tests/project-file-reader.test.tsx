@@ -68,3 +68,11 @@ it('clears the preceding text preview when opening a binary file', async () => {
   expect(screen.getByRole('link', { name:'下载原文件' })).toHaveAttribute('href', expect.stringContaining('source.pdf'))
   expect(fetcher).toHaveBeenCalledTimes(1)
 })
+
+it('previews a project image without decoding it as text, and keeps its original download',()=>{
+  const fetcher=vi.fn();vi.stubGlobal('fetch',fetcher)
+  render(<ProjectFileReader projectId="p" path="results/frozen/样本.png" onClose={()=>{}} />)
+  expect(screen.getByRole('img',{name:'样本.png'})).toHaveAttribute('src','/api/platform/api/v1/applications/p/workspace/files/results/frozen/%E6%A0%B7%E6%9C%AC.png')
+  expect(screen.getByRole('link',{name:'下载原文件'})).toHaveAttribute('download')
+  expect(fetcher).not.toHaveBeenCalled()
+})

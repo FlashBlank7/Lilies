@@ -9,6 +9,12 @@
 .section button:disabled { opacity: .5; cursor: wait; }
 .section :focus-visible { outline: 2px solid #2c70b9; outline-offset: 3px; }
 .section [role=alert] { color: #a92937; }
+.section.answerForm { display: grid; gap: 12px; min-width: 0; }
+.answerForm > label { display: grid; gap: 6px; min-width: 0; }
+.answerForm > label > textarea, .answerForm > label > select, .answerForm > label > input { width: 100%; }
+.answerForm > button { justify-self: start; }
+.questionContext { min-width: 0; overflow-wrap: anywhere; }
+.questionImages { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr)); gap: 20px; min-width: 0; }
 .table { width: 100%; border-collapse: collapse; }
 .table th, .table td { text-align: left; border-bottom: 1px solid var(--ui-line); padding: 12px 8px; }
 .editor { width: 100%; min-height: 220px; margin: 12px 0; }

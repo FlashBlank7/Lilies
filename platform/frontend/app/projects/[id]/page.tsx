@@ -10,7 +10,7 @@ import ReadingDialog from '@/app/components/ReadingDialog'
 import { use, useCallback, useEffect, useState } from 'react'
 import { api, withFrontendToken } from '@/lib/platform'
 import { MarkdownDocument } from '@/lib/markdown'
-import { projectFileFromLink, resolveProjectLink } from '@/lib/project-links'
+import { projectPreviewFromLink, resolveProjectLink } from '@/lib/project-links'
 import { availabilityNames, workNames, taskNames, type ProjectProgress, type ProjectMember, type ProjectTask, type ConversationFocus, type ProgressItem, type ProjectTopology } from '@/lib/project-progress'
 import ProjectConversations from '@/app/components/ProjectConversations'
 import ProjectMaterials from '@/app/components/ProjectMaterials'
@@ -132,7 +132,7 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
     </nav>}><main className={styles.page} onClickCapture={event => {
       const anchor = (event.target as HTMLElement).closest('a')
       if (!anchor || anchor.hasAttribute('download') || event.ctrlKey || event.metaKey || event.shiftKey) return
-      const path = projectFileFromLink(id, anchor.getAttribute('href') || '')
+      const path = projectPreviewFromLink(id, anchor.getAttribute('href') || '')
       if (path) { event.preventDefault(); showFile(path, file ? fileTaskId : reader ? task?.id : '') }
     }}>
     <header className={styles.header}><div><span className={styles.eyebrow}>项目工作空间</span><h1>{project?.name || '正在读取项目…'}</h1>
@@ -175,7 +175,7 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
           <div className={styles.actions}>{item.availability !== 'not_ready' && <button className={styles.primary} onClick={() => talk(item, `我想试用「${item.title}」，请说明需要哪份业务输入，并使用已有工作流处理。`)}>试用</button>}
             {tasks.some(t => t.item_id === item.id) && <button onClick={() => void showTask(tasks.find(t => t.item_id === item.id)!.id)}>查看结果</button>}
             <button onClick={() => talk(item, '')}>反馈问题</button>{!!item.workflow_ids.length && <button onClick={() => void showFlow(item)}>查看业务流程</button>}</div>
-          {!!item.results.length && <details><summary>相关结果与资料（{item.results.length}）</summary><div className={styles.resultLinks}>{item.results.map((result, index) => result.file_path && projectFileFromLink(id, resolveProjectLink(id, result.file_path))
+          {!!item.results.length && <details><summary>相关结果与资料（{item.results.length}）</summary><div className={styles.resultLinks}>{item.results.map((result, index) => result.file_path && projectPreviewFromLink(id, resolveProjectLink(id, result.file_path))
             ? <button key={index} onClick={() => showFile(result.file_path, result.task_id)}>{result.label} ↗</button>
             : result.file_path
             ? <a key={index} href={download(result.file_path)} download>{result.label} ↓</a>
@@ -193,9 +193,9 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
     {reader && task && <ReadingDialog wide title={items.find(i => i.id === task.item_id)?.title || task.presentation?.message || '业务结果'} onClose={() => setReader(false)}>      <div className={styles.readerBody}>{task ? <><span className={styles.tag}>{taskNames[task.status] || task.status}</span>
         {task.error && <p className={styles.error}>{task.error}</p>}
         <ProjectTaskOutput projectId={id} task={task} onTask={next=>{setTask(next);updateManualTask(next)}} />
-        <div className={styles.actions}>{['running', 'queued'].includes(task.status) ? <button disabled={stopping} onClick={async () => { setStopping(true); try { const next = await api<ProjectTask>(`${base}/tasks/${task.id}/stop`, { method: 'POST' }); setTask(next); updateManualTask(next) } catch (cause) { setError(String(cause)) } finally { setStopping(false) } }}>{stopping ? '正在停止…' : '停止运行'}</button> : task.mode === 'workflow' && <button onClick={() => { setReuseTask(undefined); setRunWorkflowId(task.workflow_id || id); setReader(false); setTab('run') }}>再次运行此工作流</button>}
+        <div className={styles.actions}>{['running', 'queued', 'waiting_input'].includes(task.status) ? <button disabled={stopping} onClick={async () => { setStopping(true); try { const next = await api<ProjectTask>(`${base}/tasks/${task.id}/stop`, { method: 'POST' }); setTask(next); updateManualTask(next) } catch (cause) { setError(String(cause)) } finally { setStopping(false) } }}>{stopping ? '正在停止…' : '停止运行'}</button> : task.mode === 'workflow' && <button onClick={() => { setReuseTask(undefined); setRunWorkflowId(task.workflow_id || id); setReader(false); setTab('run') }}>再次运行此工作流</button>}
           {task.mode === 'workflow' && ['succeeded','failed','interrupted'].includes(task.status) && <button onClick={() => {setReuseTask(task); setRunWorkflowId(task.workflow_id || id); setReader(false); setTab('run')}}>按当前配置重算</button>}
-          <button onClick={() => talk(items.find(i => i.id === task.item_id), '', task.id)}>反馈这个结果</button>{['workflow','training','prediction'].includes(task.mode) && ['waiting_input','interrupted','failed'].includes(task.status) && <button disabled={stopping} onClick={async()=>{setStopping(true);try{const next=await api<ProjectTask>(`${base}/tasks/${task.id}/resume`,{method:'POST',body:JSON.stringify({message:'继续原任务'})});setTask(next);updateManualTask(next)}catch(cause){setError(String(cause))}finally{setStopping(false)}}}>继续原运行</button>}{task.mode === 'agent' && ['waiting_input', 'interrupted', 'failed'].includes(task.status) && <button onClick={() => talk(items.find(i => i.id === task.item_id), '继续这个任务，请先检查已有结果和待补条件。', task.id)}>继续处理</button>}</div>
+          <button onClick={() => talk(items.find(i => i.id === task.item_id), '', task.id)}>反馈这个结果</button>{['workflow','training','prediction'].includes(task.mode) && ['waiting_input','interrupted','failed'].includes(task.status) && !(task.status === 'waiting_input' && task.runs?.some(run => run.waiting_input)) && <button disabled={stopping} onClick={async()=>{setStopping(true);try{const next=await api<ProjectTask>(`${base}/tasks/${task.id}/resume`,{method:'POST',body:JSON.stringify({message:'继续原任务'})});setTask(next);updateManualTask(next)}catch(cause){setError(String(cause))}finally{setStopping(false)}}}>继续原运行</button>}{task.mode === 'agent' && ['waiting_input', 'interrupted', 'failed'].includes(task.status) && <button onClick={() => talk(items.find(i => i.id === task.item_id), '继续这个任务，请先检查已有结果和待补条件。', task.id)}>继续处理</button>}</div>
         {task.feedback_task_id && <button onClick={() => void showTask(task.feedback_task_id)}>查看修改前的结果</button>}
         <details><summary>实际运行与原始输入输出</summary><p>请求标识：{task.request_key}</p><pre>{JSON.stringify({ inputs: task.inputs, outputs: task.outputs }, null, 2)}</pre>{task.runs?.map(run => <p key={run.id}>{project?.members.find(m => m.id === run.application_id)?.name} · r{run.draft_revision} · {taskNames[run.status] || run.status}</p>)}
           <ProjectRunEvents key={task.id} runs={task.runs} members={project?.members || []} />
