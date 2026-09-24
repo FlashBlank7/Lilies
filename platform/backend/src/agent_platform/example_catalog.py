@@ -202,7 +202,19 @@ def catalog():
          dict(key='predict',name='已有模型预测与复核',workflow=predict),dict(key='rules',name='只改规则重新计算',workflow=replay_rules())],
         ['原始大模型 API（分析解释）','Python 代码执行','CPU / Docker（仅训练预测时）'])
     items[-1]['guide']=GUIDE+'\n训练可直接调用，示例target的含义见字段说明；group_column=batch。预测前绑定example-model，手动阈值须明确指定，不能虚构业务可靠性。'
-    order=['meeting','weekly','expenses','profile','data-guidance','email','diff','writing','learning','planning','join','summary','classification','regression','group-training','process','prediction','rules','extraction','knowledge','composition']
+    from . import point_in_time
+    aligned=point_in_time.workflow()
+    defaults={'source_path':'@file:samples.csv','records_path':'@file:records.csv'}
+    for f in aligned['nodes'][0]['config']['inputs']:
+        if f['name'] in defaults:f['default']=defaults[f['name']]
+    add('point-in-time',point_in_time.NAME,'数据处理',point_in_time.DESCRIPTION,
+        '请用项目里的时点数据制备流程整理这两份表，告诉我为什么有的样本不能使用后来发布的值。',
+        '更换 records-2.csv，再把最长历史时长改为24小时；查看匹配原因，确认旧结果保留。',
+        point_in_time.example_files(),[dict(key='main',name=point_in_time.NAME,workflow=aligned)],['Python 代码执行；Excel需openpyxl'],
+        ['查看字段与练习说明，分清统计期、实际可用时间和预测时点。','选择两份资料；表头不同可以在表单中修改字段映射。',
+         '运行并下载样本表和匹配明细，核对空值、修订值及不同实体。','输出的样本表可继续交给分析或训练流程，不自动启动后续任务。'])
+    items[-1]['guide']=point_in_time.GUIDE
+    order=['meeting','weekly','expenses','profile','data-guidance','point-in-time','email','diff','writing','learning','planning','join','summary','classification','regression','group-training','process','prediction','rules','extraction','knowledge','composition']
     return sorted(items,key=lambda x:order.index(x['id']))
 
 

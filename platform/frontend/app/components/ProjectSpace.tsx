@@ -52,7 +52,7 @@ export default function ProjectSpace({projectId,onWorkflow,onFile,onTalk,onChang
     <section className={styles.section}><h2>本项目的工作环境</h2><p>把工作流和资料放在这里，项目智能体就能发现并使用。每次处理产生独立运行结果，成员共享项目资源，各自对话独立。</p>
       <div className={styles.row}><button onClick={()=>onTalk('请查看项目空间中的已有工作流和资料，帮我选择合适的流程处理这次任务。'+fileContext)}>与智能体完成任务</button><button onClick={()=>onTalk('请根据当前项目已有能力，创建一条新的可复用工作流。'+fileContext,'workflow')}>通过对话创建工作流</button><button onClick={()=>void refresh()}>刷新空间</button></div>
     </section>
-    <section className={styles.section}><h2>官方机器学习流程</h2><p>加入独立可编辑副本和使用说明。先配置数据、划分和业务目标；预测流程的模型可以稍后绑定。</p>
+    <section className={styles.section}><h2>公共工作流市场</h2><p>平台维护的通用经验流程。加入独立可编辑副本和使用说明，按任务选择资料及参数；模型等资源可以稍后绑定。</p>
       {official.map(item=><div key={item.id} className={styles.row}><div><strong>{item.name}</strong><p>{item.description}</p></div><button data-guide-anchor={!space?.workflows.some(w=>w.node_count)?"workflow-install":undefined} disabled={busy} onClick={()=>void install(item)}>加入项目 · {item.name}</button></div>)}
     </section>
     <SharedMethods projectId={projectId} onChanged={()=>{void refresh();void onChanged()}}/>

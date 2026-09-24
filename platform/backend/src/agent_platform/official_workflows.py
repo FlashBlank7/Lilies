@@ -146,6 +146,9 @@ CATALOG = {
 from . import data_guidance
 CATALOG['data-guidance'] = {'name': '数据摸底与分析建议', 'description': data_guidance.DESCRIPTION,
                             'workflow': data_guidance.workflow()}
+from . import point_in_time
+CATALOG['point-in-time'] = {'name': point_in_time.NAME, 'description': point_in_time.DESCRIPTION,
+                           'workflow': point_in_time.workflow(), 'guide': point_in_time.GUIDE}
 
 
 def catalog():
@@ -169,7 +172,9 @@ async def install(services, project_id, template_id):
 训练结果在项目建模记录中，包含实际候选、逐折指标、基线和独立测试；文件可从建模记录下载。绑定项目模型后使用单独预测流程，不重训。模型与规则流程必须绑定真实分类模型，阈值由验证数据和业务代价确定，不能自行声称某个阈值可靠。
 同一次运行继续时保留数据和模型快照。换文件、标签、字段或划分后创建新运行，旧结果保留。修改规则／报告时使用已有预测 CSV，不需要重训。
 缺字段、空窗口、批次不足、模型未绑定时读具体错误，修改相关节点后重新运行。数据不足就列缺项，不生成训练成绩。'''
-    if template_id == 'data-guidance':
+    if item.get('guide'):
+        content = f'工作流 {workflow_id}「{item["name"]}」。\n' + item['guide']
+    elif template_id == 'data-guidance':
         content = f'工作流 {workflow_id}「{item["name"]}」。\n' + data_guidance.GUIDE
     else:
         content += '\n根据员工的实际任务选择本流程，不需要先完成数据摸底流程或审批计划。解释为何采用当前划分、指标和方法，区分统计事实、模型预测与业务判断；员工可以纠正或调整。'
