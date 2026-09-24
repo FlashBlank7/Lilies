@@ -182,6 +182,10 @@ from . import cutting_candidates
 CATALOG['cutting-candidates'] = {'name':cutting_candidates.NAME,'description':cutting_candidates.DESCRIPTION,
                                'workflow':cutting_candidates.workflow(),'guide':cutting_candidates.GUIDE}
 
+from . import presentation_workflow
+CATALOG['presentation'] = {'name':presentation_workflow.NAME,'description':presentation_workflow.DESCRIPTION,
+                           'workflow':presentation_workflow.workflow(),'guide':presentation_workflow.GUIDE}
+
 
 def catalog():
     return [{'id': key, 'version': 2, 'name': value['name'], 'description': value['description']}

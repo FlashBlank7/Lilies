@@ -318,7 +318,17 @@ def catalog():
             dict(key='compare',name=candidate_comparison.NAME,workflow=candidate_comparison.workflow())],['Python代码执行；Excel需openpyxl；无需模型'],
         ['阅读自编尺寸及单位说明，选择物料和定长需求。','填写实际损耗、预留和枚举范围。','查看组合、余量及无候选原因，下载需求数量表。','明确目标后调用同项目的比较流程；不能直接合并各根首选。'])
     items[-1]['guide']=cutting_candidates.GUIDE
-    order=['meeting','weekly','expenses','profile','data-guidance','sample-preparation','point-in-time','prediction-feedback','visual-review','cutting-candidates','candidate-comparison','parameter-intervals','rolling-forecast','source-comparison','answer-comparison','email','diff','writing','learning','planning','join','summary','classification','regression','group-training','process','prediction','rules','extraction','knowledge','composition']
+    from . import presentation_workflow
+    presentation=presentation_workflow.workflow()
+    presentation['nodes'][0]['config']['inputs'][0]['default']='@file:内部试用汇报.md'
+    add('presentation',presentation_workflow.NAME,'日常办公',presentation_workflow.DESCRIPTION,
+        '请把项目里已有的内部试用汇报做成可编辑PPT，保留示例数据说明、指标含义和需要补充的资料。',
+        '换成修改后的汇报.md，重新生成后比较页数和内容；原来的模型和汇报文件保持不变。',
+        presentation_workflow.example_files(),[dict(key='main',name=presentation_workflow.NAME,workflow=presentation)],
+        ['带PptxGenJS、LibreOffice Impress和中文字体的文档环境；已有稿件排版无需大模型'],
+        ['选择汇报稿或直接填写文本，二者只选一个。','按需修改标题和副标题，生成PPTX、PDF和逐页预览。','检查正文、指标和出处，下载可编辑文件。','修改稿件或换资料后创建新运行，无需重新训练。'])
+    items[-1]['guide']=presentation_workflow.GUIDE
+    order=['meeting','weekly','expenses','profile','presentation','data-guidance','sample-preparation','point-in-time','prediction-feedback','visual-review','cutting-candidates','candidate-comparison','parameter-intervals','rolling-forecast','source-comparison','answer-comparison','email','diff','writing','learning','planning','join','summary','classification','regression','group-training','process','prediction','rules','extraction','knowledge','composition']
     return sorted(items,key=lambda x:order.index(x['id']))
 
 

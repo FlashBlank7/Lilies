@@ -1,0 +1,9 @@
+{
+  "name": "lilies-document-runtime",
+  "version": "0.6.0-dev.0",
+  "private": true,
+  "description": "Offline document generation dependencies for the existing project sandbox",
+  "dependencies": {
+    "pptxgenjs": "4.0.1"
+  }
+}
