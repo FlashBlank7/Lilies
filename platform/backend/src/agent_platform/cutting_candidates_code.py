@@ -1,8 +1,8 @@
-"""Portable bounded, exact-length single-stock enumeration; no production writes."""
+"""Bounded single-stock patterns with explicit fixed or ranged lengths."""
 import csv
 import hashlib
 import json
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_CEILING, ROUND_FLOOR
 from itertools import islice
 from pathlib import Path
 from uuid import uuid4
@@ -68,9 +68,19 @@ def prepare(inputs):
             'max_pieces':integer(inputs.get('max_pieces',6),'最多段数',1,12),
             'max_types':integer(inputs.get('max_types',3),'最多需求种类',1,6),
             'search_limit':integer(inputs.get('search_limit',20000),'组合分支上限',100,200000)}
+    length_mode=inputs.get('length_mode') or '固定长度'
+    if length_mode not in ('固定长度','长度范围'):raise ValueError('请选择需求长度方式')
+    config['length_mode']=length_mode
+    if length_mode=='长度范围':
+        allocation=inputs.get('allocation_mode') or '按区间比例分配'
+        if allocation not in ('按区间比例分配','先中点再按需求表顺序分配'):raise ValueError('请选择范围内长度分配方式')
+        config.update(allocation_mode=allocation,length_precision=integer(inputs.get('length_precision',6),'长度小数位',0,6))
+    quantum=Decimal(1).scaleb(-config.get('length_precision',6))
     data={'config':config,'sources':{}}
     for kind,ident,limit in [('stock','stock_id',30),('demand','demand_id',12)]:
-        path,rows=table(inputs.get(kind+'_path'),str(inputs.get(kind+'_sheet') or ''),[ident,'material','length']+(['quantity'] if kind=='demand' else []))
+        ranged=kind=='demand' and length_mode=='长度范围'
+        length_fields=['min_length','max_length'] if ranged else ['length']
+        path,rows=table(inputs.get(kind+'_path'),str(inputs.get(kind+'_sheet') or ''),[ident,'material']+length_fields+(['quantity'] if kind=='demand' else []))
         if len(rows)>limit:raise ValueError(f'本次最多{limit}条'+('物料' if kind=='stock' else '需求')+'，请拆分本次输入')
         seen=set();normalized=[]
         for rownum,row in rows:
@@ -79,7 +89,15 @@ def prepare(inputs):
             seen.add(row[ident])
             if not row['material']:raise ValueError(label+' 缺少明确物料类型，不能猜测是否兼容')
             if 'unit' in row and row['unit']!=unit:raise ValueError(label+' 长度单位与表单不同或缺失，请先统一单位')
-            item={ident:row[ident],'material':row['material'],'length':str(number(row['length'],label+' 长度',True)),'source_row':rownum}
+            item={ident:row[ident],'material':row['material'],'source_row':rownum}
+            if ranged:
+                lower=number(row['min_length'],label+' 长度下限',True);upper=number(row['max_length'],label+' 长度上限',True)
+                if lower>upper:raise ValueError(label+' 长度下限不能大于上限')
+                effective_lower=lower.quantize(quantum,rounding=ROUND_CEILING)
+                effective_upper=upper.quantize(quantum,rounding=ROUND_FLOOR)
+                if effective_lower>effective_upper:raise ValueError(label+' 长度范围内没有满足所选小数位的长度，请增加小数位或核对范围')
+                item.update(length=str(effective_lower),upper_length=str(effective_upper),min_length=str(lower),max_length=str(upper))
+            else:item['length']=str(number(row['length'],label+' 长度',True))
             if kind=='demand':item['quantity']=integer(row['quantity'],label+' 剩余需求',0,1000000)
             normalized.append(item)
         data[kind]=normalized
@@ -92,6 +110,31 @@ def prepare(inputs):
 def text_number(n):return format(n,'f')
 
 
+def allocate(selected,available,config):
+    """One declared policy per count pattern, not all continuous assignments."""
+    lower=[Decimal(d['length']) for d,n in selected]
+    if config.get('length_mode','固定长度')=='固定长度':return lower
+    upper=[Decimal(d['upper_length']) for d,n in selected]
+    counts=[n for d,n in selected]
+    minimum=sum(n*v for n,v in zip(counts,lower));maximum=sum(n*v for n,v in zip(counts,upper))
+    if available<minimum:raise ValueError('组合可用长度不足，请重新检查输入和损耗')
+    middle=[(a+b)/2 for a,b in zip(lower,upper)]
+    middle_total=sum(n*v for n,v in zip(counts,middle))
+    if available>=maximum:values=upper
+    elif config['allocation_mode']=='先中点再按需求表顺序分配' and available>=middle_total:
+        values=middle;extra=available-middle_total
+        for i,n in enumerate(counts):
+            addition=min(upper[i]-values[i],extra/n)
+            values[i]+=addition;extra-=addition*n
+    else:
+        ratio=(available-minimum)/(maximum-minimum)
+        values=[a+ratio*(b-a) for a,b in zip(lower,upper)]
+    quantum=Decimal(1).scaleb(-config['length_precision'])
+    # Round only down within the already representable bounds. Any rounding
+    # remainder stays explicit; no claim to maximize usage across assignments.
+    return [v.quantize(quantum,rounding=ROUND_FLOOR) for v in values]
+
+
 def generate(inputs):
     prepared=inputs['prepared'];path=source(prepared['snapshot_path'])
     if hashlib.sha256(path.read_bytes()).hexdigest()!=prepared['sha256']:raise ValueError('输入快照已改变，请重新读取资料')
@@ -101,7 +144,8 @@ def generate(inputs):
     def cuts(n):return n if cfg['kerf_mode']=='每段各计一道切缝' else max(0,n-1)
     for stock in data['stock']:
         available=Decimal(stock['length'])-allowance
-        demand=sorted([d for d in data['demand'] if d['material']==stock['material'] and d['quantity']>0],key=lambda x:x['demand_id'])
+        demand=sorted([d for d in data['demand'] if d['material']==stock['material'] and d['quantity']>0],
+                      key=lambda x:x['source_row'] if cfg.get('length_mode')=='长度范围' else x['demand_id'])
         before=len(candidates)
         def walk(index,counts,count,length,types):
             nonlocal states
@@ -113,13 +157,17 @@ def generate(inputs):
                 selected=[(d,n) for d,n in zip(demand,counts) if n]
                 fingerprint=json.dumps([(d['demand_id'],n) for d,n in selected],ensure_ascii=False)
                 cid=stock['stock_id']+'-'+hashlib.sha256(fingerprint.encode()).hexdigest()[:12]
-                loss=cuts(count)*kerf;used=length+loss
+                loss=cuts(count)*kerf
+                assigned=allocate(selected,available-loss,cfg)
+                length=sum(n*v for (d,n),v in zip(selected,assigned));used=length+loss
                 candidates.append(dict(candidate_id=cid,stock_id=stock['stock_id'],material=stock['material'],unit=cfg['unit'],
                     stock_length=stock['length'],available_length=text_number(available),piece_count=count,demand_types=types,
                     product_length=text_number(length),cuts=cuts(count),kerf_loss=text_number(loss),used_length=text_number(used),
                     remaining_length=text_number(available-used),end_allowance=cfg['end_allowance'],
-                    combination='；'.join(d['demand_id']+' × '+str(n) for d,n in selected)))
-                for d,n in selected:patterns.append(dict(candidate_id=cid,stock_id=stock['stock_id'],demand_id=d['demand_id'],quantity=n,length=d['length'],unit=cfg['unit']))
+                    combination='；'.join(d['demand_id']+' × '+str(n) for d,n in selected),
+                    allocation_method=cfg.get('allocation_mode','固定长度')))
+                for (d,n),v in zip(selected,assigned):patterns.append(dict(candidate_id=cid,stock_id=stock['stock_id'],demand_id=d['demand_id'],quantity=n,
+                    length=text_number(v),min_length=d.get('min_length',d['length']),max_length=d.get('max_length',d['length']),unit=cfg['unit']))
                 return
             d=demand[index];segment=Decimal(d['length'])
             maximum=min(d['quantity'],cfg['max_pieces']-count,int(available//segment))
@@ -137,8 +185,8 @@ def generate(inputs):
         with (folder/name).open('w',encoding='utf-8-sig',newline='') as f:
             w=csv.DictWriter(f,fieldnames=fields);w.writeheader();w.writerows(rows)
         artifacts.append(dict(file_path=str(folder/name),label=label))
-    save_csv('candidates.csv',['candidate_id','stock_id','material','unit','stock_length','available_length','piece_count','demand_types','product_length','cuts','kerf_loss','used_length','remaining_length','end_allowance','combination'],candidates,'单料候选 CSV')
-    save_csv('patterns.csv',['candidate_id','stock_id','demand_id','quantity','length','unit'],patterns,'各候选的需求数量 CSV')
+    save_csv('candidates.csv',['candidate_id','stock_id','material','unit','stock_length','available_length','piece_count','demand_types','product_length','cuts','kerf_loss','used_length','remaining_length','end_allowance','combination','allocation_method'],candidates,'单料候选 CSV')
+    save_csv('patterns.csv',['candidate_id','stock_id','demand_id','quantity','length','min_length','max_length','unit'],patterns,'需求数量与分配长度 CSV')
     save_csv('stocks.csv',['stock_id','material','candidates','reason'],summary,'每根物料结果与缺项 CSV')
     result=dict(rows=len(candidates),stocks=summary,search_states=states,complete_within_declared_limits=True,config=cfg,sources=data['sources'],
                 source_path=str(folder/'candidates.csv'),patterns_path=str(folder/'patterns.csv'))
@@ -146,10 +194,14 @@ def generate(inputs):
         'constraints':[dict(field='used_length',operator='不大于',other_field='available_length',value='')],
         'mode':'按优先级逐项比较','objectives':[]} if candidates else None
     def md(v):return str(v).replace('&','&amp;').replace('<','&lt;').replace('>','&gt;').replace('|','\\|').replace('\n',' ').replace('\r',' ')
-    lines=['# 按物料与需求生成下料候选','',f"共{len(data['stock'])}根物料、{len(candidates)}个单料组合，检查{states}个分支。只覆盖本次明确的段数、种类和定长需求范围。",
+    lines=['# 按物料与需求生成下料候选','',f"共{len(data['stock'])}根物料、{len(candidates)}个单料组合，检查{states}个分支。只覆盖本次明确的段数、种类和需求长度条件。",
         '',f"长度单位：{md(cfg['unit'])}；单次切缝：{cfg['kerf']}；每根共预留：{cfg['end_allowance']}；计数：{cfg['kerf_mode']}。",
         '', '| 物料 | 类型 | 候选数 | 无方案原因 |','|---|---|---:|---|']
     lines.extend('| '+' | '.join(md(s[k]) for k in ['stock_id','material','candidates','reason'])+' |' for s in summary)
+    if cfg.get('length_mode')=='长度范围':
+        lines+=['',f"本次按长度范围制备：{cfg['allocation_mode']}，最多{cfg['length_precision']}位小数。各段先满足范围下限，再按所选方式分配可用长度；同一需求在同一候选中的每段等长。",
+            '需求明细保留原上下限及实际分配长度；上下限先收紧到所选小数位，分配结果向下取整，产生的余量保留。区间为连续可选长度，若有离散允许尺寸需另行建模。',
+            '每个数量组合只给出一种按所选方式分配的长度，不枚举区间内所有尺寸，也不证明所给长度全局最优。先中点方式在可用量不足中点时按范围比例分配；达到中点后按需求表行顺序分配，改变行顺序可能改变结果。']
     lines+=['','## 查看组合（最多展示前30个，完整记录见下载）','','| 物料 | 需求组合 | 段数 | 产品长度 | 切缝损耗 | 剩余长度 |','|---|---|---:|---:|---:|---:|']
     lines.extend('| '+' | '.join(md(r[k]) for k in ['stock_id','combination','piece_count','product_length','kerf_loss','remaining_length'])+' |' for r in candidates[:30])
     lines+=['','## 如何使用这些候选','',

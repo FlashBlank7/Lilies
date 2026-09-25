@@ -313,10 +313,10 @@ def catalog():
         if f['name'] in cutting_defaults:f['default']=cutting_defaults[f['name']]
     add('cutting-candidates',cutting_candidates.NAME,'数据处理',cutting_candidates.DESCRIPTION,
         '请根据物料和需求生成单料组合，解释哪些物料无方案、余量怎么计算，先不替我决定整体排程。',
-        '换需求-变更.csv生成新候选；再将产物交给项目里的比较流程，明确产出与余量的优先顺序。',
+        '换需求-变更.csv生成新候选；或选需求-范围.csv及长度范围，比较比例与中点优先分配。再把产物交给比较流程，明确产出与余量的优先顺序。',
         cutting_candidates.example_files(),[dict(key='main',name=cutting_candidates.NAME,workflow=cutting),
             dict(key='compare',name=candidate_comparison.NAME,workflow=candidate_comparison.workflow())],['Python代码执行；Excel需openpyxl；无需模型'],
-        ['阅读自编尺寸及单位说明，选择物料和定长需求。','填写实际损耗、预留和枚举范围。','查看组合、余量及无候选原因，下载需求数量表。','明确目标后调用同项目的比较流程；不能直接合并各根首选。'])
+        ['阅读自编尺寸及单位说明，选择物料和定长或范围需求。','填写实际损耗、预留及枚举范围；范围需求再选分配方式和实际长度精度。','查看组合、各段实际长度、余量及无候选原因，下载明细。','明确目标后调用同项目的比较流程；不能直接合并各根首选。'])
     items[-1]['guide']=cutting_candidates.GUIDE
     from . import presentation_workflow
     presentation=presentation_workflow.workflow()

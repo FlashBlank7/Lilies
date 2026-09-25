@@ -132,5 +132,95 @@ def test_platform_workflows_create_run_fix_and_compare(configured):
     assert compared['status']=='succeeded',compared.get('error')
     bad=settled(client,base,start(client,base,'bad',workflow_id=pid,inputs={'kerf':-1}));assert bad['status']=='failed' and '单次切缝' in bad['error']
     fixed=settled(client,base,start(client,base,'fixed',workflow_id=pid,inputs={'kerf':0}));assert fixed['status']=='succeeded' and fixed['outputs']['result']['rows']==7
+    range_file=next(f['path'] for f in client.get(base+'/example').json()['files'] if f['path'].endswith('需求-范围.csv'))
+    ranged_inputs={'demand_path':range_file,'length_mode':'长度范围','length_precision':1}
+    ranged=settled(client,base,start(client,base,'ranged',workflow_id=pid,inputs=ranged_inputs))
+    assert ranged['status']=='succeeded' and ranged['outputs']['result']['rows']==7
+    alternate=settled(client,base,start(client,base,'priority',workflow_id=pid,inputs={**ranged_inputs,'allocation_mode':'先中点再按需求表顺序分配'}))
+    assert alternate['status']=='succeeded'
+    download='/api/v1/applications/'+pid+'/workspace/files/'
+    proportions=client.get(download+ranged['outputs']['result']['patterns_path']).content
+    priorities=client.get(download+alternate['outputs']['result']['patterns_path']).content
+    assert proportions!=priorities and '44.0' in proportions.decode('utf-8-sig') and '53.0' in priorities.decode('utf-8-sig')
+    assert client.get(base+'/tasks/'+ranged['id']).json()['outputs']==ranged['outputs']
     assert client.get(base+'/tasks/'+first['id']).json()['outputs']==first['outputs']
     assert client.get(base+'/modeling/studies').json()==[] and not app.state.services.local_agents.tasks
+
+
+def test_ranged_lengths_policy_order_and_old_results(scenario):
+    ranged={**scenario,'length_mode':'长度范围','length_precision':1,'demand_path':'requirement-package/需求-范围.csv'}
+    first=run(ranged);assert first['rows']==7
+    def mixed(result):
+        candidate=next(r for r in read(result['source_path']) if r['stock_id']=='料一' and r['demand_types']=='2')
+        return {r['demand_id']:Decimal(r['length']) for r in read(result['patterns_path']) if r['candidate_id']==candidate['candidate_id']}
+    assert mixed(first)=={'需求一':Decimal(44),'需求二':Decimal(54)}
+    old=Path(first['patterns_path']).read_bytes()
+    ordered={**ranged,'allocation_mode':'先中点再按需求表顺序分配'}
+    assert mixed(run(ordered))=={'需求一':Decimal(45),'需求二':Decimal(53)}
+    source=Path(ranged['demand_path']);lines=source.read_text().splitlines();source.write_text('\n'.join([lines[0],lines[2],lines[1],lines[3]])+'\n')
+    assert mixed(run(ordered))=={'需求一':Decimal(43),'需求二':Decimal(55)}
+    assert mixed(run(ranged))==mixed(first)
+    assert Path(first['patterns_path']).read_bytes()==old
+
+
+@pytest.mark.parametrize('allocation',['按区间比例分配','先中点再按需求表顺序分配'])
+@pytest.mark.parametrize('loss_mode',['每段各计一道切缝','仅相邻段间计切缝'])
+def test_ranged_patterns_against_integer_grid_feasibility(scenario,allocation,loss_mode):
+    # Independent enumeration of possible quantized lengths and counts.
+    Path(scenario['demand_path']).write_text('demand_id,material,min_length,max_length,quantity\nA,x,0.21,0.49,2\nB,x,0.1,0.3,2\nC,x,0.4,0.4,1\n')
+    for stock in [Decimal('.25'),Decimal('.9'),Decimal('1.53')]:
+        Path(scenario['stock_path']).write_text(f'stock_id,material,length\nS,x,{stock}\n')
+        result=run({**scenario,'length_mode':'长度范围','length_precision':1,'allocation_mode':allocation,
+                    'kerf':'.03','end_allowance':'.05','max_pieces':4,'kerf_mode':loss_mode})
+        expected=set()
+        for counts in itertools.product(range(3),range(3),range(2)):
+            n=sum(counts)
+            if not 0<n<=4:continue
+            losses=(n if loss_mode=='每段各计一道切缝' else n-1)*3+5
+            if any(sum(c*l*10 for c,l in zip(counts,lengths))+losses<=int(stock*100)
+                   for lengths in itertools.product([3,4],[1,2,3],[4])):expected.add(counts)
+        patterns={}
+        for r in read(result['patterns_path']):patterns.setdefault(r['candidate_id'],{})[r['demand_id']]=r
+        actual={tuple(int(p[k]['quantity']) if k in p else 0 for k in 'ABC') for p in patterns.values()}
+        assert actual==expected
+        for row in read(result['source_path']):
+            parts=patterns[row['candidate_id']]
+            product=sum(int(r['quantity'])*Decimal(r['length']) for r in parts.values())
+            assert product==Decimal(row['product_length'])
+            assert product+Decimal(row['kerf_loss'])+Decimal(row['remaining_length'])+Decimal(row['end_allowance'])==stock
+            assert Decimal(row['remaining_length'])>=0
+            for r in parts.values():
+                v=Decimal(r['length']);assert Decimal(r['min_length'])<=v<=Decimal(r['max_length'])
+                assert v*10==int(v*10)
+
+
+@pytest.mark.parametrize('replacement,patch,message',[
+    (None,{'length_mode':'猜测'},'长度方式'),
+    (None,{'allocation_mode':'最大产量'},'分配方式'),
+    (None,{'length_precision':7},'0至6'),
+    ('需求一,类型A,45,30,2,mm',{},'下限不能大于上限'),
+    ('需求一,类型A,30.01,30.09,2,mm',{'length_precision':1},'没有满足所选小数位'),
+    ('需求一,类型A,,45,2,mm',{},'下限'),
+])
+def test_range_input_errors_are_repairable(scenario,replacement,patch,message):
+    params={**scenario,'length_mode':'长度范围','demand_path':'requirement-package/需求-范围.csv',**patch}
+    path=Path(params['demand_path']);original=path.read_text()
+    if replacement:path.write_text(original.replace('需求一,类型A,30,45,2,mm',replacement))
+    with pytest.raises(ValueError,match=message):run(params)
+    assert not Path('results').exists()
+    path.write_text(original)
+    assert run({**scenario,'length_mode':'长度范围','demand_path':str(path)})['rows']==7
+
+
+def test_old_fixed_snapshot_and_equal_bounds_match(scenario):
+    import hashlib
+    prepared=code.prepare(scenario);path=Path(prepared['snapshot_path']);snapshot=json.loads(path.read_text())
+    snapshot['config'].pop('length_mode');path.write_text(json.dumps(snapshot));prepared['sha256']=hashlib.sha256(path.read_bytes()).hexdigest()
+    old=code.generate({'prepared':prepared})
+    rows=read(scenario['demand_path'])
+    Path('requirement-package/equal.csv').write_text('demand_id,material,min_length,max_length,quantity\n'+'\n'.join(','.join([r['demand_id'],r['material'],r['length'],r['length'],r['quantity']]) for r in rows))
+    new=run({**scenario,'length_mode':'长度范围','demand_path':'requirement-package/equal.csv'})
+    keys=['stock_id','combination','piece_count','product_length','used_length','remaining_length']
+    def values(result):
+        return [{k:Decimal(r[k]) if k.endswith('length') else r[k] for k in keys} for r in read(result['source_path'])]
+    assert values(old)==values(new)
