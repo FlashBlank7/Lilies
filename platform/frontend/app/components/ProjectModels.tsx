@@ -14,7 +14,7 @@ type Study = { id: string; name: string; status: string; best?: {candidate_id: s
 type Model = { model_ref: string; name: string; revision: number; status: string; candidate_id?: string }
 type Trial = { slot: number; status: string; model: string; metrics: Record<string, number> }
 type Candidate = { id: string; trials: Trial[] }
-const statusNames:Record<string,string>={unbound:'待绑定',ready:'可用',registered:'已创建',running:'训练中',queued:'排队中',failed:'失败',interrupted:'已停止',completed:'已完成',finished:'已结束',budget_exhausted:'预算已用完',target_reached:'达到验证目标'}
+const statusNames:Record<string,string>={unbound:'待绑定',ready:'可用',registered:'已创建',running:'训练中',queued:'排队中',failed:'失败',interrupted:'已停止',completed:'已完成',finished:'已结束',sealed:'最终评价已完成',budget_exhausted:'预算已用完',target_reached:'达到验证目标'}
 const ref = (node_id: string, ...path: string[]) => ({ $ref: { node_id, path } })
 
 export default function ProjectModels({ projectId, onWorkflow, onTask, onTalk }: { projectId: string; onWorkflow: (id: string) => void; onTask: (id: string) => void; onTalk: (message: string) => void }) {

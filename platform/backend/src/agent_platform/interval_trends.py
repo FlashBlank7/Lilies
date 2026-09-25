@@ -53,3 +53,32 @@ def example_files():
 
 def example_defaults():
     return dict(source_path='@file:history.csv', series_column='series', threshold=0.5, window_periods=2)
+
+
+def training_workflow():
+    """Configure the existing trainer for the sample contract, not a new engine."""
+    from .official_workflows import training
+    workflow = training('classification')
+    for node in workflow['nodes']:
+        if node['id'] == 'start':
+            node['config']['inputs'] = [dict(name='source_path', label='趋势样本制备产生的 samples.csv',
+                                             type='file', required=True, default='')]
+        elif node['id'] == 'profile':
+            node['config']['mapping'] = dict(target='target', id_column='sample_id',
+                prediction_time_column='origin_time', label_available_time_column='label_available_time')
+        elif node['id'] == 'features':
+            node['config']['features']['exclude'] = ['series']
+        elif node['id'] == 'train':
+            node['config']['evaluation'].update(split='time', folds=2)
+            node['config']['budget'].update(seconds=180, trials=2, trial_seconds=60)
+            node['config']['candidate'].update(models=['linear', 'forest'], batch_size=2)
+    return workflow
+
+
+def prediction_workflow():
+    from .official_workflows import prediction
+    workflow = prediction()
+    workflow['nodes'][0]['config']['inputs'] = [dict(name='source_path', type='file', required=True,
+        label='趋势样本制备产生的 prediction-inputs.csv', default='')]
+    workflow['nodes'][1]['config']['model_ref'] = 'interval-trend'
+    return workflow

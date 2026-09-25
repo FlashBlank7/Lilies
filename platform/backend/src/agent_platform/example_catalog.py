@@ -336,11 +336,18 @@ def catalog():
     add('interval-trends', interval_trends.NAME, '机器学习', interval_trends.DESCRIPTION,
         '我想研究未来几个区间的涨跌，请先用已有流程把这份历史数据做成趋势样本，解释标签怎样得到，不要开始训练。',
         '将平稳阈值从0.5改为1，比较标签变化；抽一行标签出处手工算均值，检查未来数值没有进入特征。',
-        interval_trends.example_files(), [dict(key='main', name=interval_trends.NAME, workflow=trends)],
-        ['Python数据处理环境；Excel需openpyxl；无需大模型或训练模型'],
+        interval_trends.example_files(), [dict(key='main', name=interval_trends.NAME, workflow=trends),
+            dict(key='train', name='趋势分类训练与时间验证', workflow=interval_trends.training_workflow()),
+            dict(key='predict', name='使用已绑定趋势模型预测', workflow=interval_trends.prediction_workflow())],
+        ['样本制备仅需Python，Excel需openpyxl；后续训练预测使用平台CPU / Docker环境；无需大模型'],
         ['核对原表周期、对象及实际公布时刻。', '选择历史窗口、未来区间长度和业务阈值。',
-         '运行后查看样本、标签出处和排除原因，下载结果。', '改阈值或换资料重跑；后续训练按时间和标签可用时刻划分。'])
-    items[-1]['guide'] = interval_trends.GUIDE
+         '运行后查看样本、标签出处和排除原因，下载结果。', '如需训练，运行“趋势分类训练与时间验证”，选择刚产生的samples.csv；已配置时间及标签可用时刻隔离。',
+         '在模型页将完成的版本绑定为interval-trend，然后用预测流程处理同次制备的prediction-inputs.csv。每一步由你按需启动。'])
+    items[-1]['guide'] = interval_trends.GUIDE + '''
+本示例另附“趋势分类训练与时间验证”和“使用已绑定趋势模型预测”，复用现有分类/预测积木。
+训练流程只需选择制备结果samples.csv：target是标签，sample_id是标识，origin_time是预测时点，label_available_time是标签可用时间；series不作为特征。已设置两折向前时间验证和20%末段测试，比较线性与随机森林两个候选。原样本行数不等于隔离后训练数量，不足时应明确报错，不能自动换为随机划分。
+需要预测时，在模型页把实际训练版本绑定到interval-trend，选择同次制备的prediction-inputs.csv。没有绑定时运行会指出缺项，不会训练或换模型。换历史窗口后先重新制备并训练；不能把不匹配的滞后特征交给旧模型。只调整报告无需重训。
+示例只说明操作和计算，不承诺趋势可预测。模型可能低于简单基线；不要用同一测试集反复挑选阈值或窗口。'''
     order=['meeting','weekly','expenses','profile','presentation','data-guidance','sample-preparation','point-in-time','prediction-feedback','visual-review','cutting-candidates','candidate-comparison','parameter-intervals','rolling-forecast','interval-trends','source-comparison','answer-comparison','email','diff','writing','learning','planning','join','summary','classification','regression','group-training','process','prediction','rules','extraction','knowledge','composition']
     return sorted(items,key=lambda x:order.index(x['id']))
 
