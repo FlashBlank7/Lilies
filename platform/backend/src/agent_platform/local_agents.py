@@ -450,7 +450,7 @@ class LocalAgents:
                 if is_project:
                     instructions = PROJECT_INSTRUCTIONS
                     if official:
-                        instructions += '\n长时间计算使用 wait=false；收到任务编号后结束当前回合。平台会等待实际计算完成后接续，不必反复轮询。'
+                        instructions += '\n启动工作流、训练或预测默认最多等15秒并返回实际状态；wait=false立即返回。若结果仍在运行，可以结束当前回合，平台会在计算完成后接续，无需反复轮询。'
                 previous_thread = state.get('thread_id')
                 # Codex's thread/resume cannot replace dynamicTools. Keep the
                 # application conversation while renewing only its provider thread.

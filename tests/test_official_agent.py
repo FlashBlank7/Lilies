@@ -241,3 +241,81 @@ def test_async_generation_queued_refresh_stop_and_private_result(official):
     assert client.post(job+'/stop',headers=a).json()['status']=='interrupted'
     assert not FakeAgent.turns
     assert len(service.jobs())==1
+
+
+@pytest.mark.parametrize('explicit_wait,short_wait,expected_turns', [
+    (None, 15, 1), (True, 15, 1), (False, 15, 2), (None, 0, 2),
+])
+def test_short_workflow_returns_result_without_a_model_poll_and_long_work_resumes(
+        official, monkeypatch, explicit_wait, short_wait, expected_turns):
+    from tests.test_projects import graph, node, edge
+    client, app, service = official
+    _, headers = signup(client, 'Worker')
+    pid = project(client, headers); enable(client, pid)
+    client.headers.update(headers)
+    graph(client, pid, [node('start', 'start'), node('end', 'end', outputs={'answer': 42})], [edge('start', 'end')])
+    monkeypatch.setattr('agent_platform.official_agent.SHORT_COMPUTE_WAIT_SECONDS', short_wait)
+    run = app.state.services.projects._run
+    async def delayed(task):
+        await asyncio.sleep(.15)
+        return await run(task)
+    monkeypatch.setattr(app.state.services.projects, '_run', delayed)
+    observations = []
+    async def turn(self, message, on_event, on_tool, **kwargs):
+        context = json.loads(message)
+        if not observations:
+            arguments = {'action': 'start', 'request_key': 'one-computation'}
+            if explicit_wait is not None:
+                arguments['wait'] = explicit_wait
+            result = await on_tool('workflow_run', arguments)
+        else:
+            result = context['recent_results'][0]
+        observations.append(result)
+        await on_event('item/completed', {'item': {'type': 'agentMessage', 'text': result['status']}})
+        return {'status': 'completed'}
+    monkeypatch.setattr(FakeAgent, 'turn', turn)
+    path = chat(client, pid, headers)
+    assert client.post(path+'/messages', json={'message': '运行已有工作流', 'request_key': 'employee-once'}).status_code == 202
+    state = wait(client, path, headers)
+    assert state['status'] == 'idle', state
+    assert len(observations) == expected_turns
+    assert observations[-1]['outputs'] == {'answer': 42}
+    if expected_turns == 2:
+        assert observations[0]['status'] in {'queued', 'running'}
+        assert observations[0]['id'] == observations[-1]['id']
+    tasks = client.get('/api/v1/projects/'+pid+'/tasks').json()
+    assert len(tasks) == 1 and tasks[0]['status'] == 'succeeded'
+    assert len(service.jobs()) == 1
+
+
+def test_stop_during_short_tool_wait_cancels_the_same_computation(official, monkeypatch):
+    from tests.test_projects import graph, node, edge
+    client, app, service = official
+    _, headers = signup(client, 'StopWorker')
+    pid = project(client, headers); enable(client, pid)
+    client.headers.update(headers)
+    graph(client, pid, [node('start', 'start'), node('end', 'end', outputs={'answer': 42})], [edge('start', 'end')])
+    run = app.state.services.projects._run
+    async def delayed(task):
+        await asyncio.sleep(30)
+        return await run(task)
+    monkeypatch.setattr(app.state.services.projects, '_run', delayed)
+    calls = []
+    async def turn(self, message, on_event, on_tool, **kwargs):
+        calls.append(message)
+        await on_tool('workflow_run', {'action': 'start', 'request_key': 'stopped-once'})
+        return {'status': 'completed'}
+    monkeypatch.setattr(FakeAgent, 'turn', turn)
+    path = chat(client, pid, headers)
+    assert client.post(path+'/messages', json={'message': '运行工作流'}).status_code == 202
+    for _ in range(150):
+        tasks = client.get('/api/v1/projects/'+pid+'/tasks').json()
+        if tasks:
+            break
+        time.sleep(.01)
+    assert len(tasks) == 1 and tasks[0]['status'] in {'queued', 'running'}
+    assert client.post(path+'/stop').status_code == 200
+    assert wait(client, path, headers)['status'] == 'interrupted'
+    task = client.get('/api/v1/projects/'+pid+'/tasks/'+tasks[0]['id']).json()
+    assert task['status'] == 'interrupted' and not task['outputs']
+    assert len(calls) == 1 and service.jobs()[0]['status'] == 'interrupted'

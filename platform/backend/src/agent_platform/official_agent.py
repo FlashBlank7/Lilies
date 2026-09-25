@@ -18,6 +18,7 @@ from .conversation_scope import conversation_for, conversation_scope
 from .project_store import connect
 
 actor_id: ContextVar[str] = ContextVar('official_agent_actor', default='')
+SHORT_COMPUTE_WAIT_SECONDS = 15
 
 
 class ServiceConfig(BaseModel):
@@ -354,11 +355,23 @@ class OfficialAgent:
             await self.authorize(project_id)
             if budget_exceeded:
                 raise ValueError('已达到本任务用量上限')
-            # Training owns its own compute job; the agent need not occupy a
-            # model slot while a host tool waits for it.
-            if name in {'project_modeling', 'project_models', 'workflow_run'} and arguments.get('action') in {'submit_and_run', 'start', 'train'}:
-                arguments = {**arguments, 'wait': False}
-            return await on_tool(name, arguments)
+            # Keep computation in the existing project task. Briefly observe
+            # short jobs so their result can answer this tool call directly;
+            # longer jobs retain the existing background continuation path.
+            starts_compute = (name, arguments.get('action')) in {
+                ('workflow_run', 'start'), ('project_modeling', 'train'),
+                ('project_modeling', 'submit_and_run'), ('project_models', 'predict'),
+            }
+            if not starts_compute:
+                return await on_tool(name, arguments)
+            result = await on_tool(name, {**arguments, 'wait': False})
+            wait_seconds = min(SHORT_COMPUTE_WAIT_SECONDS, max(0, int(remaining - (time.monotonic() - began)) - 1))
+            if (arguments.get('wait', True) and wait_seconds and isinstance(result, dict)
+                    and result.get('id') and result.get('status') in {'queued', 'running'}):
+                await self.authorize(project_id)
+                return await on_tool('workflow_run', {'action': 'inspect', 'task_id': result['id'],
+                    'wait_seconds': wait_seconds, 'view': arguments.get('view', 'summary')})
+            return result
 
         try:
             async with asyncio.timeout(remaining):
