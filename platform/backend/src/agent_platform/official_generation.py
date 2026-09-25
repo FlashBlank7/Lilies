@@ -40,7 +40,8 @@ class OfficialGeneration:
                     total = (params.get('tokenUsage') or {}).get('total') or {}
                     usage.update(input_tokens=total.get('inputTokens', 0), output_tokens=total.get('outputTokens', 0))
                     service.update(job_id, tokens=total.get('totalTokens'))
-                    if (total.get('totalTokens') or 0) >= service.config().max_tokens:
+                    limit = service.config().max_tokens
+                    if limit is not None and (total.get('totalTokens') or 0) >= limit:
                         task = asyncio.create_task(client.interrupt())
                         self.services.background_tasks.add(task)
                         task.add_done_callback(self.services.background_tasks.discard)

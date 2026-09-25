@@ -6,7 +6,7 @@ import { useAccount } from '../components/AuthBoundary'
 import UsageSummary from '../components/UsageSummary'
 import styles from '../projects/projects.module.css'
 
-type Config = { enabled: boolean; executable: string; version: string; model: string; thinking: string; reserve_percent: number; concurrency: number; max_tokens: number; max_seconds: number }
+type Config = { enabled: boolean; executable: string; version: string; model: string; thinking: string; reserve_percent: number; concurrency: number; max_tokens: number | null; max_seconds: number }
 type Model = { model: string; displayName: string; supportedReasoningEfforts: {reasoningEffort: string}[] }
 type Job = {id: string; project_id: string; user_id: string; kind: string; status: string; created: number; started?: number; ended?: number; tokens: number | null; error: string; queue_seconds: number; execution_seconds:number}
 type State = {config: Config; models?: Model[]; account?: {type: string; email?: string; planType?: string}; error?: string; dispatch_reason?: string; jobs?: Job[];
@@ -58,7 +58,9 @@ export default function OfficialAgentPage() {
         {state?.models?.find(m=>m.model===config.model)?.supportedReasoningEfforts.map(e=><option key={e.reasoningEffort}>{e.reasoningEffort}</option>)}</select></label>
       <label>个人保留额度（%）<input type="number" min={0} max={100} value={config.reserve_percent} onChange={e=>setConfig({...config,reserve_percent:Number(e.target.value)})}/></label>
       <label>同时执行数量<input type="number" min={1} max={8} value={config.concurrency} onChange={e=>setConfig({...config,concurrency:Number(e.target.value)})}/></label>
-      <label>每任务 token 上限<input type="number" min={1000} max={200000} value={config.max_tokens} onChange={e=>setConfig({...config,max_tokens:Number(e.target.value)})}/></label>
+      <label><input type="checkbox" checked={config.max_tokens === null} onChange={e=>setConfig({...config,max_tokens:e.target.checked ? null : 32000})}/> 不设每任务 token 上限</label>
+      {config.max_tokens !== null && <label>每任务 token 上限<input type="number" min={1000} max={200000} value={config.max_tokens} onChange={e=>setConfig({...config,max_tokens:Number(e.target.value)})}/></label>}
+      {config.max_tokens === null && <small>仍记录实际用量，可以随时停止任务；模型执行时限和账号额度设置继续生效。</small>}
       <label>每任务模型执行时限（秒）<input type="number" min={30} max={3600} value={config.max_seconds} onChange={e=>setConfig({...config,max_seconds:Number(e.target.value)})}/></label>
       <details><summary>服务器配置</summary><label>Codex 可执行程序<input value={config.executable} onChange={e=>setConfig({...config,executable:e.target.value})}/></label><p>已验证版本：{config.version||'未连接'}</p></details>
       <button disabled={busy}>保存服务设置</button></form>

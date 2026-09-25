@@ -176,6 +176,51 @@ def test_generation_no_tools_and_api_credentials_not_required(official):
     assert not client.get('/api/v1/projects/'+pid+'/tasks',headers=a).json()
 
 
+@pytest.mark.parametrize('kind', ['chat', 'generation'])
+@pytest.mark.parametrize('limit', [None, 32000])
+def test_optional_token_limit_preserves_accounting_and_explicit_limits(official, monkeypatch, kind, limit):
+    client, app, service = official
+    _, headers = signup(client, 'BudgetWorker')
+    pid = project(client, headers); enable(client, pid)
+    config = service.config().model_dump()
+    config['max_tokens'] = limit
+    saved = client.put('/api/v1/admin/official-agent', headers=ADMIN, json=config)
+    assert saved.status_code == 200, saved.text
+    assert client.get('/api/v1/admin/official-agent', headers=ADMIN).json()['config']['max_tokens'] == limit
+    original = FakeAgent.turn
+    async def turn(self, message, on_event, on_tool, **kwargs):
+        self.interrupted = False
+        async def event(method, params):
+            if method == 'thread/tokenUsage/updated':
+                params = {'tokenUsage': {'total': {'totalTokens': 65000, 'inputTokens': 60000, 'outputTokens': 5000}}}
+            await on_event(method, params)
+            await asyncio.sleep(0)
+        result = await original(self, message, event, on_tool, **kwargs)
+        return {'status': 'interrupted'} if self.interrupted else result
+    async def interrupt(self):
+        self.interrupted = True
+        self.turn_id = None
+    monkeypatch.setattr(FakeAgent, 'turn', turn)
+    monkeypatch.setattr(FakeAgent, 'interrupt', interrupt)
+    path = chat(client, pid, headers)
+    if kind == 'chat':
+        assert client.post(path+'/messages', headers=headers, json={'message': '查看资料'}).status_code == 202
+        result = wait(client, path, headers)
+        assert result['status'] == ('idle' if limit is None else 'error'), result
+    else:
+        response = client.post(path+'/workflow-generation', headers=headers, json={'instruction': '创建空白工作流'})
+        assert response.status_code == 202, response.text
+        job = '/api/v1/projects/'+pid+'/generation-jobs/'+response.json()['job_id']
+        for _ in range(200):
+            result = client.get(job, headers=headers).json()
+            if result['status'] in {'completed', 'error'}:
+                break
+            time.sleep(.02)
+        assert result['status'] == ('completed' if limit is None else 'error'), result
+    assert len(service.jobs()) == 1
+    assert service.jobs()[0]['tokens'] == 65000
+
+
 @pytest.mark.parametrize('limits,reserve,allowed', [({},0,False),({'primary':{'usedPercent':50}},50,False),
     ({'primary':{'usedPercent':49},'secondary':{'usedPercent':60}},50,False),
     ({'primary':{'usedPercent':99}},0,True),({'primary':{'usedPercent':100}},0,False)])

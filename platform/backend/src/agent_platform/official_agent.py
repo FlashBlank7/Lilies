@@ -30,7 +30,7 @@ class ServiceConfig(BaseModel):
     thinking: str = 'max'
     reserve_percent: int = Field(default=50, ge=0, le=100)
     concurrency: int = Field(default=1, ge=1, le=8)
-    max_tokens: int = Field(default=32000, ge=1000, le=200000)
+    max_tokens: int | None = Field(default=32000, ge=1000, le=200000)
     max_seconds: int = Field(default=600, ge=30, le=3600)
 
 
@@ -343,7 +343,7 @@ class OfficialAgent:
                     current = manager.load(project_id)
                     current['official_total_tokens'] = total
                     manager.save(project_id, current)
-                    if used >= config.max_tokens:
+                    if config.max_tokens is not None and used >= config.max_tokens:
                         budget_exceeded = True
                         # The protocol reader cannot await its own response.
                         task = asyncio.create_task(client.interrupt())

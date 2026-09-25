@@ -28,3 +28,24 @@ it('does not start login or model calls on opening admin page and shows unknown 
   expect(api).toHaveBeenCalledTimes(2)
   expect(api).toHaveBeenCalledWith('/api/v1/admin/official-agent')
 })
+it('saves unlimited tokens, preserves other settings and can restore a finite limit',async()=>{
+  let config={enabled:true,executable:'codex',version:'',model:'gpt-5.6-luna',thinking:'max',reserve_percent:50,concurrency:1,max_tokens:32000 as number|null,max_seconds:180}
+  vi.mocked(api).mockImplementation(async (path,init)=>{
+    if(path.endsWith('/admin/usage'))return {active_users:0,features:[],feedback:[],notes:[]} as never
+    if(init?.method==='PUT')config=JSON.parse(String(init.body))
+    return {config,jobs:[]} as never
+  })
+  render(<OfficialAgentPage/> )
+  const toggle=await screen.findByLabelText('不设每任务 token 上限')
+  fireEvent.click(toggle)
+  expect(screen.queryByLabelText('每任务 token 上限')).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button',{name:'保存服务设置'}))
+  await screen.findByText('设置已保存')
+  expect(config).toMatchObject({max_tokens:null,max_seconds:180,reserve_percent:50,model:'gpt-5.6-luna',thinking:'max'})
+  expect(toggle).toBeChecked()
+  fireEvent.click(toggle)
+  expect(screen.getByLabelText('每任务 token 上限')).toHaveValue(32000)
+  fireEvent.change(screen.getByLabelText('每任务 token 上限'),{target:{value:'48000'}})
+  fireEvent.click(screen.getByRole('button',{name:'保存服务设置'}))
+  await waitFor(()=>expect(config.max_tokens).toBe(48000))
+})
