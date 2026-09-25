@@ -1,4 +1,5 @@
 """Explicit internal sharing of editable definitions, never project data or connections."""
+import asyncio
 import json
 from copy import deepcopy
 from uuid import uuid4
@@ -166,38 +167,60 @@ async def install(services, project_id, method_id):
         if errors := services.blocks.validate_draft(graph):
             raise ValueError('共享定义需要修正：' + '; '.join(errors))
     remap = {}
-    for item in payload['workflows']:
-        member = await services.projects.add_member(project_id, item['name'], item['description'])
-        remap[item['id']] = member['id']
-    def rewrite(obj):
-        if isinstance(obj, dict):
-            name = obj.get('tool_name','')
-            if isinstance(name,str) and name.startswith('workflow:'):
-                obj['tool_name'] = 'workflow:' + remap[name[9:]]
-            for value in obj.values():rewrite(value)
-        elif isinstance(obj,list):
-            for value in obj:rewrite(value)
-    for item in payload['workflows']:
-        graph = unbind(item['workflow']); rewrite(graph)
-        wid = remap[item['id']]
-        draft = await services.workflow_store.get_draft(wid)
-        await save_workflow(services,project_id,wid,SaveWorkflow(expected_revision=draft['revision'],workflow=WorkflowSpec.model_validate(graph)))
     skill_id = 'shared-' + method_id
-    if payload['skill']:
-        item = payload['skill']
-        await save_skill(services,project_id,skill_id,SkillDocument(
-            **{k:item[k] for k in ('name','description','content')}, references=item.get('references', {})))
-    else:
-        await save_skill(services,project_id,skill_id,SkillDocument(name=row['name']+'使用说明',description=row['description'],
-            content=f"用途：{row['description']}\n限制：{row['limitations']}\n工作流：{remap[payload['root']]}。使用 project_workflows inspect 查看当前输入，再通过 workflow_run 调用。模型、数据及连接需要在本项目配置。"))
-    result={'workflow_id':remap.get(payload.get('root')),'skill_id':skill_id,'source_id':method_id,'mapping':remap}
     with connect(services.projects.store.db_path) as db:
-        db.execute('INSERT INTO shared_method_installs VALUES(?,?,?)',(project_id,method_id,json.dumps(result)))
-    return result
+        existing_skill = db.execute("SELECT 1 FROM project_records WHERE project_id=? AND collection='skills' AND record_key=?", (project_id, skill_id)).fetchone()
+    skill_document = None
+    try:
+        for item in payload['workflows']:
+            member = await services.projects.add_member(project_id, item['name'], item['description'])
+            remap[item['id']] = member['id']
+        def rewrite(obj):
+            if isinstance(obj, dict):
+                name = obj.get('tool_name','')
+                if isinstance(name,str) and name.startswith('workflow:'):
+                    obj['tool_name'] = 'workflow:' + remap[name[9:]]
+                for value in obj.values():rewrite(value)
+            elif isinstance(obj,list):
+                for value in obj:rewrite(value)
+        for item in payload['workflows']:
+            graph = unbind(item['workflow']); rewrite(graph)
+            wid = remap[item['id']]
+            draft = await services.workflow_store.get_draft(wid)
+            await save_workflow(services,project_id,wid,SaveWorkflow(expected_revision=draft['revision'],workflow=WorkflowSpec.model_validate(graph)))
+        if payload['skill']:
+            item = payload['skill']
+            skill_document = SkillDocument(
+                **{k:item[k] for k in ('name','description','content')}, references=item.get('references', {}))
+        else:
+            skill_document = SkillDocument(name=row['name']+'使用说明',description=row['description'],
+                content=f"用途：{row['description']}\n限制：{row['limitations']}\n工作流：{remap[payload['root']]}。使用 project_workflows inspect 查看当前输入，再通过 workflow_run 调用。模型、数据及连接需要在本项目配置。")
+        await save_skill(services,project_id,skill_id,skill_document)
+        result={'workflow_id':remap.get(payload.get('root')),'skill_id':skill_id,'source_id':method_id,'mapping':remap}
+        with connect(services.projects.store.db_path) as db:
+            db.execute('INSERT INTO shared_method_installs VALUES(?,?,?)',(project_id,method_id,json.dumps(result)))
+        return result
+
+    except BaseException:
+        # Only definitions created by this attempt are removed. Existing project
+        # members, inputs, runs and previously installed copies remain intact.
+        def discard():
+            with connect(services.projects.store.db_path) as db:
+                db.execute('BEGIN IMMEDIATE')
+                for wid in remap.values():
+                    db.execute('DELETE FROM project_members WHERE project_id=? AND application_id=?', (project_id, wid))
+                    db.execute('DELETE FROM draft_idempotency WHERE application_id=?', (wid,))
+                    db.execute('DELETE FROM applications WHERE id=?', (wid,))
+                if skill_document is not None and not existing_skill:
+                    saved = db.execute("SELECT revision,value_json FROM project_records WHERE project_id=? AND collection='skills' AND record_key=?", (project_id, skill_id)).fetchone()
+                    if saved and saved['revision'] == 1 and json.loads(saved['value_json']) == skill_document.model_dump(exclude={'expected_revision'}):
+                        db.execute("DELETE FROM project_records WHERE project_id=? AND collection='skills' AND record_key=?", (project_id, skill_id))
+        await asyncio.shield(asyncio.to_thread(discard))
+        raise
+
 
 
 def register_shared_routes(router, services, invoke):
-    import asyncio
     locks = {}
 
     @router.get('/space/shared-methods')

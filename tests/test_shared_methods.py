@@ -1,5 +1,79 @@
 import pytest
 from tests.test_users import platform, signup, project  # noqa:F401
+from tests.test_projects import configured, start, settled  # noqa:F401
+
+
+def composition_share(client):
+    response=client.post('/api/v1/example-projects/composition/instantiate',json={'request_key':'share-composition'})
+    assert response.status_code==201,response.text
+    source=response.json()['project_id']
+    target=client.post('/api/v1/projects',json={'name':'Receiving project'}).json()['id']
+    base='/api/v1/projects/'+source
+    share=client.post(base+'/space/shared-methods',json={'workflow_id':source,'name':'Reusable data checks','target_project_ids':[target]})
+    assert share.status_code==201,share.text
+    return source,target,share.json()['id']
+
+
+def test_composed_workflow_share_rewrites_children_and_runs_in_target_project(configured):
+    client,_,_,settings=configured
+    source,target,ident=composition_share(client)
+    dest='/api/v1/projects/'+target
+    response=client.post(dest+'/space/shared-methods/'+ident+'/install')
+    assert response.status_code==201,response.text
+    result=response.json()
+    assert len(result['mapping'])==3
+    original=set(result['mapping']);copied=set(result['mapping'].values())
+    assert not original&copied
+    assert len(client.get(dest).json()['members'])==4
+    root=client.get('/api/v1/applications/'+result['workflow_id']+'/draft').json()['snapshot']['workflow']
+    calls=[n['config']['tool_name'][9:] for n in root['nodes'] if n['type']=='tool']
+    assert set(calls)==copied-{result['workflow_id']}
+    guide=client.get('/api/v1/projects/'+source+'/example').json()
+    source_file=next(f['path'] for f in guide['files'] if f['name']=='data.csv')
+    material=client.post(dest+'/materials/copy',json={'source_project_id':source,'source_path':source_file})
+    assert material.status_code==201,material.text
+    task=settled(client,dest,start(client,dest,'shared-composition',mode='workflow',
+        workflow_id=result['workflow_id'],inputs={'source_path':material.json()['path']}))
+    assert task['status']=='succeeded',task
+    assert task['outputs']['profile'] and task['outputs']['summary']
+    assert list((settings.workspace_root/target/'results/examples').rglob('report.md'))
+    assert not (settings.workspace_root/source/'results/examples').exists()
+    assert client.post(dest+'/space/shared-methods/'+ident+'/install').json()==result
+
+
+@pytest.mark.parametrize('failure',['workflow','skill','skill_after_write','member'])
+def test_failed_workflow_install_leaves_no_partial_members_and_retries(configured,monkeypatch,failure):
+    from agent_platform import shared_methods
+    client,app,_,_=configured
+    _,target,ident=composition_share(client)
+    dest='/api/v1/projects/'+target
+    members=client.get(dest).json()['members']
+    skills=client.get(dest+'/skills').json()
+    applications=client.get('/api/v1/applications').json()
+    owner=app.state.services.projects if failure=='member' else shared_methods
+    name='add_member' if failure=='member' else 'save_workflow' if failure=='workflow' else 'save_skill'
+    actual=getattr(owner,name)
+    calls=0
+    async def fail(*args,**kwargs):
+        nonlocal calls
+        calls+=1
+        # Some definitions are already saved when the second child fails.
+        if failure=='skill' or calls==2:raise ValueError('模拟安装期间保存失败')
+        result=await actual(*args,**kwargs)
+        if failure=='skill_after_write':raise ValueError('模拟安装期间保存失败')
+        return result
+    with monkeypatch.context() as patch:
+        patch.setattr(owner,name,fail)
+        failed=client.post(dest+'/space/shared-methods/'+ident+'/install')
+    assert failed.status_code==422,failed.text
+    assert '模拟安装期间保存失败' in failed.text
+    assert client.get(dest).json()['members']==members
+    assert client.get(dest+'/skills').json()==skills
+    assert client.get('/api/v1/applications').json()==applications
+    repaired=client.post(dest+'/space/shared-methods/'+ident+'/install')
+    assert repaired.status_code==201,repaired.text
+    assert len(client.get(dest).json()['members'])==len(members)+3
+    assert client.post(dest+'/space/shared-methods/'+ident+'/install').json()==repaired.json()
 
 
 def test_explicit_share_install_edit_independence_and_targets(platform):
