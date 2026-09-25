@@ -9,13 +9,18 @@ import ModelingPanel from './ModelingPanel'
 import {WorkflowValueField} from './WorkflowValueField'
 import styles from './workspace-tools.module.css'
 
-type Dataset = { id: string; name: string; mapping: { target: string } }
+type Dataset = { id: string; name: string; mapping: { target: string }; created_at?: string; files?: {source?: {original: string}} }
 type Study = { id: string; name: string; status: string; best?: {candidate_id: string; slot: number; score: number} }
 type Model = { model_ref: string; name: string; revision: number; status: string; candidate_id?: string }
 type Trial = { slot: number; status: string; model: string; metrics: Record<string, number> }
 type Candidate = { id: string; trials: Trial[] }
 const statusNames:Record<string,string>={unbound:'待绑定',ready:'可用',registered:'已创建',running:'训练中',queued:'排队中',failed:'失败',interrupted:'已停止',completed:'已完成',finished:'已结束',sealed:'最终评价已完成',budget_exhausted:'预算已用完',target_reached:'达到验证目标'}
 const ref = (node_id: string, ...path: string[]) => ({ $ref: { node_id, path } })
+const datasetLabel = (data: Dataset) => {
+  const created = data.created_at ? new Date(data.created_at) : null
+  const time = created && !Number.isNaN(created.getTime()) ? created.toLocaleString('zh-CN', {hour12:false}) : ''
+  return [data.name, data.mapping.target ? `目标：${data.mapping.target}` : '', time, `编号 ${data.id.slice(0,8)}`].filter(Boolean).join(' · ')
+}
 
 export default function ProjectModels({ projectId, onWorkflow, onTask, onTalk }: { projectId: string; onWorkflow: (id: string) => void; onTask: (id: string) => void; onTalk: (message: string) => void }) {
   const base = `/api/v1/projects/${projectId}`
@@ -90,9 +95,10 @@ export default function ProjectModels({ projectId, onWorkflow, onTask, onTalk }:
       <div className={styles.row}><label>上传表格<input aria-label="上传训练数据" type="file" accept=".csv,.tsv" onChange={async e=>{const f=e.target.files?.[0];setFile(f);if(f){const p=Papa.parse<string[]>(await f.text(),{preview:1});setColumns(p.data[0]||[]);setTarget('')}}} /></label>
         <label>预测目标<select aria-label="预测目标字段" value={target} onChange={e=>setTarget(e.target.value)}><option value="">无标签数据（用于预测）</option>{columns.map(c=><option key={c}>{c}</option>)}</select></label><button disabled={busy||!file} onClick={()=>void act(upload)}>导入数据</button></div>
       <details><summary>粘贴表格数据</summary><p>也可以从表格复制 CSV 或 TSV 文本，首行是字段名。</p><label>文件名<input aria-label="表格文件名" value={csvName} onChange={e=>setCsvName(e.target.value)}/></label><textarea className={styles.editor} aria-label="表格数据" value={csv} onChange={e=>setCsv(e.target.value)}/><button disabled={!csv.trim()||busy} onClick={()=>{setFile(new File([csv],csvName||'data.csv',{type:'text/csv'}));setColumns(Papa.parse<string[]>(csv,{preview:1}).data[0]||[]);setTarget('');setMessage('表格已准备，请选择预测目标后导入数据。')}}>使用这份表格</button></details>
-      <div className={styles.row}><label>训练数据集<select aria-label="训练数据集" value={dataset} onChange={e=>setDataset(e.target.value)}><option value="">选择数据集</option>{datasets.filter(d=>d.mapping.target).map(d=><option key={d.id} value={d.id}>{d.name} · {d.mapping.target}</option>)}</select></label>
+      <div className={styles.row}><label>训练数据集<select aria-label="训练数据集" value={dataset} onChange={e=>setDataset(e.target.value)}><option value="">选择数据集</option>{datasets.filter(d=>d.mapping.target).map(d=><option key={d.id} value={d.id}>{datasetLabel(d)}</option>)}</select></label>
         <label>任务类型<select value={problem} onChange={e=>setProblem(e.target.value)}><option value="regression">数值预测</option><option value="classification">分类</option></select></label>
         <label>算法<select value={algorithm} onChange={e=>setAlgorithm(e.target.value)}><option value="forest">随机森林</option><option value="linear">线性模型</option><option value="hist_gradient">梯度提升</option><option value="svm">支持向量机</option></select></label><button disabled={busy||!dataset} onClick={()=>void act(train)}>开始独立训练</button></div>
+      {datasets.find(d=>d.id===dataset)?.files?.source?.original && <p className={styles.questionContext}>训练数据来源：{datasets.find(d=>d.id===dataset)!.files!.source!.original}</p>}
     </section>
     <section className={styles.section}><h2>可调用模型</h2><p>模型名称是工作流的稳定引用。先创建工作流，再绑定训练结果也可以。</p>
       <div className={styles.row}><label>模型名称<input aria-label="模型引用名称" value={modelRef} onChange={e=>setModelRef(e.target.value)} /></label><button disabled={busy||!modelRef||models.some(m=>m.model_ref===modelRef)} onClick={()=>void act(()=>saveModel(false))}>创建待绑定模型</button><button disabled={busy||!modelRef} onClick={()=>void act(createWorkflow)}>创建预测工作流</button></div>
@@ -104,7 +110,9 @@ export default function ProjectModels({ projectId, onWorkflow, onTask, onTalk }:
         <button disabled={busy||!modelRef||!packagePath||!environment} onClick={()=>void act(importModel)}>验证并绑定已有模型包</button>
       </details>
       {models.length ? <table className={styles.table}><thead><tr><th>模型名称</th><th>状态</th><th>绑定修订</th></tr></thead><tbody>{models.map(m=><tr key={m.model_ref}><td><button onClick={()=>setModelRef(m.model_ref)}>{m.name}</button></td><td>{statusNames[m.status]||m.status}</td><td>{m.revision}</td></tr>)}</tbody></table>:<p>尚未创建模型引用。</p>}
-      <div className={styles.row}><label>新数据<select aria-label="直接预测的数据集" value={predictionDataset} onChange={e=>setPredictionDataset(e.target.value)}><option value="">选择无标签数据</option>{datasets.filter(d=>!d.mapping.target).map(d=><option key={d.id} value={d.id}>{d.name}</option>)}</select></label><button disabled={busy||!predictionDataset||!modelRef} onClick={()=>void act(predict)}>直接预测</button></div><p>直接预测使用所选模型，无需创建工作流；结果保存在运行记录中。</p>
+      <div className={styles.row}><label>新数据<select aria-label="直接预测的数据集" value={predictionDataset} onChange={e=>setPredictionDataset(e.target.value)}><option value="">选择无标签数据</option>{datasets.filter(d=>!d.mapping.target).map(d=><option key={d.id} value={d.id}>{datasetLabel(d)}</option>)}</select></label><button disabled={busy||!predictionDataset||!modelRef} onClick={()=>void act(predict)}>直接预测</button></div>
+      {datasets.find(d=>d.id===predictionDataset)?.files?.source?.original && <p className={styles.questionContext}>预测数据来源：{datasets.find(d=>d.id===predictionDataset)!.files!.source!.original}</p>}
+      <p>直接预测使用所选模型，无需创建工作流；结果保存在运行记录中。</p>
       {message&&<p role="status">{message}</p>}{error&&<p role="alert">{error}</p>}
     </section>
     <ModelingPanel projectId={projectId} onTask={onTask} onContext={(context,message)=>onTalk(message||`请分析并继续改进模型：${context.label}，研究 ${context.study_id||''}`)} />

@@ -112,3 +112,37 @@ it('keeps the container path when AI edits selected inner nodes',async()=>{
  await waitFor(()=>expect(api).toHaveBeenCalled())
  expect(JSON.parse(vi.mocked(api).mock.calls[0][1]!.body as string)).toMatchObject({expected_revision:8,node_ids:['same'],workflow_path:['outer','inner']})
 })
+
+it('distinguishes same-name datasets and submits the chosen training and prediction records',async()=>{
+ const datasets=[
+  {id:'train-v1',name:'quality.csv',mapping:{target:'quality'},created_at:'2026-09-25T01:00:00Z',files:{source:{original:'results/first/quality.csv'}}},
+  {id:'train-v2',name:'quality.csv',mapping:{target:'quality'},created_at:'2026-09-25T01:00:00Z',files:{source:{original:'results/second/quality.csv'}}},
+  {id:'predict1',name:'new.csv',mapping:{target:''},created_at:'2026-09-25T01:00:00Z',files:{source:{original:'results/first/new.csv'}}},
+  {id:'predict2',name:'new.csv',mapping:{target:''},files:{source:{original:'results/second/new.csv'}}},
+ ]
+ vi.mocked(api).mockImplementation(async(path,options)=>{
+  if(path.includes('/datasets?'))return datasets as never
+  if(path.endsWith('/modeling/studies')&&options?.method==='POST')return {id:'chosen-study'} as never
+  if(path.endsWith('/train'))return {id:'training-task'} as never
+  if(path.endsWith('/predict'))return {id:'prediction-task'} as never
+  return [] as never
+ })
+ const onTask=vi.fn()
+ render(<ProjectModels projectId="p" onWorkflow={vi.fn()} onTask={onTask} onTalk={vi.fn()}/> )
+ await screen.findByRole('option',{name:/quality.csv.*编号 train-v2/})
+ expect(screen.getByRole('option',{name:/quality.csv.*编号 train-v1/})).toBeInTheDocument()
+ fireEvent.change(screen.getByRole('combobox',{name:'训练数据集'}),{target:{value:'train-v2'}})
+ expect(screen.getByText('训练数据来源：results/second/quality.csv')).toBeInTheDocument()
+ fireEvent.click(screen.getByRole('button',{name:'开始独立训练'}))
+ await waitFor(()=>expect(onTask).toHaveBeenCalledWith('training-task'))
+ const study=vi.mocked(api).mock.calls.find(([path,options])=>path.endsWith('/modeling/studies')&&options?.method==='POST')!
+ expect(JSON.parse(String(study[1]!.body)).dataset_id).toBe('train-v2')
+ expect(screen.getByRole('option',{name:'new.csv · 编号 predict2'})).toBeInTheDocument()
+ fireEvent.change(screen.getByRole('combobox',{name:'直接预测的数据集'}),{target:{value:'predict2'}})
+ expect(screen.getByText('预测数据来源：results/second/new.csv')).toBeInTheDocument()
+ await waitFor(()=>expect(screen.getByRole('button',{name:'直接预测'})).toBeEnabled())
+ fireEvent.click(screen.getByRole('button',{name:'直接预测'}))
+ await waitFor(()=>expect(onTask).toHaveBeenCalledWith('prediction-task'))
+ const prediction=vi.mocked(api).mock.calls.find(([path])=>path.endsWith('/predict'))!
+ expect(JSON.parse(String(prediction[1]!.body)).dataset_id).toBe('predict2')
+})
