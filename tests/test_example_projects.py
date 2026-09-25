@@ -20,7 +20,7 @@ def install(client, key, headers=None, request_key=None):
 def test_all_examples_install_as_complete_editable_projects(configured):
     client,app,_,settings=configured
     items=client.get('/api/v1/example-projects').json()
-    assert len(items)==34
+    assert len(items)==35
     assert [v['id'] for v in items[:4]]==['meeting','weekly','expenses','profile']
     for item in items:
         pid=install(client,item['id'])
@@ -44,7 +44,7 @@ def test_employees_get_private_copies_and_retry_is_idempotent(platform):
     client,_=platform
     _,a=signup(client,'示例甲');_,b=signup(client,'示例乙')
     assert client.get('/api/v1/example-projects').status_code==401
-    assert len(client.get('/api/v1/example-projects',headers=a).json())==34
+    assert len(client.get('/api/v1/example-projects',headers=a).json())==35
     pa=install(client,'expenses',a,'same');pb=install(client,'expenses',b,'same')
     assert pa!=pb
     assert client.get('/api/v1/projects/'+pa+'/example',headers=b).status_code==404

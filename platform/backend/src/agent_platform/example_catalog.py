@@ -306,7 +306,11 @@ def catalog():
         visual_review.example_files(),[dict(key='main',name=visual_review.NAME,workflow=visual)],['Python代码执行及Pillow；无需大模型'],
         ['选择清单和适用判定说明。','在等待表单查看图片，填写结论、理由或无法判断。','查看机器原判断与人工复判的区别，下载记录和参考候选。','新资料另开复核；原review.json可直接重新导出。'])
     items[-1]['guide']=visual_review.GUIDE
-    from . import cutting_candidates
+    from . import cutting_candidates, candidate_allocation
+    allocation_after_cutting = candidate_allocation.workflow()
+    allocation_defaults = {'group_column':'stock_id','resource_column':'demand_id','capacity_column':'quantity','limits_path':'@file:需求.csv','group_order_column':'stock_length','group_order_direction':'从大到小'}
+    for f in allocation_after_cutting['nodes'][0]['config']['inputs']:
+        if f['name'] in allocation_defaults:f['default']=allocation_defaults[f['name']]
     cutting=cutting_candidates.workflow()
     cutting_defaults={'stock_path':'@file:物料.csv','demand_path':'@file:需求.csv','kerf':1,'max_pieces':3}
     for f in cutting['nodes'][0]['config']['inputs']:
@@ -315,9 +319,10 @@ def catalog():
         '请根据物料和需求生成单料组合，解释哪些物料无方案、余量怎么计算，先不替我决定整体排程。',
         '换需求-变更.csv生成新候选；或选需求-范围.csv及长度范围，比较比例与中点优先分配。再把产物交给比较流程，明确产出与余量的优先顺序。',
         cutting_candidates.example_files(),[dict(key='main',name=cutting_candidates.NAME,workflow=cutting),
-            dict(key='compare',name=candidate_comparison.NAME,workflow=candidate_comparison.workflow())],['Python代码执行；Excel需openpyxl；无需模型'],
-        ['阅读自编尺寸及单位说明，选择物料和定长或范围需求。','填写实际损耗、预留及枚举范围；范围需求再选分配方式和实际长度精度。','查看组合、各段实际长度、余量及无候选原因，下载明细。','明确目标后调用同项目的比较流程；不能直接合并各根首选。'])
-    items[-1]['guide']=cutting_candidates.GUIDE
+            dict(key='compare',name=candidate_comparison.NAME,workflow=candidate_comparison.workflow()),
+            dict(key='allocate',name='已有候选的共同需求分配',workflow=allocation_after_cutting)],['Python代码执行；Excel需openpyxl；无需模型'],
+        ['阅读自编尺寸及单位说明，选择物料和定长或范围需求。','填写实际损耗、预留及枚举范围；范围需求再选分配方式和实际长度精度。','查看组合、各段实际长度、余量及无候选原因，下载明细。','明确目标后调用同项目的比较流程；再按需运行共同需求分配，选择比较结果、原patterns.csv与对应需求表。'])
+    items[-1]['guide']=cutting_candidates.GUIDE + '\n' + candidate_allocation.GUIDE
     from . import presentation_workflow
     presentation=presentation_workflow.workflow()
     presentation['nodes'][0]['config']['inputs'][0]['default']='@file:内部试用汇报.md'
@@ -361,7 +366,20 @@ def catalog():
         ['核对同一对象、坐标单位、网格及风险含义。', '选择原曲线和观测，填写实际影响范围及代价。',
          '查看逐点前后分数、观测顺序、分段及限制，下载结果。', '换观测或参数另开运行；不把修正结果当作已校准概率或生产指令。'])
     items[-1]['guide'] = local_feedback.GUIDE
-    order=['meeting','weekly','expenses','profile','presentation','data-guidance','sample-preparation','point-in-time','prediction-feedback','local-feedback','visual-review','cutting-candidates','candidate-comparison','parameter-intervals','rolling-forecast','interval-trends','source-comparison','answer-comparison','email','diff','writing','learning','planning','join','summary','classification','regression','group-training','process','prediction','rules','extraction','knowledge','composition']
+    from . import candidate_allocation
+    allocation = candidate_allocation.workflow()
+    for f in allocation['nodes'][0]['config']['inputs']:
+        if f['name'] in candidate_allocation.example_defaults():
+            f['default'] = candidate_allocation.example_defaults()[f['name']]
+    add('candidate-allocation', candidate_allocation.NAME, '数据处理', candidate_allocation.DESCRIPTION,
+        '请用已有流程检查这几组方案能否共同分配，告诉我为什么有的组没有选择，不修改实际库存。',
+        '把分组处理方向改为从大到小，比较哪些方案被选；再恢复顺序并选择增加后的上限，旧报告保留。',
+        candidate_allocation.example_files(), [dict(key='main',name=candidate_allocation.NAME,workflow=allocation)],
+        ['Python代码执行；Excel需openpyxl；无需模型'],
+        ['选择同一批候选、用量与数量上限。','说明处理顺序，复用组内比较顺位。',
+         '查看已选、数量不足和前序失败原因，下载共同余额。','换上限或顺序复算；不将顺序贪心当全局最优或现场预留。'])
+    items[-1]['guide'] = candidate_allocation.GUIDE
+    order=['meeting','weekly','expenses','profile','presentation','data-guidance','sample-preparation','point-in-time','prediction-feedback','local-feedback','visual-review','cutting-candidates','candidate-comparison','candidate-allocation','parameter-intervals','rolling-forecast','interval-trends','source-comparison','answer-comparison','email','diff','writing','learning','planning','join','summary','classification','regression','group-training','process','prediction','rules','extraction','knowledge','composition']
     return sorted(items,key=lambda x:order.index(x['id']))
 
 

@@ -196,6 +196,11 @@ CATALOG['local-feedback'] = {'name':local_feedback.NAME,'description':local_feed
                              'workflow':local_feedback.workflow(),'guide':local_feedback.GUIDE}
 
 
+from . import candidate_allocation
+CATALOG['candidate-allocation'] = {'name':candidate_allocation.NAME,'description':candidate_allocation.DESCRIPTION,
+                                'workflow':candidate_allocation.workflow(),'guide':candidate_allocation.GUIDE}
+
+
 def catalog():
     return [{'id': key, 'version': 2, 'name': value['name'], 'description': value['description']}
             for key, value in CATALOG.items()]

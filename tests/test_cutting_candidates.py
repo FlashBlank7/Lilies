@@ -130,6 +130,10 @@ def test_platform_workflows_create_run_fix_and_compare(configured):
     assert compared_response.status_code==200,compared_response.text
     compared=compared_response.json()
     assert compared['status']=='succeeded',compared.get('error')
+    allocate_id=next(m['id'] for m in discovered.json()['members'] if m['name']=='已有候选的共同需求分配')
+    allocated=settled(client,base,start(client,base,'allocate',workflow_id=allocate_id,inputs={'source_path':compared['outputs']['result']['source_path'],'usage_path':result['patterns_path']}))
+    assert allocated['status']=='succeeded',allocated.get('error')
+    assert allocated['outputs']['result']['selected_groups']==2
     bad=settled(client,base,start(client,base,'bad',workflow_id=pid,inputs={'kerf':-1}));assert bad['status']=='failed' and '单次切缝' in bad['error']
     fixed=settled(client,base,start(client,base,'fixed',workflow_id=pid,inputs={'kerf':0}));assert fixed['status']=='succeeded' and fixed['outputs']['result']['rows']==7
     range_file=next(f['path'] for f in client.get(base+'/example').json()['files'] if f['path'].endswith('需求-范围.csv'))
