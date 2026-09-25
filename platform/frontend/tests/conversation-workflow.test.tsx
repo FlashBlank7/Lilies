@@ -28,6 +28,21 @@ function setup(){
 }
 const props={id:'p',conversationId:'c',items:[],members:[member],onUpdated:vi.fn(),onSent:vi.fn(),onWorkflow:vi.fn()}
 
+it('opens an independently generated result without selecting it or starting a conversation',async()=>{
+  setup();const previous=vi.mocked(api).getMockImplementation()!
+  const path='results/source-search-example/sources.md'
+  vi.mocked(api).mockImplementation(async(url,options)=>url.endsWith('/space')?
+    {workflows:[],files:[{path,size:1200}],files_truncated:false} as never:previous(url,options))
+  const open=vi.fn(),talk=vi.fn()
+  render(<ProjectSpace projectId="p" onWorkflow={vi.fn()} onFile={open} onTalk={talk} onChanged={vi.fn()}/>)
+  fireEvent.click(await screen.findByRole('button',{name:`查看 ${path}`}))
+  expect(open).toHaveBeenCalledWith(path)
+  expect(screen.getByRole('checkbox',{name:path})).not.toBeChecked()
+  expect(talk).not.toHaveBeenCalled()
+  expect(screen.getByRole('button',{name:'带着所选资料开始对话'})).toBeDisabled()
+  expect(vi.mocked(api).mock.calls.every(([,options])=>!options?.method||options.method==='GET')).toBe(true)
+})
+
 it('switches modes without losing the draft, references project resources and saves a new workflow without sending a task',async()=>{
   setup();render(<ProjectConversation {...props}/>);await screen.findByText('已经分析数据')
   fireEvent.change(screen.getByLabelText('给项目统筹的消息'),{target:{value:'把已有分析和预测组合成新流程'}})

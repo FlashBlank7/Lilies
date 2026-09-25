@@ -1,0 +1,26 @@
+use_default_settings:
+  engines:
+    keep_only: [bing, duckduckgo, brave, wikipedia, crossref, arxiv]
+general:
+  instance_name: Lilies Search
+search:
+  formats: [html, json]
+server:
+  limiter: false
+  image_proxy: false
+outgoing:
+  request_timeout: 8.0
+  max_request_timeout: 12.0
+engines:
+  - name: bing
+    disabled: false
+  - name: duckduckgo
+    disabled: false
+  - name: brave
+    disabled: false
+  - name: wikipedia
+    disabled: false
+  - name: crossref
+    disabled: false
+  - name: arxiv
+    disabled: false

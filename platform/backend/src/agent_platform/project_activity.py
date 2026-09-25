@@ -6,6 +6,10 @@ from datetime import datetime
 
 def activity_title(name: str, arguments: dict) -> str:
     action = arguments.get('action', '')
+    if name == 'project_search':
+        return '搜索公开资料'
+    if name == 'project_web':
+        return '读取公开来源'
     if name == 'project_modeling':
         return {'submit_and_run': '提交方案并运行训练', 'submit_candidate': '保存训练方案',
                 'profile': '分析数据', 'export_dataset': '准备工作流数据文件',

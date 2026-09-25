@@ -75,6 +75,7 @@ class Settings(BaseSettings):
     scheduler_poll_seconds: float = 30.0
     project_agent_max_model_calls: int = Field(default=32, ge=1, le=200)
     project_agent_max_output_tokens: int = Field(default=8192, ge=128, le=16384)
+    searxng_url: str = ''
     scheduler_worker_offload_enabled: bool = False
     templates_dir: Path | None = None
     platform_harness_max_active_tasks: int = 100
