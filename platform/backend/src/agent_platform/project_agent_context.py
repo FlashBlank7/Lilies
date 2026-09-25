@@ -36,6 +36,20 @@ def result_preview(value):
     if size <= 1000:
         return value
 
+    # A native training candidate contains large fold indices and run metadata.
+    # Its existing modeling summary retains metrics/baselines for each trial;
+    # treating the entire trials list as a table hides the comparison itself.
+    if (isinstance(value, dict) and isinstance(value.get('id'), str) and isinstance(value.get('study_id'), str)
+            and isinstance(value.get('engine'), str) and value['engine'] in {'sklearn', 'autogluon'}
+            and isinstance(value.get('trials'), list) and all(isinstance(t, dict) for t in value['trials'])):
+        from .modeling_summary import candidate_summary
+        try:
+            candidate = candidate_summary(value)
+        except (TypeError, KeyError):
+            candidate = None  # Other workflows may use these same field names.
+        if candidate is not None and payload_measurement(candidate)['bytes'] <= 8000:
+            return candidate
+
     def omitted(item, size):
         description = {'preview_omitted': True, 'bytes': size}
         if isinstance(item, dict):

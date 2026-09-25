@@ -138,7 +138,7 @@ class CodexAppServer:
         codex_home = self.runtime_dir / 'codex-home'
         config = self.config
         params = {"cwd": str(cwd.resolve()), "approvalPolicy": "never", "sandbox": "read-only",
-                  "baseInstructions": instructions, "developerInstructions": instructions,
+                  "baseInstructions": instructions, "developerInstructions": "",
                   "modelProvider": "openai", "config": config}
         if self.model:
             params["model"] = self.model
@@ -164,7 +164,8 @@ class CodexAppServer:
             dynamic_tools = [tool for tool in tools if not tool.get('deferLoading')]
             if deferred:
                 dynamic_tools.append({'type': 'namespace', 'name': 'lilies',
-                    'description': 'Additional project tools: independent modeling and project progress.',
+                    'description': 'Project tools for workflow editing, independent training and model binding, '
+                                   'knowledge, public research, shared records, requirements and task management.',
                     'tools': deferred})
             result = await self.request("thread/start", {
                 **params, "environments": [], "selectedCapabilityRoots": [],

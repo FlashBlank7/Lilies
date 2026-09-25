@@ -187,7 +187,16 @@ def project_tool_specs():
     for name, (model, description) in PROJECT_TOOL_MODELS.items():
         definitions[name] = {'type': 'function', 'name': name, 'description': description,
                              'inputSchema': model.model_json_schema(),
-                             'deferLoading': name in {'project_modeling', 'project_progress'}}
+                             'deferLoading': False}
+    # Keep discovery, files and execution immediately available. The Codex
+    # adapter advertises other capabilities through its searchable namespace;
+    # their full schemas remain available when building or managing resources.
+    # Raw API sessions still receive all tools through ModelSession.
+    for name, definition in definitions.items():
+        definition['deferLoading'] = name not in {
+            'project_file', 'project_workflows', 'workflow_run',
+            'project_skills', 'project_code', 'block_catalog',
+        }
     return list(definitions.values())
 
 

@@ -73,7 +73,9 @@ async def test_abrupt_tool_exit_preserves_completed_unknown_and_unstarted_result
             raise ProcessExit()
         return {'written': arguments['name']}
 
-    specs = [{'name': 'write', 'description': 'write', 'inputSchema': {'type': 'object'}}]
+    # API-backed sessions expose the complete tool even when the Codex adapter
+    # would load its schema on demand.
+    specs = [{'name': 'write', 'description': 'write', 'inputSchema': {'type': 'object'}, 'deferLoading': True}]
     provider = SimpleNamespace(stream=stream)
     session = ModelSession(provider, tmp_path)
     thread = await session.start(specs, 'test')

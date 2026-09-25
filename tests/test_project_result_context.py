@@ -66,3 +66,35 @@ def test_sample_previews_do_not_hide_small_downloads_or_metric_fields():
     assert outputs['features']['rows'] == 200
     assert any(isinstance(outputs['features'][key], dict) and outputs['features'][key].get('preview_omitted')
                for key in ('preview', 'distribution'))
+
+
+def test_native_training_keeps_candidate_comparison_without_fold_row_indices():
+    trials = [{'slot': i, 'model': model, 'status': 'completed',
+               'metrics': {'macro_f1': score}, 'baseline': {'macro_f1': .22},
+               'warnings': ['Small class'], 'fold_metrics': [{'macro_f1': score - .1}],
+               'fold_indices': list(range(3000))}
+              for i, (model, score) in enumerate([('linear', .39), ('forest', .47)])]
+    task = {'id': 'task', 'outputs': {'training': {
+        'id': 'candidate', 'study_id': 'study', 'engine': 'sklearn', 'status': 'completed',
+        'models': ['linear', 'forest'], 'features': {'exclude': ['batch']}, 'trials': trials}}}
+    original = deepcopy(task)
+    summary = task_summary(task)['outputs']['training']
+    assert summary['view'] == 'summary'
+    for expected, actual in zip(trials, summary['trials'], strict=True):
+        for key in ('slot', 'model', 'status', 'metrics', 'baseline', 'warnings', 'fold_metrics'):
+            assert actual[key] == expected[key]
+        assert 'fold_indices' not in actual
+    assert summary['detail']['arguments']['candidate_id'] == 'candidate'
+    assert summary['features']['exclude'] == ['batch']
+    assert payload_measurement(summary)['bytes'] < 3000
+    assert task == original
+
+
+def test_similarly_named_business_fields_still_allow_arbitrary_json():
+    for engine, trials in [({'kind': 'custom'}, []), ('sklearn', [1, 'sample', None]),
+                           ('sklearn', [{'group_errors': 7}])]:
+        task = {'id': 'task', 'outputs': {'custom': {
+            'id': 'business', 'study_id': 'reference', 'engine': engine,
+            'trials': trials, 'text': 'x' * 10000}}}
+        summary = task_summary(task)['outputs']['custom']
+        assert summary['engine'] == engine and summary['trials'] == trials

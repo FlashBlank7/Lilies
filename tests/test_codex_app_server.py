@@ -24,9 +24,12 @@ for line in sys.stdin:
         assert not any(t.get('deferLoading') for t in tools)
         namespace = next(t for t in tools if t['type'] == 'namespace')
         assert namespace['name'] == 'lilies'
-        assert {t['name'] for t in namespace['tools']} == {'project_modeling', 'project_progress'}
+        assert {'project_modeling', 'project_progress', 'workflow_draft', 'project_models',
+                'project_knowledge', 'project_search', 'project_web'} <= {t['name'] for t in namespace['tools']}
         assert all(t['deferLoading'] for t in namespace['tools'])
         assert any(t['name'] == 'workflow_run' for t in tools)
+        assert message['params']['baseInstructions'] == 'project tools only'
+        assert message['params']['developerInstructions'] == ''
         emit({'id':message['id'],'result':{'thread':{'id':'t1'}}})
     elif method == 'turn/start':
         emit({'id':message['id'],'result':{'turn':{'id':'u1'}}})
@@ -120,7 +123,8 @@ for line in sys.stdin:
     elif method == 'thread/resume':
         p = message['params']
         assert p['threadId'] == 'long-existing-thread'
-        assert p['developerInstructions'] == 'current project instructions'
+        assert p['baseInstructions'] == 'current project instructions'
+        assert p['developerInstructions'] == ''
         turns = [] if p.get('excludeTurns') else [{'text': 'x' * (5 * 1024 * 1024)}]
         emit({'id': message['id'], 'result': {'thread': {'id': p['threadId'], 'turns': turns}}})
     elif method == 'turn/start':
