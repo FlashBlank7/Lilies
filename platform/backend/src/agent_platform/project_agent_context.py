@@ -24,6 +24,50 @@ def preview(value, *, depth=0):
     return value
 
 
+def result_preview(value):
+    """Keep small results exact; describe bulky branches instead of copying rows.
+
+    A depth-only preview still repeated thousands of bytes of distributions,
+    feature rows and training configuration on every conversation turn. Keep
+    compact values (including metrics and artifact paths) where possible and
+    leave the original branch available through workflow_run.output_path.
+    """
+    size = payload_measurement(value)['bytes']
+    if size <= 1000:
+        return value
+
+    def omitted(item, size):
+        description = {'preview_omitted': True, 'bytes': size}
+        if isinstance(item, dict):
+            description.update(type='object', fields=list(item)[:20], field_count=len(item))
+        elif isinstance(item, list):
+            description.update(type='array', count=len(item))
+        elif isinstance(item, str):
+            description.update(type='string', characters=len(item))
+        else:
+            description.update(type=type(item).__name__)
+        return description
+
+    if isinstance(value, dict):
+        children = {}
+        for key, child in value.items():
+            child_size = payload_measurement(child)['bytes']
+            children[key] = child if child_size <= 1000 else omitted(child, child_size)
+        if payload_measurement(children)['bytes'] > 2000:
+            # Collapse the largest remaining values first, so a sample table
+            # does not force us to discard small metrics or download paths.
+            sizes = {key: payload_measurement(child)['bytes'] for key, child in children.items()}
+            for key in sorted(sizes, key=sizes.get, reverse=True):
+                description = omitted(value[key], payload_measurement(value[key])['bytes'])
+                if payload_measurement(description)['bytes'] < sizes[key]:
+                    children[key] = description
+                if payload_measurement(children)['bytes'] <= 2000:
+                    break
+        if payload_measurement(children)['bytes'] <= 2000:
+            return children
+    return omitted(value, size)
+
+
 def draft_summary(draft: dict, *, nodes: bool = True) -> dict:
     draft = jsonable_encoder(draft)
     snapshot = draft['snapshot']
@@ -58,7 +102,8 @@ def task_summary(task: dict) -> dict:
               'item_id', 'feedback_task_id', 'created_at', 'updated_at', 'message') if k in task}
     outputs = task.get('outputs', {})
     result['outputs_truncated'] = payload_measurement(outputs)['bytes'] > 8000
-    result['outputs'] = preview(outputs) if result['outputs_truncated'] else outputs
+    result['outputs'] = ({key: result_preview(value) for key, value in outputs.items()}
+                         if result['outputs_truncated'] else outputs)
     inputs = task.get('inputs', {})
     result['inputs_truncated'] = payload_measurement(inputs)['bytes'] > 8000
     result['inputs'] = preview(inputs) if result['inputs_truncated'] else inputs

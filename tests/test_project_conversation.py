@@ -102,6 +102,13 @@ def test_read_exact_result_branch_without_traces_or_other_project_access(configu
     graph(client, project['id'], [node('s', 'start'), node('e', 'end', outputs=output)], [edge('s', 'e')])
     task = settled(client, base, start(client, base, 'result-branches'))
     assert task['status'] == 'succeeded'
+    summary = client.post(base + '/agent-tools', json={'name': 'workflow_run',
+        'arguments': {'action': 'inspect', 'task_id': task['id']}}).json()
+    assert summary['outputs_truncated']
+    assert summary['outputs']['test'] == output['test']
+    assert summary['outputs']['large_table']['count'] == 2000
+    assert summary['outputs']['large_table']['preview_omitted']
+    assert 'value' not in json.dumps(summary['outputs'])
     for path, expected in [(['test'], output['test']), (['test', 'classes', 0, 'count'], 0), ([], output)]:
         response = client.post(base + '/agent-tools', json={'name': 'workflow_run',
             'arguments': {'action': 'inspect', 'task_id': task['id'], 'output_path': path}})
