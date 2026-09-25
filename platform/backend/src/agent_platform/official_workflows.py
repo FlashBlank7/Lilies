@@ -186,6 +186,10 @@ from . import presentation_workflow
 CATALOG['presentation'] = {'name':presentation_workflow.NAME,'description':presentation_workflow.DESCRIPTION,
                            'workflow':presentation_workflow.workflow(),'guide':presentation_workflow.GUIDE}
 
+from . import interval_trends
+CATALOG['interval-trends'] = {'name':interval_trends.NAME, 'description':interval_trends.DESCRIPTION,
+                            'workflow':interval_trends.workflow(), 'guide':interval_trends.GUIDE}
+
 
 def catalog():
     return [{'id': key, 'version': 2, 'name': value['name'], 'description': value['description']}

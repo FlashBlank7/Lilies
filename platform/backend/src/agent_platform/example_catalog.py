@@ -328,7 +328,20 @@ def catalog():
         ['带PptxGenJS、LibreOffice Impress和中文字体的文档环境；已有稿件排版无需大模型'],
         ['选择汇报稿或直接填写文本，二者只选一个。','按需修改标题和副标题，生成PPTX、PDF和逐页预览。','检查正文、指标和出处，下载可编辑文件。','修改稿件或换资料后创建新运行，无需重新训练。'])
     items[-1]['guide']=presentation_workflow.GUIDE
-    order=['meeting','weekly','expenses','profile','presentation','data-guidance','sample-preparation','point-in-time','prediction-feedback','visual-review','cutting-candidates','candidate-comparison','parameter-intervals','rolling-forecast','source-comparison','answer-comparison','email','diff','writing','learning','planning','join','summary','classification','regression','group-training','process','prediction','rules','extraction','knowledge','composition']
+    from . import interval_trends
+    trends = interval_trends.workflow()
+    for f in trends['nodes'][0]['config']['inputs']:
+        if f['name'] in interval_trends.example_defaults():
+            f['default'] = interval_trends.example_defaults()[f['name']]
+    add('interval-trends', interval_trends.NAME, '机器学习', interval_trends.DESCRIPTION,
+        '我想研究未来几个区间的涨跌，请先用已有流程把这份历史数据做成趋势样本，解释标签怎样得到，不要开始训练。',
+        '将平稳阈值从0.5改为1，比较标签变化；抽一行标签出处手工算均值，检查未来数值没有进入特征。',
+        interval_trends.example_files(), [dict(key='main', name=interval_trends.NAME, workflow=trends)],
+        ['Python数据处理环境；Excel需openpyxl；无需大模型或训练模型'],
+        ['核对原表周期、对象及实际公布时刻。', '选择历史窗口、未来区间长度和业务阈值。',
+         '运行后查看样本、标签出处和排除原因，下载结果。', '改阈值或换资料重跑；后续训练按时间和标签可用时刻划分。'])
+    items[-1]['guide'] = interval_trends.GUIDE
+    order=['meeting','weekly','expenses','profile','presentation','data-guidance','sample-preparation','point-in-time','prediction-feedback','visual-review','cutting-candidates','candidate-comparison','parameter-intervals','rolling-forecast','interval-trends','source-comparison','answer-comparison','email','diff','writing','learning','planning','join','summary','classification','regression','group-training','process','prediction','rules','extraction','knowledge','composition']
     return sorted(items,key=lambda x:order.index(x['id']))
 
 
