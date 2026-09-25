@@ -348,7 +348,20 @@ def catalog():
 训练流程只需选择制备结果samples.csv：target是标签，sample_id是标识，origin_time是预测时点，label_available_time是标签可用时间；series不作为特征。已设置两折向前时间验证和20%末段测试，比较线性与随机森林两个候选。原样本行数不等于隔离后训练数量，不足时应明确报错，不能自动换为随机划分。
 需要预测时，在模型页把实际训练版本绑定到interval-trend，选择同次制备的prediction-inputs.csv。没有绑定时运行会指出缺项，不会训练或换模型。换历史窗口后先重新制备并训练；不能把不匹配的滞后特征交给旧模型。只调整报告无需重训。
 示例只说明操作和计算，不承诺趋势可预测。模型可能低于简单基线；不要用同一测试集反复挑选阈值或窗口。'''
-    order=['meeting','weekly','expenses','profile','presentation','data-guidance','sample-preparation','point-in-time','prediction-feedback','visual-review','cutting-candidates','candidate-comparison','parameter-intervals','rolling-forecast','interval-trends','source-comparison','answer-comparison','email','diff','writing','learning','planning','join','summary','classification','regression','group-training','process','prediction','rules','extraction','knowledge','composition']
+    from . import local_feedback
+    feedback = local_feedback.workflow()
+    for f in feedback['nodes'][0]['config']['inputs']:
+        if f['name'] in local_feedback.example_defaults():
+            f['default'] = local_feedback.example_defaults()[f['name']]
+    add('local-feedback', local_feedback.NAME, '数据处理', local_feedback.DESCRIPTION,
+        '请用项目里的实测反馈流程，解释这条观测怎样影响附近风险和分段，先不要训练或修改原模型。',
+        '换补充观测.csv和反序观测.csv，核对中心分数及分段为什么不同；再改切换代价，旧报告保持。',
+        local_feedback.example_files(), [dict(key='main', name=local_feedback.NAME, workflow=feedback)],
+        ['Python代码执行；Excel需openpyxl；无需模型'],
+        ['核对同一对象、坐标单位、网格及风险含义。', '选择原曲线和观测，填写实际影响范围及代价。',
+         '查看逐点前后分数、观测顺序、分段及限制，下载结果。', '换观测或参数另开运行；不把修正结果当作已校准概率或生产指令。'])
+    items[-1]['guide'] = local_feedback.GUIDE
+    order=['meeting','weekly','expenses','profile','presentation','data-guidance','sample-preparation','point-in-time','prediction-feedback','local-feedback','visual-review','cutting-candidates','candidate-comparison','parameter-intervals','rolling-forecast','interval-trends','source-comparison','answer-comparison','email','diff','writing','learning','planning','join','summary','classification','regression','group-training','process','prediction','rules','extraction','knowledge','composition']
     return sorted(items,key=lambda x:order.index(x['id']))
 
 

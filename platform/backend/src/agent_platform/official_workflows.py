@@ -191,6 +191,11 @@ CATALOG['interval-trends'] = {'name':interval_trends.NAME, 'description':interva
                             'workflow':interval_trends.workflow(), 'guide':interval_trends.GUIDE}
 
 
+from . import local_feedback
+CATALOG['local-feedback'] = {'name':local_feedback.NAME,'description':local_feedback.DESCRIPTION,
+                             'workflow':local_feedback.workflow(),'guide':local_feedback.GUIDE}
+
+
 def catalog():
     return [{'id': key, 'version': 2, 'name': value['name'], 'description': value['description']}
             for key, value in CATALOG.items()]
