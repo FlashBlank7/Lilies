@@ -46,6 +46,80 @@ class TestSession:
         return {'status': 'completed'}
 
 
+def test_existing_workflow_runs_from_current_interface_without_reading_graph(configured, monkeypatch):
+    outputs = []
+
+    class UsingWorkflow(TestSession):
+        async def turn(self, message, on_event, on_tool, **kwargs):
+            workflow = json.loads(message)['workflows'][0]
+            assert not workflow['interface_truncated']
+            assert workflow['outputs'] == [['echo']]
+            inputs = {f['name']: f['default'] for group in workflow['inputs'] for f in group}
+            task = await on_tool('workflow_run', {'action': 'start', 'workflow_id': workflow['id'],
+                                                  'inputs': inputs})
+            assert task['status'] == 'succeeded'
+            outputs.append(task['outputs'])
+            return {'status': 'completed'}
+
+    client, _, project, _, base = configure_agent(configured, monkeypatch, UsingWorkflow)
+    for value in ('first file', 'changed file'):
+        graph(client, project['id'], [
+            node('s', 'start', inputs=[{'name': 'source', 'type': 'string', 'required': True, 'default': value}]),
+            node('e', 'end', outputs={'echo': ref('s', 'source')})], [edge('s', 'e')])
+        assert client.post(base + '/conversation/messages', json={'message': '用现有流程处理资料'}).status_code == 202
+        state = agent_settled(client, base)
+        assert state['status'] == 'idle', state['error']
+    assert outputs == [{'echo': 'first file'}, {'echo': 'changed file'}]
+    assert len(client.get(base + '/tasks').json()) == 2
+
+
+def test_large_interface_preview_can_be_read_in_full(configured, monkeypatch):
+    full_default = 'sample' * 1000
+
+    class ReadInterface(TestSession):
+        async def turn(self, message, on_event, on_tool, **kwargs):
+            workflow = json.loads(message)['workflows'][0]
+            assert workflow['interface_truncated']
+            assert full_default not in json.dumps(workflow)
+            complete = await on_tool('project_workflows', {'action': 'inspect', 'workflow_id': workflow['id']})
+            assert complete['inputs'][0][0]['default'] == full_default
+            return {'status': 'completed'}
+
+    client, _, project, _, base = configure_agent(configured, monkeypatch, ReadInterface)
+    graph(client, project['id'], [node('s', 'start', inputs=[
+        {'name': 'text', 'type': 'string', 'default': full_default}]),
+        node('e', 'end', outputs={'text': ref('s', 'text')})], [edge('s', 'e')])
+    client.post(base + '/conversation/messages', json={'message': '查看这个流程的输入'})
+    state = agent_settled(client, base)
+    assert state['status'] == 'idle', state['error']
+    assert client.get(base + '/tasks').json() == []
+
+
+def test_read_exact_result_branch_without_traces_or_other_project_access(configured, monkeypatch):
+    client, _, project, _, base = configure_agent(configured, monkeypatch, TestSession)
+    output = {'test': {'classes': [{'label': 'rare', 'count': 0}], 'metrics': {'accuracy': 0.5}},
+              'large_table': ['value'] * 2000}
+    graph(client, project['id'], [node('s', 'start'), node('e', 'end', outputs=output)], [edge('s', 'e')])
+    task = settled(client, base, start(client, base, 'result-branches'))
+    assert task['status'] == 'succeeded'
+    for path, expected in [(['test'], output['test']), (['test', 'classes', 0, 'count'], 0), ([], output)]:
+        response = client.post(base + '/agent-tools', json={'name': 'workflow_run',
+            'arguments': {'action': 'inspect', 'task_id': task['id'], 'output_path': path}})
+        assert response.status_code == 200, response.text
+        selected = response.json()['output']
+        assert selected == expected
+        assert 'runs' not in response.json()
+    for path in [['missing'], ['test', 'classes', -1], ['test', 'classes', 3]]:
+        response = client.post(base + '/agent-tools', json={'name': 'workflow_run',
+            'arguments': {'action': 'inspect', 'task_id': task['id'], 'output_path': path}})
+        assert response.status_code == 422, response.text
+    other = client.post('/api/v1/projects', json={'name': 'other'}).json()['id']
+    response = client.post('/api/v1/projects/' + other + '/agent-tools', json={'name': 'workflow_run',
+        'arguments': {'action': 'inspect', 'task_id': task['id'], 'output_path': ['test']}})
+    assert response.status_code == 404, response.text
+    assert len(client.get(base + '/tasks').json()) == 1
+
+
 @pytest.mark.parametrize('action', ['inspect', 'finish', 'discuss', 'wait', 'build'])
 def test_phase_change_preserves_messages_received_during_await(configured, monkeypatch, action):
     from agent_platform.project_conversation import ProjectAction

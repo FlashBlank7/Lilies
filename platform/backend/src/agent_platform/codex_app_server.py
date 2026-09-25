@@ -158,9 +158,17 @@ class CodexAppServer:
                 resume['path'] = str(paths[0])
             result = await self.request("thread/resume", resume)
         else:
+            # The app-server requires deferred tools to belong to a namespace.
+            # Keep the application tool names/validation unchanged for API sessions.
+            deferred = [tool for tool in tools if tool.get('deferLoading')]
+            dynamic_tools = [tool for tool in tools if not tool.get('deferLoading')]
+            if deferred:
+                dynamic_tools.append({'type': 'namespace', 'name': 'lilies',
+                    'description': 'Additional project tools: independent modeling and project progress.',
+                    'tools': deferred})
             result = await self.request("thread/start", {
                 **params, "environments": [], "selectedCapabilityRoots": [],
-                "dynamicTools": tools, "allowProviderModelFallback": False,
+                "dynamicTools": dynamic_tools, "allowProviderModelFallback": False,
             })
         if result.get("instructionSources"):
             raise CodexError("Codex 加载了项目外指令，已停止接入")

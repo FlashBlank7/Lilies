@@ -86,9 +86,13 @@ class MemberRun(Run):
     wait_seconds: int = Field(default=0, ge=0, le=60, strict=True,
         description='For inspect with task_id: wait up to this many seconds for the existing workflow task. Default 0 returns immediately; timeout does not cancel or restart the task.')
     view: Literal['summary', 'full'] = 'summary'
+    output_path: list[str | int] | None = Field(default=None, max_length=20,
+        description='inspect with task_id only: read one exact output branch, e.g. ["test"] or ["test","metrics"], without full run traces. [] reads all outputs.')
 
     @model_validator(mode='after')
     def valid_wait(self):
+        if self.output_path is not None and (self.action != 'inspect' or not self.task_id):
+            raise ValueError('output_path 仅用于 inspect 并指定 task_id')
         if self.action == 'respond' and not (self.task_id and self.run_id and self.node_id):
             raise ValueError('respond 需要 task_id、run_id 和当前等待的 node_id；inputs 只填写用户明确提供的答案')
         if self.wait_seconds and (self.action != 'inspect' or not self.task_id):
@@ -169,7 +173,7 @@ PROJECT_TOOL_MODELS = {
     'project_progress': (ProgressTool, 'Default read returns a SUMMARY with current revision; item_id reads one complete item, view=full reads the complete record. Prefer action=patch, item_id, changes, expected_revision to create/update ONE item while preserving others. Without item_id patch accepts goal/summary only. For action=update, value is a COMPLETE replacement: read view=full first, never replace from a summary. Version conflicts are explicit. Preserve customer answers. Record this request deliverable/completion_criteria separately from the enterprise goal. Link only real current-project workflows, tasks and files.'),
     'project_action': (ProjectAction, 'Optional project progress actions and frozen-task resume. trial/operate run an existing workflow immediately; item_id is optional. workflow_run(action="start") is the direct execution path. wait with task_id awaits an existing task and returns its result without starting or resuming it; no item_id is required. build and wait with item_id organize progress items, and are never required before editing, training or execution. finish ends this conversation request.'),
     'workflow_draft': (MemberDraft, 'Read the current draft SUMMARY (revision/content_hash, nodes/edges index, tests index); view=nodes with node_ids reads exact configs, view=tests reads saved tests, view=full reads the complete draft. workflow_id defaults to the project main. Prefer batch={expected_revision,expected_content_hash,idempotency_key,operations:[{op,data},...]} for related edits to ONE member: one atomic save, rollback on any error, one revision increment. A single operation using the legacy schema is also supported. Read current revision before editing, preserve human layout, and use update_node.data={node_id,changes,merge_config:true}. Mutations return a summary; full data remains readable. Project capability limits still apply; resources may remain unbound.'),
-    'workflow_run': (MemberRun, 'Validate/start/inspect/test a member workflow. respond(task_id,run_id,node_id,inputs) submits only the user explicit answers to the current waiting_input form and resumes that same task; never invent answers. Unknown is a valid user answer when the workflow allows it. start waits by default; wait=false starts real concurrent tasks. For an existing running task, inspect(task_id=...,wait_seconds=30) waits up to 30 seconds without creating or restarting a task; maximum 60, default 0 returns immediately. Timeout returns its current status and leaves it running. Use bounded waiting instead of repeated immediate polling. Outputs default to a bounded summary; inspect(task_id=...,view=full) returns exact inputs, outputs and member traces. Small outputs remain complete; outputs_truncated explicitly marks previews. Saved tests return summary and failing cases by default; view=full returns every test. All member drafts freeze per task. Optional build request_key tests idempotency: same key/content returns existing task, changed content conflicts. Read actual failures and repair only affected code/graph, then rerun affected checks. Single terminal fields are direct; multiple terminals are grouped; workflow: calls wrap output.'),
+    'workflow_run': (MemberRun, 'Validate/start/inspect/test a member workflow. respond(task_id,run_id,node_id,inputs) submits only the user explicit answers to the current waiting_input form and resumes that same task; never invent answers. Unknown is a valid user answer when the workflow allows it. start waits by default; wait=false starts real concurrent tasks. For an existing running task, inspect(task_id=...,wait_seconds=30) waits up to 30 seconds without creating or restarting a task; maximum 60, default 0 returns immediately. Timeout returns its current status and leaves it running. Use bounded waiting instead of repeated immediate polling. Read the bounded summary first; output_path=["test"] (or another actual output key) retrieves exact result details without traces. Use inspect(task_id=...,view=full) only when full inputs and member traces are needed for diagnosis. Small outputs remain complete; outputs_truncated explicitly marks previews. Saved tests return summary and failing cases by default; view=full returns every test. All member drafts freeze per task. Optional build request_key tests idempotency: same key/content returns existing task, changed content conflicts. Read actual failures and repair only affected code/graph, then rerun affected checks. Single terminal fields are direct; multiple terminals are grouped; workflow: calls wrap output.'),
     'project_workflows': (Members, 'List project members with ids, create a new blank member or remove an unreferenced member. inspect shows declared inputs and outputs. Main workflow id equals project id. A Tool node with tool_name="workflow:<member-id>" and input={...} calls that member. Main canvas is the executable collaboration graph.'),
     'project_records': (Records, 'Read shared business records (get: found/revision/value; list: records). To change records, use a project_record node.'),
     'project_task_result': (TaskResult, 'Complete the active operate task or ask for needed input. A finished model turn does not itself finish a business task. Report actual run outputs; waiting_input lets the user update records and continue the same task.'),
@@ -180,7 +184,8 @@ def project_tool_specs():
     definitions = {x['name']: x for x in tool_specs()}
     for name, (model, description) in PROJECT_TOOL_MODELS.items():
         definitions[name] = {'type': 'function', 'name': name, 'description': description,
-                             'inputSchema': model.model_json_schema(), 'deferLoading': False}
+                             'inputSchema': model.model_json_schema(),
+                             'deferLoading': name in {'project_modeling', 'project_progress'}}
     return list(definitions.values())
 
 
@@ -477,6 +482,17 @@ class WorkspaceProjectTools(ProjectTools):
                             # cancelling it when this bounded wait times out.
                             await asyncio.wait({worker}, timeout=args.wait_seconds)
                             task = await self.projects.task(self.application_id, args.task_id)
+                    if args.output_path is not None:
+                        output = task.get('outputs', {})
+                        for part in args.output_path:
+                            if isinstance(output, dict) and isinstance(part, str) and part in output:
+                                output = output[part]
+                            elif isinstance(output, list) and type(part) is int and 0 <= part < len(output):
+                                output = output[part]
+                            else:
+                                raise ValueError('未找到指定的输出路径；先用 summary 查看现有输出')
+                        return {'id': task['id'], 'status': task['status'], 'error': task.get('error'),
+                                'output_path': args.output_path, 'output': jsonable_encoder(output)}
                     return task if args.view == 'full' else task_summary(task)
                 run = await self.services.workflow_store.get_run(args.run_id)
                 context = run['state'].project_context

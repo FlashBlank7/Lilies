@@ -39,6 +39,16 @@ def draft_summary(draft: dict, *, nodes: bool = True) -> dict:
         result['nodes'] = [{k: n[k] for k in ('id', 'type', 'title')} for n in graph['nodes']]
         result['edges'] = graph['edges']
         result['tests'] = [{k: t.get(k) for k in ('id', 'name', 'requirement')} for t in snapshot['tests']]
+    else:
+        interface = {
+            'inputs': [n['config'].get('inputs', []) for n in graph['nodes'] if n['type'] == 'start'],
+            'outputs': [list(n['config'].get('outputs', {})) for n in graph['nodes'] if n['type'] == 'end'],
+        }
+        result['interface_truncated'] = payload_measurement(interface)['bytes'] > 4000
+        result.update(preview(interface) if result['interface_truncated'] else interface)
+        result['detail'] = ('Use workflow_run(action="start", workflow_id=id, inputs={...}) to run with these inputs. '
+                            'project_workflows(action="inspect", workflow_id=id) reads the full interface; '
+                            'workflow_draft reads implementation only when editing or diagnosing.')
     return result
 
 
@@ -57,7 +67,9 @@ def task_summary(task: dict) -> dict:
         result['runs'] = [{k: r[k] for k in ('id', 'application_id', 'status', 'error', 'parent_run_id', 'draft_revision', 'waiting_node', 'waiting_input') if k in r}
                           for r in task['runs']]
     result['view'] = 'summary'
-    result['detail'] = 'workflow_run(action="inspect", task_id="' + task.get('id', '') + '", view="full") returns all inputs, outputs and member runs.'
+    result['detail'] = ('Read summary first. workflow_run(action="inspect", task_id="' + task.get('id', '') +
+                        '", output_path=["output_key"]) reads an exact output branch without traces; '
+                        'view="full" includes all inputs, outputs and member runs for diagnosis.')
     return result
 
 

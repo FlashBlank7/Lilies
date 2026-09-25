@@ -7,6 +7,53 @@ from agent_platform.codex_app_server import CodexAppServer, CodexError, validate
 
 
 @pytest.mark.asyncio
+async def test_deferred_project_tools_are_namespaced_and_remain_callable(tmp_path):
+    from agent_platform.project_agent_tools import project_tool_specs
+    executable = tmp_path / 'codex'
+    executable.write_text(f'#!{sys.executable}\n' + '''
+import json, sys
+def emit(value):
+    print(json.dumps(value), flush=True)
+for line in sys.stdin:
+    message = json.loads(line)
+    method = message.get('method')
+    if method == 'initialize':
+        emit({'id':message['id'],'result':{}})
+    elif method == 'thread/start':
+        tools = message['params']['dynamicTools']
+        assert not any(t.get('deferLoading') for t in tools)
+        namespace = next(t for t in tools if t['type'] == 'namespace')
+        assert namespace['name'] == 'lilies'
+        assert {t['name'] for t in namespace['tools']} == {'project_modeling', 'project_progress'}
+        assert all(t['deferLoading'] for t in namespace['tools'])
+        assert any(t['name'] == 'workflow_run' for t in tools)
+        emit({'id':message['id'],'result':{'thread':{'id':'t1'}}})
+    elif method == 'turn/start':
+        emit({'id':message['id'],'result':{'turn':{'id':'u1'}}})
+        emit({'id':'modeling','method':'item/tool/call','params':{
+            'threadId':'t1','namespace':'lilies','tool':'project_modeling','arguments':{'action':'list'}}})
+    elif message.get('id') == 'modeling':
+        assert message['result']['success']
+        assert json.loads(message['result']['contentItems'][0]['text']) == {'studies':[]}
+        emit({'method':'turn/completed','params':{'turn':{'id':'u1','status':'completed'}}})
+''')
+    executable.chmod(0o700)
+    client = CodexAppServer(str(executable), tmp_path / 'runtime')
+    calls = []
+    async def event(method, params):
+        pass
+    async def tool(name, arguments):
+        calls.append((name, arguments))
+        return {'studies': []}
+    try:
+        await client.start(project_tool_specs(), 'project tools only')
+        assert (await client.turn('查看训练', event, tool, timeout=10))['status'] == 'completed'
+        assert calls == [('project_modeling', {'action': 'list'})]
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
 async def test_stdio_handshake_scoped_environment_tool_results_and_completion(tmp_path):
     executable = tmp_path/'codex'
     executable.write_text(f'#!{sys.executable}\n' + '''
