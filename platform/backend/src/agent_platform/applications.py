@@ -528,7 +528,10 @@ class ApplicationService:
             pending.extend(outgoing.get(current, []))
         return False
 
-    async def validate_draft(self, application_id: str) -> dict[str, Any]:
+    async def validate_draft(
+        self, application_id: str, *, structure_only: bool = False,
+    ) -> dict[str, Any]:
+        """Check graph structure; legacy validation also requires bindings and tests."""
         draft = await self.store.get_draft(application_id)
         snapshot: ApplicationSnapshot = draft["snapshot"]
         errors = self.blocks.validate_workflow(snapshot.workflow)
@@ -537,36 +540,37 @@ class ApplicationService:
                 await self.projects.validate_capabilities(application_id, snapshot)
             except ValueError as error:
                 errors.append(str(error))
-        known_tools = set(self.tools.names())
-        for agent in snapshot.agents.values():
-            unknown_tools = set(agent.tools) - known_tools
-            if unknown_tools:
-                errors.append(
-                    f"agent {agent.id} references unknown tools: {sorted(unknown_tools)}; "
-                    f"available tools: {sorted(known_tools)}"
-                )
-        for node in snapshot.workflow.nodes:
-            if node.type == "claude_agent":
-                agent_id = str(node.config.get("agent_id", ""))
-                if agent_id not in snapshot.agents:
-                    try:
-                        await self.store.storage.get_agent(agent_id, node.config.get("version"))
-                    except KeyError:
-                        errors.append(f"{node.id}: agent binding not found: {agent_id}")
-            if node.type == "tool":
-                tool_name = str(node.config.get("tool_name", ""))
-                if tool_name and not tool_name.startswith("workflow:") and tool_name not in known_tools:
+        if not structure_only:
+            known_tools = set(self.tools.names())
+            for agent in snapshot.agents.values():
+                unknown_tools = set(agent.tools) - known_tools
+                if unknown_tools:
                     errors.append(
-                        f"{node.id}: tool binding not found: {tool_name}; "
+                        f"agent {agent.id} references unknown tools: {sorted(unknown_tools)}; "
                         f"available tools: {sorted(known_tools)}"
                     )
-            if node.type == "tool_executor":
-                tool_name = str(node.config.get("settings", {}).get("tool_name", ""))
-                if tool_name and tool_name not in known_tools:
-                    errors.append(
-                        f"{node.id}: tool binding not found: {tool_name}; "
-                        f"available tools: {sorted(known_tools)}"
-                    )
+            for node in snapshot.workflow.nodes:
+                if node.type == "claude_agent":
+                    agent_id = str(node.config.get("agent_id", ""))
+                    if agent_id not in snapshot.agents:
+                        try:
+                            await self.store.storage.get_agent(agent_id, node.config.get("version"))
+                        except KeyError:
+                            errors.append(f"{node.id}: agent binding not found: {agent_id}")
+                if node.type == "tool":
+                    tool_name = str(node.config.get("tool_name", ""))
+                    if tool_name and not tool_name.startswith("workflow:") and tool_name not in known_tools:
+                        errors.append(
+                            f"{node.id}: tool binding not found: {tool_name}; "
+                            f"available tools: {sorted(known_tools)}"
+                        )
+                if node.type == "tool_executor":
+                    tool_name = str(node.config.get("settings", {}).get("tool_name", ""))
+                    if tool_name and tool_name not in known_tools:
+                        errors.append(
+                            f"{node.id}: tool binding not found: {tool_name}; "
+                            f"available tools: {sorted(known_tools)}"
+                        )
         # 自引用是结构性错误，必须在校验期拒绝而不是运行期崩。实测 32B 在
         # variable_assigner 里加了个引用自身产出的 output 赋值，draft_validate
         # 全绿、发布前才在 test_run 里炸——这类"能过结构校验的死图"正是
@@ -619,28 +623,29 @@ class ApplicationService:
                     "直接算在本节点的表达式里。"
                 )
 
-        mandatory_tests = [test for test in snapshot.tests if test.mandatory]
-        if not mandatory_tests:
-            errors.append("at least one mandatory acceptance test is required")
-        node_types = [node.type for node in snapshot.workflow.nodes]
-        tool_node_names = [
-            str(node.config.get("tool_name"))
-            for node in snapshot.workflow.nodes
-            if node.type == "tool" and node.config.get("tool_name")
-        ]
-        tool_node_names.extend(
-            str(node.config.get("settings", {}).get("tool_name"))
-            for node in snapshot.workflow.nodes
-            if node.type == "tool_executor" and node.config.get("settings", {}).get("tool_name")
-        )
-        for test in mandatory_tests:
-            missing_node_types = [item for item in test.required_node_types if item not in node_types]
-            if missing_node_types:
-                errors.append(f"test {test.id} missing required node types: {missing_node_types}")
-            missing_tool_nodes = [item for item in test.required_tool_nodes if item not in tool_node_names]
-            if missing_tool_nodes:
-                errors.append(f"test {test.id} missing required tool nodes: {missing_tool_nodes}")
-        errors.extend(self._validate_simulated_human_inputs(snapshot))
+        if not structure_only:
+            mandatory_tests = [test for test in snapshot.tests if test.mandatory]
+            if not mandatory_tests:
+                errors.append("at least one mandatory acceptance test is required")
+            node_types = [node.type for node in snapshot.workflow.nodes]
+            tool_node_names = [
+                str(node.config.get("tool_name"))
+                for node in snapshot.workflow.nodes
+                if node.type == "tool" and node.config.get("tool_name")
+            ]
+            tool_node_names.extend(
+                str(node.config.get("settings", {}).get("tool_name"))
+                for node in snapshot.workflow.nodes
+                if node.type == "tool_executor" and node.config.get("settings", {}).get("tool_name")
+            )
+            for test in mandatory_tests:
+                missing_node_types = [item for item in test.required_node_types if item not in node_types]
+                if missing_node_types:
+                    errors.append(f"test {test.id} missing required node types: {missing_node_types}")
+                missing_tool_nodes = [item for item in test.required_tool_nodes if item not in tool_node_names]
+                if missing_tool_nodes:
+                    errors.append(f"test {test.id} missing required tool nodes: {missing_tool_nodes}")
+            errors.extend(self._validate_simulated_human_inputs(snapshot))
         warnings = self._input_warnings(snapshot)
         return {
             "valid": not errors,
@@ -649,6 +654,7 @@ class ApplicationService:
             "revision": draft["revision"],
             "content_hash": draft["content_hash"],
             "test_count": len(snapshot.tests),
+            **({"validation_scope": "structure"} if structure_only else {}),
         }
 
     def _validate_simulated_human_inputs(

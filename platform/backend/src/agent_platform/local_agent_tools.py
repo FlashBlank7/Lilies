@@ -11,7 +11,7 @@ from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .requirement_discussion import load_discussion, save_discussion
-from .workflow_models import DraftOperation, EdgeSpec, NodeSpec, WorkflowRunRequest, WorkflowTestCase
+from .workflow_models import DraftOperation, EdgeSpec, NodeSpec, WorkflowSpec, WorkflowRunRequest, WorkflowTestCase
 
 
 class Arguments(BaseModel):
@@ -29,6 +29,8 @@ class ProjectFile(Arguments):
 class Catalog(Arguments):
     block_type: str = ""
     tool_name: str = ""
+    view: Literal['compact', 'full'] = 'full'
+    schema_type: Literal['node', 'edge', 'test', 'workflow'] | None = None
 
 
 class Draft(Arguments):
@@ -128,6 +130,12 @@ class ProjectTools:
             return await asyncio.to_thread(self.file, args)
         if name == "block_catalog":
             blocks = await self.services.projects.blocks_for(self.application_id)
+            if args.schema_type or args.block_type == 'workflow':
+                # A workflow describes a graph, not a registered block. Generic
+                # graph schemas are independent of optional project capabilities.
+                kind = args.schema_type or 'workflow'
+                model = {'node': NodeSpec, 'edge': EdgeSpec, 'test': WorkflowTestCase, 'workflow': WorkflowSpec}[kind]
+                return {'schema_type': kind, 'schema': model.model_json_schema()}
             if args.tool_name:
                 definition = next((t for t in self.tool_definitions() if t['name'] == args.tool_name), None)
                 if definition:
@@ -153,10 +161,14 @@ class ProjectTools:
                                        'If a required dependency is missing, report the required environment change '
                                        'instead of silently reducing the requested solution.'}
             if args.block_type:
-                return {"manual": blocks.manual(args.block_type),
-                        "node_schema": NodeSpec.model_json_schema(),
-                        "edge_schema": EdgeSpec.model_json_schema(),
-                        "test_schema": WorkflowTestCase.model_json_schema()}
+                result = {"manual": blocks.manual(args.block_type)}
+                if args.view == 'full':
+                    result.update(node_schema=NodeSpec.model_json_schema(),
+                                  edge_schema=EdgeSpec.model_json_schema(),
+                                  test_schema=WorkflowTestCase.model_json_schema())
+                else:
+                    result['detail'] = 'Generic schema: block_catalog(schema_type="node"|"edge"|"test"|"workflow"). view="full" includes all legacy schemas.'
+                return result
             return [{"type": b.type, "title": b.title, "description": b.description}
                     for b in blocks.list()]
         if name == "workflow_draft":

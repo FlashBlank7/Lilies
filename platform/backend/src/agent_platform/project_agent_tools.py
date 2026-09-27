@@ -9,7 +9,7 @@ from uuid import uuid4
 from fastapi.encoders import jsonable_encoder
 from pydantic import Field, model_validator
 
-from .local_agent_tools import Arguments, Draft, ProjectTools, Run, TOOL_MODELS, tool_specs
+from .local_agent_tools import Arguments, Catalog, Draft, ProjectTools, Run, TOOL_MODELS, tool_specs
 from .project_conversation import ProgressTool, ProjectAction
 from .project_agent_context import draft_summary, progress_summary, task_summary
 from .workflow_models import DraftEdit, DraftOperation
@@ -62,11 +62,26 @@ class DraftBatch(Arguments):
         return self
 
 
+class ProjectCatalog(Catalog):
+    view: Literal['compact', 'full'] = Field(default='compact',
+        description='compact returns the complete block manual without repeating generic node/edge/test schemas; full retains the legacy combined response.')
+    schema_type: Literal['node', 'edge', 'test', 'workflow'] | None = Field(default=None,
+        description='Read just one generic schema. A workflow graph is not a block_type.')
+
+
 class MemberDraft(Draft):
     workflow_id: str = ''
-    view: Literal['summary', 'nodes', 'tests', 'full'] = 'summary'
+    view: Literal['summary', 'nodes', 'tests', 'full'] = Field(default='summary',
+        description='Read selection, e.g. view="summary". Reads use view, not action. No operation/batch means read only.')
     node_ids: list[str] = Field(default_factory=list, max_length=100)
     batch: DraftBatch | None = None
+
+    @model_validator(mode='before')
+    @classmethod
+    def read_selector(cls, value):
+        if isinstance(value, dict) and 'action' in value:
+            raise ValueError('读取草稿使用 view="summary"（或 nodes/tests/full），不是 action；编辑使用 operation 或 batch。')
+        return value
 
     @model_validator(mode='after')
     def selection(self):
@@ -174,8 +189,8 @@ PROJECT_TOOL_MODELS = {
     'project_modeling': (ModelingTool, 'Project CPU modeling: analyze data, create_study, train without a workflow, compare results and read training notes. submit_and_run retains the legacy workflow path. Default view=summary; view=full for details. Read the modeling project Skill when setup help is needed. Stop/resume uses the original task. Evaluation/data stay fixed; never finalize holdout without authorization. AIDE studies require next_step before each new candidate.'),
     'project_progress': (ProgressTool, 'Default read returns a SUMMARY with current revision; item_id reads one complete item, view=full reads the complete record. Prefer action=patch, item_id, changes, expected_revision to create/update ONE item while preserving others. Without item_id patch accepts goal/summary only. For action=update, value is a COMPLETE replacement: read view=full first, never replace from a summary. Version conflicts are explicit. Preserve customer answers. Record this request deliverable/completion_criteria separately from the enterprise goal. Link only real current-project workflows, tasks and files.'),
     'project_action': (ProjectAction, 'Optional project progress actions and frozen-task resume. trial/operate run an existing workflow immediately; item_id is optional. workflow_run(action="start") is the direct execution path. wait with task_id awaits an existing task and returns its result without starting or resuming it; no item_id is required. build and wait with item_id organize progress items, and are never required before editing, training or execution. finish ends this conversation request.'),
-    'workflow_draft': (MemberDraft, 'Read the current draft SUMMARY (revision/content_hash, nodes/edges index, tests index); view=nodes with node_ids reads exact configs, view=tests reads saved tests, view=full reads the complete draft. workflow_id defaults to the project main. Prefer batch={expected_revision,expected_content_hash,idempotency_key,operations:[{op,data},...]} for related edits to ONE member: one atomic save, rollback on any error, one revision increment. A single operation using the legacy schema is also supported. Read current revision before editing, preserve human layout, and use update_node.data={node_id,changes,merge_config:true}. Mutations return a summary; full data remains readable. Project capability limits still apply; resources may remain unbound.'),
-    'workflow_run': (MemberRun, 'Validate/start/inspect/test a member workflow. respond(task_id,run_id,node_id,inputs) submits only the user explicit answers to the current waiting_input form and resumes that same task; never invent answers. Unknown is a valid user answer when the workflow allows it. start and respond wait by default until completion, failure, or the next input question; wait=false returns the running task for background work. For an existing running task, inspect(task_id=...,wait_seconds=30) waits up to 30 seconds without creating or restarting a task; maximum 60, default 0 returns immediately. Timeout returns its current status and leaves it running. Use bounded waiting instead of repeated immediate polling. Read the bounded summary first; output_path=["test"] (or another actual output key) retrieves exact result details without traces. Use inspect(task_id=...,view=full) only when full inputs and member traces are needed for diagnosis. Small outputs remain complete; outputs_truncated explicitly marks previews. Saved tests return summary and failing cases by default; view=full returns every test. All member drafts freeze per task. Optional build request_key tests idempotency: same key/content returns existing task, changed content conflicts. Read actual failures and repair only affected code/graph, then rerun affected checks. Single terminal fields are direct; multiple terminals are grouped; workflow: calls wrap output.'),
+    'workflow_draft': (MemberDraft, 'Read with view="summary" (default; no action parameter). Returns revision/content_hash, nodes/edges index and tests index; view=nodes with node_ids reads exact configs, view=tests reads saved tests, view=full reads the complete draft. workflow_id defaults to the project main. Prefer batch={expected_revision,expected_content_hash,idempotency_key,operations:[{op,data},...]} for related edits to ONE member: one atomic save, rollback on any error, one revision increment. A single operation using the legacy schema is also supported. Read current revision before editing, preserve human layout, and use update_node.data={node_id,changes,merge_config:true}. Mutations return a summary; full data remains readable. Project capability limits still apply; resources may remain unbound.'),
+    'workflow_run': (MemberRun, 'Validate/start/inspect/test a member workflow. validate checks structure/config and project capabilities only; no saved tests or ready resources required. valid does not mean runtime resources are ready. Use tests explicitly to execute saved assertions. respond(task_id,run_id,node_id,inputs) submits only the user explicit answers to the current waiting_input form and resumes that same task; never invent answers. Unknown is a valid user answer when the workflow allows it. start and respond wait by default until completion, failure, or the next input question; wait=false returns the running task for background work. For an existing running task, inspect(task_id=...,wait_seconds=30) waits up to 30 seconds without creating or restarting a task; maximum 60, default 0 returns immediately. Timeout returns its current status and leaves it running. Use bounded waiting instead of repeated immediate polling. Read the bounded summary first; output_path=["test"] (or another actual output key) retrieves exact result details without traces. Use inspect(task_id=...,view=full) only when full inputs and member traces are needed for diagnosis. Small outputs remain complete; outputs_truncated explicitly marks previews. Saved tests return summary and failing cases by default; view=full returns every test. All member drafts freeze per task. Optional build request_key tests idempotency: same key/content returns existing task, changed content conflicts. Read actual failures and repair only affected code/graph, then rerun affected checks. Single terminal fields are direct; multiple terminals are grouped; workflow: calls wrap output.'),
     'project_workflows': (Members, 'List project members with ids, create a new blank member or remove an unreferenced member. inspect shows declared inputs and outputs. Main workflow id equals project id. A Tool node with tool_name="workflow:<member-id>" and input={...} calls that member. Main canvas is the executable collaboration graph.'),
     'project_records': (Records, 'Read shared business records (get: found/revision/value; list: records). To change records, use a project_record node.'),
     'project_task_result': (TaskResult, 'Complete the active operate task or ask for needed input. A finished model turn does not itself finish a business task. Report actual run outputs; waiting_input lets the user update records and continue the same task.'),
@@ -184,6 +199,10 @@ PROJECT_TOOL_MODELS = {
 
 def project_tool_specs():
     definitions = {x['name']: x for x in tool_specs()}
+    definitions['block_catalog'].update(inputSchema=ProjectCatalog.model_json_schema(), description=
+        'List available blocks, or read block_type="start"/another available type for its complete manual and config schema. '
+        'Generic graph format: schema_type="workflow"; use "node", "edge", or "test" for one schema. '
+        'tool_name reads the named tool parameters and examples. view="full" includes legacy combined schemas. All help is optional.')
     for name, (model, description) in PROJECT_TOOL_MODELS.items():
         definitions[name] = {'type': 'function', 'name': name, 'description': description,
                              'inputSchema': model.model_json_schema(),
@@ -253,6 +272,8 @@ class WorkspaceProjectTools(ProjectTools):
         return await self.projects.task(self.application_id, task['id'])
 
     async def call(self, name: str, arguments: dict) -> Any:
+        if name == 'block_catalog':
+            arguments = ProjectCatalog.model_validate(arguments).model_dump()
         phase = self.manager.load(self.application_id).get('phase')
         if name == 'project_file' and arguments.get('action') == 'write':
             self.require_build()
@@ -288,7 +309,7 @@ class WorkspaceProjectTools(ProjectTools):
                               {'id': 'train-end', 'source': 'train', 'target': 'end'}]}
             if name == 'block_catalog' and arguments.get('tool_name') == 'workflow_draft':
                 result['examples'] = [
-                    {'workflow_id': 'current-member-id'},
+                    {'workflow_id': 'current-member-id', 'view': 'summary'},
                     {'view': 'nodes', 'node_ids': ['compute']},
                     {'batch': {'expected_revision': 5, 'expected_content_hash': 'hash-from-summary',
                         'idempotency_key': 'one-related-change', 'operations': [
@@ -517,7 +538,8 @@ class WorkspaceProjectTools(ProjectTools):
             if phase == 'build':
                 self.require_build()
             if args.action == 'validate':
-                return jsonable_encoder(await self.services.applications.validate_draft(workflow_id))
+                return jsonable_encoder(await self.services.applications.validate_draft(
+                    workflow_id, structure_only=True))
             if args.action == 'tests':
                 self.require_build()
                 # Each saved test uses a real project task with project context and frozen members.

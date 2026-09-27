@@ -1,6 +1,11 @@
 """Project agents can discover and apply the real incremental edit contract."""
+import json
+
+import jsonschema
+
 from tests.test_projects import configured, graph, node, edge  # noqa: F401
 from agent_platform.requirement_discussion import save_discussion
+from agent_platform.local_agent_tools import ProjectTools
 
 
 def prepare(configured):
@@ -62,3 +67,50 @@ def test_old_pause_state_does_not_block_direct_editing(configured):
     runtime_help = client.post(base+'/agent-tools', json={'name': 'block_catalog', 'arguments': {'tool_name': 'Bash'}})
     assert runtime_help.status_code == 200 and 'command' in runtime_help.json()['input_schema']['properties']
     assert client.get(base+'/tasks').json() == []
+
+
+def test_compact_manuals_keep_config_help_and_graph_schema_builds_a_real_flow(configured):
+    client, manager, pid, base = prepare(configured)
+    def catalog(**arguments):
+        response = client.post(base+'/agent-tools', json={'name':'block_catalog', 'arguments':arguments})
+        assert response.status_code == 200, response.text
+        return response.json()
+    compact, full = [], []
+    for kind in ('start', 'end'):
+        small = catalog(block_type=kind)
+        large = catalog(block_type=kind, view='full')
+        assert small['manual'] == large['manual']  # No lost config, ports or examples.
+        compact.append(small); full.append(large)
+    shape = catalog(schema_type='workflow')
+    # The previously ambiguous request has a usable answer, not an invented block.
+    assert catalog(block_type='workflow') == shape
+    workflow = {'nodes':[node('start','start',inputs=[{'name':'quantity','type':'number','default':1}]),
+                        node('end','end',outputs={'quantity':{'$ref':{'node_id':'start','path':['quantity']}}})],
+                'edges':[edge('start','end')]}
+    jsonschema.validate(workflow, shape['schema'])
+    for name in ('node', 'edge', 'test'):
+        assert catalog(schema_type=name)['schema'] == full[0][name+'_schema']
+    before = client.get('/api/v1/applications/'+pid+'/draft').json()
+    edited = client.post(base+'/agent-tools', json={'name':'workflow_draft','arguments':{'operation':{
+        'op':'replace_workflow','expected_revision':before['revision'],'idempotency_key':'from-compact-help','data':{'workflow':workflow}}}})
+    assert edited.status_code == 200, edited.text
+    for values, expected in [({},1), ({'quantity':4},4)]:
+        run = client.post(base+'/agent-tools',json={'name':'workflow_run','arguments':{'action':'start','inputs':values}})
+        assert run.status_code == 200 and run.json()['outputs'] == {'quantity':expected}
+    # Compare useful data returned by the same two queries, including one shared
+    # graph schema read. This measures payload, not model tokens or response quality.
+    assert len(json.dumps(compact+[shape])) < len(json.dumps(full))
+    # Non-project legacy callers retain the previous combined response by default.
+    legacy = ProjectTools(manager.services, pid, manager)
+    result = client.portal.call(legacy.call, 'block_catalog', {'block_type':'start'})
+    assert result == full[0]
+
+
+def test_wrong_draft_selector_returns_actionable_help_without_editing(configured):
+    client, _, pid, base = prepare(configured)
+    before = client.get('/api/v1/applications/'+pid+'/draft').json()
+    wrong = client.post(base+'/agent-tools',json={'name':'workflow_draft','arguments':{'action':'summary'}})
+    assert wrong.status_code == 422 and 'view=' in wrong.text
+    corrected = client.post(base+'/agent-tools',json={'name':'workflow_draft','arguments':{'view':'summary'}})
+    assert corrected.status_code == 200 and corrected.json()['revision'] == before['revision']
+    assert client.get('/api/v1/applications/'+pid+'/draft').json()['content_hash'] == before['content_hash']
