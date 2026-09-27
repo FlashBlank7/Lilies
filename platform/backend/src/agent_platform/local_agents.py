@@ -13,7 +13,7 @@ from uuid import uuid4
 from pydantic import ValidationError
 
 from .build_transcript import owner_record
-from .codex_app_server import CodexAppServer, inspect_executable, validate_codex_version
+from .codex_app_server import CodexAppServer, CodexError, inspect_executable, validate_codex_version
 from .local_agent_tools import ProjectTools, tool_specs
 from .models import utc_now
 from .model_connections import ModelConnection, ModelConnections, LOCAL_PROVIDERS, AGENT_PROVIDERS
@@ -455,37 +455,51 @@ class LocalAgents:
                 # Codex's thread/resume cannot replace dynamicTools. Keep the
                 # application conversation while renewing only its provider thread.
                 renew = bool(state['provider'] in {'codex', 'official'} and previous_thread and state.get('tool_contract') != contract)
+                missing_rollout = False
                 try:
-                    thread_id = await client.start(specs, instructions, None if renew else previous_thread)
-                except FileNotFoundError as cause:
-                    # Editor updates can remove the versioned CLI path. Only
-                    # rediscover a missing executable, never missing session data.
-                    # uvloop omits filename for subprocess spawn failures.
-                    missing_cli = cause.filename == state['executable'] or (
-                        cause.filename is None and not Path(state['executable']).exists())
-                    if not missing_cli:
+                    try:
+                        thread_id = await client.start(specs, instructions, None if renew else previous_thread)
+                    except FileNotFoundError as cause:
+                        # Editor updates can remove the versioned CLI path. Only
+                        # rediscover a missing executable, never missing session data.
+                        # uvloop omits filename for subprocess spawn failures.
+                        missing_cli = cause.filename == state['executable'] or (
+                            cause.filename is None and not Path(state['executable']).exists())
+                        if not missing_cli:
+                            raise
+                        if state['provider'] != 'codex':
+                            raise
+                        info = await inspect_executable('codex')
+                        validate_codex_version(info['version'])
+                        await client.close()
+                        client = self.client_factory(info['path'],
+                            self.folder(application_id) / state['session_id'], model=state.get('model', ''), thinking=state.get('thinking', 'medium'))
+                        self.clients[self.key(application_id)] = client
+                        current = self.load(application_id)
+                        current.update(executable=info['path'], version=info['version'])
+                        self.save(application_id, current)
+                        self.event(application_id, 'status', '已找到更新后的本机 Codex，继续原项目会话。')
+                        thread_id = await client.start(specs, instructions, None if renew else previous_thread)
+                except CodexError as cause:
+                    # A thread can be persisted before its first turn creates a
+                    # rollout. Recover only this exact failed resume, never a turn
+                    # or another protocol/permission/connection error.
+                    if (state['provider'] not in {'codex', 'official'} or not previous_thread or renew
+                            or str(cause).strip() != f'no rollout found for thread id {previous_thread}'):
                         raise
-                    if state['provider'] != 'codex':
-                        raise
-                    info = await inspect_executable('codex')
-                    validate_codex_version(info['version'])
-                    await client.close()
-                    client = self.client_factory(info['path'],
-                        self.folder(application_id) / state['session_id'], model=state.get('model', ''), thinking=state.get('thinking', 'medium'))
-                    self.clients[self.key(application_id)] = client
-                    current = self.load(application_id)
-                    current.update(executable=info['path'], version=info['version'])
-                    self.save(application_id, current)
-                    self.event(application_id, 'status', '已找到更新后的本机 Codex，继续原项目会话。')
-                    thread_id = await client.start(specs, instructions, None if renew else previous_thread)
+                    thread_id = await client.start(specs, instructions, None)
+                    renew = missing_rollout = True
                 state = self.load(application_id)
                 state["thread_id"] = thread_id
                 state['tool_contract'] = contract
                 if renew:
                     state.setdefault('previous_threads', []).append(previous_thread)
                     state['context_handoff'] = True
+                    state['context_handoff_reason'] = 'missing_rollout' if missing_rollout else 'tool_upgrade'
                     state['official_total_tokens'] = 0
                 self.save(application_id, state)
+                if missing_rollout:
+                    self.event(application_id, 'status', '原模型会话的恢复文件缺失，已建立新的模型会话；本项目对话和任务均保留，将从现有进展接续。')
             if reset_budget := getattr(client, 'reset_budget', None):
                 reset_budget()
             state = self.load(application_id)
@@ -502,7 +516,8 @@ class LocalAgents:
                 context['recent_project_messages'] = [
                     {'role': e['kind'], 'text': e['text'][:6000]}
                     for e in state['events'] if e['kind'] in {'user', 'assistant'}][-12:]
-                context['instruction'] += ' 平台工具已升级，本项目旧会话和结果均保留。先从当前项目进展、需求与现有成员/结果接续，不重新开始整个项目。'
+                reason = '原模型会话的恢复文件缺失，已建立新的模型会话。' if state.get('context_handoff_reason') == 'missing_rollout' else '平台工具已升级。'
+                context['instruction'] += ' ' + reason + ' 本项目旧会话和结果均保留。先从当前项目进展、需求与现有成员/结果接续，不重新开始整个项目，不重复执行已完成的工具操作。'
             if project_task_id:
                 context['business_task'] = await self.services.projects.task(application_id, project_task_id)
 
@@ -673,7 +688,8 @@ class LocalAgents:
                         context['recent_project_messages'] = [
                             {'role': e['kind'], 'text': e['text'][:2000]}
                             for e in current['events'] if e['kind'] in {'user', 'assistant'}][-6:]
-                        context['instruction'] += ' 工具已升级，原项目消息、需求和结果均保留；从当前事项接续。'
+                        reason = '原模型会话的恢复文件缺失，已建立新的模型会话。' if current.get('context_handoff_reason') == 'missing_rollout' else '工具已升级。'
+                        context['instruction'] += ' ' + reason + ' 原项目消息、需求和结果均保留；从当前事项接续，不重复执行已完成的工具操作。'
                 productive = False
                 turn_key = str(uuid4())
                 self.event(application_id, 'agent_turn_started', 'Agent 回合开始', agent_turn_id=turn_key,
@@ -694,6 +710,7 @@ class LocalAgents:
                     break
                 current = self.load(application_id)
                 if current.pop('context_handoff', False):
+                    current.pop('context_handoff_reason', None)
                     self.save(application_id, current)
                 if not current.get('conversation_enabled'):
                     break

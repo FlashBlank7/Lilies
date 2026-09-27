@@ -307,9 +307,12 @@ class OfficialAgent:
 
     def client(self, project_id, runtime_dir):
         config = self.config()
+        egress = self.services.settings.official_agent_egress_enabled
+        if egress is None:
+            egress = self.services.settings.model_egress_enabled
         return self.client_factory(config.executable, runtime_dir, model=config.model, thinking=config.thinking,
                                    auth_file=self.auth_file, subscription_only=True,
-                                   allow_model_calls=self.services.settings.model_egress_enabled,
+                                   allow_model_calls=egress,
                                    auto_compact_token_limit=config.auto_compact_token_limit)
 
     async def run_turn(self, project_id, job_id, client, message, on_event, on_tool):

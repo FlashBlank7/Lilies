@@ -124,7 +124,7 @@ def patterns(tasks, operations):
 
 class FindingUpdate(BaseModel):
     model_config = ConfigDict(extra='forbid')
-    status: Literal['new', 'working', 'dismissed']
+    status: Literal['new', 'working', 'resolved', 'dismissed']
 
 
 class AutomaticSettings(BaseModel):
@@ -318,6 +318,51 @@ class UsageLearning:
                 raise HTTPException(404, '没有找到这条改进线索')
         return {**json.loads(row['payload']), 'status': row['status'], 'active': bool(row['active'])}
 
+    async def result(self, ident, user):
+        """Read this administrator's actual handling session, only when requested.
+
+        The passive scan never reads transcripts. Finishing an agent turn or a
+        test does not resolve a finding; disposition remains an explicit action.
+        """
+        item = await asyncio.to_thread(self.get, ident)
+        pid = item['project_id']
+        await self.services.accounts.require_project(user, pid)
+        with connect(self.db) as db:
+            row = db.execute('SELECT conversation_id,status,error FROM usage_handoffs WHERE finding_id=? AND user_id=?',
+                             (ident, user['id'])).fetchone()
+        if not row:
+            raise HTTPException(404, '你尚未建立这条线索的处理会话')
+        handoff = dict(row)
+        cid = handoff['conversation_id']
+        await self.services.project_sessions.require(pid, cid, user)
+
+        def read():
+            with conversation_scope(pid, cid):
+                if not (self.services.local_agents.folder(pid) / 'session.json').is_file():
+                    raise FileNotFoundError('Handling session is unavailable')
+                state = self.services.local_agents.load(pid)
+            request_id = state.get('request_id', '')
+            started = handoff['status'] == 'started' or any(
+                event.get('kind') == 'user' and event.get('request_key') == 'usage-' + ident
+                for event in state.get('events', []))
+            reply = next(({'text': event.get('text', ''), 'time': event.get('time', ''),
+                           'request_id': event.get('request_id', '')}
+                          for event in reversed(state.get('events', []))
+                          if event.get('kind') == 'assistant' and event.get('request_id', '') == request_id), None)
+            with connect(self.db) as db:
+                tasks = [dict(task) for task in db.execute('''SELECT id,workflow_id,status,purpose,error,created_at,updated_at
+                    FROM project_tasks WHERE project_id=? AND conversation_id=? ORDER BY created_at DESC,id DESC LIMIT 20''', (pid, cid))]
+                total = db.execute('SELECT COUNT(*) FROM project_tasks WHERE project_id=? AND conversation_id=?', (pid, cid)).fetchone()[0]
+            return {'project_id': pid, 'conversation_id': cid,
+                    'status': state.get('status', 'idle') if started else 'prepared',
+                    'updated_at': state.get('updated_at', ''), 'error': state.get('error') or ('' if started else handoff['error']),
+                    'queue_reason': state.get('queue_reason', ''), 'reply': reply,
+                    'tasks': tasks, 'total_tasks': total}
+        try:
+            return await asyncio.to_thread(read)
+        except (OSError, ValueError) as error:
+            raise HTTPException(503, '暂时无法读取处理进展，请稍后重试；原会话与任务保留。') from error
+
     @staticmethod
     def brief(item):
         refs = '\n'.join(f'- 任务 {t["id"]}：{t["status"]}，工作流修订 {t["revision"]}，{t["created_at"]}' for t in item['tasks'])
@@ -437,5 +482,9 @@ def router(services):
     @routes.post('/{ident}/start')
     async def start(ident: str, request: Request):
         return await learning.start(ident, request.state.user)
+
+    @routes.get('/{ident}/result')
+    async def result(ident: str, request: Request):
+        return await learning.result(ident, request.state.user)
 
     return routes

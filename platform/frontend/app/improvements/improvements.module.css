@@ -30,6 +30,7 @@
 .tags small { margin-left:auto; font-size:11px; }
 .status { font-size:11px; color:var(--ui-muted); padding:3px 7px; border-radius:5px; background:var(--ui-bg); }
 .status[data-status="working"] { color:var(--ui-accent); background:var(--ui-accent-soft); }
+.status[data-status="resolved"] { color:var(--ui-accent); }
 .project { margin:0 0 16px!important; }
 .limitation { padding-left:11px; border-left:2px solid var(--ui-line); }
 .trace { border-top:1px solid var(--ui-line); padding-top:10px; margin-top:18px!important; font-size:12px; }
@@ -46,5 +47,15 @@
 .handoff p { font-size:12px; margin:0 0 7px; }
 .handoff small { font-size:11px; }
 .handoff button { flex-shrink:0; }
+.handoffActions { display:flex; flex-wrap:wrap; gap:10px; }
+.progress { margin-top:18px; padding:18px; border:1px solid var(--ui-line); border-radius:9px; background:var(--ui-bg); }
+.progressHeading { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.progress h3 { margin:0; font-size:15px; }
+.progress h4 { margin:20px 0 8px; font-size:13px; }
+.progress small,.progress time { font-size:11px; color:var(--ui-muted); }
+.progress .reply { white-space:pre-wrap; max-height:420px; overflow:auto; padding:12px; border:1px solid var(--ui-line); border-radius:7px; background:white; line-height:1.7; }
+.resultTasks { padding:0; list-style:none; }
+.resultTasks li { padding:12px; margin:10px 0; background:white; border-radius:7px; }
+.resultTasks code { font-size:10px; }
 .empty { padding:32px 20px; text-align:center; border:1px dashed var(--ui-line); border-radius:12px; }
 @media(max-width:650px) { .item { padding:18px; } .intro { padding:16px; } .handoff { flex-direction:column; align-items:stretch; gap:14px; } .actions a { margin-left:0; width:100%; margin-top:7px; } .filters { gap:12px; } .filters label { flex:1; } .filters select { min-width:0; width:100%; } .filters small { width:100%; margin:0; padding:0; } .traceHeading time { width:100%; margin:0; } }

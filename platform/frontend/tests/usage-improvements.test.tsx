@@ -31,9 +31,17 @@ function settings() {
     { id: 'project-b', name: '客户分析', available: false, reason: '此项目未选择官方智能体' },
   ], error: '' }
 }
+function handlingResult(status = 'idle') {
+  return { project_id: 'project-a', conversation_id: 'improvement-chat', status, updated_at: '2026-09-28T09:12:00Z', error: '', queue_reason: '',
+    reply: { text: '已检查配置。\n仍需确认业务结果。<b>纯文本</b>', time: '2026-09-28T09:11:00Z', request_id: 'request-one' },
+    tasks: [{ id: 'verification-task', workflow_id: 'workflow-a', status: 'failed', purpose: 'build_test', error: '缺少测试数据', created_at: '2026-09-28T09:10:00Z', updated_at: '2026-09-28T09:11:00Z' }], total_tasks: 21 }
+}
+function handlingReport() {
+  return { ...report(), items: [recovery, reusable].map(item => ({ ...item, handoff: { conversation_id: item.id === 'repair' ? 'improvement-chat' : 'other-chat', status: 'started', error: '' } })) }
+}
 
 beforeEach(() => {
-  vi.mocked(api).mockReset(); mocks.push.mockReset(); mocks.user.role = 'admin'; sessionStorage.clear()
+  vi.mocked(api).mockReset(); mocks.push.mockReset(); mocks.user.id = 'admin-one'; mocks.user.role = 'admin'; sessionStorage.clear()
   vi.mocked(api).mockImplementation(async path => (path.endsWith('/settings') ? settings() : report()) as never)
 })
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks() })
@@ -230,4 +238,183 @@ it('identifies an unobserved historical signal without marking it resolved', asy
   expect(within(historical).queryByText('已解决')).not.toBeInTheDocument()
   expect(within(screen.getByRole('article', { name: reusable.title })).queryByText(/本轮未再观察到/)).not.toBeInTheDocument()
   expect(vi.mocked(api).mock.calls.every(([, options]) => !options)).toBe(true)
+})
+
+it('loads progress only on request, renders the actual reply as text, and continues without sending anything', async () => {
+  vi.mocked(api).mockImplementation(async path => (path.endsWith('/settings') ? settings() : path.endsWith('/result') ? handlingResult() : handlingReport()) as never)
+  render(<ImprovementsPage />)
+  const card = await screen.findByRole('article', { name: recovery.title })
+  expect(vi.mocked(api).mock.calls.some(([path]) => path.endsWith('/result'))).toBe(false)
+  expect(within(card).queryByRole('button', { name: '让项目智能体处理' })).not.toBeInTheDocument()
+  fireEvent.click(within(card).getByRole('button', { name: '查看处理进展' }))
+  const progress = within(card).getByRole('region', { name: '处理进展' })
+  expect(await within(progress).findByText('会话状态：本轮已结束')).toBeInTheDocument()
+  expect(within(progress).getByText(/仍需确认业务结果。<b>纯文本<\/b>/)).toBeInTheDocument()
+  expect(progress.querySelector('b')).toBeNull()
+  expect(within(progress).getByText('工作流测试')).toBeInTheDocument()
+  expect(within(progress).getByText('verification-task')).toBeInTheDocument()
+  expect(within(progress).getByText('缺少测试数据')).toBeInTheDocument()
+  expect(within(progress).getByText('显示最近 1 个，共 21 个任务。')).toBeInTheDocument()
+  expect(within(card).getByText('待处理')).toBeInTheDocument()
+  expect(within(progress).queryByRole('button', { name: '停止处理' })).not.toBeInTheDocument()
+  fireEvent.click(within(progress).getByRole('button', { name: '继续沟通' }))
+  expect(sessionStorage.getItem('lilies:user:admin-one:project:project-a:conversation')).toBe('improvement-chat')
+  expect(mocks.push).toHaveBeenCalledWith('/projects/project-a')
+  expect(vi.mocked(api).mock.calls.every(([, options]) => !options)).toBe(true)
+  expect(vi.mocked(api).mock.calls.filter(([path]) => path.endsWith('/result'))).toEqual([[endpoint + '/repair/result']])
+})
+
+it('refreshes only the visible expanded progress every 30 seconds and on demand', async () => {
+  vi.useFakeTimers()
+  const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
+  vi.mocked(api).mockImplementation(async path => (path.endsWith('/settings') ? settings() : path.endsWith('/result') ? { ...handlingResult('queued'), reply: null, tasks: [], total_tasks: 0, queue_reason: '等待官方智能体空闲' } : handlingReport()) as never)
+  await act(async () => { render(<ImprovementsPage />) })
+  const card = screen.getByRole('article', { name: recovery.title })
+  await act(async () => { fireEvent.click(within(card).getByRole('button', { name: '查看处理进展' })) })
+  expect(within(card).getByText('本轮尚未产生回复。')).toBeInTheDocument()
+  expect(within(card).getByText('本会话尚未产生关联任务。')).toBeInTheDocument()
+  expect(within(card).getByText('排队原因：等待官方智能体空闲')).toBeInTheDocument()
+  const reads = () => vi.mocked(api).mock.calls.filter(([path]) => path.endsWith('/result'))
+  expect(reads()).toHaveLength(1)
+  await act(async () => { await vi.advanceTimersByTimeAsync(30_000) })
+  expect(reads()).toHaveLength(2)
+  visibility.mockReturnValue('hidden')
+  await act(async () => { await vi.advanceTimersByTimeAsync(30_000) })
+  expect(reads()).toHaveLength(2)
+  await act(async () => { fireEvent.click(within(card).getByRole('button', { name: '刷新进展' })) })
+  expect(reads()).toHaveLength(3)
+  visibility.mockReturnValue('visible')
+  fireEvent.click(within(card).getByRole('button', { name: '收起处理进展' }))
+  await act(async () => { await vi.advanceTimersByTimeAsync(30_000) })
+  expect(reads()).toHaveLength(3)
+  expect(screen.queryByRole('region', { name: '处理进展' })).not.toBeInTheDocument()
+})
+
+it.each(['connecting', 'queued', 'running'])('stops a %s conversation and reloads its actual state', async initialStatus => {
+  let stopped = false
+  vi.mocked(api).mockImplementation(async path => {
+    if (path.endsWith('/settings')) return settings() as never
+    if (path.endsWith('/result')) return handlingResult(stopped ? 'interrupted' : initialStatus) as never
+    if (path.endsWith('/stop')) { stopped = true; return {} as never }
+    return handlingReport() as never
+  })
+  render(<ImprovementsPage />)
+  const card = await screen.findByRole('article', { name: recovery.title })
+  fireEvent.click(within(card).getByRole('button', { name: '查看处理进展' }))
+  fireEvent.click(await within(card).findByRole('button', { name: '停止处理' }))
+  expect(await within(card).findByText('会话状态：已中断')).toBeInTheDocument()
+  expect(api).toHaveBeenCalledWith('/api/v1/projects/project-a/conversations/improvement-chat/stop', { method: 'POST' })
+  expect(vi.mocked(api).mock.calls.filter(([path]) => path.endsWith('/result'))).toHaveLength(2)
+  expect(vi.mocked(api).mock.calls.filter(([, options]) => options)).toHaveLength(1)
+  expect(mocks.push).not.toHaveBeenCalled()
+})
+
+it('keeps an inaccessible progress panel local to its card and supports an explicit retry', async () => {
+  let denied = true
+  vi.mocked(api).mockImplementation(async path => {
+    if (path.endsWith('/settings')) return settings() as never
+    if (path.endsWith('/result')) {
+      if (denied) throw new Error('无权查看此处理会话')
+      return { ...handlingResult('failed'), error: '模型连接已断开' } as never
+    }
+    return handlingReport() as never
+  })
+  render(<ImprovementsPage />)
+  const card = await screen.findByRole('article', { name: recovery.title })
+  fireEvent.click(within(card).getByRole('button', { name: '查看处理进展' }))
+  expect(await within(card).findByRole('alert')).toHaveTextContent('无权查看此处理会话')
+  expect(within(card).queryByRole('button', { name: '继续沟通' })).not.toBeInTheDocument()
+  expect(within(card).getByRole('button', { name: '标为已处理' })).toBeEnabled()
+  expect(screen.getByRole('article', { name: reusable.title })).toBeInTheDocument()
+  denied = false
+  fireEvent.click(within(card).getByRole('button', { name: '刷新进展' }))
+  expect(await within(card).findByText('会话状态：失败')).toBeInTheDocument()
+  expect(within(card).getByRole('alert')).toHaveTextContent('模型连接已断开')
+})
+
+it('ignores delayed results after closing, reopening, or switching cards', async () => {
+  const pending: ((value: never) => void)[] = []
+  vi.mocked(api).mockImplementation(async path => path.endsWith('/result')
+    ? new Promise(resolve => { pending.push(resolve) }) : (path.endsWith('/settings') ? settings() : handlingReport()) as never)
+  render(<ImprovementsPage />)
+  const first = await screen.findByRole('article', { name: recovery.title })
+  const second = screen.getByRole('article', { name: reusable.title })
+  fireEvent.click(within(first).getByRole('button', { name: '查看处理进展' }))
+  fireEvent.click(within(first).getByRole('button', { name: '收起处理进展' }))
+  fireEvent.click(within(first).getByRole('button', { name: '查看处理进展' }))
+  await act(async () => { pending[1]({ ...handlingResult(), reply: { text: '新请求返回的回复', time: '', request_id: 'new' } } as never) })
+  await act(async () => { pending[0]({ ...handlingResult(), reply: { text: '关闭前的过时回复', time: '', request_id: 'old' } } as never) })
+  expect(within(first).getByText('新请求返回的回复')).toBeInTheDocument()
+  expect(screen.queryByText('关闭前的过时回复')).not.toBeInTheDocument()
+  fireEvent.click(within(first).getByRole('button', { name: '刷新进展' }))
+  fireEvent.click(within(second).getByRole('button', { name: '查看处理进展' }))
+  await act(async () => { pending[3]({ ...handlingResult(), conversation_id: 'other-chat', reply: { text: '第二条线索的回复', time: '', request_id: 'second' } } as never) })
+  await act(async () => { pending[2]({ ...handlingResult(), reply: { text: '第一条线索的迟到回复', time: '', request_id: 'late' } } as never) })
+  expect(screen.getAllByRole('region', { name: '处理进展' })).toHaveLength(1)
+  expect(within(second).getByText('第二条线索的回复')).toBeInTheDocument()
+  expect(screen.queryByText('第一条线索的迟到回复')).not.toBeInTheDocument()
+})
+
+it('clears loaded replies and ignores delayed refreshes when the account changes', async () => {
+  let resolveOld!: (value: never) => void
+  let requests = 0
+  vi.mocked(api).mockImplementation(async path => {
+    if (path.endsWith('/settings')) return settings() as never
+    if (path.endsWith('/result')) {
+      requests += 1
+      return requests === 1 ? handlingResult() as never : new Promise(resolve => { resolveOld = resolve })
+    }
+    return handlingReport() as never
+  })
+  const view = render(<ImprovementsPage />)
+  const card = await screen.findByRole('article', { name: recovery.title })
+  fireEvent.click(within(card).getByRole('button', { name: '查看处理进展' }))
+  await within(card).findByText('会话状态：本轮已结束')
+  fireEvent.click(within(card).getByRole('button', { name: '刷新进展' }))
+  mocks.user.id = 'admin-two'
+  view.rerender(<ImprovementsPage />)
+  await screen.findByRole('article', { name: recovery.title })
+  expect(screen.queryByRole('region', { name: '处理进展' })).not.toBeInTheDocument()
+  expect(screen.queryByText(/仍需确认业务结果。<b>/)).not.toBeInTheDocument()
+  await act(async () => { resolveOld({ ...handlingResult(), reply: { text: '上个账号的回复', time: '', request_id: 'old-user' } } as never) })
+  expect(screen.queryByText('上个账号的回复')).not.toBeInTheDocument()
+  expect(requests).toBe(2)
+  expect(sessionStorage.length).toBe(0)
+})
+
+it('marks a signal handled, filters it, and reopens it without starting a conversation', async () => {
+  const data = handlingReport()
+  vi.mocked(api).mockImplementation(async (path, options) => {
+    if (path.endsWith('/settings')) return settings() as never
+    if (options?.method === 'PATCH') { data.items[0].status = JSON.parse(options.body as string).status; return {} as never }
+    return { ...data } as never
+  })
+  render(<ImprovementsPage />)
+  const card = await screen.findByRole('article', { name: recovery.title })
+  fireEvent.click(within(card).getByRole('button', { name: '标为已处理' }))
+  await waitFor(() => expect(within(card).getByText('已处理')).toBeInTheDocument())
+  expect(api).toHaveBeenCalledWith(endpoint + '/repair', { method: 'PATCH', body: JSON.stringify({ status: 'resolved' }) })
+  fireEvent.change(screen.getByLabelText('处理状态'), { target: { value: 'resolved' } })
+  expect(screen.getAllByRole('article')).toHaveLength(1)
+  fireEvent.click(within(card).getByRole('button', { name: '重新打开' }))
+  await waitFor(() => expect(screen.queryByRole('article')).not.toBeInTheDocument())
+  expect(api).toHaveBeenCalledWith(endpoint + '/repair', { method: 'PATCH', body: JSON.stringify({ status: 'new' }) })
+  expect(vi.mocked(api).mock.calls.some(([path]) => path.endsWith('/start'))).toBe(false)
+})
+
+it('shows an explicit start retry for a prepared conversation without retrying on progress reads', async () => {
+  vi.mocked(api).mockImplementation(async path => {
+    if (path.endsWith('/settings')) return settings() as never
+    if (path.endsWith('/result')) return { ...handlingResult('idle'), reply: null, tasks: [], total_tasks: 0 } as never
+    if (path.endsWith('/start')) return handlingResult('running') as never
+    return { ...report(), items: [{ ...recovery, handoff: { conversation_id: 'improvement-chat', status: 'prepared', error: '上次启动失败' } }] } as never
+  })
+  render(<ImprovementsPage />)
+  const card = await screen.findByRole('article', { name: recovery.title })
+  fireEvent.click(within(card).getByRole('button', { name: '查看处理进展' }))
+  await within(card).findByText('本轮尚未产生回复。')
+  expect(vi.mocked(api).mock.calls.every(([, options]) => !options)).toBe(true)
+  fireEvent.click(within(card).getByRole('button', { name: '重试启动' }))
+  await waitFor(() => expect(api).toHaveBeenCalledWith(endpoint + '/repair/start', { method: 'POST' }))
+  await waitFor(() => expect(mocks.push).toHaveBeenCalledWith('/projects/project-a'))
 })

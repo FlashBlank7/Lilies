@@ -7,6 +7,8 @@ from uuid import uuid4
 import pytest
 
 from agent_platform.official_agent import ServiceConfig
+from agent_platform.codex_app_server import CodexError
+from tests.test_local_agents import configured as legacy_configured  # noqa: F401
 from tests.test_users import platform, signup, project  # noqa: F401
 
 ADMIN = {'Authorization': 'Bearer admin-boot'}
@@ -71,6 +73,24 @@ def enable(client, pid):
     assert client.put(base+'/capabilities',headers=ADMIN,json={'agent_modules_enabled':True}).status_code == 200
     result = client.put(base+'/assistant-source',headers=ADMIN,json={'allowed':True,'task':'official'})
     assert result.status_code == 200, result.text
+
+
+@pytest.mark.parametrize('raw,override,allowed', [(False,None,False), (True,None,True),
+    (False,True,True), (True,False,False), (False,False,False)])
+def test_official_egress_can_be_authorized_without_enabling_raw_api(official, tmp_path, raw, override, allowed):
+    from agent_platform.codex_app_server import CodexAppServer, CodexError
+    client, app, service = official
+    app.state.services.settings.model_egress_enabled = raw
+    app.state.services.settings.official_agent_egress_enabled = override
+    service.client_factory = CodexAppServer
+    connection = service.client('unused-project', tmp_path/'runtime')
+    assert connection.allow_model_calls is allowed
+    assert connection.subscription_only  # No API-key fallback.
+    assert app.state.services.settings.model_egress_enabled is raw
+    if not allowed:
+        with pytest.raises(CodexError, match='模型出口已关闭'):
+            asyncio.run(connection.turn('不会发出请求', None, None))
+    assert connection.process is None  # This routing test never starts a provider.
 
 
 def chat(client,pid,headers):
@@ -463,3 +483,192 @@ def test_stop_during_history_compaction_keeps_original_thread_for_manual_resume(
     assert wait(client, path, headers)['status'] == 'idle'
     assert FakeAgent.turns[-1][0] == thread
     assert len(FakeAgent.turns) == 2
+
+
+def test_missing_rollout_recovers_same_conversation_with_context_and_preserves_business(official, monkeypatch):
+    from agent_platform.conversation_scope import conversation_scope
+    from tests.test_projects import graph, node, edge
+    client, app, service = official
+    _, headers = signup(client, 'RecoverWorker')
+    pid = project(client, headers); enable(client, pid)
+    client.headers.update(headers)
+    graph(client, pid, [node('start', 'start'),
+        node('save', 'project_record', action='put', collection='requests', key='once',
+             value={'done': True}, expected_revision=0),
+        node('end', 'end', outputs={'answer': 42})], [edge('start', 'save'), edge('save', 'end')])
+    path = chat(client, pid, headers)
+    cid = path.rsplit('/', 1)[-1]
+    contexts, starts, business = [], [], []
+    original_turn, original_start = FakeAgent.turn, FakeAgent.start
+    async def turn(self, message, on_event, on_tool, **kwargs):
+        context = json.loads(message)
+        contexts.append(context)
+        if len(contexts) == 1:
+            business.append(await on_tool('workflow_run', {'action': 'start', 'request_key': 'business-once'}))
+        else:
+            business.append(await on_tool('workflow_run', {'action': 'inspect', 'task_id': business[0]['id']}))
+        result = await original_turn(self, message, on_event, on_tool, **kwargs)
+        await on_event('item/completed', {'item': {'type': 'agentMessage', 'text': '原业务操作已完成'}})
+        return result
+    monkeypatch.setattr(FakeAgent, 'turn', turn)
+    assert client.post(path+'/messages', json={'message': '执行一次已有工作流'}).status_code == 202
+    assert wait(client, path, headers)['status'] == 'idle'
+    manager = app.state.services.local_agents
+    with conversation_scope(pid, cid):
+        before = manager.load(pid)
+        old_thread = before['thread_id']
+        before['official_total_tokens'] = 850000
+        manager.save(pid, before)
+        old_client = manager.clients.pop(manager.key(pid))
+    client.portal.call(old_client.close)
+    old_tasks = client.get('/api/v1/projects/'+pid+'/tasks').json()
+    old_record = client.get('/api/v1/projects/'+pid+'/records/requests/once').json()
+    assert len(old_tasks) == 1 and old_tasks[0]['status'] == 'succeeded'
+    async def start(self, tools, instructions, thread_id=None):
+        starts.append(thread_id)
+        if thread_id == old_thread:
+            raise CodexError('no rollout found for thread id ' + old_thread)
+        return await original_start(self, tools, instructions, thread_id)
+    monkeypatch.setattr(FakeAgent, 'start', start)
+    assert client.post(path+'/messages', json={'message': '只解释现有结果，不要再次运行'}).status_code == 202
+    state = wait(client, path, headers)
+    assert state['status'] == 'idle', state
+    with conversation_scope(pid, cid):
+        after = manager.load(pid)
+    assert starts == [old_thread, None]
+    assert after['thread_id'] != old_thread and after['previous_threads'] == [old_thread]
+    assert after['session_id'] == before['session_id'] and after['conversation_id'] == cid
+    assert {event['id'] for event in before['events']} <= {event['id'] for event in after['events']}
+    assert client.get('/api/v1/projects/'+pid+'/tasks').json() == old_tasks
+    assert client.get('/api/v1/projects/'+pid+'/records/requests/once').json() == old_record
+    assert len(FakeAgent.turns) == 2 and len(contexts) == 2
+    recovered = contexts[1]
+    assert recovered['project']['id'] == pid and recovered['workflows'][0]['id'] == pid
+    assert {message['text'] for message in recovered['recent_project_messages']} >= {
+        '执行一次已有工作流', '原业务操作已完成', '只解释现有结果，不要再次运行'}
+    assert '恢复文件缺失' in recovered['instruction'] and '工具已升级' not in recovered['instruction']
+    assert any(event['kind'] == 'status' and '恢复文件缺失' in event['text'] for event in after['events'])
+    assert not after.get('context_handoff') and not after.get('context_handoff_reason')
+    assert after['official_total_tokens'] == 100
+    assert [job['tokens'] for job in service.jobs()] == [100, 100]
+    assert app.state.services.settings.model_egress_enabled is False
+
+
+@pytest.mark.parametrize('failure', [
+    'no rollout found for thread id another-thread',
+    'no rollout found for thread id {thread}: permission denied',
+    'Codex 请求 thread/resume 长时间无响应',
+    '官方智能体需要订阅账号登录，不能使用 API Key',
+    '本机 Codex 连接已断开',
+])
+def test_other_resume_errors_do_not_replace_the_provider_thread(official, monkeypatch, failure):
+    from agent_platform.conversation_scope import conversation_scope
+    client, app, _ = official
+    _, headers = signup(client, 'ResumeErrorWorker')
+    pid = project(client, headers); enable(client, pid); path = chat(client, pid, headers)
+    assert client.post(path+'/messages', headers=headers, json={'message': '读取文件'}).status_code == 202
+    assert wait(client, path, headers)['status'] == 'idle'
+    manager = app.state.services.local_agents
+    with conversation_scope(pid, path.rsplit('/', 1)[-1]):
+        before = manager.load(pid)
+        old_client = manager.clients.pop(manager.key(pid))
+    client.portal.call(old_client.close)
+    attempts = []
+    async def start(self, tools, instructions, thread_id=None):
+        attempts.append(thread_id)
+        raise CodexError(failure.format(thread=before['thread_id']))
+    monkeypatch.setattr(FakeAgent, 'start', start)
+    assert client.post(path+'/messages', headers=headers, json={'message': '继续'}).status_code == 202
+    state = wait(client, path, headers)
+    assert state['status'] == 'error' and state['error'] == failure.format(thread=before['thread_id'])
+    assert attempts == [before['thread_id']] and len(FakeAgent.turns) == 1
+    with conversation_scope(pid, path.rsplit('/', 1)[-1]):
+        after = manager.load(pid)
+    assert after['thread_id'] == before['thread_id'] and after['session_id'] == before['session_id']
+    assert not after.get('previous_threads') and not after.get('context_handoff')
+    assert {event['id'] for event in before['events']} <= {event['id'] for event in after['events']}
+
+
+def test_missing_rollout_replacement_failure_keeps_original_thread_and_budget(official, monkeypatch):
+    from agent_platform.conversation_scope import conversation_scope
+    client, app, _ = official
+    _, headers = signup(client, 'ReplacementErrorWorker')
+    pid = project(client, headers); enable(client, pid); path = chat(client, pid, headers)
+    assert client.post(path+'/messages', headers=headers, json={'message': '读取文件'}).status_code == 202
+    assert wait(client, path, headers)['status'] == 'idle'
+    manager = app.state.services.local_agents
+    with conversation_scope(pid, path.rsplit('/', 1)[-1]):
+        before = manager.load(pid)
+        old_client = manager.clients.pop(manager.key(pid))
+    client.portal.call(old_client.close)
+    attempts = []
+    async def start(self, tools, instructions, thread_id=None):
+        attempts.append(thread_id)
+        raise CodexError('no rollout found for thread id ' + thread_id if thread_id else '订阅登录已过期')
+    monkeypatch.setattr(FakeAgent, 'start', start)
+    assert client.post(path+'/messages', headers=headers, json={'message': '继续'}).status_code == 202
+    state = wait(client, path, headers)
+    assert state['status'] == 'error' and state['error'] == '订阅登录已过期'
+    assert attempts == [before['thread_id'], None] and len(FakeAgent.turns) == 1
+    with conversation_scope(pid, path.rsplit('/', 1)[-1]):
+        after = manager.load(pid)
+    assert after['thread_id'] == before['thread_id'] and after['session_id'] == before['session_id']
+    assert after['official_total_tokens'] == before['official_total_tokens']
+    assert not after.get('previous_threads') and not after.get('context_handoff')
+
+
+def test_rollout_error_during_a_turn_is_not_retried(official, monkeypatch):
+    client, _, _ = official
+    _, headers = signup(client, 'TurnErrorWorker')
+    pid = project(client, headers); enable(client, pid); path = chat(client, pid, headers)
+    attempts = []
+    async def turn(self, message, on_event, on_tool, **kwargs):
+        attempts.append(self.thread_id)
+        raise CodexError('no rollout found for thread id ' + self.thread_id)
+    monkeypatch.setattr(FakeAgent, 'turn', turn)
+    assert client.post(path+'/messages', headers=headers, json={'message': '读取文件'}).status_code == 202
+    state = wait(client, path, headers)
+    assert state['status'] == 'error' and len(attempts) == 1
+    assert state['error'] == 'no rollout found for thread id ' + attempts[0]
+    assert not any('恢复文件缺失' in event['text'] for event in state['events'])
+
+
+def test_local_codex_missing_rollout_recovers_after_cli_relocation(legacy_configured, monkeypatch):
+    import errno
+    from tests.test_local_agents import ScriptedCodex, select, settled
+    client, app, base, pid, _, _ = legacy_configured
+    select(client, base)
+    assert client.post(base+'/agent-session/messages', json={'message': '先读资料'}).status_code == 202
+    before = settled(client, base)
+    assert before['status'] == 'idle'
+    manager = app.state.services.local_agents
+    client.portal.call(manager.clients.pop(pid).close)
+    attempts = []
+    class RelocatedMissingCodex(ScriptedCodex):
+        def __init__(self, executable, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.executable = executable
+        async def start(self, tools, instructions, thread_id=None):
+            attempts.append((self.executable, thread_id))
+            if self.executable == before['executable']:
+                raise FileNotFoundError(errno.ENOENT, 'No such file or directory', self.executable)
+            if thread_id:
+                raise CodexError('no rollout found for thread id ' + thread_id)
+            await super().start(tools, instructions, thread_id)
+            self.thread_id = 'recovered-thread'
+            return self.thread_id
+    async def inspect(_):
+        return {'path': '/test/updated-codex', 'version': 'codex-cli 0.154.0'}
+    manager.client_factory = RelocatedMissingCodex
+    monkeypatch.setattr('agent_platform.local_agents.inspect_executable', inspect)
+    assert client.post(base+'/agent-session/messages', json={'message': '继续讨论现有需求'}).status_code == 202
+    after = settled(client, base)
+    assert after['status'] == 'idle', after
+    assert attempts == [(before['executable'], before['thread_id']),
+                        ('/test/updated-codex', before['thread_id']), ('/test/updated-codex', None)]
+    assert after['thread_id'] == 'recovered-thread' and after['previous_threads'] == [before['thread_id']]
+    assert after['session_id'] == before['session_id']
+    assert {event['id'] for event in before['events']} <= {event['id'] for event in after['events']}
+    assert '恢复文件缺失' in ScriptedCodex.contexts[-1]['instruction']
+    assert '工具已升级' not in ScriptedCodex.contexts[-1]['instruction']
+    assert any(message['text'] == '先读资料' for message in ScriptedCodex.contexts[-1]['recent_project_messages'])

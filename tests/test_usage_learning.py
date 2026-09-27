@@ -17,6 +17,55 @@ BASE = '/api/v1/admin/improvements'
 ADMIN = {'Authorization': 'Bearer admin-boot'}
 
 
+def test_result_tracks_stop_failure_and_followup_without_reusing_old_reply(official):
+    client, app, service = official
+    client.headers.update(ADMIN)
+    pid = project(client, ADMIN, '处理进展')
+    failed_runs(client, pid)
+    item = client.post(BASE+'/scan').json()['items'][0]
+    result_path = BASE+'/'+item['id']+'/result'
+    assert client.get(result_path).status_code == 404
+    enable(client, pid)
+    FakeAgent.hold = True
+    started = client.post(BASE+'/'+item['id']+'/start').json()
+    cid = started['conversation_id']
+    convo = f'/api/v1/projects/{pid}/conversations/{cid}'
+    wait(client, convo, ADMIN, ('running',))
+    running = client.get(result_path).json()
+    # Official dispatch may enter the queue between the two HTTP reads.
+    assert running['status'] in {'running', 'queued'} and running['reply'] is None
+    assert client.post(convo+'/stop').status_code == 200
+    assert client.get(result_path).json()['status'] == 'interrupted'
+    FakeAgent.hold = False
+    assert client.post(convo+'/messages', json={'message':'说明目前情况', 'request_key':'after-stop'}).status_code == 202
+    wait(client, convo, ADMIN)
+    completed = client.get(result_path).json()
+    assert completed['status'] == 'idle' and completed['reply']
+    # A later failed turn must not present the prior answer as this turn's result.
+    async def fail(*args, **kwargs):
+        raise ValueError('本轮连接失败，测试错误')
+    with conversation_scope(pid, cid):
+        app.state.services.local_agents.clients[app.state.services.local_agents.key(pid)].turn = fail
+    assert client.post(convo+'/messages', json={'message':'再检查', 'request_key':'followup-error'}).status_code == 202
+    wait(client, convo, ADMIN)
+    failed = client.get(result_path).json()
+    assert failed['status'] == 'error' and '本轮连接失败' in failed['error']
+    assert failed['reply'] is None
+    assert client.get(BASE).json()['items'][0]['status'] == 'working'
+    # Lost/corrupt session data is a retryable read failure, never an empty success.
+    with conversation_scope(pid, cid):
+        state_file = app.state.services.local_agents.folder(pid)/'session.json'
+    saved = state_file.read_text()
+    state_file.write_text('{broken')
+    try:
+        assert client.get(result_path).status_code == 503
+        assert client.get(BASE).status_code == 200
+        state_file.unlink()
+        assert client.get(result_path).status_code == 503
+    finally:
+        state_file.write_text(saved)
+
+
 def failed_runs(client, pid):
     base = '/api/v1/projects/' + pid
     graph(client, pid, [node('start', 'start', inputs=[{'name': 'quantity', 'type': 'number', 'required': True}]),
@@ -127,6 +176,9 @@ def test_handoff_retries_same_private_conversation_without_duplicate_model_work(
     assert client.post(path).status_code == 409  # No project model yet; keep one prepared conversation.
     first = client.get(BASE).json()['items'][0]['handoff']
     assert first['status'] == 'prepared'
+    progress = client.get(BASE+'/'+item['id']+'/result').json()
+    assert progress['status'] == 'prepared' and progress['error']
+    assert progress['reply'] is None and progress['total_tasks'] == 0
     assert client.post(path).status_code == 409
     assert len(client.get(base+'/conversations').json()) == 1
     calls = []
@@ -148,13 +200,28 @@ def test_handoff_retries_same_private_conversation_without_duplicate_model_work(
     # A restart/lost final response is detected by the actual sent request, not a second model turn.
     with connect(app.state.services.usage_learning.db) as db:
         db.execute("UPDATE usage_handoffs SET status='prepared'")
+    assert client.get(BASE+'/'+item['id']+'/result').json()['status'] == 'idle'
     assert client.post(path).status_code == 200
     assert len(calls) == 1
     assert client.get(BASE).json()['items'][0]['status'] == 'working'
+    progress = client.get(BASE+'/'+item['id']+'/result').json()
+    assert progress['status'] == 'idle'
+    assert progress['reply']['text'] == '已检查线索；这是离线验证回答。'
+    assert progress['tasks'] == [] and len(calls) == 1
+    assert '已检查线索' not in client.get(BASE).text  # No transcript in passive report.
+    assert client.patch(BASE+'/'+item['id'], json={'status':'resolved'}).status_code == 200
+    assert client.post(BASE+'/scan').json()['items'][0]['status'] == 'resolved'
+    assert len(calls) == 1  # Scanning/marking completed never calls the model.
     # Another administrator has an independent conversation; regular users cannot access this one.
     _, member = signup(client, 'employee')
     client.post(base+'/access-members', json={'name':'employee'})
     assert client.get(base+'/conversations/'+cid, headers=member).status_code == 404
+    assert client.get(BASE+'/'+item['id']+'/result', headers=member).status_code == 403
+    # Even another administrator cannot read this private handling conversation.
+    with connect(app.state.services.usage_learning.db) as db:
+        db.execute("UPDATE users SET role='admin' WHERE name='employee'")
+    assert client.get(BASE+'/'+item['id']+'/result', headers=member).status_code == 404
+    assert client.get(BASE, headers=member).json()['items'][0]['handoff'] is None
 
 
 def test_official_agent_handoff_can_create_fix_and_run_copy(official):
@@ -200,6 +267,12 @@ def test_official_agent_handoff_can_create_fix_and_run_copy(official):
     assert client.get(f'/api/v1/projects/{pid}/tasks/'+failures[0]['id']).json()['status'] == 'failed'
     assert client.post(BASE+'/'+item['id']+'/start').json()['conversation_id'] == cid
     assert len(performed) == 2
+    progress = client.get(BASE+'/'+item['id']+'/result').json()
+    assert progress['status'] == 'idle' and '独立副本' in progress['reply']['text']
+    assert progress['total_tasks'] == 2 and len(progress['tasks']) == 2
+    assert {t['status'] for t in progress['tasks']} == {'succeeded'}
+    assert not {t['id'] for t in progress['tasks']} & {t['id'] for t in failures}
+    assert client.get(BASE).json()['items'][0]['status'] == 'working'
 
 
 def test_automatic_dispatch_is_opt_in_official_only_bounded_and_persistent(official, monkeypatch):
