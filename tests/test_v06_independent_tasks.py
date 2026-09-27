@@ -29,6 +29,77 @@ def test_unbound_draft_edit_undo_and_conflict(configured):
     assert client.get(base+'/tasks/'+task['id']).json()['status']=='failed'
 
 
+def test_apply_copy_keeps_original_callers_and_history_and_can_be_undone(configured):
+    client, app, project, _ = configured
+    pid = project['id']; base = '/api/v1/projects/' + pid
+    copy_id = client.post(base+'/members', json={'name': '修复副本'}).json()['id']
+    caller_id = client.post(base+'/members', json={'name': '已有调用入口'}).json()['id']
+    graph(client, pid, [node('start', 'start', inputs=[{'name':'quantity','type':'number','required':True}]),
+                       node('end', 'end', outputs={'quantity':ref('start','quantity')})], [edge('start','end')])
+    graph(client, copy_id, [node('start', 'start', inputs=[{'name':'quantity','type':'number','default':1}]),
+                           node('end', 'end', outputs={'quantity':ref('start','quantity')})], [edge('start','end')])
+    graph(client, caller_id, [node('start','start'), node('call','tool',tool_name='workflow:'+pid,input={}),
+                             node('end','end',outputs={'quantity':ref('call','output','quantity')})],
+          [edge('start','call'),edge('call','end')])
+    old = settled(client, base, start(client, base, 'old-caller', workflow_id=caller_id))
+    assert old['status'] == 'failed'
+    caller = client.get('/api/v1/applications/'+caller_id+'/draft').json()
+    target = client.get('/api/v1/applications/'+pid+'/draft').json()
+    source = client.get('/api/v1/applications/'+copy_id+'/draft').json()
+    saved = client.put(base+'/workflows/'+pid+'/draft', json={
+        'expected_revision':target['revision'], 'workflow':source['snapshot']['workflow']})
+    assert saved.status_code == 200, saved.text
+    assert len(client.get(base+'/tasks').json()) == 1  # Saving does not execute.
+    fixed = settled(client, base, start(client, base, 'same-caller', workflow_id=caller_id))
+    assert fixed['status'] == 'succeeded' and fixed['outputs'] == {'quantity':1}
+    assert client.get('/api/v1/applications/'+caller_id+'/draft').json()['content_hash'] == caller['content_hash']
+    updated = client.get('/api/v1/applications/'+pid+'/draft').json()
+    assert updated['snapshot']['name'] == target['snapshot']['name']
+    assert client.get(base+'/tasks/'+old['id']).json()['status'] == 'failed'
+    # The exact prior graph is restored; the successful history remains readable.
+    undo = client.put(base+'/workflows/'+pid+'/draft', json={
+        'expected_revision':saved.json()['draft']['revision'], 'workflow':saved.json()['previous_workflow']})
+    assert undo.status_code == 200, undo.text
+    assert client.get('/api/v1/applications/'+pid+'/draft').json()['content_hash'] == target['content_hash']
+    assert client.get(base+'/tasks/'+fixed['id']).json()['outputs'] == {'quantity':1}
+    again = settled(client, base, start(client, base, 'after-undo', workflow_id=caller_id))
+    assert again['status'] == 'failed'
+    assert client.get('/api/v1/applications/'+copy_id+'/draft').json()['content_hash'] == source['content_hash']
+    # A stale repeat/undo cannot overwrite a later saved version.
+    assert client.put(base+'/workflows/'+pid+'/draft', json={
+        'expected_revision':saved.json()['draft']['revision'], 'workflow':source['snapshot']['workflow']}).status_code == 409
+
+
+def test_edit_response_revision_protects_undo_when_another_write_precedes_response(configured, monkeypatch):
+    client, app, project, _ = configured
+    pid = project['id']; base = '/api/v1/projects/' + pid
+    original = client.get('/api/v1/applications/'+pid+'/draft').json()
+    applications = app.state.services.applications
+    apply = applications.apply_operations_atomically
+
+    async def save_then_concurrent_edit(workflow_id, **kwargs):
+        result = await apply(workflow_id, **kwargs)
+        current = await applications.store.get_draft(workflow_id)
+        snapshot = current['snapshot'].model_copy(deep=True)
+        snapshot.workflow.nodes[0].title = '另一个用户保存的标题'
+        await applications.store.save_draft(workflow_id, snapshot,
+            expected_revision=result['revision'], idempotency_key='concurrent-title')
+        return result
+
+    monkeypatch.setattr(applications, 'apply_operations_atomically', save_then_concurrent_edit)
+    saved = client.put(base+'/workflows/'+pid+'/draft', json={
+        'expected_revision':original['revision'],
+        'workflow':{'nodes':[node('start','start'),node('end','end',outputs={'quantity':1})], 'edges':[edge('start','end')]}})
+    assert saved.status_code == 200, saved.text
+    value = saved.json()
+    assert value['draft']['revision'] == value['revision'] + 1
+    monkeypatch.setattr(applications, 'apply_operations_atomically', apply)
+    undo = client.put(base+'/workflows/'+pid+'/draft', json={
+        'expected_revision':value['revision'], 'workflow':value['previous_workflow']})
+    assert undo.status_code == 409
+    assert client.get('/api/v1/applications/'+pid+'/draft').json()['snapshot']['workflow']['nodes'][0]['title'] == '另一个用户保存的标题'
+
+
 def test_project_skills_and_tools_without_confirmation(configured):
     client,app,p,settings=configured;pid=p['id'];base='/api/v1/projects/'+pid
     listing=client.get(base+'/skills').json();assert all('content' not in s for s in listing)

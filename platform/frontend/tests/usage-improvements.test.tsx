@@ -305,6 +305,17 @@ it('keeps historical result access when its workflow is no longer in the project
   expect(vi.mocked(api).mock.calls.every(([, options]) => !options)).toBe(true)
 })
 
+it('offers one copy update per distinct alternative workflow on a repeated failure', async () => {
+  const data = { ...handlingReport(), items: [{ ...recovery, kind: 'repeated_failure', handoff: { conversation_id: 'improvement-chat', status: 'started', error: '' } }] }
+  const result = handlingResult()
+  result.tasks = [ { ...result.tasks[0], workflow_id: 'copy' }, { ...result.tasks[0], id: 'another-run', workflow_id: 'copy' } ]
+  vi.mocked(api).mockImplementation(async path => (path.endsWith('/settings') ? settings() : path.endsWith('/result') ? result : data) as never)
+  render(<ImprovementsPage />)
+  fireEvent.click(await screen.findByRole('button', { name: '查看处理进展' }))
+  expect(await screen.findAllByRole('button', { name: '用此流程更新原流程' })).toHaveLength(1)
+  expect(vi.mocked(api).mock.calls.every(([, options]) => !options)).toBe(true)
+})
+
 it('refreshes only the visible expanded progress every 30 seconds and on demand', async () => {
   vi.useFakeTimers()
   const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')

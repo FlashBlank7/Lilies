@@ -11,7 +11,7 @@ vi.mock('@/app/components/ModelingPanel',()=>({default:()=>null}))
 afterEach(()=>{cleanup();vi.mocked(api).mockReset()})
 it('applies one generated graph and undoes against the saved revision without starting a task',async()=>{
  const before={nodes:[],edges:[]};const onChanged=vi.fn()
- vi.mocked(api).mockImplementation(async(path)=>path.endsWith('/workflow-generation')?{workflow_id:'w',previous_workflow:before,draft:{revision:8}} as never:{revision:7} as never)
+ vi.mocked(api).mockImplementation(async(path)=>path.endsWith('/workflow-generation')?{workflow_id:'w',previous_workflow:before,revision:8,draft:{revision:9}} as never:{revision:7} as never)
  render(<WorkflowComposer projectId="p" workflowId="w" onChanged={onChanged}/>);
  fireEvent.change(screen.getByLabelText('工作流描述'),{target:{value:'创建未绑定的预测节点'}});fireEvent.click(screen.getByText('应用修改'))
  await screen.findByText('已保存到画布，可继续编辑或运行。');expect(onChanged).toHaveBeenCalledWith('w')
@@ -78,7 +78,7 @@ it.each(['direct','wrapped'])('shows %s prediction values while deduplicating th
 
 it('applies the visible canvas revision and sends selection or nested scope in one request',async()=>{
  const nodes=[{id:'loop',type:'iteration',title:'处理每条数据',block_version:1,description:'',position:{x:0,y:0},retry:{enabled:false,max_attempts:1,delay_seconds:0},error_strategy:'fail' as const,config:{workflow:{nodes:[{id:'inner',type:'loop',title:'内循环',config:{workflow:{nodes:[],edges:[]}}}],edges:[]}}}]
- vi.mocked(api).mockResolvedValue({workflow_id:'w',previous_workflow:{nodes:[],edges:[]},draft:{revision:6}} as never)
+ vi.mocked(api).mockResolvedValue({workflow_id:'w',previous_workflow:{nodes:[],edges:[]},revision:6,draft:{revision:6}} as never)
  render(<WorkflowComposer projectId="p" workflowId="w" revision={5} nodes={nodes} selectedNodeIds={['loop']} onChanged={vi.fn()}/>);
  fireEvent.change(screen.getByLabelText('工作流描述'),{target:{value:'修改结果'}})
  fireEvent.change(screen.getByLabelText('修改范围'),{target:{value:'selection'}})
@@ -105,7 +105,7 @@ it('opens the selected scope from the canvas action and blocks AI changes while 
 
 
 it('keeps the container path when AI edits selected inner nodes',async()=>{
- vi.mocked(api).mockResolvedValue({workflow_id:'w',previous_workflow:{nodes:[],edges:[]},draft:{revision:9}} as never)
+ vi.mocked(api).mockResolvedValue({workflow_id:'w',previous_workflow:{nodes:[],edges:[]},revision:9,draft:{revision:9}} as never)
  render(<WorkflowComposer projectId="p" workflowId="w" revision={8} selectedNodeIds={['same']} selectionPath={['outer','inner']} editRequest={1} onChanged={vi.fn()}/>);
  fireEvent.change(screen.getByLabelText('工作流描述'),{target:{value:'只修改当前循环的这个积木'}})
  fireEvent.click(screen.getByRole('button',{name:'应用修改'}))

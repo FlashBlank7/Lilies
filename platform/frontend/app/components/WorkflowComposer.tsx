@@ -17,7 +17,7 @@ function innerWorkflows(nodes: WorkflowNode[], path: string[] = [], prefix = '')
   })
 }
 
-type Edit = { workflow_id: string; previous_workflow: Graph; draft: { revision: number } }
+type Edit = { workflow_id: string; previous_workflow: Graph; revision: number }
 
 export default function WorkflowComposer({ projectId, workflowId = '', onChanged, nodes = [], selectedNodeIds = [], selectionPath = [], revision, disabled = false, editRequest = 0 }: { projectId: string; workflowId?: string; onChanged: (id: string) => void; nodes?: WorkflowNode[]; selectedNodeIds?: string[]; selectionPath?: string[]; revision?: number; disabled?: boolean; editRequest?: number }) {
   const [instruction, setInstruction] = useState('')
@@ -50,7 +50,7 @@ export default function WorkflowComposer({ projectId, workflowId = '', onChanged
     if (!last) return
     setBusy(true); setError('')
     try {
-      await api(base + `/workflows/${last.workflow_id}/draft`, { method: 'PUT', body: JSON.stringify({ expected_revision: last.draft.revision, workflow: last.previous_workflow, request_key: clientId() }) })
+      await api(base + `/workflows/${last.workflow_id}/draft`, { method: 'PUT', body: JSON.stringify({ expected_revision: last.revision, workflow: last.previous_workflow, request_key: clientId() }) })
       onChanged(last.workflow_id); setLast(undefined)
     } catch (cause) { setError(String(cause)) } finally { setBusy(false) }
   }

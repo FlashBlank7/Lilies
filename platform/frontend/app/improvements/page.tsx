@@ -7,6 +7,7 @@ import { api } from '@/lib/platform'
 import { useAccount } from '../components/AuthBoundary'
 import base from '../projects/projects.module.css'
 import styles from './improvements.module.css'
+import ApplyWorkflowCopy from './ApplyWorkflowCopy'
 
 type Kind = 'repeated_failure' | 'recovery' | 'reusable_method' | 'operation_error' | 'assistant_error'
 type Status = 'new' | 'working' | 'resolved' | 'dismissed'
@@ -58,6 +59,7 @@ function HandlingProgress({ item, userId, starting, onStart }: {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
   const [stopping, setStopping] = useState(false)
+  const [copyId, setCopyId] = useState('')
   const alive = useRef(false)
   const reading = useRef(false)
   const stopPending = useRef(false)
@@ -124,6 +126,7 @@ function HandlingProgress({ item, userId, starting, onStart }: {
         <div className={`${base.actions} ${styles.actions}`}>
           <Link href={`/projects/${encodeURIComponent(result.project_id)}?task=${encodeURIComponent(task.id)}`} target="_blank" rel="noopener noreferrer">查看运行结果</Link>
           {task.workflow_available && <Link href={`/applications/${encodeURIComponent(task.workflow_id)}?tab=edit`} target="_blank" rel="noopener noreferrer">打开当前工作流{task.workflow_name && `：${task.workflow_name}`}</Link>}
+          {item.kind === 'repeated_failure' && item.workflow_id && task.workflow_available && task.workflow_id !== item.workflow_id && result.tasks.find(t => t.workflow_id === task.workflow_id)?.id === task.id && <button onClick={() => setCopyId(task.workflow_id)}>用此流程更新原流程</button>}
           {task.mode === 'workflow' && !task.workflow_available && <small>工作流已不在此项目中，仍可查看历史运行结果。</small>}
         </div>
       </li>)}</ol></> : <p>本会话尚未产生关联任务。</p>}
@@ -133,6 +136,7 @@ function HandlingProgress({ item, userId, starting, onStart }: {
         <button onClick={continueConversation}>继续沟通</button><small>打开已有会话，不会自动发送消息。</small>
       </div>
     </>}
+    {copyId && <ApplyWorkflowCopy key={copyId} projectId={item.project_id} sourceId={copyId} targetId={item.workflow_id} onClose={() => setCopyId('')} />}
   </section>
 }
 

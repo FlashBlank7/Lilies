@@ -58,4 +58,7 @@
 .resultTasks li { padding:12px; margin:10px 0; background:white; border-radius:7px; }
 .resultTasks code { font-size:10px; }
 .empty { padding:32px 20px; text-align:center; border:1px dashed var(--ui-line); border-radius:12px; }
+.copyBody { padding:20px; font-size:13px; line-height:1.7; overflow-wrap:anywhere; }
+.copyBody pre { max-height:300px; overflow:auto; padding:12px; background:var(--ui-bg); font-size:11px; }
+.copyBody li { margin:10px 0; }
 @media(max-width:650px) { .item { padding:18px; } .intro { padding:16px; } .handoff { flex-direction:column; align-items:stretch; gap:14px; } .actions a { margin-left:0; width:100%; margin-top:7px; } .filters { gap:12px; } .filters label { flex:1; } .filters select { min-width:0; width:100%; } .filters small { width:100%; margin:0; padding:0; } .traceHeading time { width:100%; margin:0; } }
