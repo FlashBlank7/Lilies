@@ -49,6 +49,24 @@ def test_table_feedback_and_input_isolation(table):
     with pytest.raises(ValueError,match='当前项目'):code.main({'operation':'profile','source_path':'../private.csv'})
 
 
+@pytest.mark.parametrize('answer', ['good定义为正类，即使它是多数类。', '正类定义我不清楚。'])
+def test_followup_uses_facts_and_explicit_answer_without_inheriting_label_guesses(table, answer):
+    prepared=code.main({'operation':'profile','source_path':str(table),'question':'哪个取值是正类？'})
+    guess='rare肯定是不合格的正类。'
+    advice={'analysis':guess,'questions':['业务把good还是rare定义为正类？'],
+            'needs_input':True,'next_steps':['按这个猜测训练模型。']}
+    reply={'answer':answer}
+    result=code.main({'operation':'followup','profile':prepared,'advice':advice,'answer':reply})
+    prompt=json.loads(result['prompt'])
+    facts=json.loads(prompt['original_context'])['computed_facts']
+    counts=next(c['top_values'] for c in facts['columns'] if c['name']=='target')
+    assert counts==[{'value':'good','count':3},{'value':'rare','count':1}]
+    assert prompt['clarification_questions']==advice['questions']
+    assert prompt['user_answer']==reply
+    assert guess not in result['prompt'] and advice['next_steps'][0] not in result['prompt']
+    assert advice['analysis']==guess  # Original analysis remains available in its run.
+
+
 def test_excel_requires_explicit_sheet_when_ambiguous(table):
     from openpyxl import Workbook
     book=Workbook();book.active.append(['x','target']);book.active.append([2,0]);book.create_sheet('第二表').append(['other'])

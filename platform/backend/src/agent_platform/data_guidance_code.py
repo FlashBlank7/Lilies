@@ -125,7 +125,10 @@ def main(inputs):
     if operation == 'profile': return profile(inputs)
     if operation == 'assess': return assess(inputs)
     if operation == 'followup':
-        return {'prompt': json.dumps({'original_context': inputs['profile']['prompt'], 'previous_analysis': inputs['advice'],
+        # Resume from source facts and the question the employee answered, not
+        # from a prior model's interpretation of still-undefined labels.
+        return {'prompt': json.dumps({'original_context': inputs['profile']['prompt'],
+            'clarification_questions': inputs['advice'].get('questions', []),
             'user_answer': inputs['answer'], 'instruction': '依据用户回答更新建议；不清楚也是有效答案。本次不再提问，给出已有结论与具体缺项。'}, ensure_ascii=False)}
     if operation != 'export': raise ValueError('未知分析步骤')
     prepared, advice = inputs['profile'], inputs['advice']
