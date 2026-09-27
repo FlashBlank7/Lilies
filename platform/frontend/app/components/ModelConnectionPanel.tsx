@@ -76,7 +76,7 @@ export default function ModelConnectionPanel({ base, connected, running, onSaved
       <label>思考模式<select value={value.thinking || 'default'} onChange={e => setValue({ ...value, thinking: e.target.value })}>
         {(value.protocol === 'anthropic' ? ['default', 'off', 'enabled', 'low', 'medium', 'high', 'xhigh', 'max'] : ['default', 'off', 'low', 'medium', 'high', 'xhigh', 'max']).map(x => <option key={x} value={x}>{labels[x]}</option>)}
       </select></label>
-      <small>具体模型需支持所选思考模式；不确定时使用模型默认。</small>
+      <small>具体模型需支持所选思考模式。简短整理任务可选关闭思考；使用思考时，需要给工作流模型节点留足输出额度。</small>
       <label className={styles.modelCheckbox}><input type="checkbox" checked={value.runtime_enabled || false} onChange={e => setValue({ ...value, runtime_enabled: e.target.checked })} />{role === 'generation' ? '启用工作流生成（使用此连接的账号额度）' : '工作流可调用此模型（使用对应账号额度）'}</label>
       </>}
       <button disabled={busy || running} onClick={() => void save()}>{busy ? '保存中…' : '保存模型连接'}</button>

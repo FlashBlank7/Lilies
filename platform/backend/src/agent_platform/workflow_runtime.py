@@ -3930,7 +3930,9 @@ class WorkflowRuntime:
                 })
         raise RuntimeError(
             f"模型环节「{node_id}」输出预算已耗尽，正文为空。"
-            "请压缩这一环节的输入（例如只保留必要字段）或拆分任务后重试。"
+            f"当前输出上限为 {max_output_tokens} token，服务可能将思考计入此上限。"
+            "可在积木配置提高输出上限，或在项目模型设置降低/关闭思考后重试；"
+            "输入较长时也可只保留必要字段或拆分任务。"
         )
 
     async def _model_turn_with_tools(

@@ -98,7 +98,8 @@ def profile(inputs):
     write_csv(folder/'duplicates.csv', fields+['相同记录数量'], [list(row)+[count] for row,count in repeated.items() if count>1])
     # Full facts remain downloadable; the model sees a bounded overview and five example rows.
     overview = {**facts, 'columns': columns[:40], 'columns_omitted': max(0,len(columns)-40),
-                'sample': [{f:r[i][:100] for i,f in enumerate(fields[:20])} for r in rows[:5]]}
+                'sample': [{f:r[i][:100] for i,f in enumerate(fields[:20])} for r in rows[:5]],
+                'sample_scope': '仅原表开头最多5行、20列，各值最多100字符；不是代表性抽样，不能据此推断整表时间连续性、顺序或跨列关系。'}
     prompt = json.dumps({'user_question': inputs.get('question','帮我看看这份数据'),
         'business_context': inputs.get('business_context',''), 'computed_facts': overview}, ensure_ascii=False)
     if len(prompt) > 24000:
