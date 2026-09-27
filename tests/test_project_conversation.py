@@ -127,6 +127,47 @@ def test_read_exact_result_branch_without_traces_or_other_project_access(configu
     assert len(client.get(base + '/tasks').json()) == 1
 
 
+def test_recent_results_are_discoverable_without_resending_reports(configured, monkeypatch):
+    report = '# 已有分析\n' + '稀有类别只有一条，尚不能确认预测时点。\n' * 80
+    outputs = {'markdown': report, 'result': {
+        'markdown': report, 'artifacts': [{'file_path': 'results/analysis.md'}], 'rows': 24}}
+    observed = []
+
+    class ReadExisting(TestSession):
+        async def turn(self, message, on_event, on_tool, **kwargs):
+            context = json.loads(message)
+            assert report not in message
+            recent = context['recent_results'][0]
+            assert recent['status'] == 'succeeded'
+            assert recent['output_keys'] == ['markdown', 'result']
+            assert 'outputs' not in recent and 'inputs' not in recent
+            read = recent['read_with']
+            summary = await on_tool(read['tool'], read['arguments'])
+            assert summary['outputs']['markdown'] == report
+            assert not summary['outputs_truncated']
+            assert summary['outputs']['result']['artifacts'] == outputs['result']['artifacts']
+            for path in (['markdown'], ['result', 'markdown']):
+                exact = await on_tool('workflow_run', {'action': 'inspect', 'task_id': recent['id'],
+                                                     'output_path': path})
+                assert exact['output'] == report
+            complete = await on_tool('workflow_run', {'action': 'inspect', 'task_id': recent['id'], 'view': 'full'})
+            assert complete['outputs'] == outputs
+            observed.append(recent['id'])
+            return {'status': 'completed'}
+
+    client, _, project, _, base = configure_agent(configured, monkeypatch, ReadExisting)
+    graph(client, project['id'], [node('s', 'start'), node('e', 'end', outputs=outputs)], [edge('s', 'e')])
+    task = settled(client, base, start(client, base, 'saved-report'))
+    assert task['status'] == 'succeeded'
+    for message in ('解释已有分析，不重新运行', '再次解释已有分析，不重新运行'):
+        client.post(base + '/conversation/messages', json={'message': message})
+        state = agent_settled(client, base)
+        assert state['status'] == 'idle', state['error']
+    assert observed == [task['id'], task['id']]
+    assert client.get(base + '/tasks/' + task['id']).json()['outputs'] == outputs
+    assert len(client.get(base + '/tasks').json()) == 1
+
+
 @pytest.mark.parametrize('action', ['inspect', 'finish', 'discuss', 'wait', 'build'])
 def test_phase_change_preserves_messages_received_during_await(configured, monkeypatch, action):
     from agent_platform.project_conversation import ProjectAction

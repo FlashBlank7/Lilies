@@ -115,6 +115,14 @@ def task_summary(task: dict) -> dict:
     result = {k: task[k] for k in ('id', 'project_id', 'workflow_id', 'status', 'error', 'purpose',
               'item_id', 'feedback_task_id', 'created_at', 'updated_at', 'message') if k in task}
     outputs = task.get('outputs', {})
+    # Report workflows expose the same Markdown directly and inside result.
+    # Count it once before deciding whether a readable report is too large.
+    report = outputs.get('markdown')
+    nested = outputs.get('result')
+    if (isinstance(report, str) and payload_measurement(report)['bytes'] > 1000
+            and isinstance(nested, dict) and nested.get('markdown') == report):
+        outputs['result'] = {key: value for key, value in nested.items() if key != 'markdown'}
+        result['output_aliases'] = [{'path': ['result', 'markdown'], 'same_as': ['markdown']}]
     result['outputs_truncated'] = payload_measurement(outputs)['bytes'] > 8000
     result['outputs'] = ({key: result_preview(value) for key, value in outputs.items()}
                          if result['outputs_truncated'] else outputs)
@@ -128,7 +136,8 @@ def task_summary(task: dict) -> dict:
     result['view'] = 'summary'
     result['detail'] = ('Read summary first. workflow_run(action="inspect", task_id="' + task.get('id', '') +
                         '", output_path=["output_key"]) reads an exact output branch without traces; '
-                        'view="full" includes all inputs, outputs and member runs for diagnosis.')
+                        'view="full" includes all inputs, outputs and member runs for diagnosis. '
+                        'output_aliases identifies identical report copies; their original output paths remain readable.')
     return result
 
 
@@ -186,7 +195,18 @@ async def conversation_context(services, project_id: str, state: dict, discussio
         tasks = await services.projects.store.tasks(project_id, item_id=item_id, limit=3)
         from .conversation_scope import conversation_for
         current_conversation = conversation_for(project_id)
-        context['recent_results'] = [task_summary(t) for t in tasks
+        request_id = state.get('request_id')
+        current_tasks = {e['task_id'] for e in state.get('events', [])
+                         if request_id and e.get('request_id') == request_id and e.get('task_id')}
+        # Recent runs are discovery links, not the current task's result. Do
+        # not resend old reports/inputs each turn; inspect loads a chosen run.
+        # A job returning in this request still supplies its result directly.
+        context['recent_results'] = [task_summary(t) if t['id'] in current_tasks else {
+            **{k: t[k] for k in ('id', 'workflow_id', 'status', 'error', 'created_at', 'updated_at') if k in t},
+            'output_keys': list(t.get('outputs', {}))[:20],
+            'output_count': len(t.get('outputs', {})),
+            'read_with': {'tool': 'workflow_run', 'arguments': {'action': 'inspect', 'task_id': t['id']}},
+        } for t in tasks
             if t.get('mode') != 'agent' or t.get('conversation_id', '') == current_conversation]
     if getattr(services, 'modeling', None):
         studies = await services.modeling.list(project_id, 'study', limit=5)

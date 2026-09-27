@@ -51,6 +51,44 @@ def test_small_results_are_exact_including_long_lists():
     assert summary['outputs'] == outputs
 
 
+def test_identical_report_is_readable_once_with_metrics_and_downloads():
+    report = '# 数据分析\n' + '只有一条稀有类别，预测时点未知，不能宣称模型可靠。\n' * 70
+    task = {'id': 'task', 'outputs': {'markdown': report, 'result': {
+        'markdown': report, 'metrics': {'rows': 24, 'rare': 1},
+        'artifacts': [{'file_path': 'results/analysis.md', 'label': '分析报告'}]}}}
+    original = deepcopy(task)
+    assert payload_measurement(task['outputs'])['bytes'] > 8000
+    summary = task_summary(task)
+    assert not summary['outputs_truncated']
+    assert summary['outputs']['markdown'] == report
+    assert 'markdown' not in summary['outputs']['result']
+    assert summary['outputs']['result']['metrics'] == {'rows': 24, 'rare': 1}
+    assert summary['outputs']['result']['artifacts'] == task['outputs']['result']['artifacts']
+    assert summary['output_aliases'] == [{'path': ['result', 'markdown'], 'same_as': ['markdown']}]
+    assert payload_measurement(summary['outputs'])['bytes'] < 8000
+    assert task == original
+
+
+def test_different_report_text_is_not_treated_as_duplicate():
+    report = '独立测试尚未完成。' * 100
+    outputs = {'markdown': report, 'result': {'markdown': report + '补充：已完成。'}}
+    summary = task_summary({'id': 'task', 'outputs': outputs})
+    assert 'output_aliases' not in summary
+    assert summary['outputs'] == outputs
+
+
+def test_deduplication_does_not_inline_unbounded_reports():
+    report = '长报告。' * 10000
+    task = {'id': 'task', 'outputs': {'markdown': report, 'result': {
+        'markdown': report, 'artifacts': [{'file_path': 'results/long.md'}]}}}
+    summary = task_summary(task)
+    assert summary['outputs_truncated']
+    assert summary['outputs']['markdown']['preview_omitted']
+    assert summary['outputs']['markdown']['characters'] == len(report)
+    assert summary['outputs']['result']['artifacts'] == [{'file_path': 'results/long.md'}]
+    assert task['outputs']['result']['markdown'] == report
+
+
 def test_sample_previews_do_not_hide_small_downloads_or_metric_fields():
     artifacts = [{'file_path': 'results/' + 'a' * 120 + '/features.csv', 'label': 'Feature table'},
                  {'file_path': 'results/' + 'b' * 120 + '/samples.csv', 'label': 'Samples'}]
