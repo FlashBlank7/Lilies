@@ -60,7 +60,7 @@ def finding_id(key):
     return str(uuid5(NAMESPACE_URL, 'lilies:usage:' + key))
 
 
-def patterns(tasks, operations):
+def patterns(tasks, operations, interactions=()):
     """Only explicit task ancestry establishes a repair relationship."""
     findings = []
     grouped = defaultdict(list)
@@ -138,6 +138,34 @@ def patterns(tasks, operations):
             'count': len(rows), 'tasks': [], 'last_seen': datetime.fromtimestamp(last['created'], timezone.utc).isoformat(),
             'operations': [{k: row[k] for k in ('id', 'created', 'feature', 'outcome', 'resource_id')} for row in rows[-12:]],
         })
+    interaction_groups = defaultdict(list)
+    for item in interactions:
+        interaction_groups[(item['project_id'], item['feature'])].append(item)
+    for (pid, feature), rows in interaction_groups.items():
+        # A request's terminal record is distinct from HTTP acceptance and tool
+        # calls. Do not infer the cause or read anybody's private transcript.
+        rows = sorted(rows, key=lambda row: (row['created'], row['id']))
+        failed = {row['root_id']: row for row in rows if row['root_id'] and row['outcome'] in {'error', 'failed'}}
+        if len(failed) < 2:
+            continue
+        failures = sorted(failed.values(), key=lambda row: (row['created'], row['id']))
+        last = failures[-1]
+        completed = {row['root_id']: row for row in rows if row['root_id'] and row['outcome'] == 'completed'
+                     and row['created'] > last['created']}
+        label = '项目对话' if feature == 'chat_result' else '工作流生成'
+        findings.append({
+            'id': finding_id(f'assistant:{pid}:{feature}'), 'kind': 'assistant_error',
+            'project_id': pid, 'workflow_id': '', 'project_name': last['project_name'], 'workflow_name': '',
+            'title': label + '多次执行失败',
+            'explanation': f'{len(failures)} 个不同请求在提交后执行失败。最新失败之后，已记录 {len(completed)} 次完成。',
+            'limitation': '这些失败可能来自不同问题或模型配置；后续完成也可能是其他任务，不能据此判定已修复。停止和排队不计作失败；不读取员工私有对话或原始错误正文。此类线索仅手动处理，避免使用异常连接反复重试。',
+            'next_step': '先检查项目连接和服务状态；如需具体内容，请员工主动提交关联反馈。避免反复重试失败请求。',
+            'count': len(failures), 'tasks': [], 'automatic_eligible': False,
+            'last_seen': datetime.fromtimestamp(last['created'], timezone.utc).isoformat(),
+            'completed_after_failure': len(completed),
+            'operations': [{k: row[k] for k in ('id', 'created', 'feature', 'outcome', 'resource_id')}
+                           for row in failures[-12:]],
+        })
     return findings
 
 
@@ -163,6 +191,8 @@ class UsageLearning:
         self.last_error = ''
         self.sampled = 0
         self.truncated = False
+        self.sampled_interactions = 0
+        self.interactions_truncated = False
         self.automatic_error = ''
 
     def initialize(self):
@@ -218,9 +248,16 @@ class UsageLearning:
             operations = [dict(r) for r in db.execute('''SELECT u.id,u.project_id,u.resource_id,u.feature,u.outcome,u.created,
                 p.name AS project_name FROM product_usage u JOIN projects p ON p.id=u.project_id
                 WHERE u.feature LIKE '%_error' AND u.actor='employee' AND u.created>=?
+                AND NOT EXISTS (SELECT 1 FROM usage_handoffs h WHERE h.conversation_id=u.conversation_id)
                 ORDER BY u.created DESC LIMIT 500''', (time.time() - DAYS * 86400,))]
+            interactions = [dict(r) for r in db.execute('''SELECT u.id,u.project_id,u.root_id,u.resource_id,u.feature,u.outcome,u.created,
+                p.name AS project_name FROM product_usage u JOIN projects p ON p.id=u.project_id
+                WHERE u.feature IN ('chat_result','generation_result') AND u.actor='employee' AND u.created>=?
+                AND u.outcome IN ('error','failed','completed')
+                AND NOT EXISTS (SELECT 1 FROM usage_handoffs h WHERE h.conversation_id=u.conversation_id)
+                ORDER BY u.created DESC,u.id LIMIT ?''', (time.time() - DAYS * 86400, LIMIT + 1))]
         tasks.sort(key=lambda t: (t['created_at'], t['id']))
-        found = patterns(tasks, list(reversed(operations)))
+        found = patterns(tasks, list(reversed(operations)), interactions[:LIMIT])
         now = time.time()
         with connect(self.db) as db:
             # Absence is not a successful fix: it may mean resumption or sample turnover.
@@ -248,6 +285,8 @@ class UsageLearning:
             db.execute('DELETE FROM usage_findings WHERE updated<? OR project_id NOT IN (SELECT id FROM projects)',
                        (now - DAYS * 86400,))
             db.execute('DELETE FROM usage_handoffs WHERE finding_id NOT IN (SELECT id FROM usage_findings)')
+        self.sampled_interactions = min(len(interactions), LIMIT)
+        self.interactions_truncated = len(interactions) > LIMIT
         return len(tasks), len(rows) > LIMIT
 
     async def scan(self):
@@ -348,8 +387,10 @@ class UsageLearning:
                            'handoff': handoffs.get(r['id'])} for r in rows],
                 'last_scan': self.last_scan, 'error': self.last_error, 'automatic_error': self.automatic_error, 'sampled_tasks': self.sampled,
                 'truncated': self.truncated, 'window_days': DAYS, 'limit': LIMIT,
+                'sampled_interactions': self.sampled_interactions, 'interactions_truncated': self.interactions_truncated,
                 'notes': ['自动整理每分钟运行，不调用模型。',
-                          '只分析工作流终态、明确关联的后续任务与操作结果；个人对话正文不进入整理。',
+                          '只分析工作流终态、对话及生成请求状态、明确关联的后续任务与操作结果；个人对话正文不进入整理。',
+                          '对话与生成状态另取最近30天最多500个完成或失败请求。API对话仅从启用本次记录后统计，不读取历史私聊补录。',
                           '线索不是用户意见或业务质量结论。未标记用途的历史任务不作为可复用方法。']}
 
     def get(self, ident):
@@ -405,6 +446,8 @@ class UsageLearning:
     @staticmethod
     def brief(item):
         refs = '\n'.join(f'- 任务 {t["id"]}：{t["status"]}，工作流修订 {t["revision"]}，{t["created_at"]}' for t in item['tasks'])
+        privacy = ('这里只提供请求状态，不提供员工私聊。请检查项目公共连接与服务状态，不读取其他员工的会话；如需业务正文，请员工主动提交关联反馈。不自动重放失败请求。'
+                   if item['kind'] == 'assistant_error' else '')
         return f'''# 改进任务：{item['title']}
 
 项目：{item['project_id']}
@@ -413,6 +456,7 @@ class UsageLearning:
 观察：{item['explanation']}
 限制：{item['limitation']}
 建议：{item['next_step']}
+{privacy}
 
 ## 相关运行
 {refs or '暂无关联运行；见下方接口操作。'}

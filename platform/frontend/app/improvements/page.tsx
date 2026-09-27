@@ -8,7 +8,7 @@ import { useAccount } from '../components/AuthBoundary'
 import base from '../projects/projects.module.css'
 import styles from './improvements.module.css'
 
-type Kind = 'repeated_failure' | 'recovery' | 'reusable_method' | 'operation_error'
+type Kind = 'repeated_failure' | 'recovery' | 'reusable_method' | 'operation_error' | 'assistant_error'
 type Status = 'new' | 'working' | 'resolved' | 'dismissed'
 type Task = { id: string; status: string; created_at: string; updated_at: string; revision: number | null; purpose: string; error_kind: string }
 type Improvement = {
@@ -18,7 +18,7 @@ type Improvement = {
   workflow_changed?: boolean | null; inputs_changed?: boolean | null; status: Status; active?: boolean
   handoff?: { conversation_id: string; status: string; error: string }
 }
-type Report = { items: Improvement[]; last_scan: string | number | null; error: string; automatic_error?: string; sampled_tasks: number; truncated: boolean; window_days: number; limit: number; notes: string[] }
+type Report = { items: Improvement[]; last_scan: string | number | null; error: string; automatic_error?: string; sampled_tasks: number; truncated: boolean; sampled_interactions?: number; interactions_truncated?: boolean; window_days: number; limit: number; notes: string[] }
 type AutomationSettings = {
   enabled: boolean; project_ids: string[]; daily_limit: number
   projects: { id: string; name: string; available: boolean; reason: string }[]; error: string
@@ -31,7 +31,7 @@ type HandlingResult = {
 }
 
 const endpoint = '/api/v1/admin/improvements'
-const kindNames: Record<Kind, string> = { repeated_failure: '反复失败', recovery: '失败后成功', reusable_method: '重复成功', operation_error: '操作报错' }
+const kindNames: Record<Kind, string> = { repeated_failure: '反复失败', recovery: '失败后成功', reusable_method: '重复成功', operation_error: '操作报错', assistant_error: '对话与生成失败' }
 const statusNames: Record<Status, string> = { new: '待处理', working: '处理中', resolved: '已处理', dismissed: '已忽略' }
 const resultNames: Record<string, string> = { succeeded: '成功', completed: '已完成', failed: '失败', error: '失败', interrupted: '已中断', cancelled: '已取消', connecting: '正在连接', queued: '排队中', running: '运行中', waiting_input: '等待补充', idle: '本轮已结束', submitted: '已提交', prepared: '待启动', started: '已启动' }
 const featureNames: Record<string, string> = { chat: '发送对话', generate: '生成工作流', edit: '编辑工作流', upload: '上传资料', train: '训练模型', predict: '运行预测', download: '下载文件', save_method: '保存方法', reuse: '复用方法', share: '分享方法', workflow_run: '运行工作流', chat_result: '对话处理', generation_result: '工作流生成' }
@@ -252,7 +252,9 @@ function AdminImprovementsPage({ userId }: { userId: string }) {
     </details></section>
     <section className={styles.intro} aria-label="整理说明"><p>自动整理和“立即整理”都不调用模型。这里展示的是改进线索，仍需结合项目验证，不是对结果的结论。</p><p>个人会话正文未收集到统计中；展开处理进展时，仅显示本人的处理会话。页面显示时每 30 秒刷新一次。</p>
       {report && <small>最近整理：{time(report.last_scan)} · 最近 {report.window_days} 天 · 已查看 {report.sampled_tasks} 个任务</small>}
+      {report?.sampled_interactions != null && <small> · 另查看 {report.sampled_interactions} 个对话或生成请求</small>}
       {report?.truncated && <p role="status" className={styles.notice}>本次最多查看 {report.limit} 个任务，样本已截断，不能代表全部使用情况。</p>}
+      {report?.interactions_truncated && <p role="status" className={styles.notice}>对话与生成请求最多查看 {report.limit} 条，样本已截断。</p>}
       {!!report?.notes?.length && <details><summary>统计范围与限制</summary>{report.notes.map((note, index) => <p key={index}>{note}</p>)}</details>}
     </section>
     {(error || report?.error) && <p role="alert" className={base.error}>{error || report?.error}</p>}

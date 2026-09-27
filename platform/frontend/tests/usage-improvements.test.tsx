@@ -46,6 +46,29 @@ beforeEach(() => {
 })
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks() })
 
+it('shows asynchronous conversation failures and their sampling limits without starting a retry', async () => {
+  const failure = { ...operation, id: 'assistant-failure', kind: 'assistant_error', title: '项目对话多次执行失败',
+    workflow_id: '', workflow_name: '', status: 'new', explanation: '2 个不同请求在提交后执行失败。最新失败之后，已记录 1 次完成。',
+    limitation: '后续完成可能是其他任务，不能据此判定已修复。',
+    operations: [{ id: 'result-one', created: 1790586000, feature: 'chat_result', outcome: 'error', resource_id: '' }] }
+  vi.mocked(api).mockImplementation(async path => (path.endsWith('/settings') ? settings() : {
+    ...report(), sampled_interactions: 500, interactions_truncated: true, items: [recovery, failure],
+  }) as never)
+  render(<ImprovementsPage />)
+  const card = await screen.findByRole('article', { name: failure.title })
+  expect(screen.getByText(/另查看 500 个对话或生成请求/)).toBeInTheDocument()
+  expect(screen.getByText('对话与生成请求最多查看 100 条，样本已截断。')).toBeInTheDocument()
+  expect(within(card).getByText(failure.explanation)).toBeInTheDocument()
+  expect(within(card).getByText(failure.limitation)).toBeInTheDocument()
+  fireEvent.change(screen.getByLabelText('线索类别'), { target: { value: 'assistant_error' } })
+  expect(screen.queryByRole('article', { name: recovery.title })).not.toBeInTheDocument()
+  fireEvent.click(within(card).getByText('查看使用轨迹（1 条）'))
+  expect(within(card).getByText('对话处理')).toBeInTheDocument()
+  expect(within(card).getByText('失败')).toBeInTheDocument()
+  expect(within(card).getByRole('link', { name: '下载改进任务（Markdown）' })).toHaveAttribute('download', '改进任务-assistant-failure.md')
+  expect(vi.mocked(api).mock.calls.every(([, init]) => !init)).toBe(true)
+})
+
 it('only reads on entry and refreshes every 30 seconds while visible without starting the agent', async () => {
   vi.useFakeTimers()
   const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')

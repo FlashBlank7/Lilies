@@ -420,6 +420,9 @@ class LocalAgents:
         initial_state = self.load(application_id)
         official = initial_state.get('provider') == 'official'
         job_id = initial_state.get('request_id', '')
+        began = time.monotonic()
+        from .official_agent import actor_id
+        user_id = actor_id.get()
         project_task_id = initial_state.get('project_task_id') if initial_state['phase'] == 'operate' else None
         try:
             state = self.load(application_id)
@@ -805,6 +808,11 @@ class LocalAgents:
                             project_id=application_id, conversation_id=conversation_for(application_id), root_id=job_id,
                             feature='chat_result', outcome=row['status'], tokens=row['tokens'],
                             seconds=max(0, (row['ended'] or time.time()) - (row['started'] or row['created'])))
+            elif is_project and initial_state.get('provider') == 'api' and job_id:
+                self.services.product_usage.record(key=job_id + ':result', user_id=user_id,
+                    project_id=application_id, conversation_id=conversation_for(application_id), root_id=job_id,
+                    feature='chat_result', outcome='completed' if status == 'idle' else status,
+                    seconds=time.monotonic() - began)
             if project_task_id:
                 await self.services.projects.finish_agent(application_id, project_task_id, status, error)
             if status in {"interrupted", "error"}:
