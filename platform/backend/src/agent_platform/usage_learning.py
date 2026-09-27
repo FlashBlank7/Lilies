@@ -20,6 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from .conversation_scope import conversation_scope
 from .db import connect
 from .project_conversation import ConversationMessage
+from .usage_workflow_versions import read_members, reachable_versions, version_hash
 
 log = logging.getLogger(__name__)
 DAYS = 30
@@ -55,6 +56,10 @@ def conversation_started(state):
     return any(event.get('kind') == 'user' for event in state.get('events', []))
 
 
+def finding_id(key):
+    return str(uuid5(NAMESPACE_URL, 'lilies:usage:' + key))
+
+
 def patterns(tasks, operations):
     """Only explicit task ancestry establishes a repair relationship."""
     findings = []
@@ -63,40 +68,48 @@ def patterns(tasks, operations):
 
     def add(key, kind, rows, title, explanation, limitation, next_step, **extra):
         last = rows[-1]
+        if any(t.get('dynamic_versions') for t in rows):
+            limitation += '含动态工具调用，版本比较覆盖所有可调用项目成员，不表示每个成员都实际执行。'
         findings.append({
-            'id': str(uuid5(NAMESPACE_URL, 'lilies:usage:' + key)),
+            'id': finding_id(key),
             'kind': kind, 'project_id': last['project_id'], 'workflow_id': last['workflow_id'],
             'project_name': last['project_name'], 'workflow_name': last['workflow_name'],
             'title': title, 'explanation': explanation, 'limitation': limitation, 'next_step': next_step,
             'count': len(rows), 'tasks': [observation(t) for t in rows[-12:]],
             'automatic_eligible': any(t['purpose'] in {'business', 'customer_trial'} for t in rows),
-            'last_seen': max(t['updated_at'] for t in rows), **extra,
+            'first_seen': min(t['updated_at'] for t in rows),
+            'last_seen': max(t['updated_at'] for t in rows),
+            'workflow_versions': last.get('workflow_versions', {}), **extra,
         })
 
     for task in tasks:
         if task['status'] == 'failed' and task['error_kind']:
-            grouped[('failure', task['project_id'], task['workflow_id'], task['content_hash'], task['error_hash'])].append(task)
+            grouped[('failure', task['project_id'], task['workflow_id'], task.get('version_hash', task['content_hash']), task['error_hash'])].append(task)
         if task['status'] == 'succeeded' and task['purpose'] == 'business' and task['content_hash']:
-            grouped[('reuse', task['project_id'], task['workflow_id'], task['content_hash'])].append(task)
+            grouped[('reuse', task['project_id'], task['workflow_id'], task.get('version_hash', task['content_hash']))].append(task)
         parent = by_id.get(task['feedback_task_id'])
         if (task['status'] == 'succeeded' and parent and parent['status'] == 'failed'
                 and (parent['project_id'], parent['workflow_id']) == (task['project_id'], task['workflow_id'])):
-            changed = parent['content_hash'] != task['content_hash']
+            changed = parent.get('version_hash', parent['content_hash']) != task.get('version_hash', task['content_hash'])
             inputs_changed = parent['input_hash'] != task['input_hash']
             add('recovery:' + parent['id'], 'recovery', [parent, task], '一次失败有了成功的后续运行',
-                '后续任务明确关联原失败任务；' + ('工作流内容发生变化。' if changed else '工作流内容未变化。'),
+                '后续任务明确关联原失败任务；' + ('工作流或其调用的子流程发生变化。' if changed else '工作流及已识别子流程内容未变化。'),
                 '成功表示计算完成，不证明业务效果或改动的因果关系；相同输入参数也不保证外部文件字节相同。',
                 '比较两次运行和相关节点，提炼有效修改及适用条件，保留原失败案例。',
                 workflow_changed=changed, inputs_changed=inputs_changed)
 
     for key, rows in grouped.items():
+        legacy_key = (*key[:3], rows[-1]['content_hash'], *key[4:])
+        previous_id = finding_id(':'.join(legacy_key))
         if key[0] == 'failure' and len(rows) >= 2:
-            historical = any(t.get('current_hash', t['content_hash']) != t['content_hash'] for t in rows)
+            historical = any(t.get('current_version_hash', t.get('current_hash', t['content_hash']))
+                             != t.get('version_hash', t['content_hash']) for t in rows)
             add(':'.join(key), 'repeated_failure', rows, '同一工作流反复出现相同错误',
                 f'{len(rows)} 个不同任务失败，错误文本相同；类别：{rows[-1]["error_kind"]}。',
                 '相同错误文本不一定意味着同一根因；停止、等待回答和 HTTP 接受请求不计作运行失败。'
-                + ('失败属于旧版本，当前草稿已经变化，不自动处理这条历史线索。' if historical else ''),
+                + ('失败属于旧版本，当前工作流或子流程已经变化，不自动处理这条历史线索。' if historical else ''),
                 '读取失败节点与输入要求，先复现其中一次失败，再修复配置、提示或实现。',
+                previous_id=previous_id,
                 automatic_eligible=not historical and any(t['purpose'] in {'business', 'customer_trial'} for t in rows))
         if key[0] == 'reuse' and len(rows) >= 3:
             distinct = len({t['input_hash'] for t in rows})
@@ -105,7 +118,7 @@ def patterns(tasks, operations):
             add(':'.join(key), 'reusable_method', rows, '同一版本在多组输入上完成运行',
                 f'{len(rows)} 个业务任务完成，包含 {distinct} 组不同输入参数。',
                 '运行成功不等于结果被采纳；这些参数可能引用同一文件，尚未证明方法适用于其他业务。',
-                '检查实际结果与使用条件，将可复用部分整理为方法说明或独立工作流副本。')
+                '检查实际结果与使用条件，将可复用部分整理为方法说明或独立工作流副本。', previous_id=previous_id)
 
     operation_groups = defaultdict(list)
     for item in operations:
@@ -188,9 +201,16 @@ class UsageLearning:
                 WHERE t.updated_at>=? AND t.mode='workflow'
                 AND NOT EXISTS (SELECT 1 FROM usage_handoffs h WHERE h.conversation_id=t.conversation_id)
                 ORDER BY t.updated_at DESC,t.id LIMIT ?''', (cutoff, LIMIT + 1)).fetchall()
-            tasks = []
+            tasks, current = [], {}
             for row in rows[:LIMIT]:
                 item = dict(row)
+                pid, wid = item['project_id'], item['workflow_id']
+                if pid not in current:
+                    current[pid] = read_members(db, pid)
+                versions, dynamic = reachable_versions(read_members(db, pid, item['id']), wid)
+                current_versions, _ = reachable_versions(current[pid], wid)
+                item.update(workflow_versions=versions, version_hash=version_hash(versions, wid),
+                            current_version_hash=version_hash(current_versions, wid), dynamic_versions=dynamic)
                 item['input_hash'] = digest(json.dumps(json.loads(item.pop('inputs_json')), sort_keys=True))
                 error = item.pop('error')
                 item.update(error_hash=digest(error), error_kind=error_kind(error) if error else '')
@@ -207,9 +227,24 @@ class UsageLearning:
             # Preserve the history but only current observations may be dispatched.
             db.execute('UPDATE usage_findings SET active=0')
             for item in found:
+                existing = db.execute('SELECT 1 FROM usage_findings WHERE id=?', (item['id'],)).fetchone()
                 db.execute('''INSERT INTO usage_findings(id,project_id,kind,payload,created,updated)
                     VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload,updated=excluded.updated,active=1''',
                     (item['id'], item['project_id'], item['kind'], json.dumps(item, ensure_ascii=False), now, now))
+                if not existing and item.get('previous_id') != item['id']:
+                    previous = db.execute('SELECT status,payload FROM usage_findings WHERE id=?', (item.get('previous_id'),)).fetchone()
+                    if previous:
+                        # Old root-only groups can split into several dependency
+                        # versions. Carry handling history for versions already
+                        # observed then, even if they have fresh failures too.
+                        # A genuinely new future version stays new.
+                        old_seen = datetime.fromisoformat(json.loads(previous['payload'])['last_seen'])
+                        if datetime.fromisoformat(item['first_seen']) <= old_seen:
+                            db.execute('UPDATE usage_findings SET status=? WHERE id=?', (previous['status'], item['id']))
+                            db.execute('''INSERT OR IGNORE INTO usage_handoffs
+                                (finding_id,user_id,conversation_id,status,error,automatic,attempted)
+                                SELECT ?,user_id,conversation_id,status,error,automatic,attempted
+                                FROM usage_handoffs WHERE finding_id=?''', (item['id'], item['previous_id']))
             db.execute('DELETE FROM usage_findings WHERE updated<? OR project_id NOT IN (SELECT id FROM projects)',
                        (now - DAYS * 86400,))
             db.execute('DELETE FROM usage_handoffs WHERE finding_id NOT IN (SELECT id FROM usage_findings)')
@@ -274,7 +309,7 @@ class UsageLearning:
         if not config['enabled'] or self.services.official_agent.active_jobs():
             return
         with connect(self.db) as db:
-            used = db.execute('SELECT COUNT(*) FROM usage_handoffs WHERE automatic=1 AND attempted>=?',
+            used = db.execute('SELECT COUNT(DISTINCT conversation_id) FROM usage_handoffs WHERE automatic=1 AND attempted>=?',
                               (time.time()-86400,)).fetchone()[0]
             if used >= config['daily_limit']:
                 return
@@ -400,7 +435,7 @@ class UsageLearning:
             if automatic:
                 config = self.config()
                 with connect(self.db) as db:
-                    used = db.execute('SELECT COUNT(*) FROM usage_handoffs WHERE automatic=1 AND attempted>=?',
+                    used = db.execute('SELECT COUNT(DISTINCT conversation_id) FROM usage_handoffs WHERE automatic=1 AND attempted>=?',
                                       (time.time()-86400,)).fetchone()[0]
                     admin_active = user['id'] == 'root' or db.execute(
                         "SELECT 1 FROM users WHERE id=? AND role='admin' AND status='active'", (user['id'],)).fetchone()
@@ -413,6 +448,13 @@ class UsageLearning:
                 if not official.selected(pid) or not official.config().enabled:
                     raise HTTPException(409, '项目已不再使用官方智能体，自动处理暂停')
                 await official.authorize(pid, user['id'])
+                if item['kind'] == 'repeated_failure':
+                    def version_is_current():
+                        with connect(self.db) as db:
+                            versions, _ = reachable_versions(read_members(db, pid), item['workflow_id'])
+                        return bool(item.get('workflow_versions')) and versions == item['workflow_versions']
+                    if not await asyncio.to_thread(version_is_current):
+                        return {'status': 'skipped'}
             with connect(self.db) as db:
                 row = db.execute('SELECT * FROM usage_handoffs WHERE finding_id=? AND user_id=?', (ident, user['id'])).fetchone()
             if row and row['status'] == 'started':

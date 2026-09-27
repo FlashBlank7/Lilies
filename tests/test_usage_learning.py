@@ -1,12 +1,16 @@
 """Passive observations are grounded in real tasks, not model verdicts or click counts."""
 import asyncio
 import json
+import time
 from types import SimpleNamespace
+from uuid import uuid5, NAMESPACE_URL
+
+import pytest
 
 from agent_platform.connected_model import completion_events
 from agent_platform.conversation_scope import conversation_scope
 from agent_platform.db import connect
-from agent_platform.usage_learning import patterns
+from agent_platform.usage_learning import patterns, digest
 from agent_platform.usage_learning import AutomaticSettings
 from tests.test_projects import configured, graph, node, edge, ref, start, settled  # noqa:F401
 from tests.test_project_sessions import settled as session_settled
@@ -159,6 +163,162 @@ def test_same_inputs_tests_stops_and_unrelated_success_do_not_imply_reuse_or_rep
              {**base, 'id':'waiting', 'status':'waiting_input', 'purpose':'business'},
              {**base, 'id':'failed', 'status':'failed', 'purpose':'business'}]
     assert patterns(rows, []) == []
+
+
+def nested_quantity(client, pid):
+    child = client.post('/api/v1/projects/'+pid+'/members', json={'name': '数量子流程'}).json()['id']
+    graph(client, child, [node('start', 'start', inputs=[{'name':'quantity', 'type':'number', 'required':True}]),
+        node('end', 'end', outputs={'quantity':ref('start', 'quantity')})], [edge('start', 'end')])
+    graph(client, pid, [node('start', 'start'), node('call', 'tool', tool_name='workflow:'+child, input={}),
+        node('end', 'end', outputs={'quantity':ref('call', 'output', 'quantity')})], [edge('start', 'call'), edge('call', 'end')])
+    return child
+
+
+def test_child_fix_marks_old_failures_historical_and_records_real_change(configured):
+    client, _, project, _ = configured
+    pid = project['id']; base = '/api/v1/projects/'+pid
+    child = nested_quantity(client, pid)
+    before = client.get('/api/v1/applications/'+pid+'/draft').json()['content_hash']
+    failures = [settled(client, base, start(client, base, 'nested-'+str(i))) for i in range(2)]
+    assert all(t['status'] == 'failed' for t in failures)
+    item = client.post(BASE+'/scan').json()['items'][0]
+    assert item['automatic_eligible']
+    graph(client, child, [node('start', 'start'), node('end', 'end', outputs={'quantity':1})], [edge('start', 'end')])
+    fixed = settled(client, base, start(client, base, 'fixed-child', feedback_task_id=failures[0]['id']))
+    assert fixed['status'] == 'succeeded' and fixed['outputs'] == {'quantity':1}
+    assert client.get('/api/v1/applications/'+pid+'/draft').json()['content_hash'] == before
+    items = client.post(BASE+'/scan').json()['items']
+    original = next(x for x in items if x['id'] == item['id'])
+    assert not original['automatic_eligible'] and '旧版本' in original['limitation']
+    recovery = next(x for x in items if x['kind'] == 'recovery')
+    assert recovery['workflow_changed'] and not recovery['inputs_changed']
+    assert '子流程' in recovery['explanation']
+
+
+def test_reuse_separates_child_versions_but_ignores_unreferenced_members(configured):
+    client, _, project, _ = configured
+    pid = project['id']; base = '/api/v1/projects/'+pid
+    child = nested_quantity(client, pid)
+    graph(client, child, [node('start', 'start'), node('end', 'end', outputs={'quantity':1})], [edge('start', 'end')])
+    for i in range(2):
+        task = settled(client, base, start(client, base, 'old-'+str(i), inputs={'batch':i}))
+        assert task['status'] == 'succeeded'
+    unused = client.post(base+'/members', json={'name':'无关流程'}).json()['id']
+    graph(client, unused, [node('start', 'start'), node('end', 'end', outputs={'quantity':999})], [edge('start', 'end')])
+    assert settled(client, base, start(client, base, 'old-2', inputs={'batch':2}))['status'] == 'succeeded'
+    old = next(x for x in client.post(BASE+'/scan').json()['items'] if x['kind'] == 'reusable_method')
+    assert old['count'] == 3
+    graph(client, child, [node('start', 'start'), node('end', 'end', outputs={'quantity':2})], [edge('start', 'end')])
+    for i in range(3):
+        assert settled(client, base, start(client, base, 'new-'+str(i), inputs={'batch':i}))['outputs'] == {'quantity':2}
+    items = [x for x in client.post(BASE+'/scan').json()['items'] if x['kind'] == 'reusable_method' and x['active']]
+    assert len(items) == 2 and {x['count'] for x in items} == {3}
+    assert old['id'] in {x['id'] for x in items}
+
+
+@pytest.mark.parametrize('kind', ['tool', 'tool_executor', 'soft_block'])
+@pytest.mark.parametrize('container', ['iteration', 'loop'])
+def test_nested_graph_calls_are_versioned_without_reading_config_prose(configured, kind, container):
+    client, _, project, _ = configured
+    pid = project['id']; base = '/api/v1/projects/'+pid
+    child = nested_quantity(client, pid)
+    unrelated = client.post(base+'/members', json={'name':'仅在说明中提及'}).json()['id']
+    if kind == 'tool':
+        call = node('call', kind, tool_name='workflow:'+child, input={})
+    else:
+        call = node('call', kind, settings={'tool_name':'workflow:'+child, 'tool_input':{}},
+                    **({'strategy':'tool_execute'} if kind == 'soft_block' else {}))
+    inner = {'nodes':[node('s','start'), call, node('e','end')], 'edges':[edge('s','call'),edge('call','e')]}
+    settings = {'items':[1]} if container == 'iteration' else {
+        'max_iterations':1, 'break_value':True, 'break_condition':{'value':True,'operator':'equals','expected':True}}
+    graph(client, pid, [node('s','start'), node('repeat',container,workflow=inner,output_node_id='e',**settings),
+        node('e','end',outputs={'documentation':'workflow:'+unrelated})], [edge('s','repeat'),edge('repeat','e')])
+    for i in range(2):
+        task = settled(client, base, start(client, base, 'nested-'+str(i)))
+        assert task['status'] == 'failed' and 'quantity' in task['error']
+    first = client.post(BASE+'/scan').json()['items'][0]
+    assert set(first['workflow_versions']) == {pid, child} and first['automatic_eligible']
+    graph(client, unrelated, [node('s','start'),node('e','end')], [edge('s','e')])
+    assert client.post(BASE+'/scan').json()['items'][0]['automatic_eligible']
+    graph(client, child, [node('s','start'),node('e','end')], [edge('s','e')])
+    assert not client.post(BASE+'/scan').json()['items'][0]['automatic_eligible']
+
+
+def test_dynamic_target_uses_available_member_versions_and_rechecks_before_dispatch(official):
+    client, app, _ = official
+    client.headers.update(ADMIN)
+    pid = project(client, ADMIN, '动态子流程')
+    base = '/api/v1/projects/'+pid
+    child = nested_quantity(client, pid)
+    graph(client, pid, [node('s','start'),node('call','tool_executor',input=ref('$inputs','request')),
+        node('e','end')], [edge('s','call'),edge('call','e')])
+    inputs = {'request':{'tool_calls':[{'tool_name':'workflow:'+child,'tool_input':{}}]}}
+    for i in range(2):
+        task = settled(client, base, start(client, base, 'routed-'+str(i), inputs=inputs))
+        assert task['status'] == 'failed'
+    item = client.post(BASE+'/scan').json()['items'][0]
+    assert set(item['workflow_versions']) == {pid, child} and '动态' in item['limitation']
+    enable(client, pid)
+    assert client.put(BASE+'/settings', json={'enabled':True,'project_ids':[pid],'daily_limit':1}).status_code == 200
+    graph(client, child, [node('s','start'),node('e','end')], [edge('s','e')])
+    # Do not scan again: dispatch must check changes since the last observation.
+    client.portal.call(app.state.services.usage_learning.automate)
+    assert client.get(base+'/conversations').json() == []
+    assert not FakeAgent.turns
+
+
+@pytest.mark.parametrize('status', ['resolved', 'dismissed', 'new'])
+def test_old_combined_signal_keeps_handling_history_when_split_and_future_versions_are_new(official, status):
+    client, app, _ = official
+    client.headers.update(ADMIN)
+    pid = project(client, ADMIN, '旧线索升级')
+    base = '/api/v1/projects/'+pid
+    child = nested_quantity(client, pid)
+    failures = []
+    for version in range(2):
+        graph(client, child, [node('s','start',inputs=[{'name':'quantity','type':'number','required':True}]),
+            node('e','end',outputs={'version':version})], [edge('s','e')])
+        for i in range(2):
+            failures.append(settled(client, base, start(client, base, f'old-{version}-{i}')))
+    assert all(t['status']=='failed' for t in failures)
+    assert len({t['error'] for t in failures}) == 1
+    items = client.post(BASE+'/scan').json()['items']
+    assert len(items) == 2
+    root_hash = client.get('/api/v1/applications/'+pid+'/draft').json()['content_hash']
+    legacy_id = str(uuid5(NAMESPACE_URL, 'lilies:usage:failure:'+pid+':'+pid+':'+root_hash+':'+digest(failures[0]['error'])))
+    legacy = {**items[0], 'id':legacy_id, 'last_seen':max(t['updated_at'] for t in failures)}
+    legacy.pop('workflow_versions', None)
+    response = client.post(base+'/conversations',json={'title':'旧处理会话'})
+    assert response.status_code == 201, response.text
+    cid = response.json()['id']
+    with connect(app.state.services.usage_learning.db) as db:
+        db.execute('DELETE FROM usage_findings')
+        db.execute('INSERT INTO usage_findings VALUES(?,?,?,?,?,?,?,?)',
+            (legacy_id,pid,'repeated_failure',status,json.dumps(legacy),time.time(),time.time(),1))
+        db.execute('INSERT INTO usage_handoffs VALUES(?,?,?,?,?,?,?)',
+            (legacy_id,'root',cid,'started','',1,time.time()))
+    # A fresh failure of an already observed child version is still that same
+    # signal. It must not erase its previous handling during the first upgrade scan.
+    assert settled(client, base, start(client, base, 'same-version-again'))['status']=='failed'
+    migrated = [x for x in client.post(BASE+'/scan').json()['items'] if x['active']]
+    assert len(migrated)==2 and {x['status'] for x in migrated}=={status}
+    assert {x['handoff']['conversation_id'] for x in migrated}=={cid}
+    enable(client, pid)
+    assert client.put(BASE+'/settings', json={'enabled':True,'project_ids':[pid],'daily_limit':2}).status_code == 200
+    client.portal.call(app.state.services.usage_learning.automate)
+    assert len(client.get(base+'/conversations').json()) == 1 and not FakeAgent.turns
+    # A later genuine child version must not inherit a past dismissal or attempt.
+    graph(client, child, [node('s','start',inputs=[{'name':'quantity','type':'number','required':True}]),
+        node('e','end',outputs={'version':3})], [edge('s','e')])
+    for i in range(2):
+        assert settled(client, base, start(client, base, 'future-'+str(i)))['status']=='failed'
+    current = next(x for x in client.post(BASE+'/scan').json()['items'] if x['active'] and x['automatic_eligible'])
+    assert current['status']=='new' and current['handoff'] is None
+    client.portal.call(app.state.services.usage_learning.automate)
+    # The shared old handling conversation counts only once against the daily limit.
+    assert len(client.get(base+'/conversations').json()) == 2
+    started = next(x for x in client.get(BASE).json()['items'] if x['id']==current['id'])
+    assert started['handoff']['conversation_id'] != cid
 
 
 def test_http_errors_permissions_and_no_request_or_conversation_bodies(platform):
