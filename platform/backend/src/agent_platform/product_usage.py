@@ -95,34 +95,43 @@ def install_usage(app, services):
     @app.middleware('http')
     async def collect(request: Request, call_next):
         began=time.perf_counter()
-        response=await call_next(request)
+        status = None
         try:
-            feature=classify(request.url.path,request.method,request.query_params)
-            user=getattr(request.state,'user',None)
-            if feature and user and (response.status_code<400 or response.status_code in {409,422,500,502,503,504}):
-                params=request.path_params
-                pid=params.get('project_id','')
-                if not pid and params.get('application_id'):
-                    pid=await services.projects.store.membership(params['application_id']) or ''
-                cid=params.get('conversation_id','')
-                root_id=str(uuid4())
-                if pid and feature=='chat' and response.status_code<400:
-                    with conversation_scope(pid,'' if cid=='legacy' else cid):
-                        root_id=services.local_agents.load(pid).get('request_id') or root_id
-                key=f'{user["id"]}:{pid}:{cid}:{feature}:{root_id}'
-                if pid:
-                    # Failures carry only status and resource identity, never the submitted body or error text.
-                    # Authentication/authorization failures are excluded; check membership before recording.
-                    if response.status_code>=400:
-                        await services.accounts.require_project(user,pid)
-                    resource_id=params.get('workflow_id') or params.get('application_id') or params.get('task_id','')
-                    await asyncio.to_thread(services.product_usage.record,key=key,user_id=user['id'],project_id=pid,
-                        conversation_id=cid,root_id=root_id,feature=feature if response.status_code<400 else feature+'_error',
-                        outcome='submitted' if response.status_code<400 else f'HTTP {response.status_code}',
-                        seconds=time.perf_counter()-began,resource_id=resource_id)
+            response = await call_next(request)
+            status = response.status_code
+            return response
         except Exception:
-            log.warning('Usage collection unavailable', exc_info=False)
-        return response
+            # Starlette creates the outer 500 response after this middleware
+            # unwinds. Keep the original exception while recording its outcome.
+            status = 500
+            raise
+        finally:
+            try:
+                feature=classify(request.url.path,request.method,request.query_params)
+                user=getattr(request.state,'user',None)
+                if status is not None and feature and user and (status<400 or status in {409,422,500,502,503,504}):
+                    params=request.path_params
+                    pid=params.get('project_id','')
+                    if not pid and params.get('application_id'):
+                        pid=await services.projects.store.membership(params['application_id']) or ''
+                    cid=params.get('conversation_id','')
+                    root_id=str(uuid4())
+                    if pid and feature=='chat' and status<400:
+                        with conversation_scope(pid,'' if cid=='legacy' else cid):
+                            root_id=services.local_agents.load(pid).get('request_id') or root_id
+                    key=f'{user["id"]}:{pid}:{cid}:{feature}:{root_id}'
+                    if pid:
+                        # Failures carry only status and resource identity, never the submitted body or error text.
+                        # Authentication/authorization failures are excluded; check membership before recording.
+                        if status>=400:
+                            await services.accounts.require_project(user,pid)
+                        resource_id=params.get('workflow_id') or params.get('application_id') or params.get('task_id','')
+                        await asyncio.to_thread(services.product_usage.record,key=key,user_id=user['id'],project_id=pid,
+                            conversation_id=cid,root_id=root_id,feature=feature if status<400 else feature+'_error',
+                            outcome='submitted' if status<400 else f'HTTP {status}',
+                            seconds=time.perf_counter()-began,resource_id=resource_id)
+            except Exception:
+                log.warning('Usage collection unavailable', exc_info=False)
 
     router=APIRouter(prefix='/api/v1')
 

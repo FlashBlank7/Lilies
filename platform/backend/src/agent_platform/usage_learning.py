@@ -127,14 +127,17 @@ def patterns(tasks, operations, interactions=()):
         if len(rows) < 2:
             continue
         last = rows[-1]
+        server_failure = key[3].startswith('HTTP 5')
         findings.append({
             'id': str(uuid5(NAMESPACE_URL, 'lilies:usage:http:' + ':'.join(key))),
             'kind': 'operation_error', 'project_id': key[0], 'workflow_id': '',
             'project_name': last['project_name'], 'workflow_name': '',
-            'title': '同一操作多次未能提交',
+            'title': '同一操作多次返回服务错误' if server_failure else '同一操作多次未能提交',
             'explanation': f'{len(rows)} 次 {key[2].removesuffix("_error")} 操作返回 {key[3]}。',
-            'limitation': '这是接口拒绝的记录；可能是输入缺项或并发编辑，不能据此判断用户不满意。',
-            'next_step': '检查对应表单与接口，验证错误提示能否帮助用户修正；并发冲突应保留已有编辑。',
+            'limitation': ('服务错误不代表操作没有生效，数据可能已经保存；不能据此判断用户不满意或直接重放操作。'
+                          if server_failure else '这是接口拒绝的记录；可能是输入缺项或并发编辑，不能据此判断用户不满意。'),
+            'next_step': ('先检查原操作和产物是否已经生效，再定位服务异常；保留已有结果，不自动重放请求。'
+                          if server_failure else '检查对应表单与接口，验证错误提示能否帮助用户修正；并发冲突应保留已有编辑。'),
             'count': len(rows), 'tasks': [], 'last_seen': datetime.fromtimestamp(last['created'], timezone.utc).isoformat(),
             'operations': [{k: row[k] for k in ('id', 'created', 'feature', 'outcome', 'resource_id')} for row in rows[-12:]],
         })
