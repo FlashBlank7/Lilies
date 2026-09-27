@@ -168,8 +168,9 @@ class CodexAppServer:
             dynamic_tools = [tool for tool in tools if not tool.get('deferLoading')]
             if deferred:
                 dynamic_tools.append({'type': 'namespace', 'name': 'lilies',
-                    'description': 'Project tools for workflow editing, independent training and model binding, '
-                                   'knowledge, public research, shared records, requirements and task management.',
+                    # This prefix is repeated in every searchable tool description.
+                    # Listing all capabilities here makes unrelated tools match.
+                    'description': 'Additional project capabilities. Discover a tool by its name or specific purpose.',
                     'tools': deferred})
             result = await self.request("thread/start", {
                 **params, "environments": [], "selectedCapabilityRoots": [],

@@ -1,4 +1,6 @@
 import asyncio
+import json
+import re
 import sys
 
 import pytest
@@ -12,6 +14,7 @@ async def test_deferred_project_tools_are_namespaced_and_remain_callable(tmp_pat
     executable = tmp_path / 'codex'
     executable.write_text(f'#!{sys.executable}\n' + '''
 import json, sys
+from pathlib import Path
 def emit(value):
     print(json.dumps(value), flush=True)
 for line in sys.stdin:
@@ -21,6 +24,7 @@ for line in sys.stdin:
         emit({'id':message['id'],'result':{}})
     elif method == 'thread/start':
         tools = message['params']['dynamicTools']
+        Path(__file__).with_suffix('.tools.json').write_text(json.dumps(tools))
         assert not any(t.get('deferLoading') for t in tools)
         namespace = next(t for t in tools if t['type'] == 'namespace')
         assert namespace['name'] == 'lilies'
@@ -50,7 +54,23 @@ for line in sys.stdin:
         calls.append((name, arguments))
         return {'studies': []}
     try:
-        await client.start(project_tool_specs(), 'project tools only')
+        specs = project_tool_specs()
+        await client.start(specs, 'project tools only')
+        advertised = json.loads(executable.with_suffix('.tools.json').read_text())
+        flattened = {}
+        searchable = {}
+        for definition in advertised:
+            prefix = definition['description'] if definition.get('type') == 'namespace' else ''
+            for tool_spec in definition.get('tools', [definition]):
+                flattened[tool_spec['name']] = tool_spec
+                searchable[tool_spec['name']] = prefix + tool_spec['description']
+        # Namespace prose must not make unrelated tools look like workflow tools.
+        hits = {name for name, description in searchable.items()
+                if re.search(r'workflow|draft|clone|copy', name + ' ' + description, re.I)}
+        assert {'workflow_draft', 'workflow_run', 'project_workflows'} <= hits
+        assert not {'project_search', 'project_web', 'project_records'} & hits
+        # Deferred discovery preserves every callable name and complete schema.
+        assert flattened == {spec['name']: spec for spec in specs}
         assert (await client.turn('查看训练', event, tool, timeout=10))['status'] == 'completed'
         assert calls == [('project_modeling', {'action': 'list'})]
     finally:

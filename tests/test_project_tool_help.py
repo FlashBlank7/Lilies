@@ -1,11 +1,15 @@
 """Project agents can discover and apply the real incremental edit contract."""
 import json
+from types import SimpleNamespace
 
 import jsonschema
 
 from tests.test_projects import configured, graph, node, edge  # noqa: F401
 from agent_platform.requirement_discussion import save_discussion
 from agent_platform.local_agent_tools import ProjectTools
+from agent_platform.connected_model import completion_events
+from agent_platform.model_session import ModelSession
+from agent_platform.project_agent_tools import MODELING_MANUAL, WorkspaceProjectTools, project_tool_specs
 
 
 def prepare(configured):
@@ -114,3 +118,74 @@ def test_wrong_draft_selector_returns_actionable_help_without_editing(configured
     corrected = client.post(base+'/agent-tools',json={'name':'workflow_draft','arguments':{'view':'summary'}})
     assert corrected.status_code == 200 and corrected.json()['revision'] == before['revision']
     assert client.get('/api/v1/applications/'+pid+'/draft').json()['content_hash'] == before['content_hash']
+
+
+def test_short_catalog_keeps_all_contracts_and_named_help(configured):
+    client, _, project, _ = configured
+    base = '/api/v1/projects/' + project['id']
+    brief = client.get(base+'/agent-tools').json()['tools']
+    detailed = {spec['name']: spec for spec in project_tool_specs(detailed=True)}
+    assert {spec['name'] for spec in brief} == set(detailed)
+    for spec in brief:
+        full = detailed[spec['name']]
+        assert {k: v for k, v in spec.items() if k != 'description'} == {
+            k: v for k, v in full.items() if k != 'description'}
+        help = client.post(base+'/agent-tools', json={
+            'name': 'block_catalog', 'arguments': {'tool_name': spec['name']}})
+        assert help.status_code == 200, help.text
+        expected = MODELING_MANUAL if spec['name'] == 'project_modeling' else full['description']
+        assert help.json()['description'] == expected
+        assert help.json()['input_schema'] == spec['inputSchema']
+    assert len(json.dumps(brief)) < len(json.dumps(list(detailed.values())))
+
+
+def test_api_session_can_save_and_execute_without_loading_help(configured, tmp_path):
+    client, app, project, _ = configured
+    pid = project['id']
+    manager = app.state.services.local_agents
+    workspace = WorkspaceProjectTools(app.state.services, pid, manager)
+    specs = project_tool_specs()
+    calls, results = [], []
+
+    async def stream(**kwargs):
+        advertised = {tool.name: tool for tool in kwargs['tools']}
+        assert set(advertised) == {spec['name'] for spec in specs}
+        for spec in specs:
+            assert advertised[spec['name']].input_schema == spec['inputSchema']
+        if len(calls) == 0:
+            name, arguments = 'workflow_draft', {'view': 'summary'}
+        elif len(calls) == 1:
+            name, arguments = 'workflow_draft', {'operation': {
+                'op': 'replace_workflow', 'expected_revision': results[0]['revision'],
+                'idempotency_key': 'direct-api-edit', 'data': {'workflow': {
+                    'nodes': [node('start', 'start'), node('end', 'end', outputs={'quantity': 4})],
+                    'edges': [edge('start', 'end')]}}}}
+        elif len(calls) == 2:
+            name, arguments = 'workflow_run', {'action': 'start', 'request_key': 'direct-api-run'}
+        else:
+            assert results[-1]['outputs'] == {'quantity': 4}
+            for item in completion_events([{'type': 'text', 'text': '数量为4'}]):
+                yield item
+            return
+        jsonschema.validate(arguments, advertised[name].input_schema)
+        for item in completion_events([{'type': 'tool_use', 'id': str(len(calls)),
+                                       'name': name, 'input': arguments}], stop_reason='tool_use'):
+            yield item
+
+    async def tool(name, arguments):
+        calls.append(name)
+        result = await workspace.call(name, arguments)
+        results.append(result)
+        return result
+
+    async def event(*args):
+        pass
+
+    async def exercise():
+        session = ModelSession(SimpleNamespace(stream=stream), tmp_path/'session')
+        await session.start(specs, '直接修改并运行，无需先读手册。')
+        return await session.turn('返回数量4', event, tool)
+
+    assert client.portal.call(exercise)['status'] == 'completed'
+    assert calls == ['workflow_draft', 'workflow_draft', 'workflow_run']
+    assert len(client.get('/api/v1/projects/'+pid+'/tasks').json()) == 1
