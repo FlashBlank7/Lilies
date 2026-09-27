@@ -60,7 +60,7 @@ export default function AuthBoundary({ children }: { children: ReactNode }) {
       <Link href="/projects">Lilies</Link><span className={styles.spacer} />
       <TutorialLauncher />
       <FeedbackNavigation />
-      {user.role === 'admin' && <><Link href="/official-agent">官方智能体</Link><Link href="/users">账号管理</Link></>}
+      {user.role === 'admin' && <><Link href="/improvements">使用改进</Link><Link href="/official-agent">官方智能体</Link><Link href="/users">账号管理</Link></>}
       <Link href="/account">{user.name}</Link><button onClick={() => void logout()}>退出登录</button>
     </nav>}
     {error && <p role="alert" className={styles.error}>{error}</p>}{children}</>

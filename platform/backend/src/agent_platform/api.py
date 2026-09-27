@@ -536,6 +536,7 @@ class Services:
     project_sessions: Any | None = None
     official_agent: Any | None = None
     product_usage: Any | None = None
+    usage_learning: Any | None = None
 
 
 class ResumeBuildRequest(BaseModel):
@@ -1962,6 +1963,8 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
     services.official_agent = OfficialAgent(services)
     from .product_usage import ProductUsage
     services.product_usage = ProductUsage(services)
+    from .usage_learning import UsageLearning
+    services.usage_learning = UsageLearning(services)
     discussion_locks: dict[str, asyncio.Lock] = {}
 
     @asynccontextmanager
@@ -1979,6 +1982,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         from .shared_methods import initialize as initialize_shared_methods
         initialize_shared_methods(services.projects.store.db_path)
         services.product_usage.initialize()
+        services.usage_learning.initialize()
         from .user_feedback import initialize as initialize_feedback
         initialize_feedback(services.projects.store.db_path)
         await services.official_agent.initialize()
@@ -2097,6 +2101,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
 
         maintenance_task = asyncio.create_task(_event_maintenance())
         artifacts_task = asyncio.create_task(_purge_run_artifacts())
+        usage_learning_task = asyncio.create_task(services.usage_learning.run())
         services.scheduler.start()
         await services.event_automation.start()
 
@@ -2105,6 +2110,8 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         adaptive_refresh_task: asyncio.Task[Any] | None = None
         lifespan_ready.set()
         yield
+        usage_learning_task.cancel()
+        await asyncio.gather(usage_learning_task, return_exceptions=True)
         services.official_agent.shutting_down = True
         await services.local_agents.close()
         await services.official_agent.close()
@@ -6075,6 +6082,8 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
     install_usage(app, services)
     from .user_feedback import router as feedback_router
     app.include_router(feedback_router(services))
+    from .usage_learning import router as usage_learning_router
+    app.include_router(usage_learning_router(services))
 
     @app.get("/api/v1/overview", dependencies=[Depends(require_token)])
     async def platform_overview() -> dict[str, Any]:

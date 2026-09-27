@@ -33,6 +33,9 @@ class ProductUsage:
             db.execute('CREATE TABLE IF NOT EXISTS product_feedback ('
                        'user_id TEXT NOT NULL,project_id TEXT NOT NULL,conversation_id TEXT NOT NULL,request_id TEXT NOT NULL,'
                        'helpful INTEGER NOT NULL,PRIMARY KEY(user_id,project_id,conversation_id,request_id))')
+            if 'resource_id' not in {r['name'] for r in db.execute('PRAGMA table_info(product_usage)')}:
+                db.execute("ALTER TABLE product_usage ADD COLUMN resource_id TEXT NOT NULL DEFAULT ''")
+            db.execute('CREATE INDEX IF NOT EXISTS product_usage_created ON product_usage(created)')
             self.purge(db)
 
     @staticmethod
@@ -43,13 +46,13 @@ class ProductUsage:
         db.execute('DELETE FROM product_usage_daily WHERE day<?',(cutoff,))
 
     def record(self, *, key, user_id, project_id, conversation_id='', root_id='', actor='employee', feature,
-               outcome='submitted', seconds=None, tokens=None):
+               outcome='submitted', seconds=None, tokens=None, resource_id=''):
         try:
             now=time.time(); day=datetime.fromtimestamp(now,timezone.utc).date().isoformat()
             with connect(self.db) as db:
                 db.execute('PRAGMA busy_timeout=100')
-                inserted=db.execute('INSERT OR IGNORE INTO product_usage VALUES(?,?,?,?,?,?,?,?,?,?,?)',
-                    (key,now,user_id,project_id,conversation_id,root_id,actor,feature,outcome,seconds,tokens)).rowcount
+                inserted=db.execute('INSERT OR IGNORE INTO product_usage VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',
+                    (key,now,user_id,project_id,conversation_id,root_id,actor,feature,outcome,seconds,tokens,resource_id)).rowcount
                 if not inserted:return
                 db.execute('INSERT INTO product_usage_daily VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(day,user_id,actor,feature,outcome) '
                            'DO UPDATE SET count=count+1,seconds=seconds+excluded.seconds,tokens=tokens+excluded.tokens,measured=measured+excluded.measured',
@@ -96,20 +99,27 @@ def install_usage(app, services):
         try:
             feature=classify(request.url.path,request.method,request.query_params)
             user=getattr(request.state,'user',None)
-            if feature and user and response.status_code<400:
+            if feature and user and (response.status_code<400 or response.status_code in {409,422,500,502,503,504}):
                 params=request.path_params
                 pid=params.get('project_id','')
                 if not pid and params.get('application_id'):
                     pid=await services.projects.store.membership(params['application_id']) or ''
                 cid=params.get('conversation_id','')
                 root_id=str(uuid4())
-                if pid and feature=='chat':
+                if pid and feature=='chat' and response.status_code<400:
                     with conversation_scope(pid,'' if cid=='legacy' else cid):
                         root_id=services.local_agents.load(pid).get('request_id') or root_id
                 key=f'{user["id"]}:{pid}:{cid}:{feature}:{root_id}'
                 if pid:
+                    # Failures carry only status and resource identity, never the submitted body or error text.
+                    # Authentication/authorization failures are excluded; check membership before recording.
+                    if response.status_code>=400:
+                        await services.accounts.require_project(user,pid)
+                    resource_id=params.get('workflow_id') or params.get('application_id') or params.get('task_id','')
                     await asyncio.to_thread(services.product_usage.record,key=key,user_id=user['id'],project_id=pid,
-                        conversation_id=cid,root_id=root_id,feature=feature,seconds=time.perf_counter()-began)
+                        conversation_id=cid,root_id=root_id,feature=feature if response.status_code<400 else feature+'_error',
+                        outcome='submitted' if response.status_code<400 else f'HTTP {response.status_code}',
+                        seconds=time.perf_counter()-began,resource_id=resource_id)
         except Exception:
             log.warning('Usage collection unavailable', exc_info=False)
         return response
