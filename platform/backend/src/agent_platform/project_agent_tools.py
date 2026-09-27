@@ -117,11 +117,23 @@ class MemberRun(Run):
 
 
 class Members(Arguments):
-    action: Literal['list', 'inspect', 'create', 'remove', 'classify'] = 'list'
+    action: Literal['list', 'inspect', 'create', 'copy', 'remove', 'classify'] = 'list'
     workflow_id: str = ''
     name: str = Field(default='', max_length=100)
     description: str = Field(default='', max_length=1000)
     purpose: Literal['business', 'test'] = 'business'
+    expected_revision: int | None = Field(default=None, ge=0, strict=True,
+        description='copy: revision of the source workflow_id; reject concurrent changes.')
+    request_key: str = Field(default='', max_length=240,
+        description='copy: stable request key; retries return the same editable copy.')
+
+    @model_validator(mode='after')
+    def copy_inputs(self):
+        if self.action == 'copy' and not (
+                self.workflow_id and self.name.strip() and self.request_key.strip()
+                and self.expected_revision is not None):
+            raise ValueError('copy 需要源 workflow_id、expected_revision、新名称 name 和 request_key')
+        return self
 
 
 class Records(Arguments):
@@ -131,7 +143,7 @@ class Records(Arguments):
 
 
 class TaskResult(Arguments):
-    task_id: str = Field(default='', description='Unified conversation may present an existing current-project task without rerunning it. Omit to use the active task.')
+    task_id: str = Field(default='', description='Required in ordinary conversations to present an existing task. Omit only for the active operate-mode agent task. Not needed to finish a chat: reply directly.')
     status: Literal['succeeded', 'waiting_input', 'failed']
     message: str = Field(min_length=1, max_length=8000,
                          description='Current user-facing task summary; overrides any message carried in outputs.')
@@ -191,9 +203,9 @@ PROJECT_TOOL_MODELS = {
     'project_action': (ProjectAction, 'Optional project progress actions and frozen-task resume. trial/operate run an existing workflow immediately; item_id is optional. workflow_run(action="start") is the direct execution path. wait with task_id awaits an existing task and returns its result without starting or resuming it; no item_id is required. build and wait with item_id organize progress items, and are never required before editing, training or execution. finish ends this conversation request.'),
     'workflow_draft': (MemberDraft, 'Read with view="summary" (default; no action parameter). Returns revision/content_hash, nodes/edges index and tests index; view=nodes with node_ids reads exact configs, view=tests reads saved tests, view=full reads the complete draft. workflow_id defaults to the project main. Prefer batch={expected_revision,expected_content_hash,idempotency_key,operations:[{op,data},...]} for related edits to ONE member: one atomic save, rollback on any error, one revision increment. A single operation using the legacy schema is also supported. Read current revision before editing, preserve human layout, and use update_node.data={node_id,changes,merge_config:true}. Mutations return a summary; full data remains readable. Project capability limits still apply; resources may remain unbound.'),
     'workflow_run': (MemberRun, 'Validate/start/inspect/test a member workflow. validate checks structure/config and project capabilities only; no saved tests or ready resources required. valid does not mean runtime resources are ready. Use tests explicitly to execute saved assertions. respond(task_id,run_id,node_id,inputs) submits only the user explicit answers to the current waiting_input form and resumes that same task; never invent answers. Unknown is a valid user answer when the workflow allows it. start and respond wait by default until completion, failure, or the next input question; wait=false returns the running task for background work. For an existing running task, inspect(task_id=...,wait_seconds=30) waits up to 30 seconds without creating or restarting a task; maximum 60, default 0 returns immediately. Timeout returns its current status and leaves it running. Use bounded waiting instead of repeated immediate polling. Read the bounded summary first; output_path=["test"] (or another actual output key) retrieves exact result details without traces. Use inspect(task_id=...,view=full) only when full inputs and member traces are needed for diagnosis. Small outputs remain complete; outputs_truncated explicitly marks previews. Saved tests return summary and failing cases by default; view=full returns every test. All member drafts freeze per task. Optional build request_key tests idempotency: same key/content returns existing task, changed content conflicts. Read actual failures and repair only affected code/graph, then rerun affected checks. Single terminal fields are direct; multiple terminals are grouped; workflow: calls wrap output.'),
-    'project_workflows': (Members, 'List project members with ids, create a new blank member or remove an unreferenced member. inspect shows declared inputs and outputs. Main workflow id equals project id. A Tool node with tool_name="workflow:<member-id>" and input={...} calls that member. Main canvas is the executable collaboration graph.'),
+    'project_workflows': (Members, 'List project members; inspect inputs/outputs; create a blank member; copy an existing member using workflow_id, expected_revision, name and request_key. copy preserves the full draft, layout and tests without running; returns the new id and revision/hash for workflow_draft edits. Same-project files/resources and subworkflow references stay shared; it does not recursively clone dependencies. Retries return the same copy without overwriting later edits. Remove deletes an unreferenced member. Main id equals project id. A Tool node with tool_name="workflow:<member-id>" calls that member.'),
     'project_records': (Records, 'Read shared business records (get: found/revision/value; list: records). To change records, use a project_record node.'),
-    'project_task_result': (TaskResult, 'Complete the active operate task or ask for needed input. A finished model turn does not itself finish a business task. Report actual run outputs; waiting_input lets the user update records and continue the same task.'),
+    'project_task_result': (TaskResult, 'Present an existing task result (task_id required in conversations), or complete the active operate-mode agent task. Ordinary conversations end with a final reply, without this tool. Report actual run outputs; waiting_input lets the user continue the same task.'),
 }
 
 
@@ -214,9 +226,9 @@ PROJECT_TOOL_SUMMARIES = {
     'project_modeling': 'Analyze datasets, create studies, train candidates and compare measured results. train uses candidate.request_key for idempotency; wait=false runs in background. Holdout finalize needs authorization; AIDE needs next_step. Optional setup help is in project Skills.',
     'project_progress': 'Read progress summary (view="full" for all). Prefer revision-checked patch of one item; update replaces the ENTIRE record: read view="full" first, never replace from a summary. Preserve other items and user answers. Progress tracking is optional.',
     'project_action': 'Optional task/progress actions. wait with task_id observes existing work; resume continues its snapshot; finish ends this request. No planning/build action is required before doing work.',
-    'project_workflows': 'List/inspect/create/remove/classify project workflows. inspect reads inputs/outputs; create makes a blank member. Main workflow id equals project id. Members run through workflow_run.',
+    'project_workflows': 'List/inspect/create/copy/remove/classify project workflows. copy(workflow_id,expected_revision,name,request_key) preserves an existing draft/layout/tests and returns the new id/revision/hash for local edits; same-project dependencies remain shared. create makes a blank member. Main id equals project id.',
     'project_records': 'List/get shared business records. get returns found/revision/value. Writes use a project_record node.',
-    'project_task_result': 'Complete the active agent task or ask for input; a finished model turn alone does not finish it. Report actual current-project results, never unfinished/failed runs as success. message overrides stale output text; artifacts reference existing project files.',
+    'project_task_result': 'Present an EXISTING task (task_id in conversations), or complete an active operate-mode agent task. Ordinary conversations finish with a final reply; do not call this to end a chat. Report actual results, never unfinished/failed runs as success. Artifacts must exist.',
 }
 
 
@@ -230,7 +242,9 @@ def project_tool_specs(*, detailed: bool = False):
         definitions[name] = {'type': 'function', 'name': name, 'description': description,
                              'inputSchema': model.model_json_schema(),
                              'deferLoading': False}
-    # Keep discovery, files and execution immediately available. The Codex
+    # Keep the core read/edit/run path immediately available. Discovering the
+    # draft tool through broad searches used to pull unrelated tool manuals
+    # into every subsequent model response, even for a one-field edit. The Codex
     # adapter advertises other capabilities through its searchable namespace;
     # their full schemas remain available when building or managing resources.
     # Raw API sessions still receive all tools through ModelSession.
@@ -238,7 +252,7 @@ def project_tool_specs(*, detailed: bool = False):
         if not detailed:
             definition['description'] = PROJECT_TOOL_SUMMARIES.get(name, definition['description'])
         definition['deferLoading'] = name not in {
-            'project_file', 'project_workflows', 'workflow_run',
+            'project_file', 'project_workflows', 'workflow_draft', 'workflow_run',
             'project_skills', 'project_code', 'block_catalog',
         }
     return list(definitions.values())
@@ -253,6 +267,7 @@ PROJECT_INSTRUCTIONS = """
 project_code 在隔离环境执行 Python；project_modeling(action="train", study_id, candidate, wait=false) 独立启动训练，无需 workflow_id。
 训练期间可以修改工作流。project_models 列出或绑定模型版本，预测积木通过 model_ref 选择；原始 LLM 使用项目可信 API。
 workflow_draft 支持整图替换和批量操作；修改前读取 revision/content_hash 并保留人工改动。生成不会自动执行业务。
+保留原件时，project_workflows(copy)直接复制当前草稿，再局部修改；无需新建空图后重写未改变的节点。普通对话用最终回复交付；project_task_result只用于已有任务的结果呈现或operate模式任务完成。
 文件、数据、模型和结果只属于当前项目。使用真实工具输出判断，不把验证指标称为生产或独立测试效果。
 预算和用户停止必须遵守；遇到错误根据具体反馈修复，保留可用产物。是否允许完整智能体由项目能力控制，不能自行放开。
 """
@@ -302,10 +317,12 @@ class WorkspaceProjectTools(ProjectTools):
             arguments = ProjectCatalog.model_validate(arguments).model_dump()
             # Codex discovery exposes deferred tools as lilies__<name>. Help
             # receives that string unchanged, unlike actual tool dispatch.
+            # Keep the former deferred workflow_draft help name compatible.
             query = arguments['tool_name']
             if query.startswith('lilies__'):
                 canonical = query.removeprefix('lilies__')
-                if any(t['name'] == canonical and t.get('deferLoading') for t in project_tool_specs()):
+                if any(t['name'] == canonical and (t.get('deferLoading') or canonical == 'workflow_draft')
+                       for t in project_tool_specs()):
                     arguments['tool_name'] = canonical
         phase = self.manager.load(self.application_id).get('phase')
         if name == 'project_file' and arguments.get('action') == 'write':
@@ -463,6 +480,9 @@ class WorkspaceProjectTools(ProjectTools):
                 await self.projects.store.classify_member(self.application_id, args.workflow_id, args.purpose)
                 return {'workflow_id': args.workflow_id, 'purpose': args.purpose}
             self.require_build()
+            if args.action == 'copy':
+                from .project_workflow_copy import copy_member
+                return await copy_member(self.services, self.application_id, args)
             if args.action == 'create':
                 if not args.name.strip():
                     raise ValueError('请提供工作流名称')
@@ -477,7 +497,7 @@ class WorkspaceProjectTools(ProjectTools):
             state = self.manager.load(self.application_id)
             target_id = args.task_id if state.get('conversation_enabled') and args.task_id else state.get('project_task_id')
             if not target_id or (phase != 'operate' and not (state.get('conversation_enabled') and args.task_id)):
-                raise ValueError('当前没有按需统筹任务')
+                raise ValueError('当前没有可提交的任务。普通对话请直接回复；若为已有任务整理结果，请明确提供 task_id。')
             task = await self.projects.store.get_task(self.application_id, target_id)
             if state.get('conversation_enabled'):
                 for artifact in args.artifacts:

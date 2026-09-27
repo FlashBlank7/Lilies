@@ -28,10 +28,11 @@ for line in sys.stdin:
         assert not any(t.get('deferLoading') for t in tools)
         namespace = next(t for t in tools if t['type'] == 'namespace')
         assert namespace['name'] == 'lilies'
-        assert {'project_modeling', 'project_progress', 'workflow_draft', 'project_models',
+        assert {'project_modeling', 'project_progress', 'project_models',
                 'project_knowledge', 'project_search', 'project_web'} <= {t['name'] for t in namespace['tools']}
         assert all(t['deferLoading'] for t in namespace['tools'])
         assert any(t['name'] == 'workflow_run' for t in tools)
+        assert any(t['name'] == 'workflow_draft' for t in tools)
         assert message['params']['baseInstructions'] == 'project tools only'
         assert message['params']['developerInstructions'] == ''
         assert 'model_auto_compact_token_limit' not in message['params']['config']
