@@ -172,12 +172,19 @@ async def conversation_context(services, project_id: str, state: dict, discussio
         if member.get('purpose') != 'test' or member['id'] in related:
             draft = await services.workflow_store.get_draft(member['id'])
             workflows.append({'id': member['id'], 'purpose': member.get('purpose'), **draft_summary(draft, nodes=False)})
+    # The same catalog usage instructions used to be copied once per member
+    # on every turn. Factor them out without trimming any workflow interface,
+    # employee message, result or provider history.
+    workflow_detail = workflows[0]['detail'] if workflows else ''
+    for workflow in workflows:
+        workflow.pop('detail')
     context = {'phase': state['phase'], 'user_message': message,
         'project': {'id': project_id, 'name': project['name'],
                     'agent_modules_enabled': project['agent_modules_enabled']},
         'requirements': {'status': discussion['status'], 'revision': discussion['revision'],
             'document_available': bool(discussion['document']), 'read_with': 'requirements_submit(action="read")'},
         'progress': progress_summary(progress, item_id), 'workflows': workflows,
+        'workflow_detail': workflow_detail,
         'conversation_context': link, 'continue_work': state.get('continue_work', False),
         'instruction': 'Use the current item and revision summaries. Read relevant node/file details only when needed. '
                        'Keep existing customer answers and human edits. Solve the requested task using project tools. '

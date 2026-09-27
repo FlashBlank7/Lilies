@@ -1828,6 +1828,12 @@ class WorkflowRuntime:
                 "Do not return Markdown, prose, XML, comments, or a fenced code block. "
                 "This runtime instruction overrides any earlier output-format instruction."
             )
+            required = config.structured_output.get('required', [])
+            if required:
+                prompt += ('\n\nOutput JSON must include every required field: '
+                           + json.dumps(required, ensure_ascii=False)
+                           + '. Do not omit fields after a long explanation. Unknown facts must remain unknown; '
+                           'use an empty array or null only where the schema allows it.')
         diagnostics: dict[str, Any] = {}
         from .model_connections import project_model, project_model_role, project_model_override
         from .model_images import image_blocks
@@ -1846,6 +1852,7 @@ class WorkflowRuntime:
             text, usage = await self._model_text(
                 run_id, config.model or self.runtime_model, system, prompt, scoped_id,
                 diagnostics=diagnostics, max_output_tokens=config.max_output_tokens,
+                **({'output_schema': config.structured_output} if config.structured_output is not None else {}),
                 **({'images': blocks} if blocks else {}),
             )
         finally:
@@ -1866,7 +1873,8 @@ class WorkflowRuntime:
                 path = json.dumps(list(error.absolute_path), ensure_ascii=False)
                 raise ValueError(
                     "model did not return valid JSON for structured output schema; "
-                    f"path={path}; {error.message[:500]}"
+                    f"path={path}; {error.message[:500]}; "
+                    f"节点 {scoped_id} 的输出未通过校验，未交给后续步骤。可继续原运行，重试此失败节点。"
                 ) from error
         return result
 
@@ -3883,6 +3891,7 @@ class WorkflowRuntime:
         *, diagnostics: dict[str, Any] | None = None,
         max_output_tokens: int = 16_384,
         images: list[ContentBlock] | None = None,
+        output_schema: dict[str, Any] | None = None,
     ) -> tuple[str, Usage]:
         if hasattr(self.provider, 'selected_model'):
             model = self.provider.selected_model(model)
@@ -3897,8 +3906,15 @@ class WorkflowRuntime:
         # 有些模型在逐条评分类任务上思考失控（idol 工作流：16k 预算全烧思考、正文为空），
         # 所以截断出空正文时自动关思考重试一次——自愈优先，还不行才诚实失败。
         from .model_connections import project_model
+        # Older/custom providers remain compatible; never silently switch
+        # endpoint, provider or retry a rejected request with weaker settings.
+        import inspect
+        stream_fn = self.provider.stream
+        extra = {}
+        if output_schema is not None and 'output_schema' in inspect.signature(stream_fn).parameters:
+            extra['output_schema'] = output_schema
         for thinking_enabled in ((True,) if project_model.get() else (True, False)):
-            stream = self.provider.stream(
+            stream = stream_fn(
                 model=model,
                 system=system,
                 messages=[ChatMessage(role="user", content=[ContentBlock(type="text", text=prompt), *(images or [])])],
@@ -3907,6 +3923,7 @@ class WorkflowRuntime:
                 thinking_enabled=thinking_enabled,
                 effort="medium" if thinking_enabled else "low",
                 user_id=run_id,
+                **extra,
             )
             response = await self.agent_runtime._collect_stream(
                 run_id, stream, f"node.{node_id}.model", model

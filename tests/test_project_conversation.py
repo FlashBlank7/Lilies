@@ -95,6 +95,39 @@ def test_large_interface_preview_can_be_read_in_full(configured, monkeypatch):
     assert client.get(base + '/tasks').json() == []
 
 
+def test_workflow_catalog_shares_instructions_without_losing_interfaces(configured, monkeypatch):
+    contexts = []
+
+    class ReadCatalog(TestSession):
+        async def turn(self, message, on_event, on_tool, **kwargs):
+            context = json.loads(message)
+            contexts.append(context)
+            for workflow in context['workflows']:
+                detail = await on_tool('project_workflows', {'action': 'inspect', 'workflow_id': workflow['id']})
+                assert workflow['inputs'] == detail['inputs']
+                assert workflow['outputs'] == [list(output) for output in detail['outputs']]
+                assert workflow['revision'] == detail['revision']
+                assert 'detail' not in workflow
+            return {'status': 'completed'}
+
+    client, _, project, _, base = configure_agent(configured, monkeypatch, ReadCatalog)
+    ids = [project['id']]
+    for name in ('分析', '预测'):
+        response = client.post(base + '/members', json={'name': name})
+        assert response.status_code == 201, response.text
+        ids.append(response.json()['id'])
+    for index, workflow_id in enumerate(ids):
+        graph(client, workflow_id, [node('s', 'start', inputs=[
+            {'name': 'source', 'type': 'string', 'default': f'file-{index}.csv'}]),
+            node('e', 'end', outputs={'file': ref('s', 'source')})], [edge('s', 'e')])
+    assert client.post(base + '/conversation/messages', json={'message': '查看已有流程'}).status_code == 202
+    state = agent_settled(client, base)
+    assert state['status'] == 'idle', state['error']
+    assert {w['id'] for w in contexts[0]['workflows']} == set(ids)
+    assert contexts[0]['workflow_detail']
+    assert client.get(base + '/tasks').json() == []
+
+
 def test_read_exact_result_branch_without_traces_or_other_project_access(configured, monkeypatch):
     client, _, project, _, base = configure_agent(configured, monkeypatch, TestSession)
     output = {'test': {'classes': [{'label': 'rare', 'count': 0}], 'metrics': {'accuracy': 0.5}},

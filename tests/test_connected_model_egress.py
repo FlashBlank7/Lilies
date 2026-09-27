@@ -70,3 +70,21 @@ def test_direct_construction_respects_default_and_environment(tmp_path, monkeypa
     assert ConnectedModel(connection(),tmp_path).egress_enabled is True
     monkeypatch.setenv('LILIES_MODEL_EGRESS_ENABLED','false')
     assert ConnectedModel(connection(),tmp_path).egress_enabled is False
+
+
+@pytest.mark.asyncio
+async def test_rejected_json_mode_reports_format_without_retry_or_provider_body(tmp_path):
+    requests = []
+
+    def respond(request):
+        requests.append(request)
+        return httpx.Response(400, text='unsupported format; private-echo-from-provider')
+
+    model = ConnectedModel(connection('http://127.0.0.1/v1'), tmp_path,
+                           transport=httpx.MockTransport(respond), egress_enabled=False)
+    with pytest.raises(ProviderError, match='response_format=json_object') as error:
+        _ = [event async for event in model.stream(model='example', system='Return JSON', messages=[],
+            tools=[], max_output_tokens=100, thinking_enabled=False, effort='low',
+            output_schema={'type': 'object'})]
+    assert len(requests) == 1
+    assert 'private-echo' not in str(error.value)

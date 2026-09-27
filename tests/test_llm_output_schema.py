@@ -119,3 +119,63 @@ def test_output_schema_cannot_fetch_external_references(tmp_path, monkeypatch):
     with pytest.raises(Unresolvable):
         run_node(runtime, tmp_path, {"$ref": "https://example.invalid/schema.json"})
     assert fetches == []
+
+
+@pytest.mark.parametrize('protocol,schema,response,native', [
+    ('openai', SCHEMA, '{"requests":[],"done":true}', True),
+    ('openai', {'type': 'array', 'items': {'type': 'integer'}}, '[1,2]', False),
+    ('openai', {'type': 'integer'}, '3', False),
+    ('openai', None, 'Plain text', False),
+    ('anthropic', SCHEMA, '{"requests":[],"done":true}', False),
+])
+def test_project_llm_output_contract_reaches_http_without_changing_value_type(tmp_path, protocol, schema, response, native):
+    import httpx
+    from types import SimpleNamespace
+    from agent_platform.agent_core import collect_model_stream
+    from agent_platform.connected_model import ConnectedModel
+    from agent_platform.model_connections import ModelConnection
+
+    requests = []
+
+    def respond(request):
+        body = json.loads(request.content)
+        requests.append(body)
+        assert body['model'] == 'configured-model'
+        assert body['max_tokens'] == 16384
+        assert body.get('response_format') == ({'type': 'json_object'} if native else None)
+        if protocol == 'openai':
+            return httpx.Response(200, json={'choices': [{'message': {'content': response}, 'finish_reason': 'stop'}]})
+        return httpx.Response(200, json={'content': [{'type': 'text', 'text': response}], 'stop_reason': 'end_turn'})
+
+    async def record(*args, **kwargs):
+        pass
+
+    async def collect(run_id, stream, *args):
+        return await collect_model_stream(stream)
+
+    runtime, _, _ = fake_runtime([])
+    runtime._model_text = WorkflowRuntime._model_text.__get__(runtime)
+    runtime.provider = ConnectedModel(ModelConnection(provider='api', protocol=protocol,
+        base_url='http://127.0.0.1/v1', model='configured-model', api_key='test-only'), tmp_path,
+        transport=httpx.MockTransport(respond), egress_enabled=False)
+    runtime.harness = SimpleNamespace(record_usage=record, record_model_usage=record)
+    runtime.agent_runtime = SimpleNamespace(_collect_stream=collect)
+    result = run_node(runtime, tmp_path, schema)
+    assert len(requests) == 1
+    assert result['text'] == response
+    if schema is not None:
+        assert result['structured'] == json.loads(response)
+
+
+def test_missing_next_steps_is_not_fabricated_or_automatically_retried(tmp_path):
+    from agent_platform.data_guidance import SCHEMA as guidance_schema
+    runtime, calls, _ = fake_runtime([
+        '{"needs_input":false,"questions":[],"analysis":"标签含义未定义"}',
+        '{"needs_input":false,"questions":[],"analysis":"标签含义未定义","next_steps":[]}',
+    ])
+    with pytest.raises(ValueError, match='next_steps.*继续原运行'):
+        run_node(runtime, tmp_path, guidance_schema)
+    assert len(calls) == 1
+    # An explicit retry runs the same node; the model must supply the missing field.
+    assert run_node(runtime, tmp_path, guidance_schema)['structured']['next_steps'] == []
+    assert len(calls) == 2
