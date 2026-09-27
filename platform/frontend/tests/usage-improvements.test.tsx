@@ -34,7 +34,7 @@ function settings() {
 function handlingResult(status = 'idle') {
   return { project_id: 'project-a', conversation_id: 'improvement-chat', status, updated_at: '2026-09-28T09:12:00Z', error: '', queue_reason: '',
     reply: { text: '已检查配置。\n仍需确认业务结果。<b>纯文本</b>', time: '2026-09-28T09:11:00Z', request_id: 'request-one' },
-    tasks: [{ id: 'verification-task', workflow_id: 'workflow-a', status: 'failed', purpose: 'build_test', error: '缺少测试数据', created_at: '2026-09-28T09:10:00Z', updated_at: '2026-09-28T09:11:00Z' }], total_tasks: 21 }
+    tasks: [{ id: 'verification-task', mode: 'workflow', workflow_id: 'workflow-a', workflow_name: '修复试用副本', workflow_available: true, status: 'failed', purpose: 'build_test', error: '缺少测试数据', created_at: '2026-09-28T09:10:00Z', updated_at: '2026-09-28T09:11:00Z' }], total_tasks: 21 }
 }
 function handlingReport() {
   return { ...report(), items: [recovery, reusable].map(item => ({ ...item, handoff: { conversation_id: item.id === 'repair' ? 'improvement-chat' : 'other-chat', status: 'started', error: '' } })) }
@@ -278,6 +278,10 @@ it('loads progress only on request, renders the actual reply as text, and contin
   expect(within(progress).getByText('verification-task')).toBeInTheDocument()
   expect(within(progress).getByText('缺少测试数据')).toBeInTheDocument()
   expect(within(progress).getByText('显示最近 1 个，共 21 个任务。')).toBeInTheDocument()
+  expect(within(progress).getByRole('link', { name: '查看运行结果' })).toHaveAttribute('href', '/projects/project-a?task=verification-task')
+  const workflow = within(progress).getByRole('link', { name: '打开当前工作流：修复试用副本' })
+  expect(workflow).toHaveAttribute('href', '/applications/workflow-a?tab=edit')
+  expect(workflow).toHaveAttribute('target', '_blank')
   expect(within(card).getByText('待处理')).toBeInTheDocument()
   expect(within(progress).queryByRole('button', { name: '停止处理' })).not.toBeInTheDocument()
   fireEvent.click(within(progress).getByRole('button', { name: '继续沟通' }))
@@ -285,6 +289,20 @@ it('loads progress only on request, renders the actual reply as text, and contin
   expect(mocks.push).toHaveBeenCalledWith('/projects/project-a')
   expect(vi.mocked(api).mock.calls.every(([, options]) => !options)).toBe(true)
   expect(vi.mocked(api).mock.calls.filter(([path]) => path.endsWith('/result'))).toEqual([[endpoint + '/repair/result']])
+})
+
+it('keeps historical result access when its workflow is no longer in the project', async () => {
+  const result = handlingResult()
+  result.tasks[0].workflow_available = false; result.tasks[0].workflow_name = ''
+  vi.mocked(api).mockImplementation(async path => (path.endsWith('/settings') ? settings() : path.endsWith('/result') ? result : handlingReport()) as never)
+  render(<ImprovementsPage />)
+  const card = await screen.findByRole('article', { name: recovery.title })
+  fireEvent.click(within(card).getByRole('button', { name: '查看处理进展' }))
+  const progress = within(card).getByRole('region', { name: '处理进展' })
+  expect(await within(progress).findByRole('link', { name: '查看运行结果' })).toHaveAttribute('href', '/projects/project-a?task=verification-task')
+  expect(within(progress).queryByRole('link', { name: /打开当前工作流/ })).not.toBeInTheDocument()
+  expect(within(progress).getByText('工作流已不在此项目中，仍可查看历史运行结果。')).toBeInTheDocument()
+  expect(vi.mocked(api).mock.calls.every(([, options]) => !options)).toBe(true)
 })
 
 it('refreshes only the visible expanded progress every 30 seconds and on demand', async () => {

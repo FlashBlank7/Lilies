@@ -430,8 +430,16 @@ class UsageLearning:
                           for event in reversed(state.get('events', []))
                           if event.get('kind') == 'assistant' and event.get('request_id', '') == request_id), None)
             with connect(self.db) as db:
-                tasks = [dict(task) for task in db.execute('''SELECT id,workflow_id,status,purpose,error,created_at,updated_at
-                    FROM project_tasks WHERE project_id=? AND conversation_id=? ORDER BY created_at DESC,id DESC LIMIT 20''', (pid, cid))]
+                tasks = [dict(task) for task in db.execute('''
+                    SELECT t.id,t.mode,t.workflow_id,t.status,t.purpose,t.error,t.created_at,t.updated_at,
+                           COALESCE(a.name,'') AS workflow_name,a.id IS NOT NULL AS workflow_available
+                    FROM project_tasks t
+                    LEFT JOIN project_members m ON m.project_id=t.project_id AND m.application_id=t.workflow_id
+                    LEFT JOIN applications a ON a.id=m.application_id
+                    WHERE t.project_id=? AND t.conversation_id=?
+                    ORDER BY t.created_at DESC,t.id DESC LIMIT 20''', (pid, cid))]
+                for task in tasks:
+                    task['workflow_available'] = task['mode'] == 'workflow' and bool(task['workflow_available'])
                 total = db.execute('SELECT COUNT(*) FROM project_tasks WHERE project_id=? AND conversation_id=?', (pid, cid)).fetchone()[0]
             return {'project_id': pid, 'conversation_id': cid,
                     'status': state.get('status', 'idle') if started else 'prepared',

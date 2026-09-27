@@ -5,10 +5,65 @@ import ProjectPage from '@/app/projects/[id]/page'
 import { api } from '@/lib/platform'
 
 vi.mock('@/lib/platform', () => ({ api: vi.fn(), withFrontendToken: (path: string) => path }))
+const navigation = vi.hoisted(() => ({ query: '' }))
+vi.mock('next/navigation', () => ({ useSearchParams: () => new URLSearchParams(navigation.query) }))
 vi.mock('@/app/components/AppShell', () => ({ default: ({ children, navigation }: { children: ReactNode; navigation: ReactNode }) => <>{navigation}{children}</> }))
 vi.mock('@/app/components/ProjectConversation', () => ({ default: () => null }))
 vi.mock('@/app/projects/[id]/DeveloperTools', () => ({ default: () => null }))
-afterEach(() => { cleanup(); vi.mocked(api).mockReset() })
+afterEach(() => { cleanup(); vi.mocked(api).mockReset(); navigation.query = '' })
+
+function projectReads(readTask: (id: string) => Promise<unknown>) {
+  vi.mocked(api).mockImplementation(async path => {
+    if (path.includes('/tasks/')) return await readTask(path.split('/').at(-1)!) as never
+    if (path.endsWith('/example')) return null as never
+    if (path.endsWith('/conversations') || path.includes('/tasks?') || path.endsWith('/workspace/files')) return [] as never
+    if (path.endsWith('/progress')) return { revision: 0, value: { goal: '', summary: '', items: [] } } as never
+    return { id: 'p', name: '项目', members: [] } as never
+  })
+}
+function completedTask(id: string) {
+  return { id, request_key: id, status: 'succeeded', mode: 'workflow', workflow_id: 'member', purpose: 'build_test', item_id: '',
+    created_at: '2026-09-28T00:00:00Z', presentation: { markdown: '保存的结果 ' + id }, inputs: {}, outputs: { quantity: 4 }, runs: [] }
+}
+
+it('opens the exact linked task on first load and query changes without starting work', async () => {
+  navigation.query = 'task=historical'
+  projectReads(async id => completedTask(id))
+  const params = Promise.resolve({ id: 'p' })
+  const page = await act(async () => render(<Suspense><ProjectPage params={params} /></Suspense>))
+  expect(await screen.findByText('保存的结果 historical')).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: '关闭阅读窗口' }))
+  navigation.query = 'task=another'
+  await act(async () => page.rerender(<Suspense><ProjectPage params={params} /></Suspense>))
+  expect(await screen.findByText('保存的结果 another')).toBeInTheDocument()
+  expect(screen.queryByText('保存的结果 historical')).not.toBeInTheDocument()
+  expect(api).toHaveBeenCalledWith('/api/v1/projects/p/tasks/historical')
+  expect(api).toHaveBeenCalledWith('/api/v1/projects/p/tasks/another')
+  expect(vi.mocked(api).mock.calls.every(([, options]) => !options)).toBe(true)
+})
+
+it('keeps a missing or unauthorized result error visible after the project finishes loading', async () => {
+  navigation.query = 'task=unavailable'
+  projectReads(async () => { throw new Error('任务不存在或无权访问') })
+  await act(async () => render(<Suspense><ProjectPage params={Promise.resolve({ id: 'p' })} /></Suspense>))
+  expect(await screen.findByRole('alert')).toHaveTextContent('无法打开这次运行结果：Error: 任务不存在或无权访问')
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  expect(vi.mocked(api).mock.calls.every(([, options]) => !options)).toBe(true)
+})
+
+it('ignores a previous linked task that returns after navigating to another result', async () => {
+  let finishOld!: (value: unknown) => void
+  navigation.query = 'task=old'
+  projectReads(async id => id === 'old' ? await new Promise(resolve => { finishOld = resolve }) : completedTask(id))
+  const params = Promise.resolve({ id: 'p' })
+  const page = await act(async () => render(<Suspense><ProjectPage params={params} /></Suspense>))
+  navigation.query = 'task=current'
+  await act(async () => page.rerender(<Suspense><ProjectPage params={params} /></Suspense>))
+  expect(await screen.findByText('保存的结果 current')).toBeInTheDocument()
+  await act(async () => finishOld(completedTask('old')))
+  expect(screen.queryByText('保存的结果 old')).not.toBeInTheDocument()
+  expect(screen.getByText('保存的结果 current')).toBeInTheDocument()
+})
 
 it.each(['running','waiting_input'])('reopens and stops a persisted %s run, then returns to its member input form without starting an agent', async status => {
   let task = { id: 't', request_key: 'request', status, mode: 'workflow', workflow_id: 'member', purpose: 'customer_trial', item_id: '', created_at: '2026-09-17T00:00:00Z', presentation: {}, inputs: {}, outputs: {},

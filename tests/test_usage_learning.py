@@ -471,8 +471,21 @@ def test_official_agent_handoff_can_create_fix_and_run_copy(official):
     assert progress['status'] == 'idle' and '独立副本' in progress['reply']['text']
     assert progress['total_tasks'] == 2 and len(progress['tasks']) == 2
     assert {t['status'] for t in progress['tasks']} == {'succeeded'}
+    assert all(t['mode'] == 'workflow' and t['workflow_available'] is True and t['workflow_name'] == '修复试用副本'
+               for t in progress['tasks'])
     assert not {t['id'] for t in progress['tasks']} & {t['id'] for t in failures}
     assert client.get(BASE).json()['items'][0]['status'] == 'working'
+    # Membership, not the continued existence of an application, makes the editor link valid.
+    wid = progress['tasks'][0]['workflow_id']
+    other_pid = project(client, ADMIN, '其他项目')
+    with connect(app.state.services.usage_learning.db) as db:
+        db.execute('UPDATE project_members SET project_id=? WHERE application_id=?', (other_pid, wid))
+    historical = client.get(BASE+'/'+item['id']+'/result').json()
+    assert [t['id'] for t in historical['tasks']] == [t['id'] for t in progress['tasks']]
+    assert all(t['workflow_available'] is False and t['workflow_name'] == '' for t in historical['tasks'])
+    for task in historical['tasks']:
+        saved = client.get(f'/api/v1/projects/{pid}/tasks/'+task['id']).json()
+        assert saved['status'] == 'succeeded' and saved['outputs']['quantity'] in (1, 4)
 
 
 def test_automatic_dispatch_is_opt_in_official_only_bounded_and_persistent(official, monkeypatch):

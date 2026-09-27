@@ -2,13 +2,14 @@
 
 import {FeedbackButton} from '@/app/components/UserFeedback'
 import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
 import { MessageSquare, Workflow, Files, Wrench, ChartNoAxesCombined, ArrowUpRight, X } from 'lucide-react'
 import AppShell from '@/app/components/AppShell'
 import { useOnboarding, type GuideStep } from '@/app/components/Onboarding'
 import ProjectFileReader from '@/app/components/ProjectFileReader'
 import ProjectWorkflowOverview from '@/app/components/ProjectWorkflowOverview'
 import ReadingDialog from '@/app/components/ReadingDialog'
-import { use, useCallback, useEffect, useState } from 'react'
+import { use, useCallback, useEffect, useRef, useState } from 'react'
 import { api, withFrontendToken } from '@/lib/platform'
 import { MarkdownDocument } from '@/lib/markdown'
 import { projectPreviewFromLink, resolveProjectLink } from '@/lib/project-links'
@@ -33,6 +34,8 @@ const emptyProgress: ProjectProgress = { revision: 0, value: { goal: '', summary
 
 export default function ProjectPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
+  const selectedTask = useSearchParams()?.get('task')
+  const taskRequest = useRef(0)
   const guide = useOnboarding()
   const base = '/api/v1/projects/' + id
   const [project, setProject] = useState<Project | null>(null)
@@ -55,6 +58,8 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
   const [requirements, setRequirements] = useState<string | null>(null)
   const [developerTaskId, setDeveloperTaskId] = useState('')
   const [error, setError] = useState('')
+  const [taskLinkError, setTaskLinkError] = useState('')
+  const [taskLoading, setTaskLoading] = useState(false)
   const [moreResults, setMoreResults] = useState(false)
   const [runWorkflowId, setRunWorkflowId] = useState(id)
   const [reuseTask, setReuseTask] = useState<ProjectTask | undefined>()
@@ -91,14 +96,28 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
     return () => window.removeEventListener('lilies:guide-navigate', listener)
   }, [id])
   useEffect(() => { const selected = new URLSearchParams(window.location.search).get('run'); if (selected) { setReuseTask(undefined); setRunWorkflowId(selected); setTab('run') } }, [id])
+  useEffect(() => {
+    const request = ++taskRequest.current
+    setTaskLinkError(''); setTaskLoading(false); setReader(false); setTask(null)
+    if (selectedTask) {
+      setTaskLoading(true)
+      void api<ProjectTask>(base + '/tasks/' + encodeURIComponent(selectedTask)).then(next => {
+        if (request === taskRequest.current) { setTask(next); setReader(true) }
+      }).catch(cause => {
+        if (request === taskRequest.current) setTaskLinkError('无法打开这次运行结果：' + String(cause))
+      }).finally(() => { if (request === taskRequest.current) setTaskLoading(false) })
+    }
+    return () => { taskRequest.current += 1 }
+  }, [base, selectedTask])
   const updateManualTask = useCallback((next: ProjectTask) => {
     setTasks(previous => [next, ...previous.filter(item => item.id !== next.id)])
     setPendingTasks(previous => [...(next.status==='waiting_input'?[next]:[]), ...previous.filter(item => item.id !== next.id)])
   }, [])
   useEffect(() => {
     if (!task || !reader || (!['running', 'queued'].includes(task.status) && (task.mode === 'workflow' || task.presentation?.markdown))) return
-    const timer = window.setInterval(() => { void api<ProjectTask>(base + '/tasks/' + task.id).then(setTask).catch(e => setError(String(e))) }, 1500)
-    return () => window.clearInterval(timer)
+    let active = true
+    const timer = window.setInterval(() => { void api<ProjectTask>(base + '/tasks/' + task.id).then(next => { if (active) setTask(next) }).catch(e => { if (active) setError(String(e)) }) }, 1500)
+    return () => { active = false; window.clearInterval(timer) }
   }, [base, reader, task?.id, task?.mode, task?.status, task?.presentation?.markdown]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { try { const saved = sessionStorage.getItem('lilies:project:' + id + ':focus'); if (saved) setFocus({ ...JSON.parse(saved), message: undefined }) } catch {} }, [id])
   const clearFocus = useCallback(() => { setFocus(undefined); try { sessionStorage.removeItem('lilies:project:' + id + ':focus') } catch {} }, [id])
@@ -107,7 +126,13 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
     setFocus(next); try { sessionStorage.setItem('lilies:project:' + id + ':focus', JSON.stringify(next)) } catch {}; setTab('overview'); setReader(false); setProgressOpen(false)
   }
   async function showTask(taskId: string) {
-    try { setTask(await api<ProjectTask>(base + '/tasks/' + taskId)); setReader(true); guide.mark('results', id) } catch (cause) { setError(String(cause)) }
+    const request = ++taskRequest.current
+    setTaskLinkError(''); setTaskLoading(true)
+    try {
+      const next = await api<ProjectTask>(base + '/tasks/' + encodeURIComponent(taskId))
+      if (request === taskRequest.current) { setTask(next); setReader(true); guide.mark('results', id) }
+    } catch (cause) { if (request === taskRequest.current) setTaskLinkError(String(cause)) }
+    finally { if (request === taskRequest.current) setTaskLoading(false) }
   }
   function showFile(path: string, taskId = '') {
     setFile(path); setFileTaskId(taskId)
@@ -154,6 +179,8 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
       {project.access_role === 'admin' && <ProjectCapabilities projectId={id} enabled={Boolean(project.agent_modules_enabled)} onSaved={() => { setEditingFlow(false); void refresh() }} />}
     </section>}
     {error && <p role="alert" className={styles.error}>{error}</p>}
+    {taskLoading && <p role="status">正在读取运行结果…</p>}
+    {taskLinkError && <p role="alert" className={styles.error}>{taskLinkError}</p>}
     {tab==='space' && <ProjectSpace projectId={id} onWorkflow={workflow=>{void refresh();void showFlow(undefined,workflow)}} onFile={showFile} onChanged={refresh} onTalk={(message,mode='task')=>{setFocus({nonce:Date.now(),label:'项目空间',message,mode});setTab('overview');setReader(false)}} />}
     {tab === 'models' && <ProjectModels projectId={id} onWorkflow={workflow => { void refresh(); void showFlow(undefined, workflow); setEditingFlow(true) }} onTask={taskId => { void refresh(); void showTask(taskId) }} onTalk={message => talk(undefined, message)} />}
     <div hidden={tab !== 'flow'}><WorkflowComposer projectId={id} workflowId={workflowId} onChanged={workflow => { void refresh(); void showFlow(undefined, workflow); setEditingFlow(true) }} /></div>

@@ -26,7 +26,7 @@ type AutomationSettings = {
 type HandlingResult = {
   project_id: string; conversation_id: string; status: string; updated_at: string | number | null; error: string; queue_reason: string
   reply: { text: string; time: string | number | null; request_id: string } | null
-  tasks: { id: string; workflow_id: string; status: string; purpose: string; error: string; created_at: string; updated_at: string }[]
+  tasks: { id: string; mode: string; workflow_id: string; workflow_name: string; workflow_available: boolean; status: string; purpose: string; error: string; created_at: string; updated_at: string }[]
   total_tasks: number
 }
 
@@ -121,6 +121,11 @@ function HandlingProgress({ item, userId, starting, onStart }: {
         <div className={styles.traceHeading}><strong>{resultNames[task.status] || '状态未知'}</strong><span>{task.purpose === 'build_test' ? '工作流测试' : task.purpose === 'business' ? '业务任务' : '未分类任务'}</span><time>{time(task.created_at)}</time></div>
         <small>任务 <code>{task.id}</code>{task.workflow_id && <> · 工作流 <code>{task.workflow_id}</code></>}</small><small className={styles.updated}>最近更新：{time(task.updated_at)}</small>
         {task.error && <p className={base.error}>{task.error}</p>}
+        <div className={`${base.actions} ${styles.actions}`}>
+          <Link href={`/projects/${encodeURIComponent(result.project_id)}?task=${encodeURIComponent(task.id)}`} target="_blank" rel="noopener noreferrer">查看运行结果</Link>
+          {task.workflow_available && <Link href={`/applications/${encodeURIComponent(task.workflow_id)}?tab=edit`} target="_blank" rel="noopener noreferrer">打开当前工作流{task.workflow_name && `：${task.workflow_name}`}</Link>}
+          {task.mode === 'workflow' && !task.workflow_available && <small>工作流已不在此项目中，仍可查看历史运行结果。</small>}
+        </div>
       </li>)}</ol></> : <p>本会话尚未产生关联任务。</p>}
       <div className={`${base.actions} ${styles.actions}`}>
         {['connecting', 'queued', 'running'].includes(result.status) && <button disabled={stopping} onClick={() => void stop()}>{stopping ? '正在停止…' : '停止处理'}</button>}
