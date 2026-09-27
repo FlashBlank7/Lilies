@@ -30,7 +30,7 @@ def test_help_example_can_edit_a_project_member_and_run_its_changed_output(confi
     client, manager, pid, base = prepare(configured)
     member = client.post(base+'/members', json={'name': '数量', 'purpose': 'test'}).json()['id']
     graph(client, member, [node('start', 'start'), node('end', 'end', outputs={'quantity': 1})], [edge('start', 'end')])
-    help = client.post(base+'/agent-tools', json={'name': 'block_catalog', 'arguments': {'tool_name': 'workflow_draft'}})
+    help = client.post(base+'/agent-tools', json={'name': 'block_catalog', 'arguments': {'tool_name': 'lilies__workflow_draft'}})
     assert help.status_code == 200, help.text
     spec = help.json()
     assert 'workflow_id' in spec['input_schema']['properties']
@@ -54,6 +54,23 @@ def test_help_example_can_edit_a_project_member_and_run_its_changed_output(confi
     assert run.status_code == 200, run.text
     assert run.json()['outputs'] == {'quantity': 2}
     assert client.get(base+'/requirements').json()['status'] == 'confirmed'
+
+
+def test_catalog_accepts_advertised_namespace_names_and_keeps_specialized_help(configured):
+    client, _, _, base = prepare(configured)
+    for spec in project_tool_specs():
+        if not spec['deferLoading']:
+            continue
+        def query(name):
+            return client.post(base+'/agent-tools', json={'name': 'block_catalog', 'arguments': {'tool_name': name, 'view': 'full'}})
+        plain = query(spec['name']); qualified = query('lilies__'+spec['name'])
+        assert plain.status_code == qualified.status_code == 200, qualified.text
+        assert plain.json() == qualified.json()
+    for invalid in ['lilies__does_not_exist', 'other__workflow_draft', 'lilies__Bash']:
+        response = client.post(base+'/agent-tools', json={'name': 'block_catalog', 'arguments': {'tool_name': invalid}})
+        assert response.status_code == 422 and '未找到此工具说明' in response.text
+    runtime = client.post(base+'/agent-tools', json={'name': 'block_catalog', 'arguments': {'tool_name': 'Bash'}})
+    assert runtime.status_code == 200 and 'command' in runtime.json()['input_schema']['properties']
 
 
 def test_old_pause_state_does_not_block_direct_editing(configured):

@@ -300,6 +300,13 @@ class WorkspaceProjectTools(ProjectTools):
     async def call(self, name: str, arguments: dict) -> Any:
         if name == 'block_catalog':
             arguments = ProjectCatalog.model_validate(arguments).model_dump()
+            # Codex discovery exposes deferred tools as lilies__<name>. Help
+            # receives that string unchanged, unlike actual tool dispatch.
+            query = arguments['tool_name']
+            if query.startswith('lilies__'):
+                canonical = query.removeprefix('lilies__')
+                if any(t['name'] == canonical and t.get('deferLoading') for t in project_tool_specs()):
+                    arguments['tool_name'] = canonical
         phase = self.manager.load(self.application_id).get('phase')
         if name == 'project_file' and arguments.get('action') == 'write':
             self.require_build()
