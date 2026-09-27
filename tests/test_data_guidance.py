@@ -97,9 +97,10 @@ def test_workflow_analyze_pause_unknown_continue_and_download(configured,monkeyp
         async def answer():
             result=await tools.call('workflow_run',{'action':'respond','task_id':task['id'],'run_id':run['id'],
                 'node_id':'ask','inputs':{'understanding':'暂不清楚，先给已有分析'}})
-            await app.state.services.projects.active[task['id']]
             return result
         result=asyncio.run(answer())
+        assert result['id']==task['id'] and result['status']=='succeeded'
+        assert result['runs'][0]['waiting_input'] is None
         task=settled(client,base,task)
         assert task['status']=='succeeded',task
         assert client.post(url,json={'node_id':'ask','values':{},'resume':True}).status_code==409

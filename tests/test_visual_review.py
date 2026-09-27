@@ -89,7 +89,8 @@ def test_platform_two_waiting_steps_stop_resume_frozen_images_and_export_without
     async def answer():
         response=await project_tools.call('workflow_run',{'action':'respond','task_id':task['id'],'run_id':run['id'],'node_id':first['node_id'],
             'inputs':{'label':'合格','reason':'连续且在框内','reference_candidate':True}})
-        await app.state.services.projects.active[task['id']]
+        assert response['status']=='waiting_input'
+        assert response['runs'][0]['waiting_input']['node_id']!=first['node_id']
         return response
     asyncio.run(answer())
     task=wait_task(client,base,task,seconds=40)
