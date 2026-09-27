@@ -60,10 +60,10 @@
 
 ## 本轮开发重点
 
-优先交付能独立试用的原型：精简旧入口和配置、减少统筹往返、准备完整数据备份恢复，并在干净环境完成发布候选试用。部署位置与模型付款、报销方式仍待确认；当前不据此扩建计费或多租户系统。
+v0.6 开发原型已提供项目空间、独立任务、可编辑工作流、官方智能体与项目 API 连接，以及员工反馈和使用轨迹驱动改进。当前功能与验证边界见[原型交付说明](docs/RELEASE-v0.6-prototype.md)；后续以实际使用中的问题推进，不预设生产效果。
 
 - [每周开发计划](docs/DEVELOPMENT_PLAN.md)：单人开发，暂按每周3个投入日，推进原型落地与工业项目验证。
-- [原型试用说明](docs/PROTOTYPE_QUICKSTART.md)：从上传数据到结果、反馈与预测。
+- [原型试用说明](docs/PROTOTYPE_QUICKSTART.md)：从示例、项目资料和对话调用开始，查看结果、修改工作流并反馈问题。
 - [产品方向](docs/PRODUCT_NORTH_STAR.md)、[业务结构](docs/BUSINESS_LOGIC.md)。
 - [数据与建模](docs/modeling.md)、逐模型笔记及实际试用（本地试验记录）。
 - [项目协作](docs/project-cooperation.md)、[统一对话与接续](docs/project-conversation.md)。
@@ -73,7 +73,7 @@
 ## 开发验证
 
 ```sh
-MODEL_EGRESS_ENABLED=false .venv/bin/python -m pytest tests -q
+MODEL_EGRESS_ENABLED=false OFFICIAL_AGENT_EGRESS_ENABLED=false .venv/bin/python -m pytest tests -q
 npm --prefix platform/frontend test -- --run
 npm --prefix platform/frontend run build
 ```
