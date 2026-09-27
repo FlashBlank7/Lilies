@@ -76,6 +76,27 @@ def test_excel_requires_explicit_sheet_when_ambiguous(table):
     assert result['facts']['rows']==1
 
 
+@pytest.mark.parametrize('reply', [
+    '预测在检测前，temperature已采集；batch是生产批次，编号何时录入不清楚。',
+    '预测在检测前，temperature已采集，但batch和unit都是检测后才录入的。',
+    '预测在检测前，temperature、batch和unit都已采集；after_test是检测后取得的。',
+])
+def test_field_timing_feedback_preserves_explicit_scope_and_original_report(table, reply):
+    profile=code.main({'operation':'profile','source_path':str(table),
+                       'business_context':'batch表示生产批次，unit表示产品编号。'})
+    advice={'analysis':'所有字段在预测前都已知。','questions':['这些字段何时取得？'],
+            'next_steps':['使用全部字段预测。'],'needs_input':True}
+    original=code.main({'operation':'export','profile':profile,'advice':advice})
+    original_bytes={a['file_path']:Path(a['file_path']).read_bytes() for a in original['artifacts']}
+    result=code.main({'operation':'followup','profile':profile,'advice':advice,
+                      'answer':{'understanding':'可以补充','answer':reply}})
+    prompt=json.loads(result['prompt'])
+    assert prompt['user_answer']['answer']==reply
+    assert json.loads(prompt['original_context'])['business_context']=='batch表示生产批次，unit表示产品编号。'
+    assert advice['analysis'] not in result['prompt'] and advice['next_steps'][0] not in result['prompt']
+    assert {p:Path(p).read_bytes() for p in original_bytes}==original_bytes
+
+
 def transport(monkeypatch, ask):
     calls=[]
     def respond(request):
