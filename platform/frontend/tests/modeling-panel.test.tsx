@@ -130,7 +130,7 @@ it('shows measured comparison, scopes feedback and resumes the original task', a
   await screen.findByRole('button', { name: '继续原任务' })
   fireEvent.click(screen.getByRole('button', { name: '继续原任务' }))
   await waitFor(() => expect(api).toHaveBeenCalledWith('/api/v1/projects/p/tasks/t/resume', { method: 'POST', body: JSON.stringify({ message: '继续已保存的建模实验' }) }))
-  fireEvent.click(screen.getByRole('button', { name: '反馈这个结果' }))
+  fireEvent.click(screen.getByRole('button', { name: '让智能体修改' }))
   expect(onContext).toHaveBeenCalledWith(expect.objectContaining({ study_id: 's', candidate_id: 'c', task_id: 't', item_id: 'i' }), undefined)
 })
 

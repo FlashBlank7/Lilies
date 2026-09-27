@@ -11,7 +11,7 @@
 .primary:disabled { opacity: .6; cursor: wait; }
 .error, .card .error { color: #b42338; overflow-wrap: anywhere; }
 .hint { font-size: 13px; }
-.accountBar { min-height: 44px; display: flex; align-items: center; gap: 20px; padding: 8px 24px; background: var(--panel, #fff); border-bottom: 1px solid var(--border, #dce3ef); font-size: 13px; }
+.accountBar { min-height: 44px; display: flex; flex-wrap:wrap; align-items: center; gap: 20px; padding: 8px 24px; background: var(--panel, #fff); border-bottom: 1px solid var(--border, #dce3ef); font-size: 13px; }
 .accountBar a { color: var(--text, #18253d); text-decoration: none; }
 .accountBar button { border: none; background: transparent; color: #536783; cursor: pointer; font: inherit; }
 .spacer { flex: 1; }

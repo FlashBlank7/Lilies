@@ -32,6 +32,9 @@ def authorization_dependency(services):
             return
         if path == '/api/v1/example-projects' or path.startswith('/api/v1/example-projects/'):
             return
+        # Feedback handlers enforce author/admin access, independent of project membership.
+        if path == '/api/v1/feedback' or path.startswith('/api/v1/feedback/'):
+            return
 
         params = request.path_params
         project_ids = set()

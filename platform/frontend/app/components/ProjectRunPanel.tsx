@@ -5,6 +5,7 @@ import { clientId } from '@/lib/client-id'
 import Link from 'next/link'
 import ProjectTaskInput from './ProjectTaskInput'
 import TaskError from './TaskError'
+import {FeedbackButton} from './UserFeedback'
 import WorkflowInputTable, {type InputColumn} from './WorkflowInputTable'
 import KnowledgeResults, {isKnowledgeSearchResult} from './KnowledgeResults'
 import FeatureResults from './FeatureResults'
@@ -49,6 +50,7 @@ export function ProjectTaskOutput({ projectId, task, onTask }: { projectId: stri
   const acceptance = evaluation?.acceptance as {selection:{status:string;threshold:number|null;target_accuracy:number;validation:{accuracy:number;coverage:number;accepted:number}|null};test:{accepted:number;review:number;accuracy:number|null;coverage:number}} | undefined
   return <>
     <TaskError error={task.error}/>
+    <FeedbackButton source={{project_id:projectId,task_id:task.id,workflow_id:task.workflow_id||undefined,page:'run'}} excerpt={task.error||markdown} category={task.error?'runtime':'result'}/>
     {task.id && ['waiting_input','running','queued'].includes(task.status) && <ProjectTaskInput projectId={projectId} taskId={task.id} initialTask={task} onTask={onTask}/>}
     {results.filter(result => result.stage === 'before_fold_preprocessing').map((result, i) => <FeatureResults key={i} result={result as unknown as Parameters<typeof FeatureResults>[0]['result']} />)}
     {task.runs?.filter(run => run.reuse?.source_run_id).map(run => <p key={run.id}>使用当前配置创建了新运行，复用 {run.reuse!.nodes.length} 个已完成步骤{run.reuse!.nodes.length ? `（${(run.reuse!.titles || run.reuse!.nodes).join('、')}）` : ''}。其他步骤重新执行，原运行保持不变。</p>)}

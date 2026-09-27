@@ -132,7 +132,7 @@ it('trials and result feedback use the same conversation without an internal pha
   fireEvent.click(screen.getByRole('tab', { name: '运行记录' }))
   fireEvent.click(screen.getByRole('button', { name: /申请分配 · 运行完成/ }))
   expect(await screen.findByRole('table')).toHaveTextContent('资源2')
-  fireEvent.click(screen.getByRole('button', { name: '反馈这个结果' }))
+  fireEvent.click(screen.getByRole('button', { name: '让智能体修改' }))
   fireEvent.change(screen.getByLabelText('给项目统筹的消息'), { target: { value: '这个分配不合适，请修改后再试' } })
   fireEvent.click(screen.getByRole('button', { name: '发送' }))
   await waitFor(() => expect(api).toHaveBeenCalledWith('/api/v1/projects/p/conversations/chat/messages', {
@@ -196,7 +196,7 @@ it('opens the referenced report, follows its files and keeps feedback bound to t
   expect(await screen.findByText('{"actual":2}')).toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: '查看关联结果' }))
   expect(await screen.findByRole('table')).toHaveTextContent('资源2')
-  fireEvent.click(screen.getByRole('button', { name: '反馈这个结果' }))
+  fireEvent.click(screen.getByRole('button', { name: '让智能体修改' }))
   expect(screen.getByLabelText('给项目统筹的消息')).toHaveValue('未发送的反馈')
   fireEvent.click(screen.getByRole('button', { name: '发送' }))
   await waitFor(() => expect(api).toHaveBeenCalledWith('/api/v1/projects/p/conversations/chat/messages', {
@@ -251,7 +251,7 @@ it('shows a result card only with a persisted task link and carries feedback to 
   expect(within(result).getByText('运行完成')).toBeInTheDocument()
   fireEvent.click(within(result).getByRole('button', { name: '查看结果' }))
   expect(await screen.findByRole('dialog')).toHaveTextContent('资源2')
-  fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: '反馈这个结果' }))
+  fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: '让智能体修改' }))
   fireEvent.change(screen.getByLabelText('给项目统筹的消息'), { target: { value: '这个结果请改一下' } })
   fireEvent.click(screen.getByRole('button', { name: '发送' }))
   await waitFor(() => expect(api).toHaveBeenCalledWith('/api/v1/projects/p/conversations/chat/messages', {

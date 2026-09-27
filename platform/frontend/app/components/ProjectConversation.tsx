@@ -11,6 +11,7 @@ import AssistantSourcePanel from './AssistantSourcePanel'
 import SaveMethod from './SaveMethod'
 import ProjectTaskInput from './ProjectTaskInput'
 import ResultFeedback from './ResultFeedback'
+import {FeedbackButton} from './UserFeedback'
 import { useAccount } from './AuthBoundary'
 import { useOnboarding } from './Onboarding'
 import ReadingDialog from './ReadingDialog'
@@ -157,7 +158,7 @@ export default function ProjectConversation({ id, conversationId, projectName, c
             {result && <span className={styles.tag}>{taskNames[result.status] || result.status}</span>}
             <ProjectTaskInput projectId={id} taskId={event.task_id} initialTask={result} onTask={next=>{setLiveResults(previous=>({...previous,[next.id]:next}));if(result?.status!==next.status)void onUpdated()}}/>
             {suggestions.map((suggestion,i)=><button key={i} onClick={()=>{updateDraft(messageRef.current.trim()?messageRef.current+'\n\n'+suggestion:suggestion);composer.current?.focus()}}>准备下一步：{suggestion}</button>)}
-            <div className={styles.actions}><button onClick={() => onTask?.(event.task_id!)}>查看结果 <ArrowUpRight size={13} /></button><button onClick={() => onFeedback?.(event.item_id || result?.item_id || '', event.task_id!)}>反馈这个结果</button>
+            <div className={styles.actions}><button onClick={() => onTask?.(event.task_id!)}>查看结果 <ArrowUpRight size={13} /></button><button onClick={() => onFeedback?.(event.item_id || result?.item_id || '', event.task_id!)}>让智能体修改</button><FeedbackButton source={{project_id:id,task_id:event.task_id,page:"run"}} category="result"/>
               {result?.feedback_task_id && <button onClick={() => onTask?.(result.feedback_task_id)}>查看修改前的结果</button>}</div>
           </article> : <article className={event.kind === 'user' ? styles.chatUser : styles.chatAssistant}><small>{event.kind === 'user' ? '你' : '项目统筹'}</small><MarkdownDocument source={event.text} emptyLabel="" resolveLink={href => resolveProjectLink(id, href)} />
             {event.kind !== 'user' && event.text.length > 900 && <button onClick={() => setReader({ title: '统筹报告', text: event.text })}>独立阅读全文 <ArrowUpRight size={13} /></button>}
@@ -169,7 +170,7 @@ export default function ProjectConversation({ id, conversationId, projectName, c
               <button onClick={()=>{setEditWorkflow(event.workflow);changeMode('workflow');composer.current?.focus()}}>继续修改此流程</button>
               <button onClick={()=>{changeMode('task');updateDraft(`请调用项目工作流「${event.workflow!.name}」（${event.workflow!.id}），使用项目空间中的资料完成任务。先查看输入要求，有不明确的信息再向我询问。`);composer.current?.focus()}}>通过智能体使用</button></div>
           </article>}
-          {event.kind === 'assistant' && event.text && <><SaveMethod projectId={id} text={event.text}/>{lastInRequest && event.request_id && <ResultFeedback base={conversationBase} requestId={event.request_id}/>}</>}
+          {event.kind === 'assistant' && event.text && <><SaveMethod projectId={id} text={event.text}/>{lastInRequest && event.request_id && <ResultFeedback base={conversationId?conversationBase:base+"/conversations/legacy"} requestId={event.request_id} source={{project_id:id,conversation_id:conversationId||"legacy",request_id:event.request_id,page:"conversation"}} excerpt={event.text}/>}</>}
           {lastInRequest && summaries[event.request_id!] && <ProjectActivity projectId={id} conversationId={conversationId} workflowNames={Object.fromEntries(members.map(m => [m.id, m.name]))} active={Boolean(running) && session?.request_id === event.request_id} requestId={event.request_id} current={summaries[event.request_id!]} onTask={onTask} onWorkflow={onWorkflow} />}
         </div>
       })}
@@ -177,6 +178,7 @@ export default function ProjectConversation({ id, conversationId, projectName, c
     </div>
     <ModelingPanel compact projectId={id} onTask={onTask} onContext={(context, text) => { updateModelingContext(context); if (text !== undefined && !message.trim()) updateDraft(text); composer.current?.focus() }} />
     {Boolean(error || session?.error) && <p role="alert" className={`${styles.error} ${styles.notice}`}>{error || session?.error}</p>}
+    {Boolean(error || session?.error) && <FeedbackButton source={{project_id:id,conversation_id:conversationId||"legacy",page:"conversation"}} excerpt={error||session?.error} category="runtime"/>}
     {connectionError && <div role="alert" className={`${styles.error} ${styles.notice}`}>连接暂时中断，已保存的对话和结果仍保留。<button onClick={() => void refresh()}>重新连接</button><details><summary>连接详情</summary>{connectionError}</details></div>}
     {session?.status === 'interrupted' && !session.error && <p className={`${styles.focus} ${styles.notice}`}>已停止，进展和结果已保留。{activeItem?.next_action ? '继续后：' + activeItem.next_action : '点击继续推进接着处理。'}</p>}
     {!running && activeItem?.status === 'waiting' && <p className={`${styles.focus} ${styles.notice}`}>等待补充：{activeItem.questions.find(q => !q.answer)?.text || activeItem.blocker?.reason} {activeItem.next_action}</p>}

@@ -1979,6 +1979,8 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         from .shared_methods import initialize as initialize_shared_methods
         initialize_shared_methods(services.projects.store.db_path)
         services.product_usage.initialize()
+        from .user_feedback import initialize as initialize_feedback
+        initialize_feedback(services.projects.store.db_path)
         await services.official_agent.initialize()
         await services.local_agents.initialize()
         await services.official_agent.recover()
@@ -6071,6 +6073,8 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
     app.include_router(official_router(services))
     from .product_usage import install_usage
     install_usage(app, services)
+    from .user_feedback import router as feedback_router
+    app.include_router(feedback_router(services))
 
     @app.get("/api/v1/overview", dependencies=[Depends(require_token)])
     async def platform_overview() -> dict[str, Any]:
