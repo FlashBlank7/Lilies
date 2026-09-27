@@ -101,8 +101,14 @@ class ProjectStore:
                 for name, definition in columns.items():
                     if name not in existing:
                         c.execute(f'ALTER TABLE {table} ADD COLUMN {name} {definition}')
-            c.execute("UPDATE project_tasks SET status='interrupted', updated_at=? "
-                      "WHERE status IN ('queued','running')", (utc_now(),))
+            if 'status_changed_at' not in {r['name'] for r in c.execute('PRAGMA table_info(project_tasks)')}:
+                c.execute('ALTER TABLE project_tasks ADD COLUMN status_changed_at TEXT')
+                # Freeze the best-known historical time. Editing a presentation
+                # later must not make an old failure look like a new one.
+                c.execute('UPDATE project_tasks SET status_changed_at=updated_at')
+            now = utc_now()
+            c.execute("UPDATE project_tasks SET status='interrupted', updated_at=?,status_changed_at=? "
+                      "WHERE status IN ('queued','running')", (now, now))
 
     def exists(self, project_id: str) -> bool:
         with connect(self.db_path) as c:
@@ -303,9 +309,9 @@ class ProjectStore:
                     return self.task(existing), False
                 now = utc_now()
                 c.execute("INSERT INTO project_tasks(id,project_id,request_key,mode,workflow_id,status,inputs_json,"
-                          "message,snapshots_json,created_at,updated_at,purpose,item_id,feedback_task_id,conversation_id) VALUES (?,?,?,?,?,'queued',?,?,?,?,?,?,?,?,?)",
+                          "message,snapshots_json,created_at,updated_at,purpose,item_id,feedback_task_id,conversation_id,status_changed_at) VALUES (?,?,?,?,?,'queued',?,?,?,?,?,?,?,?,?,?)",
                           (task_id, project_id, request_key, mode, workflow_id, encode(inputs), message, encode(snapshots), now, now,
-                           purpose, item_id, feedback_task_id, conversation_id))
+                           purpose, item_id, feedback_task_id, conversation_id, now))
                 return self.task(c.execute("SELECT * FROM project_tasks WHERE id=?", (task_id,)).fetchone()), True
         return await asyncio.to_thread(create)
 
@@ -384,8 +390,10 @@ class ProjectStore:
     async def update_task(self, task_id: str, *, status: str, outputs: dict | None = None, error: str = ''):
         def update():
             with connect(self.db_path) as c:
-                c.execute("UPDATE project_tasks SET status=?,outputs_json=COALESCE(?,outputs_json),error=?,updated_at=? WHERE id=?",
-                          (status, encode(outputs) if outputs is not None else None, error, utc_now(), task_id))
+                now = utc_now()
+                c.execute("UPDATE project_tasks SET status_changed_at=CASE WHEN status<>? OR status_changed_at IS NULL THEN ? ELSE status_changed_at END,"
+                          "status=?,outputs_json=COALESCE(?,outputs_json),error=?,updated_at=? WHERE id=?",
+                          (status, now, status, encode(outputs) if outputs is not None else None, error, now, task_id))
         await asyncio.to_thread(update)
 
     async def track_run(self, task_id: str, step_key: str, run_id: str):

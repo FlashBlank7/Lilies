@@ -11,12 +11,14 @@ import ApplyWorkflowCopy from './ApplyWorkflowCopy'
 
 type Kind = 'repeated_failure' | 'recovery' | 'reusable_method' | 'operation_error' | 'assistant_error'
 type Status = 'new' | 'working' | 'resolved' | 'dismissed'
+type StatusFilter = Status | 'all' | 'followup'
 type Task = { id: string; status: string; created_at: string; updated_at: string; revision: number | null; purpose: string; error_kind: string }
 type Improvement = {
   id: string; kind: Kind; project_id: string; workflow_id: string; project_name: string; workflow_name: string
   title: string; explanation: string; limitation: string; next_step: string; count: number; tasks: Task[]
   operations?: { id: string; created: number | string; feature: string; outcome: string; resource_id: string }[]
   workflow_changed?: boolean | null; inputs_changed?: boolean | null; status: Status; active?: boolean
+  has_new_failures?: boolean; reviewed_last_seen?: string | null
   handoff?: { conversation_id: string; status: string; error: string }
 }
 type Report = { items: Improvement[]; last_scan: string | number | null; error: string; automatic_error?: string; sampled_tasks: number; truncated: boolean; sampled_interactions?: number; interactions_truncated?: boolean; window_days: number; limit: number; notes: string[] }
@@ -146,7 +148,7 @@ function AdminImprovementsPage({ userId }: { userId: string }) {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState('')
-  const [status, setStatus] = useState<Status | 'all'>('all')
+  const [status, setStatus] = useState<StatusFilter>('all')
   const [kind, setKind] = useState<Kind | 'all'>('all')
   const [expanded, setExpanded] = useState('')
   const [settings, setSettings] = useState<AutomationSettings | null>(null)
@@ -238,7 +240,7 @@ function AdminImprovementsPage({ userId }: { userId: string }) {
     finally { mutating.current = false; setBusy('') }
   }
 
-  const items = (report?.items || []).filter(item => (status === 'all' || item.status === status) && (kind === 'all' || item.kind === kind))
+  const items = (report?.items || []).filter(item => (status === 'followup' ? item.has_new_failures === true : status === 'all' || item.status === status) && (kind === 'all' || item.kind === kind))
   return <main className={`${base.page} ${styles.page}`}>
     <header className={base.header}><div><span className={base.eyebrow}>平台管理</span><h1>使用改进</h1><p>从实际使用中找到值得修复的问题和可以复用的方法。</p></div>
       <button className={base.primary} disabled={!!busy} onClick={() => void change('/scan', 'POST')}>{busy === '/scan' ? '正在整理…' : '立即整理'}</button>
@@ -268,13 +270,14 @@ function AdminImprovementsPage({ userId }: { userId: string }) {
     </section>
     {(error || report?.error) && <p role="alert" className={base.error}>{error || report?.error}</p>}
     {report?.automatic_error && <p role="alert" className={base.error}>后台自动处理：{report.automatic_error}</p>}
-    <div className={styles.filters}><label>处理状态<select aria-label="处理状态" value={status} onChange={event => { setStatus(event.target.value as Status | 'all'); setExpanded('') }}><option value="all">全部状态</option>{Object.entries(statusNames).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+    <div className={styles.filters}><label>处理状态<select aria-label="处理状态" value={status} onChange={event => { setStatus(event.target.value as StatusFilter); setExpanded('') }}><option value="all">全部状态</option><option value="followup">标记后再失败</option>{Object.entries(statusNames).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
       <label>线索类别<select aria-label="线索类别" value={kind} onChange={event => { setKind(event.target.value as Kind | 'all'); setExpanded('') }}><option value="all">全部类别</option>{Object.entries(kindNames).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><small>显示 {items.length} 条线索</small></div>
     {loading && <p role="status">正在读取改进线索…</p>}
     {!loading && !items.length && <p className={styles.empty}>{report?.items.length ? '当前筛选下没有线索。' : '暂未发现改进线索。继续使用项目后，可以再次整理。'}</p>}
     <section className={styles.items} aria-label="改进线索">{items.map(item => <article key={item.id} className={styles.item} aria-label={item.title}>
       <div className={styles.tags}><span className={base.tag}>{kindNames[item.kind]}</span><span className={styles.status} data-status={item.status}>{statusNames[item.status]}</span><small>{item.count} 次相关记录</small></div>
       <h2>{item.title}</h2><p className={styles.project}><Link href={'/projects/' + item.project_id}>{item.project_name || '查看项目'}</Link>{item.workflow_name && <span> / {item.workflow_name}</span>}</p>
+      {item.has_new_failures && <p role="status" className={styles.notice}><strong>标记后又观察到失败。</strong>保留当前处理状态，请查看最新使用轨迹；不会自动重试。</p>}
       {item.active === false && <p className={styles.limitation}>本轮未再观察到：可能已变化，或不在当前样本中</p>}
       <p>{item.explanation}</p><p className={styles.limitation}>{item.limitation}</p><p><strong>下一步：</strong>{item.next_step}</p>
       <details className={styles.trace}><summary>查看使用轨迹（{item.tasks.length + (item.operations?.length || 0)} 条）</summary>

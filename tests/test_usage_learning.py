@@ -150,6 +150,99 @@ def test_actual_failures_repair_lineage_reuse_and_stable_ids(configured):
     assert not app.state.services.local_agents.tasks
 
 
+@pytest.mark.parametrize('status', ['resolved', 'dismissed'])
+def test_closed_finding_surfaces_later_failure_without_reopening_or_dispatch(configured, status):
+    client, app, project, _ = configured
+    pid = project['id']; base = '/api/v1/projects/' + pid
+    failures = failed_runs(client, pid)
+    item = client.post(BASE+'/scan').json()['items'][0]
+    path = BASE+'/'+item['id']
+    marked = client.patch(path, json={'status':status}).json()
+    assert marked['reviewed_last_seen'] == item['last_seen']
+    assert not marked['has_new_failures']
+    # Rewording an existing failed task's result is not another failed run.
+    client.portal.call(app.state.services.projects.store.present_task, failures[0]['id'], {'message':'说明已补充'})
+    assert not client.post(BASE+'/scan').json()['items'][0]['has_new_failures']
+    # Polling and idempotent delivery of the old request are not new failures.
+    assert start(client, base, 'one')['id'] == failures[0]['id']
+    assert not client.post(BASE+'/scan').json()['items'][0]['has_new_failures']
+    newest = settled(client, base, start(client, base, 'new-failure'))
+    assert newest['status'] == 'failed'
+    result = client.post(BASE+'/scan').json()['items'][0]
+    assert result['id'] == item['id'] and result['status'] == status
+    assert result['has_new_failures'] and result['count'] == 3
+    assert result['reviewed_last_seen'] == item['last_seen']
+    assert newest['id'] in {t['id'] for t in result['tasks']}
+    assert result['handoff'] is None and not app.state.services.local_agents.tasks
+    assert '标记后又观察到失败' in client.get(path+'/brief').text
+    # A retried status update must not silently acknowledge the later failure.
+    assert client.patch(path, json={'status':status}).json()['has_new_failures']
+    app.state.services.usage_learning.initialize()
+    assert client.get(BASE).json()['items'][0]['has_new_failures']
+    assert client.post(BASE+'/scan').json()['items'][0]['has_new_failures']
+    reopened = client.patch(path, json={'status':'working'}).json()
+    assert not reopened['has_new_failures'] and reopened['reviewed_last_seen'] is None
+    acknowledged = client.patch(path, json={'status':status}).json()
+    assert not acknowledged['has_new_failures']
+    assert acknowledged['reviewed_last_seen'] == result['last_seen']
+
+
+@pytest.mark.parametrize('feature,outcome', [('edit_error', 'HTTP 500'), ('chat_result', 'error')])
+def test_followup_uses_failure_time_not_scan_count_or_later_success(platform, feature, outcome):
+    client, app = platform
+    client.headers.update(ADMIN)
+    pid = project(client, ADMIN)
+    usage = app.state.services.product_usage
+    def record(key, result=outcome):
+        usage.record(key=key, user_id='root', project_id=pid, resource_id=pid,
+                     root_id=key, feature=feature, outcome=result)
+    for key in ('one', 'two'):
+        record(key)
+    item = client.post(BASE+'/scan').json()['items'][0]
+    path = BASE+'/'+item['id']
+    client.patch(path, json={'status':'resolved'})
+    # A duplicate event, old newly ingested record, or later completion cannot
+    # imply failure after the observed boundary. Counts alone would get this wrong.
+    record('two')
+    record('old')
+    with connect(usage.db) as db:
+        db.execute('UPDATE product_usage SET created=created-60 WHERE id=?', ('old',))
+    if feature == 'chat_result':
+        record('success', 'completed')
+    scanned = client.post(BASE+'/scan').json()['items'][0]
+    assert scanned['count'] == 3 and not scanned['has_new_failures']
+    record('later')
+    scanned = client.post(BASE+'/scan').json()['items'][0]
+    assert scanned['has_new_failures'] and scanned['status'] == 'resolved'
+    assert scanned['reviewed_last_seen'] == item['last_seen']
+    assert scanned['handoff'] is None
+
+
+def test_old_findings_migrate_without_fabricating_a_review_boundary(configured):
+    client, app, project, _ = configured
+    failed_runs(client, project['id'])
+    item = client.post(BASE+'/scan').json()['items'][0]
+    path = BASE+'/'+item['id']
+    client.patch(path, json={'status':'resolved'})
+    learning = app.state.services.usage_learning
+    with connect(learning.db) as db:
+        db.execute('ALTER TABLE usage_findings DROP COLUMN reviewed_last_seen')
+        db.execute('ALTER TABLE project_tasks DROP COLUMN status_changed_at')
+    client.portal.call(app.state.services.projects.store.initialize)
+    learning.initialize()
+    learning.initialize()
+    migrated = client.get(BASE).json()['items'][0]
+    assert migrated['id'] == item['id'] and migrated['status'] == 'resolved'
+    assert migrated['reviewed_last_seen'] is None and not migrated['has_new_failures']
+    assert [t['id'] for t in migrated['tasks']] == [t['id'] for t in item['tasks']]
+    client.patch(path, json={'status':'new'})
+    marked = client.patch(path, json={'status':'resolved'}).json()
+    assert marked['reviewed_last_seen'] == item['last_seen']
+    client.portal.call(app.state.services.projects.store.present_task, item['tasks'][0]['id'], {'message':'迁移后补充说明'})
+    client.portal.call(app.state.services.projects.store.initialize)
+    assert not client.post(BASE+'/scan').json()['items'][0]['has_new_failures']
+
+
 def test_same_inputs_tests_stops_and_unrelated_success_do_not_imply_reuse_or_repair():
     base = dict(project_id='p', workflow_id='w', project_name='P', workflow_name='W',
                 created_at='2026-09-28', updated_at='2026-09-28', revision=1,
@@ -293,7 +386,7 @@ def test_old_combined_signal_keeps_handling_history_when_split_and_future_versio
     cid = response.json()['id']
     with connect(app.state.services.usage_learning.db) as db:
         db.execute('DELETE FROM usage_findings')
-        db.execute('INSERT INTO usage_findings VALUES(?,?,?,?,?,?,?,?)',
+        db.execute('INSERT INTO usage_findings(id,project_id,kind,status,payload,created,updated,active) VALUES(?,?,?,?,?,?,?,?)',
             (legacy_id,pid,'repeated_failure',status,json.dumps(legacy),time.time(),time.time(),1))
         db.execute('INSERT INTO usage_handoffs VALUES(?,?,?,?,?,?,?)',
             (legacy_id,'root',cid,'started','',1,time.time()))

@@ -60,6 +60,18 @@ def finding_id(key):
     return str(uuid5(NAMESPACE_URL, 'lilies:usage:' + key))
 
 
+def finding_state(row):
+    item = json.loads(row['payload'])
+    reviewed = row['reviewed_last_seen']
+    has_new_failures = bool(
+        row['status'] in {'resolved', 'dismissed'}
+        and item.get('kind') in {'repeated_failure', 'operation_error', 'assistant_error'}
+        and reviewed and item.get('last_seen')
+        and datetime.fromisoformat(item['last_seen']) > datetime.fromisoformat(reviewed))
+    return {**item, 'status': row['status'], 'active': bool(row['active']),
+            'reviewed_last_seen': reviewed, 'has_new_failures': has_new_failures}
+
+
 def patterns(tasks, operations, interactions=()):
     """Only explicit task ancestry establishes a repair relationship."""
     findings = []
@@ -77,8 +89,8 @@ def patterns(tasks, operations, interactions=()):
             'title': title, 'explanation': explanation, 'limitation': limitation, 'next_step': next_step,
             'count': len(rows), 'tasks': [observation(t) for t in rows[-12:]],
             'automatic_eligible': any(t['purpose'] in {'business', 'customer_trial'} for t in rows),
-            'first_seen': min(t['updated_at'] for t in rows),
-            'last_seen': max(t['updated_at'] for t in rows),
+            'first_seen': min(t.get('observed_at', t['updated_at']) for t in rows),
+            'last_seen': max(t.get('observed_at', t['updated_at']) for t in rows),
             'workflow_versions': last.get('workflow_versions', {}), **extra,
         })
 
@@ -217,6 +229,9 @@ class UsageLearning:
                     db.execute(f'ALTER TABLE usage_handoffs ADD COLUMN {name} {definition}')
             if 'active' not in {r['name'] for r in db.execute('PRAGMA table_info(usage_findings)')}:
                 db.execute('ALTER TABLE usage_findings ADD COLUMN active INTEGER NOT NULL DEFAULT 1')
+            if 'reviewed_last_seen' not in {r['name'] for r in db.execute('PRAGMA table_info(usage_findings)')}:
+                # Old statuses have no known observation boundary; do not invent one.
+                db.execute('ALTER TABLE usage_findings ADD COLUMN reviewed_last_seen TEXT')
 
     def _scan(self):
         cutoff = datetime.fromtimestamp(time.time() - DAYS * 86400, timezone.utc).isoformat()
@@ -224,6 +239,7 @@ class UsageLearning:
             # Do not load task outputs, snapshots, personal chat, file contents or error bodies into findings.
             rows = db.execute('''SELECT t.id,t.project_id,t.workflow_id,t.status,t.purpose,t.feedback_task_id,
                 t.created_at,t.updated_at,t.inputs_json,t.error,p.name AS project_name,a.name AS workflow_name,
+                COALESCE(t.status_changed_at,t.created_at) AS observed_at,
                 json_extract(s.value,'$.revision') AS revision,
                 COALESCE(json_extract(s.value,'$.content_hash'),'') AS content_hash
                 ,d.content_hash AS current_hash
@@ -272,7 +288,7 @@ class UsageLearning:
                     VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload,updated=excluded.updated,active=1''',
                     (item['id'], item['project_id'], item['kind'], json.dumps(item, ensure_ascii=False), now, now))
                 if not existing and item.get('previous_id') != item['id']:
-                    previous = db.execute('SELECT status,payload FROM usage_findings WHERE id=?', (item.get('previous_id'),)).fetchone()
+                    previous = db.execute('SELECT status,payload,reviewed_last_seen FROM usage_findings WHERE id=?', (item.get('previous_id'),)).fetchone()
                     if previous:
                         # Old root-only groups can split into several dependency
                         # versions. Carry handling history for versions already
@@ -280,7 +296,8 @@ class UsageLearning:
                         # A genuinely new future version stays new.
                         old_seen = datetime.fromisoformat(json.loads(previous['payload'])['last_seen'])
                         if datetime.fromisoformat(item['first_seen']) <= old_seen:
-                            db.execute('UPDATE usage_findings SET status=? WHERE id=?', (previous['status'], item['id']))
+                            db.execute('UPDATE usage_findings SET status=?,reviewed_last_seen=? WHERE id=?',
+                                       (previous['status'], previous['reviewed_last_seen'], item['id']))
                             db.execute('''INSERT OR IGNORE INTO usage_handoffs
                                 (finding_id,user_id,conversation_id,status,error,automatic,attempted)
                                 SELECT ?,user_id,conversation_id,status,error,automatic,attempted
@@ -386,7 +403,7 @@ class UsageLearning:
         with connect(self.db) as db:
             rows = db.execute('SELECT * FROM usage_findings ORDER BY active DESC,updated DESC,id').fetchall()
             handoffs = {r['finding_id']: dict(r) for r in db.execute('SELECT * FROM usage_handoffs WHERE user_id=?', (user_id,))}
-        return {'items': [{**json.loads(r['payload']), 'status': r['status'], 'active': bool(r['active']), 'updated': r['updated'],
+        return {'items': [{**finding_state(r), 'updated': r['updated'],
                            'handoff': handoffs.get(r['id'])} for r in rows],
                 'last_scan': self.last_scan, 'error': self.last_error, 'automatic_error': self.automatic_error, 'sampled_tasks': self.sampled,
                 'truncated': self.truncated, 'window_days': DAYS, 'limit': LIMIT,
@@ -401,7 +418,7 @@ class UsageLearning:
             row = db.execute('SELECT * FROM usage_findings WHERE id=?', (ident,)).fetchone()
             if not row or not db.execute('SELECT 1 FROM projects WHERE id=?', (row['project_id'],)).fetchone():
                 raise HTTPException(404, '没有找到这条改进线索')
-        return {**json.loads(row['payload']), 'status': row['status'], 'active': bool(row['active'])}
+        return finding_state(row)
 
     async def result(self, ident, user):
         """Read this administrator's actual handling session, only when requested.
@@ -457,6 +474,8 @@ class UsageLearning:
     @staticmethod
     def brief(item):
         refs = '\n'.join(f'- 任务 {t["id"]}：{t["status"]}，工作流修订 {t["revision"]}，{t["created_at"]}' for t in item['tasks'])
+        followup = ('标记后又观察到失败；请查看最新轨迹。处理状态保留，不自动重试。'
+                    if item.get('has_new_failures') else '')
         privacy = ('这里只提供请求状态，不提供员工私聊。请检查项目公共连接与服务状态，不读取其他员工的会话；如需业务正文，请员工主动提交关联反馈。不自动重放失败请求。'
                    if item['kind'] == 'assistant_error' else '')
         return f'''# 改进任务：{item['title']}
@@ -467,6 +486,7 @@ class UsageLearning:
 观察：{item['explanation']}
 限制：{item['limitation']}
 建议：{item['next_step']}
+{followup}
 {privacy}
 
 ## 相关运行
@@ -571,7 +591,13 @@ def router(services):
     async def update(ident: str, body: FindingUpdate):
         learning.get(ident)
         with connect(learning.db) as db:
-            db.execute('UPDATE usage_findings SET status=? WHERE id=?', (body.status, ident))
+            # Use the latest observed failure, not scan time (which changes on
+            # every poll). Re-delivering the same status must not hide new activity.
+            db.execute('''UPDATE usage_findings SET reviewed_last_seen=CASE
+                WHEN ? NOT IN ('resolved','dismissed') THEN NULL
+                WHEN status=? THEN reviewed_last_seen
+                ELSE json_extract(payload,'$.last_seen') END,status=? WHERE id=?''',
+                (body.status, body.status, body.status, ident))
         return learning.get(ident)
 
     @routes.get('/{ident}/brief')

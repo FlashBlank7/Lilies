@@ -133,6 +133,54 @@ it('marks, dismisses, and reopens a signal without invoking the project agent', 
   expect(vi.mocked(api).mock.calls.some(([path]) => path.endsWith('/start'))).toBe(false)
 })
 
+it.each(['resolved', 'dismissed'])('shows and filters failures observed after marking %s, then reopens without starting an agent', async status => {
+  const failure = { ...operation, status, has_new_failures: true, reviewed_last_seen: '2026-09-28T08:00:00Z' as string | null }
+  const data = { ...report(), items: [recovery, failure] }
+  vi.mocked(api).mockImplementation(async (path, options) => {
+    if (path.endsWith('/settings')) return settings() as never
+    if (options?.method === 'PATCH') {
+      failure.status = JSON.parse(options.body as string).status
+      failure.has_new_failures = false; failure.reviewed_last_seen = null
+      return { ...failure } as never
+    }
+    return { ...data } as never
+  })
+  render(<ImprovementsPage />)
+  const card = await screen.findByRole('article', { name: operation.title })
+  expect(within(card).getByRole('status')).toHaveTextContent('标记后又观察到失败。保留当前处理状态，请查看最新使用轨迹；不会自动重试。')
+  expect(within(card).getByText(status === 'resolved' ? '已处理' : '已忽略')).toBeInTheDocument()
+  expect(within(screen.getByRole('article', { name: recovery.title })).queryByRole('status')).not.toBeInTheDocument()
+  fireEvent.change(screen.getByLabelText('处理状态'), { target: { value: 'followup' } })
+  expect(screen.getByRole('option', { name: '标记后再失败' })).toBeInTheDocument()
+  expect(screen.getAllByRole('article')).toHaveLength(1)
+  expect(screen.queryByRole('article', { name: recovery.title })).not.toBeInTheDocument()
+  fireEvent.click(within(card).getByText('查看使用轨迹（1 条）'))
+  expect(within(card).getByText('查看使用轨迹（1 条）').closest('details')).toHaveAttribute('open')
+  expect(within(card).getByText('operation-one')).toBeInTheDocument()
+  fireEvent.click(within(card).getByRole('button', { name: '重新打开' }))
+  await waitFor(() => expect(screen.queryByRole('article')).not.toBeInTheDocument())
+  fireEvent.change(screen.getByLabelText('处理状态'), { target: { value: 'new' } })
+  const reopened = screen.getByRole('article', { name: operation.title })
+  expect(within(reopened).getByText('待处理')).toBeInTheDocument()
+  expect(within(reopened).queryByRole('status')).not.toBeInTheDocument()
+  expect(vi.mocked(api).mock.calls.filter(([, options]) => options?.method)).toEqual([
+    [endpoint + '/operation', { method: 'PATCH', body: JSON.stringify({ status: 'new' }) }],
+  ])
+  expect(mocks.push).not.toHaveBeenCalled()
+})
+
+it('keeps reports without follow-up fields compatible and excludes them from the follow-up filter', async () => {
+  render(<ImprovementsPage />)
+  await screen.findByRole('article', { name: operation.title })
+  expect(screen.queryByText('标记后又观察到失败。')).not.toBeInTheDocument()
+  fireEvent.change(screen.getByLabelText('处理状态'), { target: { value: 'followup' } })
+  expect(screen.queryByRole('article')).not.toBeInTheDocument()
+  expect(screen.getByText('当前筛选下没有线索。')).toBeInTheDocument()
+  fireEvent.change(screen.getByLabelText('处理状态'), { target: { value: 'all' } })
+  expect(screen.getAllByRole('article')).toHaveLength(3)
+  expect(vi.mocked(api).mock.calls.every(([, options]) => !options)).toBe(true)
+})
+
 it('starts only after an explicit click and selects the returned conversation before navigating', async () => {
   vi.mocked(api).mockImplementation(async path => path.endsWith('/start')
     ? { project_id: 'project-a', conversation_id: 'improvement-chat', status: 'running' } as never : (path.endsWith('/settings') ? settings() : report()) as never)
