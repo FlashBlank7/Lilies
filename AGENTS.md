@@ -42,6 +42,14 @@ function. If a governance-shaped feature seems necessary, ask the user first.
   HTTP or spend tokens without explicit user authorization in this session.
 - Preserve unrelated user changes in the dirty worktree. Never use
   destructive git commands to simplify a task.
+- Feedback-driven platform source improvements are collected and organized
+  into batches, then developed and tested on a dedicated branch in a separate
+  worktree. Do not edit the serving checkout or replace its build artifacts.
+  Completing tests, pushing a branch, or opening a PR must not deploy those
+  changes to the employee-facing service. Release is eligible only after the
+  changes are merged into `main`; repair completion does not authorize an
+  automatic merge. This concerns platform source releases, not customer
+  workflow generation or execution.
 - Keep the current week in `docs/WEEKLY_LOG.md` updated when development
   makes progress: briefly record actual changes, validation, and the next
   unfinished action. Preserve earlier weeks; keep proposals separate from
