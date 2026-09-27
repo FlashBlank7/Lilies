@@ -6,7 +6,7 @@ import { useAccount } from '../components/AuthBoundary'
 import UsageSummary from '../components/UsageSummary'
 import styles from '../projects/projects.module.css'
 
-type Config = { enabled: boolean; executable: string; version: string; model: string; thinking: string; reserve_percent: number; concurrency: number; max_tokens: number | null; max_seconds: number }
+type Config = { enabled: boolean; executable: string; version: string; model: string; thinking: string; reserve_percent: number; concurrency: number; max_tokens: number | null; max_seconds: number; auto_compact_token_limit?: number | null }
 type Model = { model: string; displayName: string; supportedReasoningEfforts: {reasoningEffort: string}[] }
 type Job = {id: string; project_id: string; user_id: string; kind: string; status: string; created: number; started?: number; ended?: number; tokens: number | null; error: string; queue_seconds: number; execution_seconds:number}
 type State = {config: Config; models?: Model[]; account?: {type: string; email?: string; planType?: string}; error?: string; dispatch_reason?: string; jobs?: Job[];
@@ -62,6 +62,8 @@ export default function OfficialAgentPage() {
       {config.max_tokens !== null && <label>每任务 token 上限<input type="number" min={1000} max={200000} value={config.max_tokens} onChange={e=>setConfig({...config,max_tokens:Number(e.target.value)})}/></label>}
       {config.max_tokens === null && <small>仍记录实际用量，可以随时停止任务；模型执行时限和账号额度设置继续生效。</small>}
       <label>每任务模型执行时限（秒）<input type="number" min={30} max={3600} value={config.max_seconds} onChange={e=>setConfig({...config,max_seconds:Number(e.target.value)})}/></label>
+      <label>历史自动整理阈值（上下文 token）<input type="number" min={16000} max={1000000} placeholder="沿用模型默认值" value={config.auto_compact_token_limit ?? ''} onChange={e=>setConfig({...config,auto_compact_token_limit:e.target.value===''?null:Number(e.target.value)})}/></label>
+      <small>达到阈值时由官方智能体整理历史后继续，平台消息和结果保留；这不是任务用量上限。整理本身可能消耗额度，过低会增加整理次数。留空沿用模型默认值，保存前需停止活动任务。</small>
       <details><summary>服务器配置</summary><label>Codex 可执行程序<input value={config.executable} onChange={e=>setConfig({...config,executable:e.target.value})}/></label><p>已验证版本：{config.version||'未连接'}</p></details>
       <button disabled={busy}>保存服务设置</button></form>
       <p>{state?.dispatch_reason||'新任务将在检查账号额度后派发。'}</p>

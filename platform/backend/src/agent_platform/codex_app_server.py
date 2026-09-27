@@ -57,10 +57,12 @@ class CodexAppServer:
     """
 
     def __init__(self, executable: str, runtime_dir: Path, *, model: str = "", thinking: str = "medium",
-                 auth_file: Path | None = None, subscription_only: bool = False, allow_model_calls: bool = True) -> None:
+                 auth_file: Path | None = None, subscription_only: bool = False, allow_model_calls: bool = True,
+                 auto_compact_token_limit: int | None = None) -> None:
         self.allow_model_calls = allow_model_calls
         self.auth_file = auth_file
         self.subscription_only = subscription_only
+        self.auto_compact_token_limit = auto_compact_token_limit
         self.executable = executable
         self.runtime_dir = runtime_dir
         self.model = model
@@ -113,6 +115,8 @@ class CodexAppServer:
             **({"forced_login_method": "chatgpt", "cli_auth_credentials_store": "file"}
                if self.subscription_only else {}),
         }
+        if self.auto_compact_token_limit is not None:
+            config['model_auto_compact_token_limit'] = self.auto_compact_token_limit
         argv = [self.executable, "app-server", "--stdio"]
         for key, value in config.items():
             argv += ["-c", f"{key}={json.dumps(value)}"]

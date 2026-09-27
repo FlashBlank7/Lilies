@@ -32,6 +32,7 @@ class ServiceConfig(BaseModel):
     concurrency: int = Field(default=1, ge=1, le=8)
     max_tokens: int | None = Field(default=32000, ge=1000, le=200000)
     max_seconds: int = Field(default=600, ge=30, le=3600)
+    auto_compact_token_limit: int | None = Field(default=None, ge=16000, le=1000000)
 
 
 class Login(BaseModel):
@@ -308,7 +309,8 @@ class OfficialAgent:
         config = self.config()
         return self.client_factory(config.executable, runtime_dir, model=config.model, thinking=config.thinking,
                                    auth_file=self.auth_file, subscription_only=True,
-                                   allow_model_calls=self.services.settings.model_egress_enabled)
+                                   allow_model_calls=self.services.settings.model_egress_enabled,
+                                   auto_compact_token_limit=config.auto_compact_token_limit)
 
     async def run_turn(self, project_id, job_id, client, message, on_event, on_tool):
         manager = self.services.local_agents
@@ -422,9 +424,10 @@ def official_router(services):
     @router.put('/admin/official-agent')
     async def configure(body: ServiceConfig):
         previous = service.config()
-        changed = (body.model, body.thinking, body.executable) != (previous.model, previous.thinking, previous.executable)
+        changed = (body.model, body.thinking, body.executable, body.auto_compact_token_limit) != (
+            previous.model, previous.thinking, previous.executable, previous.auto_compact_token_limit)
         if service.active_jobs() and changed:
-            raise HTTPException(409, '请先停止运行中的任务再更换模型')
+            raise HTTPException(409, '请先停止运行中的任务再更换模型或上下文设置')
         # Only a successful connection can pin/change the verified version.
         body.version = previous.version
         if changed:

@@ -137,6 +137,7 @@ def test_platform_discovery_call_repair_and_download(configured):
     response=client.post(base+'/agent-tools',json={'name':'workflow_run','arguments':{'action':'start','workflow_id':pid,'inputs':{}}})
     assert response.status_code==200,response.text
     first=response.json();assert first['status']=='succeeded',first.get('error')
+    original=client.get(base+'/tasks/'+first['id']).json()['outputs']
     result=first['outputs']['result'];assert result['changed_points']==5
     for artifact in result['artifacts']:
         assert client.get('/api/v1/applications/'+pid+'/workspace/files/'+artifact['file_path']).status_code==200
@@ -146,7 +147,7 @@ def test_platform_discovery_call_repair_and_download(configured):
     changed_path=next(f['path'] for f in files if f['path'].endswith('补充观测.csv'))
     fixed=settled(client,base,start(client,base,'repair',workflow_id=pid,inputs={'influence_width':15,'observations_path':changed_path}))
     assert fixed['status']=='succeeded' and fixed['outputs']['result']['after']['cuts']==[]
-    assert client.get(base+'/tasks/'+first['id']).json()['outputs']==first['outputs']
+    assert client.get(base+'/tasks/'+first['id']).json()['outputs']==original
     assert client.get(base+'/modeling/studies').json()==[] and not app.state.services.local_agents.tasks
 
 

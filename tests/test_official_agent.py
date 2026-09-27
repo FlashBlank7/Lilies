@@ -364,3 +364,102 @@ def test_stop_during_short_tool_wait_cancels_the_same_computation(official, monk
     task = client.get('/api/v1/projects/'+pid+'/tasks/'+tasks[0]['id']).json()
     assert task['status'] == 'interrupted' and not task['outputs']
     assert len(calls) == 1 and service.jobs()[0]['status'] == 'interrupted'
+
+
+@pytest.mark.parametrize('threshold', [None, 32768])
+def test_context_threshold_reconnects_same_thread_without_task_token_limit(official, threshold):
+    client, app, service = official
+    _, headers = signup(client, 'ContextWorker')
+    pid = project(client, headers); enable(client, pid)
+    config = service.config().model_dump()
+    config.update(max_tokens=None, auto_compact_token_limit=threshold)
+    assert client.put('/api/v1/admin/official-agent', headers=ADMIN, json=config).status_code == 200
+    path = chat(client, pid, headers)
+    assert client.post(path+'/messages', headers=headers, json={'message':'查看文件'}).status_code == 202
+    first = wait(client, path, headers)
+    assert first['status'] == 'idle'
+    thread = FakeAgent.turns[-1][0]
+    assert FakeAgent.turns[-1][2]['auto_compact_token_limit'] == threshold
+    # Mimic the native client marker used when closing only official sessions.
+    for agent in app.state.services.local_agents.clients.values():
+        agent.subscription_only = True
+    config['auto_compact_token_limit'] = 65536 if threshold is None else None
+    assert client.put('/api/v1/admin/official-agent', headers=ADMIN, json=config).status_code == 200
+    assert client.post(path+'/messages', headers=headers, json={'message':'继续查看文件'}).status_code == 202
+    assert wait(client, path, headers)['status'] == 'idle'
+    assert FakeAgent.turns[-1][0] == thread
+    assert FakeAgent.turns[-1][2]['auto_compact_token_limit'] == config['auto_compact_token_limit']
+    assert service.config().max_tokens is None
+    assert service.config().model == 'gpt-5.6-luna'
+    assert service.config().thinking == 'max'
+    assert not client.get('/api/v1/projects/'+pid+'/tasks', headers=headers).json()
+
+
+def test_context_setting_rejects_mid_task_change_and_keeps_stop(official):
+    client, app, service = official
+    _, headers = signup(client, 'BusyContextWorker')
+    pid = project(client, headers); enable(client, pid); path = chat(client, pid, headers)
+    FakeAgent.hold = True
+    assert client.post(path+'/messages', headers=headers, json={'message':'查看文件'}).status_code == 202
+    wait(client, path, headers, ('running',))
+    config = service.config().model_dump(); config['auto_compact_token_limit'] = 32768
+    assert client.put('/api/v1/admin/official-agent', headers=ADMIN, json=config).status_code == 409
+    assert service.config().auto_compact_token_limit is None
+    assert client.post(path+'/stop', headers=headers).status_code == 200
+    assert wait(client, path, headers)['status'] == 'interrupted'
+    FakeAgent.hold = False
+    assert client.put('/api/v1/admin/official-agent', headers=ADMIN, json=config).status_code == 200
+
+
+def test_compaction_progress_is_visible_without_an_extra_turn(official, monkeypatch):
+    client, app, service = official
+    original = FakeAgent.turn
+    async def turn(self, message, on_event, on_tool, **kwargs):
+        for phase in ('started', 'completed'):
+            await on_event('item/'+phase, {'item': {'id':'compact-one', 'type':'contextCompaction'}})
+        return await original(self, message, on_event, on_tool, **kwargs)
+    monkeypatch.setattr(FakeAgent, 'turn', turn)
+    _, headers = signup(client, 'CompactionWorker')
+    pid = project(client, headers); enable(client, pid); path = chat(client, pid, headers)
+    client.post(path+'/messages', headers=headers, json={'message':'继续'})
+    state = wait(client, path, headers)
+    assert state['status'] == 'idle'
+    events = [e for e in client.get(path, headers=headers, params={'kind':'tools'}).json()['events']
+              if e.get('operation') == 'context_compaction']
+    assert [e['stage'] for e in events] == ['started', 'completed']
+    assert all(e['request_id'] == state['request_id'] for e in events)
+    assert events[0]['operation_id'] == events[1]['operation_id']
+    assert any(a['title'] == '整理对话历史' for a in client.get(path, headers=headers,
+               params={'kind':'activity'}).json()['events'])
+    assert len(FakeAgent.turns) == 1
+
+
+def test_stop_during_history_compaction_keeps_original_thread_for_manual_resume(official, monkeypatch):
+    client, app, service = official
+    original = FakeAgent.turn
+    async def turn(self, message, on_event, on_tool, **kwargs):
+        await on_event('item/started', {'item': {'id':'compact', 'type':'contextCompaction'}})
+        result = await original(self, message, on_event, on_tool, **kwargs)
+        await on_event('item/completed', {'item': {'id':'compact', 'type':'contextCompaction'}})
+        return result
+    monkeypatch.setattr(FakeAgent, 'turn', turn)
+    _, headers = signup(client, 'StopCompactionWorker')
+    pid = project(client, headers); enable(client, pid); path = chat(client, pid, headers)
+    FakeAgent.hold = True
+    client.post(path+'/messages', headers=headers, json={'message':'继续原任务'})
+    for _ in range(200):
+        state = client.get(path, headers=headers).json()
+        if (state.get('current_activity') or {}).get('title') == '整理对话历史': break
+        time.sleep(.01)
+    else: raise AssertionError('Compaction activity not shown')
+    thread = FakeAgent.turns[0][0]
+    assert client.post(path+'/stop', headers=headers).status_code == 200
+    stopped = wait(client, path, headers)
+    assert stopped['status'] == 'interrupted'
+    assert stopped['current_activity']['status'] == 'interrupted'
+    assert len(FakeAgent.turns) == 1
+    FakeAgent.hold = False
+    client.post(path+'/messages', headers=headers, json={'message':'手动继续'})
+    assert wait(client, path, headers)['status'] == 'idle'
+    assert FakeAgent.turns[-1][0] == thread
+    assert len(FakeAgent.turns) == 2

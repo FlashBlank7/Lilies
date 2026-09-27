@@ -131,10 +131,13 @@ def test_platform_discover_execute_repair_and_download(configured):
     response=client.post(base+'/agent-tools',json={'name':'workflow_run','arguments':{'action':'start','workflow_id':pid,'inputs':{}}})
     assert response.status_code==200,response.text
     first=response.json();assert first['status']=='succeeded',first.get('error')
+    # The tool returns a deduplicated summary; compare persisted full outputs
+    # before/after repair to verify that history was not changed.
+    original=client.get(base+'/tasks/'+first['id']).json()['outputs']
     assert first['outputs']['result']['selected_groups']==1
     for a in first['outputs']['result']['artifacts']:assert client.get('/api/v1/applications/'+pid+'/workspace/files/'+a['file_path']).status_code==200
     bad=settled(client,base,start(client,base,'missing',workflow_id=pid,inputs={'capacity_column':'missing'}));assert bad['status']=='failed' and '缺少字段' in bad['error']
     fixed=settled(client,base,start(client,base,'fixed',workflow_id=pid,inputs={'capacity_column':'capacity','group_order_direction':'从大到小'}))
     assert fixed['status']=='succeeded' and fixed['outputs']['result']['selected_groups']==2
-    assert client.get(base+'/tasks/'+first['id']).json()['outputs']==first['outputs']
+    assert client.get(base+'/tasks/'+first['id']).json()['outputs']==original
     assert client.get(base+'/modeling/studies').json()==[] and not app.state.services.local_agents.tasks

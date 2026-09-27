@@ -49,3 +49,25 @@ it('saves unlimited tokens, preserves other settings and can restore a finite li
   fireEvent.click(screen.getByRole('button',{name:'保存服务设置'}))
   await waitFor(()=>expect(config.max_tokens).toBe(48000))
 })
+
+it('saves and clears context threshold independently of unlimited task tokens',async()=>{
+  let config={enabled:true,executable:'codex',version:'',model:'gpt-5.6-luna',thinking:'max',reserve_percent:50,concurrency:1,max_tokens:null,max_seconds:600,auto_compact_token_limit:null as number|null}
+  vi.mocked(api).mockImplementation(async(path,init)=>{
+    if(path.endsWith('/admin/usage'))return {active_users:0,features:[],feedback:[],notes:[]} as never
+    if(init?.method==='PUT')config=JSON.parse(String(init.body))
+    return {config,jobs:[]} as never
+  })
+  render(<OfficialAgentPage/>)
+  const field=await screen.findByLabelText('历史自动整理阈值（上下文 token）')
+  expect(field).toHaveValue(null)
+  fireEvent.change(field,{target:{value:'32768'}})
+  fireEvent.click(screen.getByRole('button',{name:'保存服务设置'}))
+  await waitFor(()=>expect(config.auto_compact_token_limit).toBe(32768))
+  expect(config.max_tokens).toBeNull()
+  expect(screen.getByLabelText('不设每任务 token 上限')).toBeChecked()
+  fireEvent.change(field,{target:{value:''}})
+  fireEvent.click(screen.getByRole('button',{name:'保存服务设置'}))
+  await waitFor(()=>expect(config.auto_compact_token_limit).toBeNull())
+  expect(config).toMatchObject({max_tokens:null,model:'gpt-5.6-luna',thinking:'max'})
+  expect(vi.mocked(api).mock.calls.every(([path])=>!path.includes('/messages')&&!path.includes('/login'))).toBe(true)
+})

@@ -531,7 +531,20 @@ class LocalAgents:
                     self.event(application_id, 'status', '此事项连续三次遇到同一问题，已保留错误与恢复动作，先检查其他可推进事项。')
 
             async def on_event(method, params):
-                if method == 'model_usage':
+                if method in {'item/started', 'item/completed'} and params.get('item', {}).get('type') == 'contextCompaction':
+                    current = self.load(application_id)
+                    operation_id = current.get('request_id', '') + ':context:' + params['item']['id']
+                    previous = next((e for e in reversed(current['events']) if e.get('operation_id') == operation_id), {})
+                    completed = method == 'item/completed'
+                    self.event(application_id, 'status',
+                        'context_compaction', title='整理对话历史', operation_id=operation_id,
+                        summary='对话历史已整理，继续当前任务。' if completed else '正在整理较长的对话历史，完成后继续当前任务。',
+                        status='completed' if completed else 'running',
+                        started_at=previous.get('started_at', utc_now()),
+                        **({'ended_at': utc_now()} if completed else {}),
+                        operation='context_compaction', stage='completed' if completed else 'started',
+                        request_id=current.get('request_id', ''))
+                elif method == 'model_usage':
                     self.event(application_id, 'model_usage', '模型调用',
                         request_id=self.load(application_id).get('request_id', ''), **params)
                 elif method == "item/completed":

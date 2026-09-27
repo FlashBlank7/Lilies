@@ -149,7 +149,11 @@ def test_equal_filenames_get_distinct_ids_and_fake_external_citation_stays_a_sta
 def transport(monkeypatch):
     calls=[]
     def respond(request):
-        body=json.loads(request.content);data=json.loads(body['messages'][-1]['content']);calls.append(data)
+        body=json.loads(request.content)
+        # Read the source payload; the runtime may append output-format
+        # instructions after it, just as the real model receives them.
+        data,_=json.JSONDecoder().raw_decode(body['messages'][-1]['content']);calls.append(data)
+        assert body['response_format']=={'type':'json_object'}
         return httpx.Response(200,json={'choices':[{'message':{'content':json.dumps(answer(data),ensure_ascii=False)},'finish_reason':'stop'}],
             'usage':{'prompt_tokens':100,'completion_tokens':100}})
     original=httpx.AsyncClient

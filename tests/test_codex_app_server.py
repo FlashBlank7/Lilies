@@ -30,6 +30,7 @@ for line in sys.stdin:
         assert any(t['name'] == 'workflow_run' for t in tools)
         assert message['params']['baseInstructions'] == 'project tools only'
         assert message['params']['developerInstructions'] == ''
+        assert 'model_auto_compact_token_limit' not in message['params']['config']
         emit({'id':message['id'],'result':{'thread':{'id':'t1'}}})
     elif method == 'turn/start':
         emit({'id':message['id'],'result':{'turn':{'id':'u1'}}})
@@ -76,6 +77,7 @@ for line in sys.stdin:
         assert p['config']['features.memories'] is False
         assert p['config']['features.plugins'] is False
         assert p['config']['project_doc_max_bytes']==0
+        assert p['config']['model_auto_compact_token_limit']==32768
         emit({'id':message['id'],'result':{'thread':{'id':'t1'},'instructionSources':[]}})
     elif method=='turn/start':
         assert message['params']['environments']==[]
@@ -91,7 +93,7 @@ for line in sys.stdin:
         emit({'method':'turn/completed','params':{'turn':{'id':'u1','status':'completed'}}})
 ''')
     executable.chmod(0o700)
-    client = CodexAppServer(str(executable), tmp_path/'runtime')
+    client = CodexAppServer(str(executable), tmp_path/'runtime', auto_compact_token_limit=32768)
     events = []
     async def event(method, params):
         events.append((method, params))
