@@ -49,6 +49,12 @@ def observation(task):
         'id', 'status', 'created_at', 'updated_at', 'revision', 'purpose', 'error_kind')}
 
 
+def conversation_started(state):
+    # A prepared handling conversation can also be continued from the project
+    # page. Its user request need not carry the original brief's request key.
+    return any(event.get('kind') == 'user' for event in state.get('events', []))
+
+
 def patterns(tasks, operations):
     """Only explicit task ancestry establishes a repair relationship."""
     findings = []
@@ -342,9 +348,7 @@ class UsageLearning:
                     raise FileNotFoundError('Handling session is unavailable')
                 state = self.services.local_agents.load(pid)
             request_id = state.get('request_id', '')
-            started = handoff['status'] == 'started' or any(
-                event.get('kind') == 'user' and event.get('request_key') == 'usage-' + ident
-                for event in state.get('events', []))
+            started = handoff['status'] == 'started' or conversation_started(state)
             reply = next(({'text': event.get('text', ''), 'time': event.get('time', ''),
                            'request_id': event.get('request_id', '')}
                           for event in reversed(state.get('events', []))
@@ -426,13 +430,13 @@ class UsageLearning:
                     db.execute('UPDATE usage_handoffs SET automatic=1,attempted=? WHERE finding_id=? AND user_id=?',
                                (time.time(), ident, user['id']))
             with conversation_scope(pid, cid):
-                # Persisted request_key makes retry after a lost HTTP response reuse the same turn.
+                # Persisted user events cover both a lost start response and
+                # direct follow-up from the project page. Never append another
+                # brief to an already active or completed handling conversation.
                 key = 'usage-' + ident
                 state = self.services.local_agents.load(pid)
-                sent = any(e.get('kind') == 'user' and e.get('request_key') == key
-                           for e in state.get('events', []))
                 try:
-                    if not sent:
+                    if not conversation_started(state):
                         await self.services.projects.conversation.send(pid, ConversationMessage(request_key=key, message=self.brief(item)[:8000]))
                 except (ValueError, HTTPException) as error:
                     with connect(self.db) as db:

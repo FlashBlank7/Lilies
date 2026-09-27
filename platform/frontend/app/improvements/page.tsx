@@ -50,7 +50,9 @@ export default function ImprovementsPage() {
   return <AdminImprovementsPage key={user.id} userId={user.id} />
 }
 
-function HandlingProgress({ item, userId }: { item: Improvement; userId: string }) {
+function HandlingProgress({ item, userId, starting, onStart }: {
+  item: Improvement; userId: string; starting: boolean; onStart: () => void
+}) {
   const router = useRouter()
   const [result, setResult] = useState<HandlingResult | null>(null)
   const [error, setError] = useState('')
@@ -122,6 +124,7 @@ function HandlingProgress({ item, userId }: { item: Improvement; userId: string 
       </li>)}</ol></> : <p>本会话尚未产生关联任务。</p>}
       <div className={`${base.actions} ${styles.actions}`}>
         {['connecting', 'queued', 'running'].includes(result.status) && <button disabled={stopping} onClick={() => void stop()}>{stopping ? '正在停止…' : '停止处理'}</button>}
+        {result.status === 'prepared' && <><button disabled={starting} onClick={onStart}>{starting ? '正在打开处理会话…' : '重试启动'}</button><small>重试会使用项目现有模型连接，并按项目权限处理资源。</small></>}
         <button onClick={continueConversation}>继续沟通</button><small>打开已有会话，不会自动发送消息。</small>
       </div>
     </>}
@@ -219,7 +222,10 @@ function AdminImprovementsPage({ userId }: { userId: string }) {
       if (!alive.current) return
       sessionStorage.setItem(`lilies:user:${userId}:project:${result.project_id}:conversation`, result.conversation_id)
       router.push('/projects/' + result.project_id)
-    } catch (cause) { setError(String(cause)) }
+    } catch (cause) {
+      // A failed start may already have created a resumable conversation.
+      if (alive.current) { await refresh(); if (alive.current) setError(String(cause)) }
+    }
     finally { mutating.current = false; setBusy('') }
   }
 
@@ -273,12 +279,12 @@ function AdminImprovementsPage({ userId }: { userId: string }) {
         {item.status !== 'new' && <button disabled={!!busy} onClick={() => void change('/' + item.id, 'PATCH', { status: 'new' })}>重新打开</button>}
         <a href={'/api/platform' + endpoint + '/' + encodeURIComponent(item.id) + '/brief'} download={'改进任务-' + item.id + '.md'}>下载改进任务（Markdown）</a>
       </div>
-      <div className={styles.handoff}><div>{(!item.handoff?.conversation_id || item.handoff.status === 'prepared') && <p>点击启动后会使用项目现有模型连接，产生模型用量，并按项目原有权限处理和修改项目资源。</p>}<small>{item.handoff?.conversation_id ? `已有处理会话：${resultNames[item.handoff.status] || '已建立'}。查看进展不会启动处理或产生模型用量。` : '重复点击会复用同一个处理会话。'}</small>{item.handoff?.error && <p className={base.error}>{item.handoff.error}</p>}</div>
+      <div className={styles.handoff}><div>{!item.handoff?.conversation_id && <p>点击启动后会使用项目现有模型连接，产生模型用量，并按项目原有权限处理和修改项目资源。</p>}<small>{item.handoff?.conversation_id ? '处理会话已保留。查看进展不会启动处理或产生模型用量。' : '重复点击会复用同一个处理会话。'}</small></div>
         <div className={styles.handoffActions}>{item.handoff?.conversation_id && <button aria-expanded={expanded === item.id} aria-controls={'progress-' + item.id} onClick={() => setExpanded(previous => previous === item.id ? '' : item.id)}>{expanded === item.id ? '收起处理进展' : '查看处理进展'}</button>}
-          {(!item.handoff?.conversation_id || item.handoff.status === 'prepared') && <button className={base.primary} disabled={!!busy} onClick={() => void start(item)}>{busy === '/' + item.id + '/start' ? '正在打开处理会话…' : item.handoff?.conversation_id ? '重试启动' : '让项目智能体处理'}</button>}
+          {!item.handoff?.conversation_id && <button className={base.primary} disabled={!!busy} onClick={() => void start(item)}>{busy === '/' + item.id + '/start' ? '正在打开处理会话…' : '让项目智能体处理'}</button>}
         </div>
       </div>
-      {expanded === item.id && item.handoff?.conversation_id && <div id={'progress-' + item.id}><HandlingProgress key={item.id + ':' + item.handoff.conversation_id} item={item} userId={userId} /></div>}
+      {expanded === item.id && item.handoff?.conversation_id && <div id={'progress-' + item.id}><HandlingProgress key={item.id + ':' + item.handoff.conversation_id} item={item} userId={userId} starting={!!busy} onStart={() => void start(item)} /></div>}
     </article>)}</section>
   </main>
 }

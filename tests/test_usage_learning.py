@@ -75,6 +75,46 @@ def failed_runs(client, pid):
     return tasks
 
 
+def test_prepared_handoff_can_continue_from_project_chat_without_resending_brief(official):
+    client, _, _ = official
+    client.headers.update(ADMIN)
+    pid = project(client, ADMIN, '直接接续保留的会话')
+    failed_runs(client, pid)
+    finding = client.post(BASE+'/scan').json()['items'][0]
+    path = BASE+'/'+finding['id']
+    assert client.post(path+'/start').status_code == 409
+    handoff = client.get(BASE).json()['items'][0]['handoff']
+    cid = handoff['conversation_id']
+    convo = f'/api/v1/projects/{pid}/conversations/{cid}'
+    assert client.get(path+'/result').json()['status'] == 'prepared'
+    enable(client, pid)
+    FakeAgent.hold = True
+    assert client.post(convo+'/messages', json={
+        'message': '连接已经配置，先查看失败原因', 'request_key': 'direct-project-message'}).status_code == 202
+    wait(client, convo, ADMIN, ('running',))
+    progress = client.get(path+'/result').json()
+    assert progress['status'] in {'queued', 'running'} and not progress['error']
+    # A stale retry button must not append the original brief to this live turn.
+    for _ in range(2):
+        resumed = client.post(path+'/start')
+        assert resumed.status_code == 200, resumed.text
+        assert resumed.json()['conversation_id'] == cid
+    state = client.get(convo).json()
+    assert [e['text'] for e in state['events'] if e['kind'] == 'user'] == ['连接已经配置，先查看失败原因']
+    assert client.post(convo+'/stop').status_code == 200
+    assert client.get(path+'/result').json()['status'] == 'interrupted'
+    FakeAgent.hold = False
+    assert client.post(convo+'/messages', json={
+        'message': '继续说明', 'request_key': 'continue-after-stop'}).status_code == 202
+    wait(client, convo, ADMIN)
+    progress = client.get(path+'/result').json()
+    assert progress['status'] == 'idle' and progress['reply']
+    turns = len(FakeAgent.turns)
+    assert client.post(path+'/start').json()['conversation_id'] == cid
+    assert len(FakeAgent.turns) == turns
+    assert len(client.get(f'/api/v1/projects/{pid}/conversations').json()) == 1
+
+
 def test_actual_failures_repair_lineage_reuse_and_stable_ids(configured):
     client, app, project, _ = configured
     pid = project['id']; base = '/api/v1/projects/' + pid

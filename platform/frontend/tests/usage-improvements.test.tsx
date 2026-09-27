@@ -405,16 +405,57 @@ it('marks a signal handled, filters it, and reopens it without starting a conver
 it('shows an explicit start retry for a prepared conversation without retrying on progress reads', async () => {
   vi.mocked(api).mockImplementation(async path => {
     if (path.endsWith('/settings')) return settings() as never
-    if (path.endsWith('/result')) return { ...handlingResult('idle'), reply: null, tasks: [], total_tasks: 0 } as never
+    if (path.endsWith('/result')) return { ...handlingResult('prepared'), reply: null, tasks: [], total_tasks: 0 } as never
     if (path.endsWith('/start')) return handlingResult('running') as never
     return { ...report(), items: [{ ...recovery, handoff: { conversation_id: 'improvement-chat', status: 'prepared', error: '上次启动失败' } }] } as never
   })
   render(<ImprovementsPage />)
   const card = await screen.findByRole('article', { name: recovery.title })
+  expect(within(card).queryByRole('button', { name: '重试启动' })).not.toBeInTheDocument()
   fireEvent.click(within(card).getByRole('button', { name: '查看处理进展' }))
   await within(card).findByText('本轮尚未产生回复。')
   expect(vi.mocked(api).mock.calls.every(([, options]) => !options)).toBe(true)
   fireEvent.click(within(card).getByRole('button', { name: '重试启动' }))
   await waitFor(() => expect(api).toHaveBeenCalledWith(endpoint + '/repair/start', { method: 'POST' }))
   await waitFor(() => expect(mocks.push).toHaveBeenCalledWith('/projects/project-a'))
+})
+
+it('uses live progress for a prepared handoff continued from the project page', async () => {
+  let stopped = false
+  vi.mocked(api).mockImplementation(async path => {
+    if (path.endsWith('/settings')) return settings() as never
+    if (path.endsWith('/result')) return handlingResult(stopped ? 'interrupted' : 'running') as never
+    if (path.endsWith('/stop')) { stopped = true; return {} as never }
+    return { ...report(), items: [{ ...recovery, handoff: { conversation_id: 'improvement-chat', status: 'prepared', error: '上次启动失败' } }] } as never
+  })
+  render(<ImprovementsPage />)
+  const card = await screen.findByRole('article', { name: recovery.title })
+  fireEvent.click(within(card).getByRole('button', { name: '查看处理进展' }))
+  expect(await within(card).findByText('会话状态：运行中')).toBeInTheDocument()
+  expect(within(card).queryByRole('button', { name: '重试启动' })).not.toBeInTheDocument()
+  expect(within(card).queryByText('上次启动失败')).not.toBeInTheDocument()
+  fireEvent.click(within(card).getByRole('button', { name: '停止处理' }))
+  await within(card).findByText('会话状态：已中断')
+  fireEvent.click(within(card).getByRole('button', { name: '继续沟通' }))
+  expect(mocks.push).toHaveBeenCalledWith('/projects/project-a')
+  expect(sessionStorage.getItem(`lilies:user:${mocks.user.id}:project:project-a:conversation`)).toBe('improvement-chat')
+  expect(vi.mocked(api).mock.calls.filter(([, options]) => options)).toEqual([
+    ['/api/v1/projects/project-a/conversations/improvement-chat/stop', { method: 'POST' }],
+  ])
+})
+
+it('shows the preserved conversation immediately after a failed initial start', async () => {
+  let failed = false
+  vi.mocked(api).mockImplementation(async path => {
+    if (path.endsWith('/settings')) return settings() as never
+    if (path.endsWith('/start')) { failed = true; throw new Error('连接未配置，会话已保留') }
+    return { ...report(), items: [{ ...recovery, handoff: failed ? { conversation_id: 'improvement-chat', status: 'prepared', error: '上次启动失败' } : undefined }] } as never
+  })
+  render(<ImprovementsPage />)
+  const card = await screen.findByRole('article', { name: recovery.title })
+  fireEvent.click(within(card).getByRole('button', { name: '让项目智能体处理' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('连接未配置，会话已保留')
+  expect(within(card).getByRole('button', { name: '查看处理进展' })).toBeEnabled()
+  expect(within(card).queryByRole('button', { name: '让项目智能体处理' })).not.toBeInTheDocument()
+  expect(mocks.push).not.toHaveBeenCalled()
 })
