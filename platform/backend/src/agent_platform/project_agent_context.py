@@ -201,13 +201,27 @@ async def conversation_context(services, project_id: str, state: dict, discussio
         # Recent runs are discovery links, not the current task's result. Do
         # not resend old reports/inputs each turn; inspect loads a chosen run.
         # A job returning in this request still supplies its result directly.
-        context['recent_results'] = [task_summary(t) if t['id'] in current_tasks else {
-            **{k: t[k] for k in ('id', 'workflow_id', 'status', 'error', 'created_at', 'updated_at') if k in t},
-            'output_keys': list(t.get('outputs', {}))[:20],
-            'output_count': len(t.get('outputs', {})),
-            'read_with': {'tool': 'workflow_run', 'arguments': {'action': 'inspect', 'task_id': t['id']}},
-        } for t in tasks
-            if t.get('mode') != 'agent' or t.get('conversation_id', '') == current_conversation]
+        context['recent_results'] = []
+        for task in tasks:
+            if task.get('mode') == 'agent' and task.get('conversation_id', '') != current_conversation:
+                continue
+            if task['status'] == 'waiting_input':
+                task = await services.projects.task(project_id, task['id'])
+            if task['id'] in current_tasks:
+                context['recent_results'].append(task_summary(task))
+                continue
+            recent = {
+                **{k: task[k] for k in ('id', 'workflow_id', 'status', 'error', 'created_at', 'updated_at') if k in task},
+                'output_keys': list(task.get('outputs', {}))[:20],
+                'output_count': len(task.get('outputs', {})),
+                'read_with': {'tool': 'workflow_run', 'arguments': {'action': 'inspect', 'task_id': task['id']}},
+            }
+            if task['status'] == 'waiting_input':
+                # The current question is needed to submit an explicit answer;
+                # supply the resolved form, without inputs, node configs or traces.
+                recent['runs'] = [{k: run[k] for k in ('id', 'status', 'waiting_input')}
+                                  for run in task['runs'] if run.get('waiting_input')]
+            context['recent_results'].append(recent)
     if getattr(services, 'modeling', None):
         studies = await services.modeling.list(project_id, 'study', limit=5)
         context['modeling'] = [{k: s.get(k) for k in ('id', 'dataset_id', 'name', 'status', 'best', 'baseline', 'trials_used', 'budget', 'next_action', 'error', 'repair_candidate_id', 'failure_streak', 'search_strategy')} for s in studies]

@@ -168,6 +168,57 @@ def test_recent_results_are_discoverable_without_resending_reports(configured, m
     assert len(client.get(base + '/tasks').json()) == 1
 
 
+@pytest.mark.parametrize('stop', [False, True])
+def test_current_waiting_form_can_be_answered_without_inspecting_old_results(configured, monkeypatch, stop):
+    observed = []
+    question = '质量标签含义和预测时点是什么？不知道也可以继续查看已有分析。'
+    answer = '暂不清楚'
+
+    class AnswerWaiting(TestSession):
+        async def turn(self, message, on_event, on_tool, **kwargs):
+            recent = json.loads(message)['recent_results'][0]
+            assert 'outputs' not in recent and 'inputs' not in recent
+            if not observed:
+                assert recent['status'] == 'waiting_input'
+                run = recent['runs'][0]
+                assert set(run) == {'id', 'status', 'waiting_input'}
+                form = run['waiting_input']
+                assert form['node_id'] == 'human' and form['context'] == question
+                assert form['fields'][0]['name'] == 'answer'
+                assert form['fields'][0]['options'] == [answer, '可以补充']
+                if not stop:
+                    # Use the resolved form directly; no graph or task read.
+                    result = await on_tool('workflow_run', {'action': 'respond', 'task_id': recent['id'],
+                        'run_id': run['id'], 'node_id': form['node_id'], 'inputs': {'answer': answer}})
+                    assert result['status'] == 'succeeded'
+                    assert result['outputs'] == {'answer': answer}
+                    assert result['runs'][0]['id'] == run['id']
+            else:
+                assert recent['status'] == ('interrupted' if stop else 'succeeded')
+                assert 'runs' not in recent
+            observed.append(recent['id'])
+            return {'status': 'completed'}
+
+    client, _, project, _, base = configure_agent(configured, monkeypatch, AnswerWaiting)
+    graph(client, project['id'], [
+        node('s', 'start', inputs=[{'name': 'question', 'type': 'string', 'default': question}]),
+        node('human', 'human_input', context=ref('s', 'question'),
+             fields=[{'name': 'answer', 'label': '你是否了解？', 'type': 'string',
+                      'required': True, 'options': [answer, '可以补充']}]),
+        node('e', 'end', outputs={'answer': ref('human', 'answer')})],
+        [edge('s', 'human'), edge('human', 'e')])
+    task = settled(client, base, start(client, base, 'waiting-form'))
+    assert task['status'] == 'waiting_input'
+    for index in range(2):
+        if index and stop:
+            client.post(base + '/tasks/' + task['id'] + '/stop').raise_for_status()
+        client.post(base + '/conversation/messages', json={'message': answer}).raise_for_status()
+        state = agent_settled(client, base)
+        assert state['status'] == 'idle', state['error']
+    assert observed == [task['id'], task['id']]
+    assert len(client.get(base + '/tasks').json()) == 1
+
+
 @pytest.mark.parametrize('action', ['inspect', 'finish', 'discuss', 'wait', 'build'])
 def test_phase_change_preserves_messages_received_during_await(configured, monkeypatch, action):
     from agent_platform.project_conversation import ProjectAction
