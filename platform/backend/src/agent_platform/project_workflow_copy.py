@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import re
 from uuid import UUID, uuid5
 
@@ -13,6 +14,26 @@ from .project_capabilities import ProjectBlocks
 from .project_store import ProjectConflict, encode
 from .project_draft_context import node_changes
 from .workflow_models import ApplicationSnapshot
+
+log = logging.getLogger(__name__)
+
+
+def structure_check(applications, snapshot):
+    """Return a bounded check of the saved copy, without making it a save gate."""
+    try:
+        report = applications.validate_structure(snapshot)
+    except Exception:
+        log.exception('Copied draft structure check could not finish')
+        report = {'valid': None, 'errors': ['结构检查未能完成；草稿仍可保存，可稍后单独 validate。'], 'warnings': []}
+    check = {'validation_scope': 'structure', 'revision': 0, 'content_hash': snapshot.content_hash(),
+             'valid': report['valid'], 'runtime_checked': False}
+    for key in ('errors', 'warnings'):
+        messages = report[key]
+        check[key] = [message if len(message) <= 500 else message[:500] + '…' for message in messages[:5]]
+        if len(messages) > 5 or any(len(message) > 500 for message in messages[:5]):
+            check[key + '_truncated'] = True
+            check['detail'] = 'workflow_run(action="validate", workflow_id=id) reads the complete current check.'
+    return check
 
 
 async def copy_member(services, project_id, args):
@@ -74,7 +95,8 @@ async def copy_member(services, project_id, args):
             db.execute('INSERT INTO project_members(application_id,project_id,created_at,purpose) VALUES(?,?,?,?)',
                 (target, project_id, now, args.purpose))
             receipt = {'applied_revision': 0, 'applied_content_hash': snapshot.content_hash(),
-                       'changes': node_changes(original, snapshot), 'changes_available': True}
+                       'changes': node_changes(original, snapshot), 'changes_available': True,
+                       'structure_check': structure_check(services.applications, snapshot)}
             db.execute('INSERT INTO draft_idempotency(application_id,idempotency_key,response_json,created_at) VALUES(?,?,?,?)',
                 (target, key, encode({'request': request, 'result': receipt}), now))
             return receipt

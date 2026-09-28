@@ -528,13 +528,41 @@ class ApplicationService:
             pending.extend(outgoing.get(current, []))
         return False
 
+    def validate_structure(self, snapshot: ApplicationSnapshot) -> dict[str, Any]:
+        """Inspect this exact snapshot without reading bindings or executing work."""
+        errors = self.blocks.validate_workflow(snapshot.workflow)
+
+        def self_references(payload: Any, owner: str) -> list[list[str]]:
+            found: list[list[str]] = []
+            if isinstance(payload, dict):
+                reference = payload.get("$ref")
+                if isinstance(reference, dict) and reference.get("node_id") == owner:
+                    found.append([str(item) for item in (reference.get("path") or [])])
+                for item in payload.values():
+                    found.extend(self_references(item, owner))
+            elif isinstance(payload, list):
+                for item in payload:
+                    found.extend(self_references(item, owner))
+            return found
+
+        for node in snapshot.workflow.nodes:
+            self_refs = self_references(node.config, node.id)
+            if self_refs:
+                errors.append(
+                    f"{node.id}: 节点引用了它自己（path={self_refs[:3]}）——"
+                    "节点不能读取自身的产出。要么改引用上游节点，要么把该值"
+                    "直接算在本节点的表达式里。"
+                )
+        return {"valid": not errors, "errors": errors, "warnings": self._input_warnings(snapshot)}
+
     async def validate_draft(
         self, application_id: str, *, structure_only: bool = False,
     ) -> dict[str, Any]:
         """Check graph structure; legacy validation also requires bindings and tests."""
         draft = await self.store.get_draft(application_id)
         snapshot: ApplicationSnapshot = draft["snapshot"]
-        errors = self.blocks.validate_workflow(snapshot.workflow)
+        structure = self.validate_structure(snapshot)
+        errors = structure["errors"]
         if self.projects is not None:
             try:
                 await self.projects.validate_capabilities(application_id, snapshot)
@@ -571,58 +599,6 @@ class ApplicationService:
                             f"{node.id}: tool binding not found: {tool_name}; "
                             f"available tools: {sorted(known_tools)}"
                         )
-        # 自引用是结构性错误，必须在校验期拒绝而不是运行期崩。实测 32B 在
-        # variable_assigner 里加了个引用自身产出的 output 赋值，draft_validate
-        # 全绿、发布前才在 test_run 里炸——这类"能过结构校验的死图"正是
-        # 静默失败的温床。
-        def _self_references(payload: Any, owner: str) -> list[list[str]]:
-            found: list[list[str]] = []
-            if isinstance(payload, dict):
-                reference = payload.get("$ref")
-                if isinstance(reference, dict) and reference.get("node_id") == owner:
-                    found.append([str(item) for item in (reference.get("path") or [])])
-                for item in payload.values():
-                    found.extend(_self_references(item, owner))
-            elif isinstance(payload, list):
-                for item in payload:
-                    found.extend(_self_references(item, owner))
-            return found
-
-        for node in snapshot.workflow.nodes:
-            self_refs = _self_references(node.config, node.id)
-            if self_refs:
-                errors.append(
-                    f"{node.id}: 节点引用了它自己（path={self_refs[:3]}）——"
-                    "节点不能读取自身的产出。要么改引用上游节点，要么把该值"
-                    "直接算在本节点的表达式里。"
-                )
-
-        # 自引用是结构性错误，必须在校验期拒绝而不是运行期崩。实测 32B 在
-        # variable_assigner 里加了个引用自身产出的 output 赋值，draft_validate
-        # 全绿、发布前才在 test_run 里炸——这类"能过结构校验的死图"正是
-        # 静默失败的温床。
-        def _self_references(payload: Any, owner: str) -> list[list[str]]:
-            found: list[list[str]] = []
-            if isinstance(payload, dict):
-                reference = payload.get("$ref")
-                if isinstance(reference, dict) and reference.get("node_id") == owner:
-                    found.append([str(item) for item in (reference.get("path") or [])])
-                for item in payload.values():
-                    found.extend(_self_references(item, owner))
-            elif isinstance(payload, list):
-                for item in payload:
-                    found.extend(_self_references(item, owner))
-            return found
-
-        for node in snapshot.workflow.nodes:
-            self_refs = _self_references(node.config, node.id)
-            if self_refs:
-                errors.append(
-                    f"{node.id}: 节点引用了它自己（path={self_refs[:3]}）——"
-                    "节点不能读取自身的产出。要么改引用上游节点，要么把该值"
-                    "直接算在本节点的表达式里。"
-                )
-
         if not structure_only:
             mandatory_tests = [test for test in snapshot.tests if test.mandatory]
             if not mandatory_tests:
@@ -646,11 +622,10 @@ class ApplicationService:
                 if missing_tool_nodes:
                     errors.append(f"test {test.id} missing required tool nodes: {missing_tool_nodes}")
             errors.extend(self._validate_simulated_human_inputs(snapshot))
-        warnings = self._input_warnings(snapshot)
         return {
             "valid": not errors,
             "errors": errors,
-            "warnings": warnings,
+            "warnings": structure["warnings"],
             "revision": draft["revision"],
             "content_hash": draft["content_hash"],
             "test_count": len(snapshot.tests),

@@ -82,6 +82,12 @@ async def diagnose_task(services, project_id, args):
         current = await services.workflow_store.get_draft(workflow_id)
         result['current_draft'] = {k: current[k] for k in ('revision', 'content_hash')}
         result['current_draft']['changed_since_run'] = current['content_hash'] != fixed['content_hash']
+        if not result['current_draft']['changed_since_run']:
+            result['edit_base'] = {'workflow_id': workflow_id, 'expected_revision': current['revision'],
+                                   'expected_content_hash': current['content_hash']}
+            result['detail'] = ('These node configs also match the current draft; edit_base can be used for '
+                'copy/node_updates or a draft edit without rereading the full graph. Copy preserves untouched nodes/layout. '
+                'Original full details remain available via workflow_run(inspect,task_id,view="full").')
     except KeyError:
         result['current_draft'] = None
     return result

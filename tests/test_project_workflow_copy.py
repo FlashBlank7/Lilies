@@ -181,6 +181,13 @@ def test_copy_with_node_updates_saves_once_and_reports_actual_fields(configured)
     copied = call(client, base, 'project_workflows', **arguments)
     assert copied['revision'] == copied['applied_revision'] == 0
     assert copied['content_hash'] == copied['applied_content_hash']
+    check = copied['structure_check']
+    assert check['valid'] is True and check['runtime_checked'] is False
+    assert check['revision'] == copied['applied_revision'] and check['content_hash'] == copied['applied_content_hash']
+    separate = call(client, base, 'workflow_run', action='validate', workflow_id=copied['id'])
+    assert {k: check[k] for k in ('valid', 'errors', 'warnings', 'revision', 'content_hash')} == {
+        k: separate[k] for k in ('valid', 'errors', 'warnings', 'revision', 'content_hash')}
+    assert client.get(base + '/tasks').json() == []
     assert copied['changes']['node_count'] == 1
     change = copied['changes']['nodes'][0]
     assert change['node_id'] == 'start' and change['fields'] == updates['start']
@@ -198,6 +205,7 @@ def test_copy_with_node_updates_saves_once_and_reports_actual_fields(configured)
     retry = call(client, base, 'project_workflows', **arguments)
     assert retry['id'] == copied['id'] and retry['applied_revision'] == 0 and retry['revision'] == 1
     assert retry['changes'] == copied['changes']
+    assert retry['structure_check'] == check and retry['structure_check']['revision'] != retry['revision']
     assert client.get('/api/v1/applications/' + pid + '/draft').json() == before
     assert client.get('/api/v1/applications/' + copied['id'] + '/draft').json()['snapshot']['workflow']['nodes'][0]['position'] == {'x': 215, 'y': 84}
 
@@ -236,6 +244,8 @@ def test_node_read_and_diagnostic_keep_original_error_separate_from_current_draf
     assert diagnosis['connections'][0]['edges'][0]['target'] == 'end'
     assert diagnosis['connections'][0]['neighbors'] == [{'id': 'end', 'type': 'end', 'title': 'end'}]
     assert not diagnosis['current_draft']['changed_since_run']
+    assert diagnosis['edit_base'] == {'workflow_id': pid, 'expected_revision': before['revision'],
+                                     'expected_content_hash': before['content_hash']}
     changed = call(client, base, 'workflow_draft', operation={'op': 'update_node',
         'expected_revision': before['revision'], 'idempotency_key': 'now-optional',
         'data': {'node_id': 'start', 'changes': {'config': {'inputs': [
@@ -243,6 +253,7 @@ def test_node_read_and_diagnostic_keep_original_error_separate_from_current_draf
     old = call(client, base, read['tool'], **read['arguments'])
     assert old['revision'] == before['revision'] and old['nodes'][0]['config']['inputs'][0]['required']
     assert old['current_draft']['revision'] == changed['revision'] and old['current_draft']['changed_since_run']
+    assert 'edit_base' not in old
     complete = call(client, base, 'workflow_run', action='inspect', task_id=failed['id'], view='full')
     from agent_platform.workflow_models import ApplicationSnapshot
     assert ApplicationSnapshot.model_validate(complete['workflow_snapshot']['snapshot']) == ApplicationSnapshot.model_validate(before['snapshot'])
@@ -321,3 +332,33 @@ def test_nested_failure_uses_failed_iteration_inputs_and_outputs(configured):
     assert diagnosis['inputs_scope'] == 'nested_graph' and diagnosis['execution_scope'] == 'each[0].'
     assert diagnosis['inputs']['item'] == 4
     assert diagnosis['upstream_outputs']['shared']['output']['quantity'] == 4
+
+
+@pytest.mark.parametrize('unfinished', [False, True])
+def test_copy_structure_check_allows_unbound_resources_and_incomplete_drafts(configured, unfinished):
+    client, pid, base, _ = fixture(configured)
+    graph(client, pid, [node('start', 'start'),
+        node('predict', 'model_predict', model_ref='', dataset_id=''), node('end', 'end')],
+        [] if unfinished else [edge('start', 'predict'), edge('predict', 'end')])
+    before = client.get('/api/v1/applications/' + pid + '/draft').json()
+    copied = call(client, base, 'project_workflows', **copy_args(pid, before))
+    assert copied['structure_check']['valid'] is (not unfinished)
+    assert copied['structure_check']['runtime_checked'] is False
+    if unfinished:
+        assert any('unreachable' in error for error in copied['structure_check']['errors'])
+    assert client.get('/api/v1/applications/' + copied['id'] + '/draft').status_code == 200
+    assert client.get(base + '/tasks').json() == []
+    assert client.get('/api/v1/applications/' + pid + '/draft').json() == before
+
+
+def test_copy_check_failure_does_not_undo_saved_copy_or_run_business(configured, monkeypatch):
+    client, pid, base, before = fixture(configured)
+    def broken_check(snapshot):
+        raise RuntimeError('checker temporarily unavailable')
+    monkeypatch.setattr(configured[1].state.services.applications, 'validate_structure', broken_check)
+    copied = call(client, base, 'project_workflows', **copy_args(pid, before))
+    assert copied['structure_check']['valid'] is None
+    assert copied['structure_check']['errors']
+    assert client.get('/api/v1/applications/' + copied['id'] + '/draft').status_code == 200
+    assert call(client, base, 'project_workflows', **copy_args(pid, before))['id'] == copied['id']
+    assert client.get(base + '/tasks').json() == []
