@@ -83,6 +83,18 @@ def test_inspect_default_returns_immediately_without_task_side_effects(configure
     assert settled(client, base, task)['status'] == 'succeeded'
 
 
+def test_diagnostic_wait_observes_actual_failure_without_restart(configured, monkeypatch):
+    client, app, base, task, release = held_workflow(configured, monkeypatch, fail=True)
+    async def release_soon():
+        asyncio.get_running_loop().call_later(.05, release.set)
+    client.portal.call(release_soon)
+    result = inspect(client, base, task, view='diagnostic', wait_seconds=1)
+    assert result['id'] == task['id'] and result['status'] == 'failed'
+    assert result['node_errors'][-1]['error'] == 'test execution failed'
+    assert [n['id'] for n in result['nodes']] == ['end']
+    assert len(client.get(base + '/tasks').json()) == 1
+
+
 @pytest.mark.parametrize('arguments', [
     *[{'action': 'inspect', 'task_id': 'existing', 'wait_seconds': value} for value in [-1, 61, True, 1.5, '2']],
     {'action': 'start', 'wait_seconds': 1},

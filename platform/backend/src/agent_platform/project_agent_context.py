@@ -134,6 +134,9 @@ def task_summary(task: dict) -> dict:
         result['runs'] = [{k: r[k] for k in ('id', 'application_id', 'status', 'error', 'parent_run_id', 'draft_revision', 'waiting_node', 'waiting_input') if k in r}
                           for r in task['runs']]
     result['view'] = 'summary'
+    if task.get('status') == 'failed':
+        result['diagnostic_with'] = {'tool': 'workflow_run', 'arguments': {
+            'action': 'inspect', 'task_id': task.get('id', ''), 'view': 'diagnostic'}}
     result['detail'] = ('Read summary first. workflow_run(action="inspect", task_id="' + task.get('id', '') +
                         '", output_path=["output_key"]) reads an exact output branch without traces; '
                         'view="full" includes all inputs, outputs and member runs for diagnosis. '
