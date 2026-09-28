@@ -1107,6 +1107,26 @@ def _manual(
     *,
     legacy: bool = False,
 ) -> dict[str, Any]:
+    if block_type == "start":
+        return {
+            "summary": "Declare named workflow inputs, their types, and optional defaults.",
+            "when_to_use": ["Accept user or caller input at the beginning of a workflow."],
+            "examples": [{
+                "description": "Require a source name and default an omitted batch size to 20.",
+                "connection": "start -> processing -> end",
+                "config": {"inputs": [
+                    {"name": "source", "type": "string", "required": True},
+                    {"name": "batch_size", "type": "number", "required": False, "default": 20},
+                ]},
+            }],
+            "anti_patterns": ["Do not put input declarations in input/settings; use the inputs array."],
+            "common_errors": [
+                "A required field without a default must be supplied when running.",
+                "Downstream references use the field name: $ref={node_id: start, path: [batch_size]}.",
+            ],
+            "claude_architecture_mapping": mapping,
+            "composability_constraints": ["The start node has no upstream input; connect its output to the next node."],
+        }
     if legacy:
         return {
             "summary": "Compatibility wrapper for old drafts. Prefer composing explicit agent architecture blocks.",
@@ -1133,16 +1153,14 @@ def _manual(
             {
                 "description": f"Use {title} as one visible runtime step.",
                 "connection": f"... -> {block_type} -> ...",
-                "config": {"input": {"$ref": {"node_id": "<upstream>", "path": ["output"]}}, "settings": {}},
             }
         ],
         "anti_patterns": [
             "Do not use this block as decoration without connecting its output.",
-            "Do not bypass the manual and emit a whole graph JSON in one step.",
         ],
         "common_errors": [
             "Input references point to a skipped or missing upstream node.",
-            "Settings are shaped like prose instead of the config schema.",
+            "Configuration does not match the block's config schema.",
             "The block is connected but its output is not consumed by a downstream step or test.",
         ],
         "claude_architecture_mapping": mapping,

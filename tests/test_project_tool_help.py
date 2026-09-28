@@ -127,6 +127,39 @@ def test_compact_manuals_keep_config_help_and_graph_schema_builds_a_real_flow(co
     assert result == full[0]
 
 
+def test_project_default_catalog_matches_editor_business_blocks_and_full_keeps_legacy(configured):
+    client, app, project, _ = configured
+    pid = project['id']; base = '/api/v1/projects/' + pid
+    assert client.put(base + '/capabilities', json={'agent_modules_enabled': True}).status_code == 200
+
+    def catalog(**arguments):
+        response = client.post(base + '/agent-tools', json={'name': 'block_catalog', 'arguments': arguments})
+        assert response.status_code == 200, response.text
+        return response.json()
+
+    available = client.get('/api/v1/blocks', params={'application_id': pid}).json()
+    editor_types = {block['type'] for block in available
+                    if block['block_kind'] == 'business_workflow' and not block['editor'].get('advanced')}
+    compact = catalog()
+    assert compact == catalog(view='compact')
+    assert {block['type'] for block in compact} == editor_types
+    assert {'start', 'end', 'llm', 'code', 'tool', 'if_else', 'iteration', 'human_input'} <= editor_types
+    assert not {'model_turn', 'subagent_spawn', 'claude_agent', 'budget_gate'} & editor_types
+    full = catalog(view='full')
+    assert {block['type'] for block in full} == {block['type'] for block in available}
+    assert len(json.dumps(compact)) < len(json.dumps(full))
+    for block_type in ('model_turn', 'subagent_spawn', 'claude_agent'):
+        manual = catalog(block_type=block_type)
+        assert manual['manual']['type'] == block_type
+        assert manual['manual'] == catalog(block_type=block_type, view='full')['manual']
+
+    # The old tool surface keeps its complete listing for default and compact calls.
+    manager = app.state.services.local_agents
+    legacy = ProjectTools(app.state.services, pid, manager)
+    for arguments in ({}, {'view': 'compact'}, {'view': 'full'}):
+        assert client.portal.call(legacy.call, 'block_catalog', arguments) == full
+
+
 def test_wrong_draft_selector_returns_actionable_help_without_editing(configured):
     client, _, pid, base = prepare(configured)
     before = client.get('/api/v1/applications/'+pid+'/draft').json()
