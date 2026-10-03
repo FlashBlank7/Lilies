@@ -13,7 +13,7 @@ from uuid import uuid4
 from pydantic import ValidationError
 
 from .build_transcript import owner_record
-from .codex_app_server import CodexAppServer, CodexError, inspect_executable, validate_codex_version
+from .codex_app_server import CodexAppServer, CodexError, CodexAuthenticationError, inspect_executable, validate_codex_version
 from .local_agent_tools import ProjectTools, tool_specs
 from .models import utc_now
 from .model_connections import ModelConnection, ModelConnections, LOCAL_PROVIDERS, AGENT_PROVIDERS
@@ -795,6 +795,8 @@ class LocalAgents:
             status = "interrupted"
         except Exception as cause:
             status, error = "error", str(cause)[:4000]
+            if official and isinstance(cause, CodexAuthenticationError):
+                self.services.official_agent.set_connection('blocked', error)
         finally:
             if official:
                 service = self.services.official_agent

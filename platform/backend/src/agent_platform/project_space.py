@@ -58,6 +58,11 @@ async def add_workflow(services, project_id, body):
 
 
 def register_space_routes(router, services, invoke):
+    @router.get('/space/workflows/{workflow_id}/readiness')
+    async def readiness(project_id: str, workflow_id: str):
+        from .workflow_readiness import project_readiness
+        return await invoke(project_readiness, services, project_id, workflow_id)
+
     from .shared_methods import register_shared_routes
     register_shared_routes(router, services, invoke)
     @router.get('/space/official-workflows')

@@ -9,6 +9,8 @@ import {FeedbackButton} from './UserFeedback'
 import WorkflowInputTable, {type InputColumn} from './WorkflowInputTable'
 import KnowledgeResults, {isKnowledgeSearchResult} from './KnowledgeResults'
 import FeatureResults from './FeatureResults'
+import WorkflowReadiness, {type Readiness} from './WorkflowReadiness'
+import ProjectFileField from './ProjectFileField'
 import { WorkflowValueField } from './WorkflowValueField'
 import { useEffect, useRef, useState } from 'react'
 import { api, withFrontendToken } from '@/lib/platform'
@@ -48,8 +50,14 @@ export function ProjectTaskOutput({ projectId, task, onTask }: { projectId: stri
   const evaluation = results.find(result => typeof result.rows === 'number' && result.metrics && typeof result.label === 'string')
   const classification = evaluation?.classification as {classes:{label:string;samples:number;precision:number;recall:number;f1:number}[];note:string} | undefined
   const acceptance = evaluation?.acceptance as {selection:{status:string;threshold:number|null;target_accuracy:number;validation:{accuracy:number;coverage:number;accepted:number}|null};test:{accepted:number;review:number;accuracy:number|null;coverage:number}} | undefined
+  const expenses = results.find(result => typeof result.suspected_duplicates === 'number')
+  const duplicates = (expenses && (Array.isArray(expenses.duplicate_records) ? expenses.duplicate_records : Array.isArray(expenses.preview) ? expenses.preview.filter((row:Record<string,unknown>)=>row.suspected_duplicate==='yes') : []) || []) as Record<string,unknown>[]
   return <>
     <TaskError error={task.error}/>
+    {expenses && <section aria-label="疑似重复费用"><h3>需要复核：{Number(expenses.suspected_duplicates)} 条疑似重复费用</h3><p>仅提示核对，汇总金额仍包含这些记录，没有自动扣除。</p>
+      {!!duplicates.length && <div style={{overflowX:'auto'}}><table><thead><tr>{['日期','商户','金额','币种','来源与行号'].map(label=><th key={label}>{label}</th>)}</tr></thead><tbody>{duplicates.map((row,i)=><tr key={i}><td>{String(row.date||'')}</td><td>{String(row.merchant||'')}</td><td>{String(row.amount||'')}</td><td>{String(row.currency||'')}</td><td>{row.source_file?`${String(row.source_file).split('/').pop()} · 第 ${row.source_row} 行`:'见明细下载'}</td></tr>)}</tbody></table></div>}
+      {duplicates.length < Number(expenses.suspected_duplicates) && <p>当前展示 {duplicates.length} 条，完整标记请下载费用明细。</p>}
+    </section>}
     <FeedbackButton source={{project_id:projectId,task_id:task.id,workflow_id:task.workflow_id||undefined,page:'run'}} excerpt={task.error||markdown} category={task.error?'runtime':'result'}/>
     {task.id && ['waiting_input','running','queued'].includes(task.status) && <ProjectTaskInput projectId={projectId} taskId={task.id} initialTask={task} onTask={onTask}/>}
     {results.filter(result => result.stage === 'before_fold_preprocessing').map((result, i) => <FeatureResults key={i} result={result as unknown as Parameters<typeof FeatureResults>[0]['result']} />)}
@@ -91,9 +99,18 @@ export default function ProjectRunPanel({ projectId, members, initialWorkflowId,
   const [busy, setBusy] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [readiness, setReadiness] = useState<Readiness>()
+  const [readinessError, setReadinessError] = useState('')
+  const [checkVersion, setCheckVersion] = useState(0)
   const lock = useRef(false)
   const base = `/api/v1/projects/${projectId}`
   const active = Boolean(task && ['queued', 'running'].includes(task.status))
+  useEffect(()=>{
+    let current=true
+    setReadiness(undefined);setReadinessError('')
+    void api<Readiness>(`${base}/space/workflows/${workflowId}/readiness`).then(value=>{if(current)setReadiness(value)}).catch(()=>{if(current)setReadinessError('暂时无法检查资源，运行时仍会检查实际配置。')})
+    return()=>{current=false}
+  },[base,workflowId,checkVersion])
   useEffect(() => {
     let current = true
     setLoading(true); setError('')
@@ -158,13 +175,14 @@ export default function ProjectRunPanel({ projectId, members, initialWorkflowId,
     {reuseTask?.workflow_id === workflowId && <p>按当前配置重算：按各步骤实际读取的输入和依赖判断能否复用。旧运行缺少复用记录时会重新计算。代码默认重跑，可在代码积木配置中声明允许复用。</p>}
     <label>入口工作流<select aria-label="入口工作流" disabled={active || busy} value={workflowId} onChange={event => { setWorkflowId(event.target.value); setTask(null) }}>{members.map(member => <option key={member.id} value={member.id}>{member.id === projectId ? '主流程 · ' : ''}{member.name}</option>)}</select></label>
     <p><Link href={`/applications/${workflowId}?tab=edit`} target="_blank">编辑这条工作流 ↗</Link></p>
+    <WorkflowReadiness value={readiness} projectId={projectId}/>{readinessError&&<p role="status">{readinessError}</p>}
+    <button disabled={active||busy} onClick={()=>setCheckVersion(v=>v+1)}>重新检查运行准备</button>
     {loading ? <p role="status">正在读取输入配置…</p> : fields.map(field => <div key={field.name}>
-      {field.type==='array' && field.columns?.length ? <WorkflowInputTable name={field.name} label={field.label||field.name} columns={field.columns} files={files} value={values[field.name]||'[]'} disabled={active||busy} onChange={value=>setValues(previous=>({...previous,[field.name]:value}))}/> : <label>{field.label || field.name}{field.required ? ' *' : ''}
+      {(field.type==='file'||/(?:path|file|document|attachment)$/i.test(field.name)) && files.length>0 ? <ProjectFileField name={field.name} label={(field.label||field.name)+(field.required?' *':'')} value={values[field.name]||''} files={files} disabled={active||busy} onChange={value=>setValues(previous=>({...previous,[field.name]:value}))}/> : field.type==='array' && field.columns?.length ? <WorkflowInputTable name={field.name} label={field.label||field.name} columns={field.columns} files={files} value={values[field.name]||'[]'} disabled={active||busy} onChange={value=>setValues(previous=>({...previous,[field.name]:value}))}/> : <label>{field.label || field.name}{field.required ? ' *' : ''}
         {field.name === 'dataset_id' ? <WorkflowValueField allowReference={false} disabled={active || busy} projectId={projectId} field="dataset_id" nodeId="run" nodes={[]} label="预测数据集" value={values[field.name] || ''} onChange={next => setValues(previous => ({...previous, [field.name]: next}))} /> : field.type === 'boolean' ? <select aria-label={field.name} disabled={active || busy} value={values[field.name] || ''} onChange={event => setValues(previous => ({ ...previous, [field.name]: event.target.value }))}><option value="">请选择</option><option value="true">是</option><option value="false">否</option></select>
           : field.type === 'string' && field.options?.length ? <select aria-label={field.name} disabled={active || busy} value={values[field.name] || ''} onChange={event => setValues(previous => ({ ...previous, [field.name]: event.target.value }))}><option value="">请选择</option>{field.options.map(option => <option key={option} value={option}>{option}</option>)}</select>
           : <textarea aria-label={field.name} rows={['object', 'array', 'any'].includes(field.type) ? 4 : 2} disabled={active || busy} value={values[field.name] || ''} onChange={event => setValues(previous => ({ ...previous, [field.name]: event.target.value }))} />}
       </label>}{field.description && <p>{field.description}</p>}
-      {(field.type === 'file' || /(?:path|file|document|attachment)$/i.test(field.name)) && files.length > 0 && <label>选择项目文件<select aria-label={`为 ${field.name} 选择项目文件`} disabled={active || busy} value="" onChange={event => setValues(previous => ({ ...previous, [field.name]: event.target.value }))}><option value="">从已上传资料或结果中选择…</option>{files.map(file => <option key={file.path} value={file.path}>{file.path}</option>)}</select></label>}
     </div>)}
     <div className={styles.actions}><button className={styles.primary} disabled={loading || busy || active} onClick={() => void start()}>{busy ? '正在启动…' : active ? '正在运行…' : '启动工作流'}</button>
       {(active || task?.status === 'waiting_input') && task && <button disabled={busy} onClick={async () => { setBusy(true); try { const next = await api<ProjectTask>(`${base}/tasks/${task.id}/stop`, { method: 'POST' }); setTask(next); onTask?.(next) } catch (cause) { setError(String(cause)) } finally { setBusy(false) } }}>停止运行</button>}

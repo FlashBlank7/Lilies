@@ -95,6 +95,7 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
     window.addEventListener('lilies:guide-navigate', listener)
     return () => window.removeEventListener('lilies:guide-navigate', listener)
   }, [id])
+  useEffect(() => { const selected = new URLSearchParams(window.location.search).get('tab'); if (['settings','models','materials','flow','space'].includes(selected || '')) setTab(selected as typeof tab) }, [id])
   useEffect(() => { const selected = new URLSearchParams(window.location.search).get('run'); if (selected) { setReuseTask(undefined); setRunWorkflowId(selected); setTab('run') } }, [id])
   useEffect(() => {
     const request = ++taskRequest.current

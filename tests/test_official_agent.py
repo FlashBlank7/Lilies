@@ -75,6 +75,50 @@ def enable(client, pid):
     assert result.status_code == 200, result.text
 
 
+def test_invalid_subscription_ends_wait_and_persists_repair_status(official, monkeypatch):
+    from agent_platform.official_agent import OfficialAgent
+    client, app, service = official
+    _, headers = signup(client, '连接检查员工')
+    pid = project(client, headers)
+    enable(client, pid)
+    account = {'type': 'apiKey'}
+    calls = []
+
+    class Control:
+        async def request(self, method, params):
+            calls.append(method)
+            if method == 'account/read':
+                return {'account': account}
+            if method == 'model/list':
+                return {'data': [{'model': 'gpt-5.6-luna', 'supportedReasoningEfforts': [{'reasoningEffort': 'max'}]}]}
+            return {'rateLimits': {'primary': {'usedPercent': 0}}}
+
+    async def transport():
+        return Control()
+
+    monkeypatch.setattr(service, 'transport', transport)
+    monkeypatch.setattr(service, 'inspect', OfficialAgent.inspect.__get__(service))
+    path = chat(client, pid, headers)
+    client.post(path+'/messages', headers=headers, json={'message': '整理会议'}).raise_for_status()
+    failed = wait(client, path, headers)
+    assert failed['status'] == 'error'
+    assert '认证失败' in failed['error']
+    assert failed['connection_status'] == 'blocked'
+    assert calls == ['account/read']
+    assert not FakeAgent.turns
+    assert service.jobs()[0]['status'] == 'error'
+    client.post(path+'/stop', headers=headers).raise_for_status()
+    assert client.get(path, headers=headers).json()['connection_status'] == 'blocked'
+    assert OfficialAgent(app.state.services).connection()['connection_status'] == 'blocked'
+    assert client.get('/api/v1/projects/'+pid+'/assistant-source',headers=headers).json()['connection_status'] == 'blocked'
+    account['type'] = 'chatgpt'
+    checked = client.get('/api/v1/admin/official-agent?refresh=true', headers=ADMIN).json()
+    assert checked['connection_status'] == 'checked'
+    client.post(path+'/messages', headers=headers, json={'message': '重新整理会议'}).raise_for_status()
+    assert wait(client, path, headers)['status'] == 'idle'
+    assert len(FakeAgent.turns) == 1
+
+
 @pytest.mark.parametrize('raw,override,allowed', [(False,None,False), (True,None,True),
     (False,True,True), (True,False,False), (False,False,False)])
 def test_official_egress_can_be_authorized_without_enabling_raw_api(official, tmp_path, raw, override, allowed):
@@ -672,3 +716,34 @@ def test_local_codex_missing_rollout_recovers_after_cli_relocation(legacy_config
     assert '恢复文件缺失' in ScriptedCodex.contexts[-1]['instruction']
     assert '工具已升级' not in ScriptedCodex.contexts[-1]['instruction']
     assert any(message['text'] == '先读资料' for message in ScriptedCodex.contexts[-1]['recent_project_messages'])
+
+
+@pytest.mark.parametrize('method', ['account/read', 'account/rateLimits/read'])
+def test_explicit_auth_error_is_terminal_not_quota_wait(official, monkeypatch, method):
+    from agent_platform.codex_app_server import CodexAuthenticationError
+    from agent_platform.official_agent import OfficialAgent
+    client, app, service = official
+    _, headers = signup(client, '认证过期员工')
+    pid = project(client, headers)
+    enable(client, pid)
+    class Control:
+        async def request(self, name, params):
+            if name == method:
+                raise CodexAuthenticationError('账号登录已过期，请管理员重新连接')
+            if name == 'account/read':
+                return {'account': {'type':'chatgpt'}}
+            return {'data':[{'model':'gpt-5.6-luna','supportedReasoningEfforts':[{'reasoningEffort':'max'}]}]}
+    async def transport():
+        return Control()
+    monkeypatch.setattr(service, 'transport', transport)
+    monkeypatch.setattr(service, 'inspect', OfficialAgent.inspect.__get__(service))
+    path = chat(client, pid, headers)
+    response = client.post(path+'/workflow-generation', headers=headers, json={'instruction':'创建空白工作流'})
+    response.raise_for_status()
+    job_path = '/api/v1/projects/'+pid+'/generation-jobs/'+response.json()['job_id']
+    result = wait(client, job_path, headers)
+    assert result['status'] == 'error'
+    assert '登录已过期' in result['error']
+    assert service.connection()['connection_status'] == 'blocked'
+    assert not service.active_jobs()
+    assert not FakeAgent.turns

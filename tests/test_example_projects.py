@@ -21,7 +21,8 @@ def test_all_examples_install_as_complete_editable_projects(configured):
     client,app,_,settings=configured
     items=client.get('/api/v1/example-projects').json()
     assert len(items)==35
-    assert [v['id'] for v in items[:4]]==['meeting','weekly','expenses','profile']
+    states = [v['readiness']['status'] == 'configured' for v in items]
+    assert states == sorted(states, reverse=True)
     for item in items:
         pid=install(client,item['id'])
         base='/api/v1/projects/'+pid
@@ -38,6 +39,47 @@ def test_all_examples_install_as_complete_editable_projects(configured):
         assert client.get(base+'/skills/example-guide').status_code==200
         assert install(client,item['id'])==pid
     assert not app.state.services.local_agents.tasks
+
+
+def test_examples_explain_missing_resources_before_running_and_refresh_configuration(configured, monkeypatch):
+    client, app, _, _ = configured
+    services = app.state.services
+    from agent_platform import workflow_readiness
+    async def available(*args):
+        return True
+    monkeypatch.setattr(workflow_readiness, 'environment_ready', available)
+    items = client.get('/api/v1/example-projects').json()
+    assert items[0]['id'] == 'expenses'
+    meeting = next(item for item in items if item['id'] == 'meeting')
+    assert {'model:main','egress'} <= {v['code'] for v in meeting['readiness']['issues']}
+    pid = install(client, 'meeting')
+    base = '/api/v1/projects/'+pid
+    check = base+'/space/workflows/'+pid+'/readiness'
+    assert client.get(check).json()['status'] == 'needs_setup'
+    # Saving and creation are allowed; the read-only check starts no tasks.
+    assert client.get(base+'/tasks').json() == []
+    client.put(base+'/agent-session', json={'provider':'api','base_url':'http://127.0.0.1:9001/v1',
+        'model':'offline-double','api_key':'test-only','runtime_enabled':True}).raise_for_status()
+    # This test changes only a settings flag; there is no provider request.
+    services.settings.model_egress_enabled = True
+    assert client.get(check).json()['status'] == 'configured'
+    assert client.get(base+'/example').json()['readiness']['status'] == 'configured'
+    other = install(client, 'expenses')
+    assert client.get(base+'/space/workflows/'+other+'/readiness').status_code == 422
+    assert client.get(base+'/tasks').json() == []
+
+
+def test_expense_duplicates_outside_preview_include_original_file_and_row(sample_files):
+    header = 'date,category,amount,currency,merchant\n'
+    first = sample_files('first.csv', header+''.join(f'2026-09-01,交通,{i},CNY,示例{i}\n' for i in range(25)))
+    second = sample_files('second.csv', header+'2026-09-01,交通,24.00,CNY,示例24\n')
+    result = processing.main({'operation':'expenses','source_path':first,'second_path':second})
+    assert result['suspected_duplicates'] == 1
+    assert not any(row['suspected_duplicate']=='yes' for row in result['preview'])
+    assert result['duplicate_records'][0]['source_file'] == second
+    assert result['duplicate_records'][0]['source_row'] == 2
+    assert result['summary'][0]['amount'] == '324.00'
+    assert '需要复核：1 条疑似重复费用' in result['markdown']
 
 
 def test_employees_get_private_copies_and_retry_is_idempotent(platform):

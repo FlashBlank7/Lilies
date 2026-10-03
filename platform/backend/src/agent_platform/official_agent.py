@@ -13,7 +13,7 @@ from uuid import uuid4
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
-from .codex_app_server import CodexAppServer, inspect_executable, validate_codex_version
+from .codex_app_server import CodexAppServer, CodexAuthenticationError, inspect_executable, validate_codex_version
 from .conversation_scope import conversation_for, conversation_scope
 from .project_store import connect
 
@@ -72,11 +72,29 @@ class OfficialAgent:
         return ServiceConfig.model_validate_json(path.read_text()) if path.exists() else ServiceConfig()
 
     def save_config(self, config):
+        previous = self.config()
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
         path = self.root / 'config.tmp'
         path.write_text(config.model_dump_json())
         path.chmod(0o600)
         path.replace(self.root / 'config.json')
+        if (previous.enabled, previous.executable, previous.model, previous.thinking) != (config.enabled, config.executable, config.model, config.thinking):
+            self.set_connection('unknown', '设置已更改，请管理员检查连接')
+
+    def connection(self):
+        try:
+            return json.loads((self.root / 'connection.json').read_text())
+        except (OSError, ValueError):
+            return {'connection_status': 'unknown', 'connection_message': '尚未检查登录状态', 'connection_checked_at': None}
+
+    def set_connection(self, status, message):
+        self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
+        value = {'connection_status': status, 'connection_message': message, 'connection_checked_at': time.time()}
+        path = self.root / 'connection.tmp'
+        path.write_text(json.dumps(value, ensure_ascii=False))
+        path.chmod(0o600)
+        path.replace(self.root / 'connection.json')
+        return value
 
     async def initialize(self):
         with connect(self.db) as db:
@@ -129,7 +147,7 @@ class OfficialAgent:
 
     def public_connection(self):
         config = self.config()
-        return {'provider': 'official', 'model': config.model, 'thinking': config.thinking, 'name': '官方智能体'}
+        return {'provider': 'official', 'model': config.model, 'thinking': config.thinking, 'name': '官方智能体', **self.connection()}
 
     async def authorize(self, project_id, user_id=None):
         source = self.source(project_id)
@@ -169,8 +187,25 @@ class OfficialAgent:
             return self.control
 
     async def inspect(self):
+        try:
+            return await self._inspect()
+        except (ValueError, CodexAuthenticationError) as error:
+            self.set_connection('blocked', str(error))
+            raise
+        except Exception:
+            self.set_connection('unknown', '连接检查未完成，请管理员检查连接')
+            raise
+
+    async def _inspect(self):
         client = await self.transport()
         account = (await client.request('account/read', {'refreshToken': False})).get('account')
+        self.rate_limits = {}
+        self.last_error = ''
+        if not account or account.get('type') != 'chatgpt':
+            self.last_error = '账号认证失败，请管理员连接订阅账号；API Key 登录不能用于官方智能体'
+            return {'config': self.config().model_dump(), 'account': account, 'models': [], 'rate_limits': {},
+                    'error': self.last_error, 'blocking_error': self.last_error, 'selection_error': '',
+                    'dispatch_reason': '', 'login': self.login, **self.set_connection('blocked', self.last_error)}
         models = []
         cursor = None
         for _ in range(20):
@@ -179,22 +214,20 @@ class OfficialAgent:
             cursor = result.get('nextCursor')
             if not cursor:
                 break
-        self.rate_limits = {}
-        self.last_error = ''
-        if account and account.get('type') == 'chatgpt':
-            try:
-                self.rate_limits = await client.request('account/rateLimits/read', {})
-            except Exception:
-                self.last_error = '暂时无法取得账号额度，新请求等待额度恢复'
-        else:
-            self.last_error = '请连接订阅账号；API Key 登录不能用于官方智能体'
+        try:
+            self.rate_limits = await client.request('account/rateLimits/read', {})
+        except CodexAuthenticationError:
+            raise
+        except Exception:
+            self.last_error = '暂时无法取得账号额度，新请求等待额度恢复'
         config = self.config()
         match = next((m for m in models if m.get('model') == config.model), None)
         options = [e['reasoningEffort'] for e in (match or {}).get('supportedReasoningEfforts', [])]
         selection_error = '' if match and config.thinking in options else f'账号目录不支持 {config.model} / {config.thinking}，请管理员检查设置'
+        connection = self.set_connection('blocked' if selection_error else 'checked', selection_error or '最近检查登录有效')
         return {'config': config.model_dump(), 'account': account, 'models': models, 'rate_limits': self.rate_limits,
                 'error': self.last_error or selection_error, 'selection_error': selection_error,
-                'dispatch_reason': self.quota_reason(), 'login': self.login}
+                'blocking_error': selection_error, 'dispatch_reason': self.quota_reason(), 'login': self.login, **connection}
 
     def quota_reason(self):
         config = self.config()
@@ -215,6 +248,7 @@ class OfficialAgent:
     async def connect_account(self, mode):
         if self.active_jobs():
             raise ValueError('请先停止活动及排队任务，再更换账号')
+        self.set_connection('unknown', '账号正在重新连接，尚未检查完成')
         for key in list(self.services.local_agents.clients):
             if getattr(self.services.local_agents.clients[key], 'subscription_only', False):
                 await self.services.local_agents.clients.pop(key).close()
@@ -277,6 +311,9 @@ class OfficialAgent:
         queued_at = time.time()
         while True:
             await self.authorize(project_id)
+            connection = self.connection()
+            if connection['connection_status'] == 'blocked':
+                raise ValueError(connection['connection_message'])
             async with self.dispatch_lock:
                 config = self.config()
                 running = self.jobs('running')
@@ -286,15 +323,21 @@ class OfficialAgent:
                 eligible = [r for r in queued if not any(x['project_id'] == r['project_id'] and x['conversation_id'] == r['conversation_id'] for x in running)]
                 choices = [r for r in eligible if r['user_id'] != self.last_user] or eligible
                 if choices and choices[0]['id'] == job_id and len(running) < config.concurrency and time.monotonic() >= next_probe:
+                    blocking = ''
                     try:
                         if not config.enabled:
                             raise ValueError('官方智能体尚未启用')
                         snapshot = await self.inspect()
+                        blocking = snapshot.get('blocking_error', '')
                         reason = snapshot['error'] or snapshot['dispatch_reason']
-                    except ValueError as error:
-                        reason = str(error)
+                    except (ValueError, CodexAuthenticationError) as error:
+                        blocking = reason = str(error)
                     except Exception:
                         reason = '账号连接暂不可用，等待重新连接'
+                        self.set_connection('unknown', reason)
+                    if blocking:
+                        self.set_connection('blocked', blocking)
+                        raise ValueError(blocking)
                     next_probe = time.monotonic() + 15
                     self.update(job_id, error=reason)
                     if not reason:
@@ -419,7 +462,7 @@ def official_router(services):
 
     @router.get('/admin/official-agent')
     async def status(refresh: bool = False):
-        result = {'config': service.config().model_dump(), 'jobs': service.jobs()}
+        result = {'config': service.config().model_dump(), 'jobs': service.jobs(), **service.connection()}
         if refresh:
             result.update(await invoke(service.inspect))
         return result
@@ -495,7 +538,7 @@ def official_router(services):
     @router.get('/projects/{project_id}/assistant-source')
     async def source(project_id: str):
         return {**service.source(project_id).model_dump(), 'service_enabled': service.config().enabled,
-                'model': service.config().model, 'thinking': service.config().thinking}
+                'model': service.config().model, 'thinking': service.config().thinking, **service.connection()}
 
     @router.put('/projects/{project_id}/assistant-source')
     async def set_source(project_id: str, body: AssistantSource, request: Request):

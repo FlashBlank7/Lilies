@@ -38,7 +38,7 @@ it('offers newly created files after completion without resetting edited inputs 
   fireEvent.change(screen.getByRole('textbox',{name:'note'}),{target:{value:'本次修改保留'}})
   fireEvent.click(screen.getByRole('button',{name:'启动工作流'}))
   await screen.findByText('方法已保存')
-  await waitFor(()=>expect(screen.getByRole('combobox',{name:'为 method_path 选择项目文件'})).toHaveTextContent('results/run/method.json'))
+  await waitFor(()=>expect(screen.getByRole('combobox',{name:'为 method_path 选择项目文件'})).toHaveTextContent('method.json'))
   fireEvent.change(screen.getByRole('combobox',{name:'为 method_path 选择项目文件'}),{target:{value:'results/run/method.json'}})
   expect(screen.getByRole('textbox',{name:'method_path'})).toHaveValue('results/run/method.json')
   expect(screen.getByRole('textbox',{name:'note'})).toHaveValue('本次修改保留')
@@ -101,7 +101,7 @@ it.each(['secure', 'http'])('runs and downloads through project tasks on %s orig
 })
 
 it('rejects missing required input before starting a task', async () => {
-  vi.mocked(api).mockImplementation(async path => path.endsWith('/draft') ? { snapshot: { workflow: { nodes: [{ type: 'start', config: { inputs: fields } }] } } } as never : [] as never)
+  vi.mocked(api).mockImplementation(async path => path.endsWith('/readiness') ? {status:'configured',issues:[],note:'运行时检查输入'} as never : path.endsWith('/draft') ? { snapshot: { workflow: { nodes: [{ type: 'start', config: { inputs: fields } }] } } } as never : [] as never)
   await act(async () => { render(<ProjectRunPanel projectId="p" members={members} initialWorkflowId="member" />) })
   fireEvent.click(screen.getByRole('button', { name: '启动工作流' }))
   await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('请填写 document'))

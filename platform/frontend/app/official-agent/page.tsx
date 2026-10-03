@@ -9,7 +9,7 @@ import styles from '../projects/projects.module.css'
 type Config = { enabled: boolean; executable: string; version: string; model: string; thinking: string; reserve_percent: number; concurrency: number; max_tokens: number | null; max_seconds: number; auto_compact_token_limit?: number | null }
 type Model = { model: string; displayName: string; supportedReasoningEfforts: {reasoningEffort: string}[] }
 type Job = {id: string; project_id: string; user_id: string; kind: string; status: string; created: number; started?: number; ended?: number; tokens: number | null; error: string; queue_seconds: number; execution_seconds:number}
-type State = {config: Config; models?: Model[]; account?: {type: string; email?: string; planType?: string}; error?: string; dispatch_reason?: string; jobs?: Job[];
+type State = {connection_message?:string;connection_status?:string;config: Config; models?: Model[]; account?: {type: string; email?: string; planType?: string}; error?: string; dispatch_reason?: string; jobs?: Job[];
   rate_limits?: {rateLimits?: Bucket; rateLimitsByLimitId?: Record<string,Bucket>}; login?: {authUrl?: string; verificationUrl?: string; userCode?: string}}
 type Bucket = {limitId?: string; primary?: {usedPercent: number; windowDurationMins: number}; secondary?: {usedPercent: number; windowDurationMins: number}}
 const base = '/api/v1/admin/official-agent'
@@ -40,7 +40,7 @@ export default function OfficialAgentPage() {
   return <main className={styles.page}><h1>官方智能体</h1><p>统一提供给获授权项目。员工使用自己的平台账号，项目资料共享，对话相互独立。</p>
     {error&&<p role="alert" className={styles.error}>{error}</p>}{notice&&<p role="status">{notice}</p>}
     <section className={styles.panel}><h2>服务账号</h2><p>管理员接入来源：服务器 Codex 订阅登录。平台不会收集账号密码。</p>
-      <p>{state?.account?.type==='chatgpt'?`已连接 · ${state.account.email || ''} · ${state.account.planType || ''}`:'尚未检查登录状态'}</p>
+      <p>{state?.connection_message || '尚未检查登录状态'}</p>
       <div className={styles.actions}><button disabled={busy} onClick={()=>void action(()=>login('existing'))}>连接服务器已登录账号</button>
         <button disabled={busy} onClick={()=>void action(()=>login('browser'))}>浏览器登录</button><button disabled={busy} onClick={()=>void action(()=>login('device'))}>设备码登录</button>
         <button disabled={busy} onClick={()=>void action(()=>refresh(true))}>刷新账号、模型与额度</button>

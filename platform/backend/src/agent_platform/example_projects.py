@@ -15,6 +15,7 @@ from .project_materials import add_material
 from .project_skills import save_skill, SkillDocument
 from .project_workflow_edit import save_workflow, SaveWorkflow
 from .workflow_models import WorkflowSpec
+from .workflow_readiness import readiness, project_readiness
 
 
 class InstantiateExample(BaseModel):
@@ -120,10 +121,10 @@ async def instantiate(services,user,item,body):
         text+='\n\n## 工作流\n'+'\n'.join(f'- {w["name"]}：{w["id"]}' for w in guide['workflows'])
         if item.get('guide'):
             text+='\n\n## 方法与调用\n'+item['guide']
-        text+='\n\n智能体可用 project_workflows inspect 查看当前输入和默认值，再用 workflow_run 调用。一次性问题可直接回答。流程创建不运行任务，连接缺失时请配置，不自动换服务商。结果在运行记录查看；未实际运行不得报告已完成。新输入创建新运行，保留原结果。'
+        text+='\n\n在项目空间选择资料和已有工作流，点击“让智能体调用”准备消息，检查后发送；也可以填写运行参数直接运行。结果在运行记录中查看和下载。换资料后创建新运行，原结果保留。创建项目不会自动执行任务。'
         manual=await add_material(services,pid,UploadFile(file=io.BytesIO(text.encode()),filename='使用说明.md'))
         guide['manual_path']=manual['path']
-        await save_skill(services,pid,'example-guide',SkillDocument(name=item['name']+'使用说明',description=item['description'][:500],content=text))
+        await save_skill(services,pid,'example-guide',SkillDocument(name=item['name']+'使用说明',description=item['description'][:500],content=text+'\n\n智能体可用 project_workflows inspect 查看当前输入和默认值，再用 workflow_run 调用。一次性问题可直接回答。连接缺失时请配置，不自动换服务商；未实际运行不得报告已完成。'))
         await services.projects.store.put_record(pid,'example','guide',guide,0)
         if user['id']!='root':await services.accounts.add_member(pid,user['id'],'owner')
         result={'project_id':pid,'template_id':item['id'],'template_version':item['version']}
@@ -145,10 +146,17 @@ def register_example_routes(router,scoped,services,invoke):
         return items[ident]
 
     @router.get('/example-projects')
-    async def examples():return [public_item(item) for item in items.values()]
+    async def examples():
+        result = [await describe(item) for item in items.values()]
+        return sorted(result, key=lambda item: item['readiness']['status'] != 'configured')
+
+    async def describe(item, detail=False):
+        main = next(w for w in item['workflows'] if w['key'] == 'main')
+        return {**public_item(item, detail), 'readiness': await readiness(services, main['workflow'],
+                related={w['key']: w['workflow'] for w in item['workflows']})}
 
     @router.get('/example-projects/{template_id}')
-    async def example(template_id:str):return public_item(item_for(template_id),True)
+    async def example(template_id:str):return await describe(item_for(template_id),True)
 
     @router.post('/example-projects/{template_id}/instantiate',status_code=201)
     async def create(template_id:str,body:InstantiateExample,request:Request):
@@ -159,4 +167,7 @@ def register_example_routes(router,scoped,services,invoke):
     @scoped.get('/example')
     async def project_example(project_id:str):
         rows=await services.projects.store.records(project_id,'example')
-        return next((r['value'] for r in rows if r['key']=='guide'),None)
+        guide = next((r['value'] for r in rows if r['key']=='guide'),None)
+        if guide:
+            guide = {**guide, 'readiness': await project_readiness(services, project_id, project_id)}
+        return guide

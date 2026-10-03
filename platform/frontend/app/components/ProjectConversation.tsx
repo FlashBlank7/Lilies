@@ -8,6 +8,7 @@ import { taskNames, type ProjectActivity as Activity, type ProjectTask, type Pro
 import ProjectActivity from './ProjectActivity'
 import ModelConnectionPanel from './ModelConnectionPanel'
 import AssistantSourcePanel from './AssistantSourcePanel'
+import OfficialConnectionStatus, {type OfficialConnection} from './OfficialConnectionStatus'
 import SaveMethod from './SaveMethod'
 import ProjectTaskInput from './ProjectTaskInput'
 import ResultFeedback from './ResultFeedback'
@@ -22,7 +23,7 @@ import { FileText, ArrowUpRight } from 'lucide-react'
 import styles from '@/app/projects/projects.module.css'
 
 type Event = { id: string; kind: string; text: string; time: string; result?: string; arguments?: string; success?: boolean; request_id?: string; item_id?: string; task_id?: string; purpose?: string; workflow?: WorkflowCard }
-type Session = {
+type Session = OfficialConnection & {
   provider: string | null; queue_reason?: string; status: string; error: string; revision: number; events: Event[]
   has_more: boolean; first_cursor: string; last_cursor: string; active_item_id?: string
   project_task_id?: string; conversation_context?: { item_id?: string; task_id?: string }
@@ -137,7 +138,7 @@ export default function ProjectConversation({ id, conversationId, projectName, c
     <div className={styles.conversationHeader}><div><h2>{projectName || '和统筹继续沟通'}</h2><small>{running ? activeItem ? '正在处理：' + activeItem.title : '统筹正在处理你的请求' : '查看进度、试用已有能力，或告诉我哪里需要调整'}</small></div>
       {running && <button disabled={busy} onClick={() => void act(() => api(conversationId ? conversationBase + '/stop' : base + '/agent-session/stop', { method: 'POST' }))}>停止</button>}</div>
     {canConfigureModel && <AssistantSourcePanel base={base} running={Boolean(running)} onSaved={refresh} />}
-    {session?.provider === 'official' && <p>官方智能体 · {session.status === 'queued' ? session.queue_reason || '排队中' : session.status === 'waiting_compute' ? '等待计算完成' : '已连接'}</p>}
+    {session?.provider === 'official' && <><OfficialConnectionStatus connection={session}/>{session.status==='queued'&&<p>{session.queue_reason||'排队中'}</p>}{session.status==='waiting_compute'&&<p>等待计算完成</p>}</>}
     {canConfigureModel ? <ModelConnectionPanel base={base} connected={Boolean(session?.provider)} running={Boolean(running)} onSaved={refresh} /> : !session?.provider && <p>请联系项目负责人配置模型连接，随后即可使用项目对话。</p>}
     {session?.provider && !['api', 'official'].includes(session.provider) && <p>此项目的旧会话使用外部 Agent。请在模型设置中连接模型 API，由 Lilies 继续处理；原有记录会保留。</p>}
     {session?.requirements?.document && <div className={styles.requirements}><FileText size={14} />

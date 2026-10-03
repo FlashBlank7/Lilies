@@ -37,7 +37,7 @@ it('opens an independently generated result without selecting it or starting a c
   render(<ProjectSpace projectId="p" onWorkflow={vi.fn()} onFile={open} onTalk={talk} onChanged={vi.fn()}/>)
   fireEvent.click(await screen.findByRole('button',{name:`查看 ${path}`}))
   expect(open).toHaveBeenCalledWith(path)
-  expect(screen.getByRole('checkbox',{name:path})).not.toBeChecked()
+  expect(screen.getByRole('checkbox',{name:'sources.md'})).not.toBeChecked()
   expect(talk).not.toHaveBeenCalled()
   expect(screen.getByRole('button',{name:'带着所选资料开始对话'})).toBeDisabled()
   expect(vi.mocked(api).mock.calls.every(([,options])=>!options?.method||options.method==='GET')).toBe(true)
@@ -84,7 +84,7 @@ it('preserves typed input after a failed generation',async()=>{
 it('shows shared files and callable workflows together and carries selected materials into conversation',async()=>{
   setup();const talk=vi.fn();render(<ProjectSpace projectId="p" onWorkflow={vi.fn()} onFile={vi.fn()} onTalk={talk} onChanged={vi.fn()}/>)
   await screen.findByText('质量分析')
-  fireEvent.click(screen.getByLabelText('requirement-package/data.csv'))
+  fireEvent.click(screen.getByLabelText('data.csv'))
   fireEvent.click(screen.getByRole('button',{name:'让智能体调用'}))
   expect(talk).toHaveBeenCalledWith(expect.stringContaining('requirement-package/data.csv'))
   expect(talk.mock.calls[0][0]).toContain('old')
@@ -115,7 +115,7 @@ it('keeps an unsent draft when the project space supplies a workflow request', a
 
 it('marks actual file selection and workflow selection without running the workflow', async () => {
   setup(); render(<ProjectSpace projectId="p" onWorkflow={vi.fn()} onFile={vi.fn()} onTalk={vi.fn()} onChanged={vi.fn()} />)
-  fireEvent.click(await screen.findByLabelText('requirement-package/data.csv'))
+  fireEvent.click(await screen.findByLabelText('data.csv'))
   expect(mark).toHaveBeenCalledWith('materials', 'p')
   fireEvent.click(screen.getByRole('button', {name: '让智能体调用'}))
   expect(mark).toHaveBeenCalledWith('workflow', 'p', 'conversation')

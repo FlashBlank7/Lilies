@@ -5,6 +5,7 @@ import time
 from uuid import uuid4
 
 from .connected_model import completion_events
+from .codex_app_server import CodexAuthenticationError
 
 
 class OfficialGeneration:
@@ -59,6 +60,8 @@ class OfficialGeneration:
                 yield item
         except BaseException as cause:
             status, error = ('interrupted' if isinstance(cause, asyncio.CancelledError) else 'error'), str(cause)[:300]
+            if isinstance(cause, CodexAuthenticationError):
+                service.set_connection('blocked', error)
             raise
         finally:
             if client:

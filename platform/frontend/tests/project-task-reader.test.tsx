@@ -76,6 +76,7 @@ it.each(['running','waiting_input'])('reopens and stops a persisted %s run, then
     if (path.includes('/tasks?purpose=customer_trial')) return [task] as never
     if (path.includes('/tasks?compact=true') || path.endsWith('/workspace/files')) return [] as never
     if (path.endsWith('/progress')) return { revision: 0, value: { goal: '', summary: '', items: [] } } as never
+    if (path.endsWith('/readiness')) return {status:'configured',issues:[],note:'运行时检查'} as never
     if (path.endsWith('/draft')) return { snapshot: { workflow: { nodes: [] } } } as never
     if (options) throw new Error(path)
     return { id: 'p', name: 'Review project', members: [{ id: 'member', name: '设计评审', revision: 1, purpose: 'business' }] } as never
@@ -101,6 +102,7 @@ it('shows actual workflows and an older waiting run without legacy progress item
     if(path.endsWith('/tasks/old/stop')){waiting={...waiting,status:'interrupted'};return waiting as never}
     if(path.endsWith('/tasks/old'))return waiting as never
     if(path.endsWith('/progress'))return {revision:0,value:{goal:'',summary:'',items:[]}} as never
+    if(path.endsWith('/readiness'))return {status:'configured',issues:[],note:'运行时检查'} as never
     if(path.endsWith('/draft'))return {snapshot:{workflow:{nodes:[]}}} as never
     if(options)throw new Error(path)
     return {id:'p',name:'已有流程的项目',members:[{id:'p',name:'主流程',purpose:'business'},{id:'member',name:'数据分析',purpose:'business'},{id:'helper',name:'旧开发工具',purpose:'development'}]} as never

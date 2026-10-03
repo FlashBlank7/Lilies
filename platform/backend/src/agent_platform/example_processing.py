@@ -180,10 +180,12 @@ def main(inputs):
         missing = sum(r['match_status']=='unmatched' for r in result)
         return export({'markdown':f'# 关联结果\n\n保留左表 {len(rows)} 行，其中 {missing} 行未匹配；未匹配记录没有被删除。', 'rows':len(result),'unmatched':missing,'preview':result[:20]},result)
     if mode == 'expenses':
+        origins = [(inputs['source_path'], i+2) for i in range(len(rows))]
         if inputs.get('second_path'):
             more_fields, more = table(inputs['second_path'])
             if set(fields)!=set(more_fields):
                 raise ValueError('两份费用表的字段必须一致')
+            origins.extend((inputs['second_path'], i+2) for i in range(len(more)))
             rows += more
         required = ['date','category','amount','currency','merchant']
         if not set(required)<=set(fields):
@@ -200,10 +202,11 @@ def main(inputs):
             fingerprint=(row['date'],row['merchant'],amount,row['currency'])
             duplicate=fingerprint in seen; seen.add(fingerprint)
             totals[(month,row['category'],row['currency'])]+=amount
-            details.append({**row,'suspected_duplicate':'yes' if duplicate else 'no'})
+            details.append({**row,'source_file':origins[i][0],'source_row':origins[i][1],'suspected_duplicate':'yes' if duplicate else 'no'})
         summary=[{'month':m,'category':c,'currency':u,'amount':str(n)} for (m,c,u),n in sorted(totals.items())]
-        return export({'markdown':'# 费用汇总\n\n按币种分别计算；疑似重复只标记、不自动扣除。\n\n'+'\n'.join(f"- {r['month']} / {r['category']}：{r['amount']} {r['currency']}" for r in summary),
-                       'summary':summary,'suspected_duplicates':sum(r['suspected_duplicate']=='yes' for r in details),'rows':len(rows),'preview':details[:20]},details)
+        duplicates = [r for r in details if r['suspected_duplicate']=='yes']
+        return export({'markdown':f'# 费用汇总\n\n需要复核：{len(duplicates)} 条疑似重复费用。'+'\n\n按币种分别计算；疑似重复只标记、不自动扣除。\n\n'+'\n'.join(f"- {r['month']} / {r['category']}：{r['amount']} {r['currency']}" for r in summary),
+                       'summary':summary,'duplicate_records':duplicates[:100],'suspected_duplicates':len(duplicates),'rows':len(rows),'preview':details[:20]},details)
     if mode == 'summary':
         group,value = inputs.get('group','device'),inputs.get('value','value')
         if group not in fields or value not in fields:

@@ -14,6 +14,10 @@ class CodexError(RuntimeError):
     pass
 
 
+class CodexAuthenticationError(CodexError):
+    pass
+
+
 async def inspect_executable(path: str) -> dict[str, Any]:
     executable = shutil.which(path) if not Path(path).is_absolute() else path
     if not executable or not Path(executable).is_file() or not os.access(executable, os.X_OK):
@@ -137,7 +141,7 @@ class CodexAppServer:
         if self.subscription_only:
             account = (await self.request('account/read', {'refreshToken': False})).get('account')
             if not account or account.get('type') != 'chatgpt':
-                raise CodexError('官方智能体需要订阅账号登录，不能使用 API Key')
+                raise CodexAuthenticationError('官方智能体需要订阅账号登录，不能使用 API Key；请管理员重新连接')
         cwd = self.runtime_dir / 'empty-workspace'
         codex_home = self.runtime_dir / 'codex-home'
         config = self.config
@@ -215,7 +219,9 @@ class CodexAppServer:
                     future = self.pending.get(message["id"])
                     if future and not future.done():
                         if "error" in message:
-                            future.set_exception(CodexError(str(message["error"].get("message", "Codex 请求失败"))))
+                            error = message['error']
+                            kind = CodexAuthenticationError if error.get('code') == 401 else CodexError
+                            future.set_exception(kind(str(error.get('message', 'Codex 请求失败'))))
                         else:
                             future.set_result(message.get("result", {}))
                 else:
