@@ -140,7 +140,9 @@ class CodexAppServer:
         await self.connect()
         if self.subscription_only:
             account = (await self.request('account/read', {'refreshToken': False})).get('account')
-            if not account or account.get('type') != 'chatgpt':
+            if not account:
+                raise CodexAuthenticationError('官方智能体未检测到有效登录，请管理员重新连接订阅账号')
+            if account.get('type') != 'chatgpt':
                 raise CodexAuthenticationError('官方智能体需要订阅账号登录，不能使用 API Key；请管理员重新连接')
         cwd = self.runtime_dir / 'empty-workspace'
         codex_home = self.runtime_dir / 'codex-home'

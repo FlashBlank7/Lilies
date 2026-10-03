@@ -75,13 +75,13 @@ def enable(client, pid):
     assert result.status_code == 200, result.text
 
 
-def test_invalid_subscription_ends_wait_and_persists_repair_status(official, monkeypatch):
+@pytest.mark.parametrize('account', [None, {}, {'type': 'apiKey'}])
+def test_invalid_subscription_ends_wait_and_persists_repair_status(official, monkeypatch, account):
     from agent_platform.official_agent import OfficialAgent
     client, app, service = official
     _, headers = signup(client, '连接检查员工')
     pid = project(client, headers)
     enable(client, pid)
-    account = {'type': 'apiKey'}
     calls = []
 
     class Control:
@@ -103,6 +103,9 @@ def test_invalid_subscription_ends_wait_and_persists_repair_status(official, mon
     failed = wait(client, path, headers)
     assert failed['status'] == 'error'
     assert '认证失败' in failed['error']
+    assert ('API Key' in failed['error']) == bool(account)
+    if not account:
+        assert '未检测到有效登录' in failed['error']
     assert failed['connection_status'] == 'blocked'
     assert calls == ['account/read']
     assert not FakeAgent.turns
@@ -111,7 +114,7 @@ def test_invalid_subscription_ends_wait_and_persists_repair_status(official, mon
     assert client.get(path, headers=headers).json()['connection_status'] == 'blocked'
     assert OfficialAgent(app.state.services).connection()['connection_status'] == 'blocked'
     assert client.get('/api/v1/projects/'+pid+'/assistant-source',headers=headers).json()['connection_status'] == 'blocked'
-    account['type'] = 'chatgpt'
+    account = {'type': 'chatgpt'}
     checked = client.get('/api/v1/admin/official-agent?refresh=true', headers=ADMIN).json()
     assert checked['connection_status'] == 'checked'
     client.post(path+'/messages', headers=headers, json={'message': '重新整理会议'}).raise_for_status()

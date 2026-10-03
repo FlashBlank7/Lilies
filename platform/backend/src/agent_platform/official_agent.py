@@ -202,7 +202,8 @@ class OfficialAgent:
         self.rate_limits = {}
         self.last_error = ''
         if not account or account.get('type') != 'chatgpt':
-            self.last_error = '账号认证失败，请管理员连接订阅账号；API Key 登录不能用于官方智能体'
+            self.last_error = ('账号认证失败：未检测到有效登录，请管理员重新连接订阅账号' if not account else
+                               '账号认证失败：当前登录方式不是订阅账号，请管理员重新连接；API Key 登录不能用于官方智能体')
             return {'config': self.config().model_dump(), 'account': account, 'models': [], 'rate_limits': {},
                     'error': self.last_error, 'blocking_error': self.last_error, 'selection_error': '',
                     'dispatch_reason': '', 'login': self.login, **self.set_connection('blocked', self.last_error)}

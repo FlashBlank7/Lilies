@@ -289,14 +289,15 @@ for line in sys.stdin:
         await client.close()
 
 @pytest.mark.asyncio
-async def test_subscription_transport_excludes_api_key_and_personal_home(tmp_path, monkeypatch):
+@pytest.mark.parametrize('account', [None, {'type': 'apiKey'}, {'type': 'chatgpt'}])
+async def test_subscription_transport_excludes_api_key_and_personal_home(tmp_path, monkeypatch, account):
     import os
     private = tmp_path / 'account' / 'auth.json'
     private.parent.mkdir(); private.write_text('service-auth')
     monkeypatch.setenv('OPENAI_API_KEY', 'must-not-inherit')
     monkeypatch.setenv('OPENAI_BASE_URL', 'https://must-not-inherit.invalid')
     executable = tmp_path/'codex'
-    executable.write_text(f'#!{sys.executable}\n' + '''
+    executable.write_text(f'#!{sys.executable}\naccount = {account!r}\n' + '''
 import json, sys, os
 from pathlib import Path
 assert 'OPENAI_API_KEY' not in os.environ and 'OPENAI_BASE_URL' not in os.environ
@@ -304,8 +305,9 @@ assert (Path(os.environ['CODEX_HOME'])/'auth.json').read_text() == 'service-auth
 for line in sys.stdin:
     msg=json.loads(line); method=msg.get('method')
     if method=='initialize':result={}
-    elif method=='account/read':result={'account':{'type':'chatgpt'}}
+    elif method=='account/read':result={'account':account}
     elif method=='thread/start':
+        assert account == {'type':'chatgpt'}, 'Invalid login must not create a thread'
         p=msg['params'];assert p['model']=='gpt-5.6-luna'
         assert p['config']['forced_login_method']=='chatgpt'
         result={'thread':{'id':'isolated'}}
@@ -317,7 +319,13 @@ for line in sys.stdin:
     client=CodexAppServer(str(executable),tmp_path/'session',model='gpt-5.6-luna',thinking='max',
                           auth_file=private,subscription_only=True,allow_model_calls=False)
     try:
-        assert await client.start([], 'project only') == 'isolated'
+        if account == {'type': 'chatgpt'}:
+            assert await client.start([], 'project only') == 'isolated'
+        else:
+            from agent_platform.codex_app_server import CodexAuthenticationError
+            with pytest.raises(CodexAuthenticationError, match='未检测到有效登录' if account is None else 'API Key'):
+                await client.start([], 'project only')
+            assert client.thread_id is None
         with pytest.raises(CodexError,match='模型出口已关闭'):
             await client.turn('hello',None,None)
     finally:
