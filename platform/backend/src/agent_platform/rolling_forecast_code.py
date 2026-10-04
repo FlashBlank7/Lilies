@@ -94,7 +94,8 @@ def prepare(inputs):
     config={**keys,'timezone':inputs.get('timezone','+00:00')};tz=zone(config['timezone'])
     for key,default,low,high in [('step_seconds',86400,1,31536000),('lags',7,1,100),('horizon',3,1,96),('origins',3,1,20),
         ('origin_stride',3,1,1000),('training_window',0,0,10000),('seasonal_period',7,1,1000)]:
-        config[key]=integer(inputs.get(key,default),key,low,high)
+        label='预测步数（horizon）' if key=='horizon' else key
+        config[key]=integer(inputs.get(key,default),label,low,high)
     config['forecast_last']=inputs.get('forecast_last',False)
     if not isinstance(config['forecast_last'],bool):raise ValueError('最后时点预测请选择是或否')
     config['model_choice']=inputs.get('model_choice','仅线性回归')

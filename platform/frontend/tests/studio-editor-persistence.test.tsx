@@ -13,6 +13,65 @@ vi.mock('@xyflow/react', async importOriginal => ({
 vi.mock('@/app/applications/[id]/block-catalog-panel', () => ({ BlockCatalogPanel: () => null, BlockInstanceDetails: () => null, BlockPurpose: () => null, UndefinedBusinessWorkflowNotice: () => null }))
 afterEach(() => { cleanup(); vi.mocked(api).mockReset() })
 
+it.each([true,false])('opens the run step in its nested current canvas without changing the draft (exists=%s)',async exists=>{
+  window.history.replaceState(null,'','/?tab=edit&node_path='+encodeURIComponent(JSON.stringify(['each',exists?'inside':'deleted'])))
+  const inner={id:'inside',title:'循环内部处理',type:'code',position:{x:0,y:0},config:{message:'这是当前草稿'}}
+  const draft={application_id:'p',revision:2,content_hash:'current',validation_report:{},snapshot:{name:'当前流程',description:'',requirement:'',mode:'workflow',tests:[],agents:{},workflow:{nodes:[{id:'each',title:'逐项处理',type:'iteration',position:{x:0,y:0},config:{workflow:{nodes:[inner],edges:[]}}}],edges:[]}}}
+  vi.mocked(api).mockImplementation(async path=>{
+    if(path.endsWith('/draft'))return draft as never
+    if(path.startsWith('/api/v1/blocks?application_id='))return [{type:'code',title:'代码',category:'tool',input_ports:[],output_ports:[],editor:{fields:[]},config_schema:{}},{type:'iteration',title:'循环',category:'logic',input_ports:[],output_ports:[],editor:{fields:[]},config_schema:{}}] as never
+    if(path.endsWith('/project'))return {project_id:null} as never
+    if(path==='/health')return {status:'ok'} as never
+    return [] as never
+  })
+  try {
+    const {container}=await act(async()=>render(<Suspense><Studio params={Promise.resolve({id:'p'})}/></Suspense>))
+    if(exists){
+      await screen.findByText('已定位到当前草稿中的对应积木。这里的修改仅影响后续运行，原运行记录保持不变。')
+      expect(screen.getByRole('button',{name:'Select inside'})).toBeInTheDocument()
+      expect(screen.queryByRole('button',{name:'Select each'})).not.toBeInTheDocument()
+      expect(JSON.parse((container.querySelector('textarea.json-editor') as HTMLTextAreaElement).value)).toEqual(inner.config)
+    }else{
+      await screen.findByText('当前草稿中已找不到本次运行的这个步骤。原运行记录仍保留，可返回结果查看。')
+      expect(screen.getByRole('button',{name:'Select each'})).toBeInTheDocument()
+    }
+    expect(vi.mocked(api).mock.calls.some(([,options])=>options?.method==='POST')).toBe(false)
+  }finally{window.history.replaceState(null,'','/')}
+})
+
+it('saves model choices from Chinese form labels using the original schema values', async () => {
+  const config = { evaluation: { problem: 'regression', metric: 'mae' }, candidate: { engine: 'sklearn', models: ['linear', 'forest'] } }
+  const draft = { application_id: 'p', revision: 1, content_hash: 'one', validation_report: {},
+    snapshot: { name: '训练', description: '', requirement: '', mode: 'workflow', tests: [], agents: {}, workflow: {
+      nodes: [{ id: 'train', title: '训练模型', type: 'model_train', position: { x: 0, y: 0 }, config }], edges: [] } } }
+  const saved: unknown[] = []
+  vi.mocked(api).mockImplementation(async (path, options) => {
+    if (path.endsWith('/draft') && options?.method === 'POST') {
+      saved.push(JSON.parse(options.body as string).data.changes.config)
+      return draft as never
+    }
+    if (path.endsWith('/draft')) return draft as never
+    if (path.startsWith('/api/v1/blocks?application_id=')) return [{ type: 'model_train', title: '训练', category: 'model', input_ports: [], output_ports: [], config_schema: {},
+      editor: { fields: [
+        { path: 'candidate.engine', label: 'Engine', label_zh: '训练方式', control: 'enum', options: ['sklearn', 'optuna'],
+          option_labels_zh: { sklearn: '基础模型比较（scikit-learn）', optuna: '自动搜索参数（Optuna）' } },
+        { path: 'candidate.models', label: 'Models', label_zh: '候选模型', control: 'string_list', required: true,
+          options: ['linear', 'forest', 'hist_gradient'], option_labels_zh: { linear: '线性模型', forest: '随机森林', hist_gradient: '梯度提升树' } },
+      ] } }] as never
+    if (path.endsWith('/project')) return { project_id: null } as never
+    if (path === '/health') return { status: 'ok' } as never
+    return [] as never
+  })
+  const { container } = await act(async () => render(<Suspense><Studio params={Promise.resolve({ id: 'p' })} /></Suspense>))
+  fireEvent.click(await screen.findByRole('button', { name: 'Select train' }))
+  fireEvent.change(screen.getByRole('combobox', { name: '训练方式' }), { target: { value: 'optuna' } })
+  fireEvent.click(screen.getByRole('checkbox', { name: '线性模型' }))
+  fireEvent.click(screen.getByRole('checkbox', { name: '梯度提升树' }))
+  fireEvent.click(container.querySelector('[data-config-editor-action="save"]')!)
+  await waitFor(() => expect(saved).toHaveLength(1))
+  expect(saved[0]).toEqual({ ...config, candidate: { engine: 'optuna', models: ['forest', 'hist_gradient'] } })
+})
+
 it.each([
   { $ref: { node_id: 'prepare', path: ['json', 'requirements'] } },
   [{ title: '保留数组对象' }],

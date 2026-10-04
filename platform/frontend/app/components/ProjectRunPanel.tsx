@@ -5,6 +5,7 @@ import { clientId } from '@/lib/client-id'
 import Link from 'next/link'
 import ProjectTaskInput from './ProjectTaskInput'
 import TaskError from './TaskError'
+import ProjectRunSteps from './ProjectRunSteps'
 import {FeedbackButton} from './UserFeedback'
 import WorkflowInputTable, {type InputColumn} from './WorkflowInputTable'
 import KnowledgeResults, {isKnowledgeSearchResult} from './KnowledgeResults'
@@ -28,7 +29,7 @@ export function ProjectRunEvents({ runs, members }: { runs: ProjectTask['runs'];
   const [events, setEvents] = useState<{ id: number; type: string; data: unknown }[]>([])
   const [truncated, setTruncated] = useState(false)
   const [error, setError] = useState('')
-  return <>{runs?.map(run => <p key={run.id}><button onClick={async () => { setError(''); try { const result = await api<{ events: typeof events; truncated: boolean }>(`/api/v1/runs/${run.id}/events/list?after=0&limit=1000`); setEvents(result.events); setTruncated(result.truncated) } catch (cause) { setError(String(cause)) } }}>{members.find(member => member.id === run.application_id)?.name || '成员'} · {taskNames[run.status] || run.status} · 查看步骤输入输出</button></p>)}
+  return <>{runs?.map(run => <p key={run.id}><button onClick={async () => { setError(''); try { const result = await api<{ events: typeof events; truncated: boolean }>(`/api/v1/runs/${run.id}/events/list?after=0&limit=1000`); setEvents(result.events); setTruncated(result.truncated) } catch (cause) { setError(String(cause)) } }}>{members.find(member => member.id === run.application_id)?.name || '成员'} · {taskNames[run.status] || run.status} · 查看原始执行事件</button></p>)}
     {error && <p role="alert">{error}</p>}{truncated && <p>当前显示最近 1000 条事件，较早事件未包含在此窗口中。</p>}
     {events.map(event => <details key={event.id}><summary>{event.type}</summary><pre>{JSON.stringify(event.data, null, 2)}</pre></details>)}
   </>
@@ -87,6 +88,7 @@ export function ProjectTaskOutput({ projectId, task, onTask, canConfigureModel=f
       if (!item.file_path || !/^(results|solution)\//.test(item.file_path) || item.file_path.split('/').includes('..')) return null
       return <p key={i}><a download href={withFrontendToken(`/api/platform/api/v1/applications/${projectId}/workspace/files/${item.file_path.split('/').map(encodeURIComponent).join('/')}?download=1`)}>{item.label || item.file_path.split('/').pop()} ↓</a></p>
     })}
+    <ProjectRunSteps projectId={projectId} runs={task.runs}/>
   </>
 }
 

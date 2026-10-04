@@ -2,6 +2,8 @@
 
 import { containerWorkflow as containerInnerWorkflow, workflowAtPath, scopedMutation, scopedFieldNodes } from '@/lib/workflow-scope'
 import { outputPaths } from '@/lib/workflow-fields'
+import { blockPortType } from '@/lib/block-display'
+import BlockOptionField from '@/app/components/BlockOptionField'
 import ProjectWorkflowChecks from '@/app/components/ProjectWorkflowChecks'
 import WorkflowComposer from '@/app/components/WorkflowComposer'
 import { workflowFieldLabels, workflowModelHelp } from '@/lib/workflow-fields'
@@ -82,6 +84,7 @@ type StudioPort = {
   value_type: string
 }
 type StudioNode = Node<{
+  locale: Locale
   title: string
   blockType: string
   description: string
@@ -187,8 +190,8 @@ function BrickNode({ data, selected }: NodeProps<StudioNode>) {
     style={{ '--accent': accent, minHeight: nodeHeight } as React.CSSProperties}
   >
     {inputPorts.map((port, index) => <div className="brick-port brick-port-input" data-node-input-port={port.name} key={`input-${port.name}`} style={{ top: portTop(index) }}>
-      <Handle id={port.name} title={`${port.name}: ${port.value_type}`} type="target" position={Position.Left} />
-      <span>{port.name}</span><small>{port.value_type}</small>
+      <Handle id={port.name} title={`${port.name}: ${blockPortType(port.value_type, data.locale)}`} type="target" position={Position.Left} />
+      <span>{port.name}</span><small>{blockPortType(port.value_type, data.locale)}</small>
     </div>)}
     <div className="brick-type">{blockType.replaceAll('_', ' ')}</div>
     <strong>{title}</strong>
@@ -199,8 +202,8 @@ function BrickNode({ data, selected }: NodeProps<StudioNode>) {
     </div>}
     {data.status && <span className={`node-status ${data.status}`}>{data.status}</span>}
     {outputPorts.map((port, index) => <div className="brick-port brick-port-output" data-node-output-port={port.name} key={`output-${port.name}`} style={{ top: portTop(index) }}>
-      <span>{port.name}</span><small>{port.value_type}</small>
-      <Handle id={port.name} title={`${port.name}: ${port.value_type}`} type="source" position={Position.Right} />
+      <span>{port.name}</span><small>{blockPortType(port.value_type, data.locale)}</small>
+      <Handle id={port.name} title={`${port.name}: ${blockPortType(port.value_type, data.locale)}`} type="source" position={Position.Right} />
     </div>)}
   </div>
 }
@@ -234,6 +237,7 @@ function safeStudioNodeData(
     ? config.operation_id
     : undefined
   return {
+    locale,
     title,
     blockType,
     description: safeText(node.description, fallbackDescription),
@@ -922,6 +926,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   const detailBuildRequirementRef = useRef<HTMLTextAreaElement>(null)
   const acceptanceRepairRef = useRef<HTMLElement>(null)
   const initialLoadStartedRef = useRef(false)
+  const initialRunNodeFocusedRef = useRef(false)
   const latestRevision = useRef(0)
   const lastFitSignature = useRef('')
   const buildPoll = useRef<number | null>(null)
@@ -1196,6 +1201,32 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   function activeWorkflow(current = draftRef.current, scope = containerScopeRef.current) {
     return workflowAtPath(current?.snapshot.workflow, scope)
   }
+
+  useEffect(() => {
+    if (!draft || !blocks.length || initialRunNodeFocusedRef.current) return
+    const raw = new URLSearchParams(window.location.search).get('node_path')
+    if (!raw) return
+    initialRunNodeFocusedRef.current = true
+    try {
+      const path: unknown = JSON.parse(raw)
+      if (!Array.isArray(path) || !path.length || path.length > 32 || !path.every(part => typeof part === 'string' && part.length > 0)) throw new Error('invalid node path')
+      const scope = path.slice(0, -1) as string[]
+      const graph = workflowAtPath(draft.snapshot.workflow, scope)
+      const node = graph?.nodes.find(item => item.id === path.at(-1))
+      if (!node) { setNotice('当前草稿中已找不到本次运行的这个步骤。原运行记录仍保留，可返回结果查看。'); return }
+      containerScopeRef.current = scope; setContainerScope(scope)
+      workflowEditSelectionRef.current = {nodeIds:[node.id],edgeIds:[]}
+      setSelectedNode(node)
+      setStudioChrome(current => ({...current, leftPanelExpanded:true}))
+      syncCanvas(draft)
+      setStudioTab('edit', {replace:true})
+      setNotice('已定位到当前草稿中的对应积木。这里的修改仅影响后续运行，原运行记录保持不变。')
+    } catch {
+      setNotice('无法定位这个步骤，请在画布中选择积木。')
+    }
+  // Only select once after the graph loads; later refreshes must preserve manual edits.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft, blocks])
 
   function mutation(op: string, data: Record<string, unknown>, scope = [...containerScopeRef.current]) {
     const queued = mutationQueueRef.current.then(async (): Promise<Draft | null> => {
@@ -2384,7 +2415,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
                     : ['outputs', 'input', 'variables', 'inputs', 'assignments', 'headers', 'query'].includes(field.path) && field.control === 'json' ? <WorkflowObjectFields projectId={projectContext?.id} nodes={fieldNodes} edges={fieldEdges} blocks={blocks} modelRole={String(configFieldValues.model_role || selected.config.model_role || 'main')} nodeId={selected.id} label={label} field={field.path} value={String(value ?? '{}')} onChange={update} />
                     : (field.control === 'reference_or_text' || ['model_ref', 'knowledge_ref', 'dataset_id', 'file_path'].includes(field.path) || (selected.type === 'llm' && field.path === 'model')) ? <WorkflowValueField projectId={projectContext?.id} nodes={fieldNodes} edges={fieldEdges} blocks={blocks} modelRole={String(configFieldValues.model_role || selected.config.model_role || 'main')} allowReference={field.path !== 'model'} nodeId={selected.id} label={label} field={field.path} value={String(value ?? '')} onChange={update} />
                     : field.control === 'boolean' ? <input aria-label={label} type="checkbox" checked={value === true} onChange={event => update(event.target.checked)} />
-                    : field.control === 'enum' ? <select aria-label={label} value={String(value ?? '')} onChange={event => update(event.target.value)}>{!field.required && field.default_value == null && <option value="" />}{field.options?.map(option => <option key={option} value={option}>{selected.type === 'llm' && field.path === 'model_role' ? option === 'vision' ? '视觉模型' : '主模型' : option}</option>)}</select>
+                    : (field.control === 'enum' || (field.control === 'string_list' && field.options?.length)) ? <BlockOptionField field={selected.type === 'llm' && field.path === 'model_role' ? { ...field, option_labels_zh: { main: '主模型', vision: '视觉模型' } } : field} label={label} locale={locale} value={String(value ?? '')} onChange={update} />
                       : ['textarea', 'json', 'reference_or_text', 'string_list'].includes(field.control) ? <textarea aria-label={label} className={field.control === 'json' ? 'config-json-field' : ''} spellCheck={field.control !== 'json'} value={String(value ?? '')} onChange={event => update(event.target.value)} />
                         : <input aria-label={label} type={field.control === 'number' ? 'number' : 'text'} readOnly={field.control === 'readonly'} min={field.minimum} max={field.maximum} step={field.step} value={String(value ?? '')} onChange={event => update(event.target.value)} />}
                 </div>

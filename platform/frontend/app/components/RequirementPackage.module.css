@@ -9,6 +9,7 @@
 .controls button:disabled { opacity:.45; cursor:default; }
 .materials { padding:16px 20px; border-bottom:1px solid var(--ui-line); background:var(--ui-accent-soft); font-size:13px; max-height:42vh; overflow:auto; }
 .materials summary { cursor:pointer; color:var(--ui-ink); font-weight:600; }
+.materials h3 { margin:0; font-size:14px; color:var(--ui-ink); }
 .materials details { margin-top:12px; }
 .materials pre { white-space:pre-wrap; overflow-wrap:anywhere; font:inherit; line-height:1.7; }
 .materials ul { padding-left:16px; }

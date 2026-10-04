@@ -22,3 +22,21 @@ it('does not invent a cause when a traceback has no final exception',()=>{
   render(<TaskError error={'Traceback (most recent call last):\n  File "workflow.py", line 1'}/>);
   expect(screen.getByRole('alert')).toHaveTextContent('执行失败，请展开查看错误详情。')
 })
+
+it.each([
+  'horizon需要1至96之间的整数',
+  'node prepare failed: Python 执行失败：horizon需要1至96之间的整数',
+  'Traceback (most recent call last):\n  File "workflow.py", line 1\nValueError: horizon需要1至96之间的整数',
+])('explains the legacy forecast horizon range and preserves its original error: %s',error=>{
+  render(<TaskError error={error}/>);
+  expect(screen.getByRole('alert')).toHaveTextContent('预测步数（horizon）需要填写 1 至 96 之间的整数')
+  expect(screen.getByRole('alert')).toHaveTextContent('在运行参数中修改“预测步数”')
+  expect(screen.getByText('错误详情').closest('details')).not.toHaveAttribute('open')
+  expect(screen.getByText(error,{exact:true,normalizer:s=>s}).tagName).toBe('PRE')
+})
+
+it('does not reinterpret a different horizon constraint',()=>{
+  render(<TaskError error="horizon需要2至12之间的整数"/>);
+  expect(screen.getByRole('alert')).toHaveTextContent('horizon需要2至12之间的整数')
+  expect(screen.queryByText('错误详情')).not.toBeInTheDocument()
+})

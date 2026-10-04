@@ -1,5 +1,5 @@
 import { Suspense } from 'react'
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { api } from '@/lib/platform'
 import ProjectPage from '@/app/projects/[id]/page'
@@ -84,6 +84,20 @@ it('keeps materials through viewing a workflow and appends them to the existing 
   fireEvent.click(screen.getByRole('button', { name: '带着所选资料开始对话' }))
   expect(screen.getByLabelText('给项目统筹的消息')).toHaveValue(expected)
   expect(vi.mocked(api).mock.calls.some(([, options]) => options?.method === 'POST')).toBe(false)
+})
+
+it('opens the materials tab with files already visible before knowledge and project instructions', async () => {
+  const normal = vi.mocked(api).getMockImplementation()!
+  vi.mocked(api).mockImplementation(async (path, options) => path.endsWith('/workspace/files') ? files as never : normal(path, options))
+  await act(async () => { render(<Suspense><ProjectPage params={Promise.resolve({ id: 'p' })} /></Suspense>) })
+  fireEvent.click(screen.getByRole('tab', { name: '资料与知识' }))
+  const materials = screen.getByRole('heading', { name: '项目需求资料' }).closest('section')!
+  expect(await within(materials).findByRole('link', { name: 'input.csv' })).toBeVisible()
+  expect(within(materials).getByRole('link', { name: 'reference.csv' })).toBeVisible()
+  const headings = screen.getAllByRole('heading', { level: 2 }).map(heading => heading.textContent)
+  expect(headings.indexOf('项目需求资料')).toBeLessThan(headings.indexOf('项目知识库'))
+  expect(headings.indexOf('项目需求资料')).toBeLessThan(headings.indexOf('项目使用说明'))
+  expect(vi.mocked(api).mock.calls.some(([, options]) => options?.method)).toBe(false)
 })
 
 const props = { projectId: 'p', onWorkflow: vi.fn(), onFile: vi.fn(), onTalk: vi.fn(), onChanged: vi.fn() }

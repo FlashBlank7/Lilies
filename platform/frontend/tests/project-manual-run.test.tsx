@@ -134,7 +134,7 @@ it.each(['', ' '])('sends cleared optional defaults (%j) so switching inputs can
 it('loads persisted step input/output and errors from the selected run', async () => {
   vi.mocked(api).mockResolvedValue({ events: [{ id: 1, type: 'node_failed', data: { node_id: 'parse', inputs: { file: 'design.pdf' }, error: '文档无法解析' } }], truncated: false })
   render(<ProjectRunEvents members={members} runs={[{ id: 'run-1', status: 'failed', application_id: 'member', draft_revision: 2 }]} />)
-  fireEvent.click(screen.getByRole('button', { name: '解析资料 · 运行失败 · 查看步骤输入输出' }))
+  fireEvent.click(screen.getByRole('button', { name: '解析资料 · 运行失败 · 查看原始执行事件' }))
   expect(await screen.findByText('node_failed')).toBeInTheDocument()
   expect(screen.getByText(/文档无法解析/)).toHaveTextContent('design.pdf')
   expect(api).toHaveBeenCalledWith('/api/v1/runs/run-1/events/list?after=0&limit=1000')

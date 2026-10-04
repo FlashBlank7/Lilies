@@ -45,6 +45,55 @@ def replace_refs(value, files, workflows):
     return value
 
 
+def field_notes(template_id):
+    """Describe the actual example inputs, not its broad catalog category."""
+    if template_id == 'rolling-forecast':
+        return ('history.csv 与 history-late.csv 的字段为：\n'
+                '- `series`：序列标识，不同序列分别训练和评价。\n'
+                '- `time`：观测时刻，对应表单“观测时刻列”。\n'
+                '- `available`：这条数值实际可用的时刻，对应“实际可用时间列”；每个预测起点只使用当时已可用的记录。\n'
+                '- `value`：要预测的历史数值，对应“要预测的数值列”；零和负数均有效。\n\n'
+                '列名按原文件填写：观测时刻列填 time，数值列填 value，序列标识列填 series，实际可用时间列填 available。'
+                '默认每个时段为一天（86400秒），预测步数为3，回测3个历史起点。'
+                'history-late.csv 将最后一条观测的可用时间推迟两天，用于检查迟到数据不会提前参与预测。'
+                '训练标签由流程从后续实际数值生成，原表无需另外提供标签列。全部为合成序列，不代表真实预测效果。')
+    if template_id == 'prediction-feedback':
+        return ('predictions.csv 含 `sample_id`（样本标识）、`batch`（分组）、`prediction`（已有预测）、`baseline`（已有基线）；'
+                'measurements.csv 与 measurements-2.csv 含 `sample_id` 和 `actual`（实测）。'
+                '两表按 sample_id 关联，不按行号拼接。review-labels.csv 在同表保存这些字段，用于类别复核练习。'
+                '本流程只比较已有预测与实测，不训练或重新预测。')
+    if template_id == 'interval-trends':
+        return ('history.csv 与 history-gap.csv 含 `series`（对象标识）、`period`（观测周期）和 `value`（周期数值）。'
+                '示例按月记录，history-gap.csv 缺少2024-06；缺周期不能压缩成下一行。'
+                '流程按未来区间均值生成 samples.csv 的 target 标签，保留起点当时可知的历史特征；原表无需标签列。')
+    if template_id == 'process':
+        return ('process.csv 含 `furnace`（炉次标识）、`time`（观测时间）、`temperature`（温度）和 `pressure`（压力）；'
+                'labels.csv 含 `furnace`、`prediction_time`（预测时点）及 `target`（合成数值标签）。'
+                '过程表与标签表按炉次对应，窗口仅取预测时点之前的记录；furnace 用于隔离分组，不作为特征。'
+                '带 -2 的过程表与标签表须成套更换。new-data.csv 另附 temperature、pressure、material 三列，不能代替过程表与标签表。'
+                '预处理仅在训练折内拟合，测试集仅评价固定方案，不代表真实工业效果。')
+    if template_id in ('classification', 'regression', 'group-training', 'prediction', 'rules', 'data-guidance'):
+        label = '合成连续数值标签' if template_id == 'regression' else '合成分类标签（good / review）'
+        return ('`temperature`（温度）与 `pressure`（压力）为合成连续特征，`material` 为类别特征；'
+                f'`target` 是{label}，`batch` 是批次标识，不作为可泛化特征。'
+                'new-data.csv 仅含 temperature、pressure、material，用于已有模型预测，不含训练标签。'
+                '训练与预处理在训练折内拟合；测试集仅评价固定方案。没有真实工业效果结论。')
+    return ''
+
+
+def manual_text(guide):
+    text='# '+guide['name']+'\n\n所有资料为自编或合成，不代表客户现场效果。\n\n## 准备条件\n'+ '\n'.join('- '+v for v in guide['requires'])
+    text+='\n\n## 操作顺序\n'+'\n'.join(f'{i+1}. {s}' for i,s in enumerate(guide['steps']))
+    text+='\n\n## 可以这样问\n'+guide['question']+'\n\n## 修改练习\n'+guide['exercise']
+    text+='\n\n## 资料与字段\n'+'\n'.join(f'- {f["name"]}：{f["path"]}' for f in guide['files'])
+    if notes := field_notes(guide['id']):
+        text+='\n\n'+notes
+    text+='\n\n## 工作流\n'+'\n'.join(f'- {w["name"]}：{w["id"]}' for w in guide['workflows'])
+    if guide.get('guide'):
+        text+='\n\n## 方法与调用\n'+guide['guide']
+    return text+'\n\n在项目空间选择资料和已有工作流，点击“让智能体调用”准备消息，检查后发送；也可以填写运行参数直接运行。结果在运行记录中查看和下载。换资料后创建新运行，原结果保留。创建项目不会自动执行任务。'
+
+
 async def discard_new_project(services, project_id):
     """Only called for an unpublished, never-run installation created by this request."""
     def remove():
@@ -112,16 +161,7 @@ async def instantiate(services,user,item,body):
             await services.projects.knowledge.add(pid,'example-knowledge',KnowledgeSource(expected_revision=resource['revision'],source_path=files['handbook.txt']['path']))
         guide={**public_item(item,True),'files':list(files.values()),
                'workflows':[{'id':workflows[w['key']],'name':w['name']} for w in item['workflows']]}
-        text='# '+item['name']+'\n\n所有资料为自编或合成，不代表客户现场效果。\n\n## 准备条件\n'+ '\n'.join('- '+v for v in item['requires'])
-        text+='\n\n## 操作顺序\n'+'\n'.join(f'{i+1}. {s}' for i,s in enumerate(item['steps']))
-        text+='\n\n## 可以这样问\n'+item['question']+'\n\n## 修改练习\n'+item['exercise']
-        text+='\n\n## 资料与字段\n'+'\n'.join(f'- {n}：{f["path"]}' for n,f in files.items())
-        if item['category']=='机器学习':
-            text+='\n\n温度 temperature 与压力 pressure 为合成连续特征，material 为类别特征；target 是生成的标签，batch/furnace 是隔离分组，不能作为可泛化特征。过程 time 为观测时间，prediction_time 为预测时点，窗口仅取预测前记录。特征与预处理在训练折内拟合；测试集仅评价固定方案。没有真实工业效果结论。'
-        text+='\n\n## 工作流\n'+'\n'.join(f'- {w["name"]}：{w["id"]}' for w in guide['workflows'])
-        if item.get('guide'):
-            text+='\n\n## 方法与调用\n'+item['guide']
-        text+='\n\n在项目空间选择资料和已有工作流，点击“让智能体调用”准备消息，检查后发送；也可以填写运行参数直接运行。结果在运行记录中查看和下载。换资料后创建新运行，原结果保留。创建项目不会自动执行任务。'
+        text=manual_text(guide)
         manual=await add_material(services,pid,UploadFile(file=io.BytesIO(text.encode()),filename='使用说明.md'))
         guide['manual_path']=manual['path']
         await save_skill(services,pid,'example-guide',SkillDocument(name=item['name']+'使用说明',description=item['description'][:500],content=text+'\n\n智能体可用 project_workflows inspect 查看当前输入和默认值，再用 workflow_run 调用。一次性问题可直接回答。连接缺失时请配置，不自动换服务商；未实际运行不得报告已完成。'))
@@ -169,5 +209,8 @@ def register_example_routes(router,scoped,services,invoke):
         rows=await services.projects.store.records(project_id,'example')
         guide = next((r['value'] for r in rows if r['key']=='guide'),None)
         if guide:
-            guide = {**guide, 'readiness': await project_readiness(services, project_id, project_id)}
+            # Show corrected guidance for existing projects without rewriting their
+            # saved manual, editable skill, workflows, or historical runs.
+            guide = {**guide, 'current_manual': manual_text(guide), 'field_notes': field_notes(guide['id']),
+                     'readiness': await project_readiness(services, project_id, project_id)}
         return guide

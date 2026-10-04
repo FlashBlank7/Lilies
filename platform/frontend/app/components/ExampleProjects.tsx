@@ -7,7 +7,7 @@ import {useAccount} from './AuthBoundary'
 import styles from './example-projects.module.css'
 import WorkflowReadiness, {type Readiness} from './WorkflowReadiness'
 
-export type ExampleProject = {readiness?:Readiness;id:string;version:number;name:string;category:string;description:string;question:string;exercise:string;requires:string[];featured:boolean;steps:string[];files:{name:string;size:number;path?:string}[];workflow_count:number;workflows?:{id?:string;key?:string;name:string}[];manual_path?:string}
+export type ExampleProject = {readiness?:Readiness;id:string;version:number;name:string;category:string;description:string;question:string;exercise:string;requires:string[];featured:boolean;steps:string[];files:{name:string;size:number;path?:string}[];workflow_count:number;workflows?:{id?:string;key?:string;name:string}[];manual_path?:string;current_manual?:string;field_notes?:string}
 const categories=['全部','日常办公','数据处理','机器学习','知识问答','流程搭建']
 
 export default function ExampleProjects({onCreated}:{onCreated:(id:string)=>void}){

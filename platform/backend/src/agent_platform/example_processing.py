@@ -221,6 +221,14 @@ def main(inputs):
         missing = sum(r['match_status']=='unmatched' for r in result)
         return export({'markdown':f'# 关联结果\n\n保留左表 {len(rows)} 行，其中 {missing} 行未匹配；未匹配记录没有被删除。', 'rows':len(result),'unmatched':missing,'preview':result[:20]},result)
     if mode == 'expenses':
+        group_by = inputs.get('group_by', '按月、类别和币种')
+        group_fields = {'按月、类别和币种': 'category', '按月、商户和币种': 'merchant'}
+        if group_by not in group_fields:
+            raise ValueError('汇总维度请选择按月、类别和币种，或按月、商户和币种')
+        group_field = group_fields[group_by]
+        mark_duplicates = inputs.get('mark_duplicates', True)
+        if not isinstance(mark_duplicates, bool):
+            raise ValueError('标记疑似重复需要是／否（布尔值）')
         origins = [(inputs['source_path'], i+2) for i in range(len(rows))]
         if inputs.get('second_path'):
             more_fields, more = table(inputs['second_path'])
@@ -241,13 +249,17 @@ def main(inputs):
             if any(not str(row[f] or '').strip() for f in ['category','currency','merchant']):
                 raise ValueError(f'第 {i+2} 行缺少类别、币种或商户')
             fingerprint=(row['date'],row['merchant'],amount,row['currency'])
-            duplicate=fingerprint in seen; seen.add(fingerprint)
-            totals[(month,row['category'],row['currency'])]+=amount
-            details.append({**row,'source_file':origins[i][0],'source_row':origins[i][1],'suspected_duplicate':'yes' if duplicate else 'no'})
-        summary=[{'month':m,'category':c,'currency':u,'amount':str(n)} for (m,c,u),n in sorted(totals.items())]
+            duplicate=mark_duplicates and fingerprint in seen; seen.add(fingerprint)
+            totals[(month,row[group_field],row['currency'])]+=amount
+            details.append({**row,'source_file':origins[i][0],'source_row':origins[i][1],
+                'suspected_duplicate':('yes' if duplicate else 'no') if mark_duplicates else 'not_checked'})
+        summary=[{'month':m,group_field:c,'currency':u,'amount':str(n)} for (m,c,u),n in sorted(totals.items())]
         duplicates = [r for r in details if r['suspected_duplicate']=='yes']
-        return export({'markdown':f'# 费用汇总\n\n需要复核：{len(duplicates)} 条疑似重复费用。'+'\n\n按币种分别计算；疑似重复只标记、不自动扣除。\n\n'+'\n'.join(f"- {r['month']} / {r['category']}：{r['amount']} {r['currency']}" for r in summary),
-                       'summary':summary,'duplicate_records':duplicates[:100],'suspected_duplicates':len(duplicates),'rows':len(rows),'preview':details[:20]},details)
+        duplicate_note = f'需要复核：{len(duplicates)} 条疑似重复费用。' if mark_duplicates else '疑似重复标记已关闭，本次未检查重复。'
+        return export({'markdown':f'# 费用汇总\n\n汇总维度：{group_by}。\n\n{duplicate_note}'+'\n\n按币种分别计算；保留全部费用与退款，疑似重复只标记、不自动扣除。\n\n'+'\n'.join(f"- {r['month']} / {r[group_field]}：{r['amount']} {r['currency']}" for r in summary),
+                       'group_by':group_by,'mark_duplicates':mark_duplicates,
+                       'summary':summary,'duplicate_records':duplicates[:100],
+                       'suspected_duplicates':len(duplicates) if mark_duplicates else None,'rows':len(rows),'preview':details[:20]},details)
     if mode == 'summary':
         group,value = inputs.get('group','device'),inputs.get('value','value')
         if group not in fields or value not in fields:

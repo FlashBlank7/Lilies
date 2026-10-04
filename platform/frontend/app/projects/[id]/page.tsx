@@ -243,7 +243,7 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
         {task.feedback_task_id && <button onClick={() => void showTask(task.feedback_task_id)}>查看修改前的结果</button>}
         <details><summary>实际运行与原始输入输出</summary><p>请求标识：{task.request_key}</p><pre>{JSON.stringify({ inputs: task.inputs, outputs: task.outputs }, null, 2)}</pre>{task.runs?.map(run => <p key={run.id}>{project?.members.find(m => m.id === run.application_id)?.name} · r{run.draft_revision} · {taskNames[run.status] || run.status}</p>)}
           <ProjectRunEvents key={task.id} runs={task.runs} members={project?.members || []} />
-          <button onClick={() => { setDeveloperTaskId(task.id); setTab('development'); setReader(false) }}>打开运行详情</button></details></> : <p>选择一次业务处理，查看结果。</p>}</div>
+          <button onClick={() => { setDeveloperTaskId(task.id); setTab('development'); setReader(false) }}>查看开发详情</button></details></> : <p>选择一次业务处理，查看结果。</p>}</div>
 </ReadingDialog>}
     {tab === 'flow' && topology && <><section className={styles.flowBar}><div className={styles.flowMembers}>{topology.members.filter(m => m.purpose === 'business').map(member => <button key={member.id} aria-label={member.name} title={member.name} aria-selected={workflowId === member.id} onClick={() => { setWorkflowId(member.id); setEditingFlow(true) }}>{member.id === id ? '主流程' : member.name}</button>)}</div></section>
       <div className={styles.actions}><input aria-label="新工作流名称" value={memberName} onChange={event => setMemberName(event.target.value)} placeholder="新工作流名称" />
@@ -253,9 +253,9 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
         : <ProjectWorkflowOverview key={workflowId + flowItemId} initialItemId={flowItemId} projectId={id} selectedId={workflowId} progress={progress} topology={topology} onWorkflow={selected => { setWorkflowId(selected); setEditingFlow(false); window.scrollTo(0, 0) }} onTalk={talk} onTask={taskId => void showTask(taskId)} onFile={showFile} onRequirements={() => void showRequirements()} onEdit={() => setEditingFlow(true)} />}
     </>}
     {requirements !== null && <ReadingDialog wide title="当前需求文档" onClose={() => setRequirements(null)}><div className={styles.readerBody}><MarkdownDocument source={requirements} resolveLink={href => resolveProjectLink(id, href)} emptyLabel="尚未形成需求文档" /></div></ReadingDialog>}
-    {tab === 'materials' && <ProjectSkills projectId={id} />}
+    {tab === 'materials' && <section className={styles.panel}><h2>项目需求资料</h2><ProjectMaterials onOpenFile={showFile} id={id} expanded /></section>}
     {tab === 'materials' && project && <ProjectKnowledge key={id} projectId={id} canManage={project.access_role !== 'collaborator'} onFile={showFile} onWorkflow={workflow => { void refresh(); void showFlow(undefined, workflow); setEditingFlow(true) }} />}
-    {tab === 'materials' && <section className={styles.panel}><h2>项目需求资料</h2><ProjectMaterials onOpenFile={showFile} id={id} /></section>}
+    {tab === 'materials' && <ProjectSkills projectId={id} />}
     {tab === 'development' && <><p>成员草稿、建设测试、共享记录及完整运行历史。这里保留所有开发工具。</p><DeveloperTools id={id} initialTaskId={developerTaskId} /></>}
     {file && <ProjectFileReader projectId={id} path={file} onClose={() => setFile('')} onTask={fileTaskId ? () => { setFile(''); void showTask(fileTaskId) } : undefined} />}
   </main></AppShell>

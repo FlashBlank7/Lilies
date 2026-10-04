@@ -116,9 +116,17 @@ def catalog():
          'after-2.txt':'温度每1000毫秒更新。\n连续2次超过85摄氏度提示复核。\n不自动停机。'},
         [dict(key='main',name='原文差异比较',workflow=code_graph('diff',[field('source_path','原版本','@file:before.txt'),field('second_path','新版本','@file:after.txt')]))],['Python 代码执行'])
     bills='date,category,amount,currency,merchant\n2026-09-01,交通,12.30,CNY,示例交通\n2026-09-02,餐饮,35.70,CNY,示例餐馆\n2026-09-02,餐饮,35.70,CNY,示例餐馆\n2026-09-03,资料,10,USD,示例书店\n'
-    add('expenses','账单与费用整理','日常办公','按月、类别和币种汇总；疑似重复只标记，不自动扣除。','合并这些费用表，按月份和类别汇总，找出疑似重复支出。','换第二份费用表，检查负数退款、不同币种和重复标记。',
+    expense_flow = code_graph('expenses', [field('source_path','费用表','@file:expenses.csv'),
+        field('second_path','追加费用表（可留空）','',required=False),
+        {**field('group_by','汇总维度','按月、类别和币种'), 'options':['按月、类别和币种','按月、商户和币种'],
+         'description':'选择按类别或商户汇总；不同币种始终分别计算。'},
+        {**field('mark_duplicates','标记疑似重复',True,kind='boolean'),
+         'description':'按日期、商户、金额和币种标记疑似重复；无论是否开启，都保留全部费用与退款。'}])
+    expense_flow['nodes'][1].update(title='核对与汇总费用',
+        description='读取并合并费用表，核对日期、金额与必填列，按所选维度及币种汇总；可标记疑似重复，保留全部费用和退款，生成报告与明细。')
+    add('expenses','账单与费用整理','日常办公','可按类别或商户汇总；不同币种分别计算，疑似重复只标记、不扣除。','合并这些费用表，按月份和类别汇总，找出疑似重复支出。','在运行表单把汇总维度改为按月、商户和币种，或关闭重复标记；换第二份费用表检查退款与币种仍分别计算。',
         {'expenses.csv':bills,'expenses-2.csv':'date,category,amount,currency,merchant\n2026-09-03,资料,-5,USD,示例书店\n2026-10-01,交通,8.20,CNY,示例交通\n'},
-        [dict(key='main',name='费用整理',workflow=code_graph('expenses',[field('source_path','费用表','@file:expenses.csv'),field('second_path','追加费用表（可留空）','',required=False)]))],['Python 代码执行；XLSX 需 openpyxl'])
+        [dict(key='main',name='费用整理',workflow=expense_flow)],['Python 代码执行；XLSX 需 openpyxl'])
     tables={'data.csv':'sample_id,device,value\ns1,A,10\ns2,A,20\ns3,B,15\ns4,B,25\n',
             'data-2.csv':'sample_id,device,value\ns5,A,12\ns5,A,12\ns6,B,\n',
             'labels.csv':'sample_id,quality\ns1,good\ns2,review\ns3,good\n'}

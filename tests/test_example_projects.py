@@ -1,5 +1,6 @@
 """Examples are private editable projects, not precomputed demonstration runs."""
 from concurrent.futures import ThreadPoolExecutor
+import asyncio
 import csv
 import json
 from pathlib import Path
@@ -40,6 +41,70 @@ def test_all_examples_install_as_complete_editable_projects(configured):
         assert client.get(base+'/skills/example-guide').status_code==200
         assert install(client,item['id'])==pid
     assert not app.state.services.local_agents.tasks
+
+
+@pytest.mark.parametrize('key,fields,absent', [
+    ('rolling-forecast', ['series', 'time', 'available', 'value'], ['temperature', 'pressure', 'material', 'batch/furnace']),
+    ('prediction-feedback', ['sample_id', 'prediction', 'actual', 'baseline', 'batch'], ['temperature', 'furnace']),
+    ('interval-trends', ['series', 'period', 'value'], ['temperature', 'pressure', 'furnace']),
+    ('classification', ['temperature', 'pressure', 'material', 'target', 'batch'], ['furnace']),
+    ('regression', ['temperature', 'pressure', 'material', 'target', 'batch'], ['furnace']),
+    ('process', ['furnace', 'time', 'temperature', 'pressure', 'prediction_time', 'target'], ['batch']),
+])
+def test_example_manual_and_skill_describe_its_actual_fields(configured, key, fields, absent):
+    client, _, _, settings = configured
+    pid = install(client, key); base = '/api/v1/projects/'+pid
+    guide = client.get(base+'/example').json()
+    manual = (settings.workspace_root/pid/guide['manual_path']).read_text()
+    skill = client.get(base+'/skills/example-guide').json()['content']
+    assert manual == guide['current_manual']
+    assert guide['field_notes'] in manual and manual in skill
+    for name in fields:
+        assert f'`{name}`' in guide['field_notes']
+    for name in absent:
+        assert name not in guide['field_notes']
+    for file in guide['files']:
+        assert file['path'] in manual
+    for workflow in guide['workflows']:
+        assert workflow['id'] in manual
+
+
+def test_existing_forecast_get_corrects_guidance_without_rewriting_project(configured):
+    client, app, _, settings = configured
+    pid = install(client, 'rolling-forecast'); base = '/api/v1/projects/'+pid
+    store = app.state.services.projects.store
+    saved = asyncio.run(store.get_record(pid, 'example', 'guide'))
+    legacy = '温度 temperature 与压力 pressure 为合成连续特征，material 为类别特征；target 是生成的标签，batch/furnace 是隔离分组。\n员工备注：实际使用部门的上传数据。'
+    uploaded = client.post(base+'/materials', files={'file':('部门说明.md', legacy.encode(), 'text/markdown')}).json()
+    # Existing projects may point at a manually edited document of any name.
+    value = {**saved['value'], 'manual_path': uploaded['path']}
+    asyncio.run(store.put_record(pid, 'example', 'guide', value, saved['revision']))
+    skill = client.get(base+'/skills/example-guide').json()
+    client.put(base+'/skills/example-guide', json={
+        'name': skill['name'], 'content': legacy, 'expected_revision': skill['revision'],
+    }).raise_for_status()
+    task = settled(client, base, start(client, base, 'historical-invalid', workflow_id=pid, inputs={'horizon': 0}))
+    assert task['status'] == 'failed'
+    before_record = asyncio.run(store.get_record(pid, 'example', 'guide'))
+    before_skill = client.get(base+'/skills/example-guide').json()
+    before_draft = client.get('/api/v1/applications/'+pid+'/draft').json()
+    before_files = {p.relative_to(settings.workspace_root/pid): p.read_bytes()
+                    for p in (settings.workspace_root/pid/'requirement-package').rglob('*') if p.is_file()}
+    for _ in range(2):
+        guide = client.get(base+'/example').json()
+        assert guide['manual_path'] == uploaded['path']
+        assert 'available' in guide['field_notes'] and '当时已可用' in guide['field_notes']
+        assert 'temperature' not in guide['current_manual']
+        assert 'pressure' not in guide['current_manual']
+        for file in guide['files']:
+            assert file['path'] in guide['current_manual']
+        assert pid in guide['current_manual']
+    assert asyncio.run(store.get_record(pid, 'example', 'guide')) == before_record
+    assert client.get(base+'/skills/example-guide').json() == before_skill
+    assert client.get('/api/v1/applications/'+pid+'/draft').json() == before_draft
+    assert client.get(base+'/tasks/'+task['id']).json() == task
+    assert {p.relative_to(settings.workspace_root/pid): p.read_bytes()
+            for p in (settings.workspace_root/pid/'requirement-package').rglob('*') if p.is_file()} == before_files
 
 
 def test_examples_explain_missing_resources_before_running_and_refresh_configuration(configured, monkeypatch):

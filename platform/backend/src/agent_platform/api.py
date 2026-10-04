@@ -6487,6 +6487,18 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         except KeyError as error:
             raise HTTPException(404, _plain_key_error(error)) from error
 
+    @app.get("/api/v1/runs/{run_id}/steps", dependencies=[Depends(require_token)])
+    async def get_run_steps(
+        run_id: str,
+        offset: int = Query(default=0, ge=0),
+        limit: int = Query(default=100, ge=1, le=200),
+    ) -> dict[str, Any]:
+        from .run_steps import run_steps
+        try:
+            return await run_steps(services, run_id, offset=offset, limit=limit)
+        except KeyError as error:
+            raise HTTPException(404, _plain_key_error(error)) from error
+
     @app.post("/api/v1/runs/{run_id}/resume", dependencies=[Depends(require_token)])
     async def resume_workflow_run(run_id: str, body: ResumeRunRequest) -> dict[str, Any]:
         try:
