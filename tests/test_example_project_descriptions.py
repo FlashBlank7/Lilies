@@ -15,6 +15,12 @@ def legacy_install(app, key):
     for flow in item['workflows']:
         for field in ('description', 'inputs', 'outputs'):
             flow.pop(field, None)
+        for node in flow['workflow']['nodes']:
+            if node['type'] == 'code' and '\n\ndef csv_cell(value):' in node['config']['code']:
+                before, after = node['config']['code'].split('\n\ndef csv_cell(value):', 1)
+                after = after.split('\n\ndef export(', 1)[1]
+                node['config']['code'] = (before+'\n\ndef export('+after).replace(
+                    'k: csv_cell(v)', 'k: "\'"+v if isinstance(v, str) and v.startswith((\'=\', \'+\', \'-\', \'@\')) else v')
         if key == 'composition':
             for node in flow['workflow']['nodes']:
                 if node['type'] == 'code':

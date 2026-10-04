@@ -37,8 +37,35 @@ def test_expense_options_preserve_currency_refunds_and_all_rows(sample_files, gr
     folder = Path(result['artifacts'][0]['file_path']).parent
     assert json.loads((folder / 'result.json').read_text())['group_by'] == group_by
     with (folder / 'details.csv').open(encoding='utf-8-sig') as stream:
-        assert len(list(csv.DictReader(stream))) == 5
+        exported = list(csv.DictReader(stream))
+    assert len(exported) == 5
+    assert exported[3]['amount'] == '-2'
+    assert [Decimal(row['amount']) for row in exported] == [Decimal(v) for v in ['10','10','5','-2','10']]
     assert Path(path).read_bytes() == original
+
+
+@pytest.mark.parametrize('value,numeric', [
+    ('-5', True), ('-0.00', True), ('+12.30', True), ('-.5', True), ('+1.', True),
+    ('-1.2500e+3', True), ('+2E-4', True), ('-999999999999999999999999.000001', True),
+    (' -5.00 ', True), ('-1e10000', True),
+    ('=SUM(A1:A2)', False), ('+SUM(A1:A2)', False), ('-SUM(A1:A2)', False), ('@SUM(A1:A2)', False),
+    ('-5+1', False), ('+1e', False), ('-1_000', False), ('--5', False), ('-1,000', False),
+    ('-NaN', False), ('+Infinity', False), ('-sNaN', False), ('-退款', False),
+    ('-1e999999999999999999999999', False), ('\t=1+1', False), (' \r-1+2', False),
+])
+def test_csv_export_preserves_finite_numeric_text_and_protects_formulas(tmp_path, monkeypatch, value, numeric):
+    monkeypatch.chdir(tmp_path)
+    rows = [{'value': value}]
+    result = processing.export({'markdown': '# 导出', 'preview': rows}, rows)
+    folder = Path(result['artifacts'][0]['file_path']).parent
+    with (folder / 'details.csv').open(encoding='utf-8-sig', newline='') as stream:
+        actual = next(csv.DictReader(stream))['value']
+    assert actual == (value if numeric else "'" + value)
+    if numeric:
+        assert Decimal(actual).is_finite()
+        assert Decimal(actual) == Decimal(value)
+    assert rows == [{'value': value}]
+    assert json.loads((folder / 'result.json').read_text())['preview'] == rows
 
 
 def test_expense_form_choices_reach_saved_workflow_and_code(configured):

@@ -211,6 +211,70 @@ def test_selected_skill_references_are_frozen_and_independently_editable(platfor
     assert client.get(base+'/skills/method',headers=a).json()['references']==updated['references']
 
 
+def test_skill_install_uses_share_title_and_distinguishes_repeated_copies(configured):
+    client,_,_,_=configured
+    pid=client.post('/api/v1/projects',json={'name':'费用整理'}).json()['id']
+    base='/api/v1/projects/'+pid
+    source={'name':'账单与费用整理使用说明','description':'核对费用后汇总',
+            'content':'保留退款并按币种分别汇总。','references':{'check.py':'print(5)'}}
+    assert client.put(base+'/skills/original',json=source).status_code==200
+    installed=[]
+    for _ in range(2):
+        share=client.post(base+'/space/shared-methods',json={'skill_id':'original',
+            'reference_names':['check.py'],'name':'新员工费用整理方法','target_project_ids':[pid]}).json()
+        response=client.post(base+'/space/shared-methods/'+share['id']+'/install')
+        assert response.status_code==201,response.text
+        result=response.json()
+        item=client.get(base+'/skills/'+result['skill_id']).json()
+        assert item['name']==result['skill_name']
+        assert all(item[key]==source[key] for key in ('description','content','references'))
+        assert 'display_name' not in item
+        assert client.post(base+'/space/shared-methods/'+share['id']+'/install').json()==result
+        installed.append(item)
+    assert installed[0]['name']=='新员工费用整理方法'
+    assert installed[1]['name']=='新员工费用整理方法 · 共享副本'
+    assert client.get(base+'/skills/original').json()['name']==source['name']
+
+
+@pytest.mark.parametrize('changed', ['name', 'content', 'references'])
+def test_legacy_skill_share_label_is_read_only_and_preserves_employee_edits(configured, changed):
+    import json
+    from agent_platform.project_store import connect
+    client,app,_,_=configured
+    pid=client.post('/api/v1/projects',json={'name':'费用整理'}).json()['id']
+    base='/api/v1/projects/'+pid
+    source={'name':'账单与费用整理使用说明','description':'核对费用后汇总',
+            'content':'保留退款并按币种分别汇总。','references':{'check.py':'print(5)'}}
+    client.put(base+'/skills/original',json=source)
+    share=client.post(base+'/space/shared-methods',json={'skill_id':'original',
+        'reference_names':['check.py'],'name':'新员工费用整理方法','target_project_ids':[pid]}).json()
+    result=client.post(base+'/space/shared-methods/'+share['id']+'/install').json()
+    sid=result['skill_id']
+    # Reproduce persisted legacy rows: original Skill name and no naming marker.
+    result.pop('skill_name')
+    with connect(app.state.services.projects.store.db_path) as db:
+        db.execute("UPDATE project_records SET value_json=? WHERE project_id=? AND collection='skills' AND record_key=?",
+            (json.dumps(source),pid,sid))
+        db.execute('UPDATE shared_method_installs SET result=? WHERE project_id=? AND method_id=?',
+            (json.dumps(result),pid,share['id']))
+    before=asyncio.run(app.state.services.projects.store.get_record(pid,'skills',sid))
+    item=client.get(base+'/skills/'+sid).json()
+    assert item['display_name']=='新员工费用整理方法' and item['name']==source['name']
+    listed=next(item for item in client.get(base+'/skills').json() if item['id']==sid)
+    assert listed['display_name']==item['display_name']
+    assert client.post(base+'/space/shared-methods/'+share['id']+'/install').json()==result
+    assert asyncio.run(app.state.services.projects.store.get_record(pid,'skills',sid))==before
+    updated={**source,changed:{'name':'员工自己的名称','content':'员工补充的步骤',
+        'references':{'check.py':'print(9)'}}[changed],'expected_revision':1}
+    response=client.put(base+'/skills/'+sid,json=updated)
+    assert response.status_code==200,response.text
+    edited=response.json()
+    assert 'display_name' not in edited and edited[changed]==updated[changed]
+    assert client.post(base+'/space/shared-methods/'+share['id']+'/install').json()==result
+    assert client.get(base+'/skills/'+sid).json()==edited
+    assert all(client.get(base+'/skills/original').json()[key]==value for key,value in source.items())
+
+
 def test_stale_or_missing_skill_reference_cannot_be_shared(platform):
     client,_=platform
     _,a=signup(client,'Author');source,target=project(client,a),project(client,a)

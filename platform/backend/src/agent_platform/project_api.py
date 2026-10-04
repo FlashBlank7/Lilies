@@ -313,7 +313,9 @@ def project_router(services, require_token):
 
     @scoped.get('/generation-model')
     async def generation_model(project_id: str):
-        return {**manager.connections.generation_settings(project_id), 'model_egress_enabled': services.settings.model_egress_enabled}
+        return {**manager.connections.generation_settings(project_id),
+                'generation_source': 'official' if services.official_agent.selected(project_id, 'generation') else 'api',
+                'model_egress_enabled': services.settings.model_egress_enabled}
 
     @scoped.put('/generation-model')
     async def save_generation_model(project_id: str, body: ModelConnection):

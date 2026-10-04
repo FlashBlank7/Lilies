@@ -20,6 +20,7 @@ import ProjectSpace from '@/app/components/ProjectSpace'
 import ExampleProjectGuide from '@/app/components/ExampleProjectGuide'
 import ProjectRunPanel, { ProjectTaskOutput, ProjectRunEvents } from '@/app/components/ProjectRunPanel'
 import ModelConnectionPanel from '@/app/components/ModelConnectionPanel'
+import AssistantSourcePanel from '@/app/components/AssistantSourcePanel'
 import ProjectCapabilities from '@/app/components/ProjectCapabilities'
 import ProjectAccessMembers from '@/app/components/ProjectAccessMembers'
 import DeveloperTools from './DeveloperTools'
@@ -85,6 +86,13 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
     } catch (cause) { setError(String(cause)); if (cause && typeof cause === 'object' && 'status' in cause && cause.status === 404) guide.unavailable() }
   }, [base, guide.unavailable])
   useEffect(() => { void refresh() }, [refresh])
+  useEffect(() => {
+    if (tab !== 'results') return
+    void refresh()
+    const visible = () => { if (document.visibilityState === 'visible') void refresh() }
+    document.addEventListener('visibilitychange', visible)
+    return () => document.removeEventListener('visibilitychange', visible)
+  }, [tab, refresh])
   useEffect(() => { if (project && guide.active) guide.mark('project', id) }, [project?.id, guide.active, guide.mark, id])
   useEffect(() => {
     const navigate = (step: string) => {
@@ -177,7 +185,7 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
     {project && (tab === 'overview' || tab === 'space') && <ExampleProjectGuide projectId={id} onTalk={message=>{setFocus({nonce:Date.now(),label:'项目空间',message});setTab('overview');setReader(false)}} onFile={showFile} onWorkflow={workflow=>void showFlow(undefined,workflow)} onRun={workflow=>{setReuseTask(undefined);setRunWorkflowId(workflow);setTab('run')}} onSettings={()=>setTab('settings')} />}
     {tab === 'settings' && project && <section className={styles.panel}>
       <ProjectAccessMembers projectId={id} canManage={project.access_role !== 'collaborator'} onChanged={() => void refresh()} />
-      {project.access_role !== 'collaborator' && <><ModelConnectionPanel base={base} connected={true} running={false} onSaved={refresh} /><ModelConnectionPanel base={base} role="generation" connected={false} running={false} onSaved={refresh} /><ModelConnectionPanel base={base} role="vision" connected={false} running={false} onSaved={refresh} /></>}
+      {project.access_role !== 'collaborator' && <><AssistantSourcePanel base={base} running={false} onSaved={refresh} /><ModelConnectionPanel base={base} connected={true} running={false} onSaved={refresh} /><ModelConnectionPanel base={base} role="generation" connected={false} running={false} onSaved={refresh} /><ModelConnectionPanel base={base} role="vision" connected={false} running={false} onSaved={refresh} /></>}
       {project.access_role === 'collaborator' && <p>模型连接由项目负责人配置。你可以在工作流中使用项目已配置的模型。</p>}
       {project.access_role === 'admin' && <ProjectCapabilities projectId={id} enabled={Boolean(project.agent_modules_enabled)} onSaved={() => { setEditingFlow(false); void refresh() }} />}
     </section>}
@@ -231,6 +239,7 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
     </div>
     {tab === 'results' && <div tabIndex={-1} data-guide="results">
       <section className={styles.panel}><h2>运行记录</h2><p>查看训练、预测和工作流的结果，也可以停止或继续原任务。</p>
+        <button onClick={() => void refresh()}>刷新运行记录</button>
         <ul className={styles.list}>{tasks.map(t => {const inputFiles=taskInputFileNames(t);return <li key={t.id}><button onClick={() => void showTask(t.id)}>{taskTitle(t)} · {taskNames[t.status] || t.status}{!!inputFiles.length&&<small className={styles.taskTime}>输入：{inputFiles.join('、')}</small>}{!!t.input_parameters?.length&&<small className={`${styles.taskTime} ${styles.taskParameters}`}>{t.input_parameters.map(parameter=>`${parameter.label}：${parameter.value}`).join(' · ')}</small>}<small className={styles.taskTime}>{new Date(t.created_at).toLocaleString()}</small></button></li>})}</ul>
         {!tasks.length && <p>尚无运行记录。可以开始训练、运行工作流，或通过对话执行任务。</p>}{moreResults && <button onClick={() => void olderResults()}>加载更早的结果</button>}
       </section>

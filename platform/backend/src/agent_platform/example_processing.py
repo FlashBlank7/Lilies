@@ -6,6 +6,7 @@ dependencies of the selected execution environment, never silently substituted.
 import csv
 import difflib
 import json
+import re
 from collections import Counter, defaultdict
 from datetime import date
 from decimal import Decimal, InvalidOperation
@@ -120,6 +121,18 @@ def decimal(value, row, field):
         raise ValueError(f'第 {row} 行的 {field} 不是有效数字：{value}') from None
 
 
+def csv_cell(value):
+    if not isinstance(value, str) or not value.lstrip().startswith(('=', '+', '-', '@')):
+        return value
+    if re.fullmatch(r'[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?', value.strip()):
+        try:
+            if Decimal(value).is_finite():
+                return value
+        except InvalidOperation:
+            pass
+    return "'" + value
+
+
 def export(result, rows=None):
     folder = Path('results/examples') / str(uuid4())
     folder.mkdir(parents=True)
@@ -134,7 +147,7 @@ def export(result, rows=None):
             writer = csv.DictWriter(stream, fieldnames=list(rows[0]))
             writer.writeheader()
             # Protect spreadsheet readers while retaining raw values in result.json.
-            writer.writerows({k: "'"+v if isinstance(v, str) and v.startswith(('=', '+', '-', '@')) else v for k,v in row.items()} for row in rows)
+            writer.writerows({k: csv_cell(v) for k,v in row.items()} for row in rows)
         files.append({'file_path': str(path), 'label': '明细 CSV'})
     return {**result, 'artifacts': files}
 

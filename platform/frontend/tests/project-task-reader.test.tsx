@@ -26,6 +26,25 @@ function completedTask(id: string) {
     created_at: '2026-09-28T00:00:00Z', presentation: { markdown: '保存的结果 ' + id }, inputs: {}, outputs: { quantity: 4 }, runs: [] }
 }
 
+it('refreshes history on entering or returning to the results tab without launching tasks', async () => {
+  projectReads(async id => completedTask(id))
+  const fallback = vi.mocked(api).getMockImplementation()!
+  let latest = [completedTask('first')]
+  vi.mocked(api).mockImplementation(async (path, options) => path.endsWith('/tasks?compact=true&limit=20')
+    ? latest.map(item=>({...item,input_files:[item.id+'.csv']})) as never : fallback(path,options))
+  await act(async()=>{render(<Suspense><ProjectPage params={Promise.resolve({id:'p'})}/></Suspense>)})
+  latest = [...latest,completedTask('second')]
+  fireEvent.click(screen.getByRole('tab',{name:'运行记录'}))
+  expect(await screen.findByText('输入：second.csv')).toBeVisible()
+  latest = [...latest,completedTask('third')]
+  await act(async()=>{fireEvent(document,new Event('visibilitychange'))})
+  expect(await screen.findByText('输入：third.csv')).toBeVisible()
+  latest = [...latest,completedTask('fourth')]
+  fireEvent.click(screen.getByRole('button',{name:'刷新运行记录'}))
+  expect(await screen.findByText('输入：fourth.csv')).toBeVisible()
+  expect(vi.mocked(api).mock.calls.some(([,options])=>options?.method==='POST')).toBe(false)
+})
+
 it('opens the exact linked task on first load and query changes without starting work', async () => {
   navigation.query = 'task=historical'
   projectReads(async id => completedTask(id))
@@ -132,7 +151,7 @@ it('follows a configuration link when only the current project query changes', a
   expect(vi.mocked(api).mock.calls.every(([, options]) => !options)).toBe(true)
 })
 
-it('shows input file names immediately after a manual run without refreshing the compact history', async () => {
+it('preserves new manual-run input summaries while refreshing compact history', async () => {
   navigation.query = 'task=previous'
   const previous = {...completedTask('previous'), purpose:'customer_trial', input_files:['previous.csv']}
   vi.mocked(api).mockImplementation(async (path, options) => {
@@ -156,10 +175,9 @@ it('shows input file names immediately after a manual run without refreshing the
   await act(async () => {render(<Suspense><ProjectPage params={Promise.resolve({id:'p'})}/></Suspense>)})
   fireEvent.click(await screen.findByRole('button',{name:'再次运行此工作流'}))
   fireEvent.change(await screen.findByRole('textbox',{name:'source_path'}),{target:{value:'requirement-package/new.csv'}})
-  const historyReads = vi.mocked(api).mock.calls.filter(([path])=>path.includes('/tasks?')).length
   fireEvent.click(screen.getByRole('button',{name:'启动工作流'}))
   await screen.findByText('保存的结果 new')
-  fireEvent.click(screen.getByRole('tab',{name:'运行记录'}))
+  await act(async()=>{fireEvent.click(screen.getByRole('tab',{name:'运行记录'}))})
   const current = screen.getByRole('button',{name:/资料整理 · 运行完成.*输入：new.csv、review.csv、notes.txt/})
   expect(current).toBeVisible()
   expect(current).not.toHaveTextContent('requirement-package/')
@@ -167,7 +185,6 @@ it('shows input file names immediately after a manual run without refreshing the
   expect(current).not.toHaveTextContent('row-data.csv')
   expect(current).toHaveTextContent('汇总维度：按月、商户和币种 · 标记疑似重复：否')
   expect(screen.getByRole('button',{name:/资料整理 · 运行完成.*输入：previous.csv/})).toBeVisible()
-  expect(vi.mocked(api).mock.calls.filter(([path])=>path.includes('/tasks?'))).toHaveLength(historyReads)
   expect(vi.mocked(api).mock.calls.filter(([,options])=>options?.method==='POST')).toHaveLength(1)
   expect(vi.mocked(api).mock.calls.some(([path])=>path.endsWith('/tasks/new'))).toBe(false)
 })

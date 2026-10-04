@@ -113,6 +113,23 @@ async def seed_workflow_notes(services, project_id, flows):
             pass
 
 
+def retain_legacy_export_for_comparison(current, expected):
+    """Recognize the original CSV exporter without replacing saved business code."""
+    nodes = {node.id: node for node in current.nodes}
+    for node in expected.nodes:
+        if node.type != 'code' or node.id not in nodes:
+            continue
+        code = node.config.get('code', '')
+        prefix, separator, remaining = code.partition('\n\ndef csv_cell(value):')
+        _, end, export = remaining.partition('\n\ndef export(')
+        if not separator or not end:
+            continue
+        legacy = (prefix + end + export).replace(
+            'k: csv_cell(v)', 'k: "\'"+v if isinstance(v, str) and v.startswith((\'=\', \'+\', \'-\', \'@\')) else v')
+        if nodes[node.id].config.get('code') == legacy:
+            node.config['code'] = legacy
+
+
 async def refresh_example_defaults(services):
     """Repair recognized legacy defaults using normal draft revisions."""
     with connect(services.storage.db_path) as db:
@@ -158,6 +175,7 @@ async def refresh_example_defaults(services):
                                 "'+group+' / '+value+'；可用字段：'+'、'.join(fields)", "'+group+' / '+value")
                         for field in node.config.get('inputs', []) if node.type == 'start' else []:
                             field.pop('column_source', None)
+            retain_legacy_export_for_comparison(current, expected_workflow)
             if current != expected_workflow:
                 continue
             if snapshot.description != flow['description']:
@@ -194,6 +212,7 @@ async def refresh_expense_file_inputs(services, project_id, guide, item):
             # A different selected file is still the same expense input; retain it.
             field['default'] = saved.get('default', '')
             saved.update(type=field['type'], accept=field['accept'])
+    retain_legacy_export_for_comparison(current, expected)
     if current != expected:
         return
     from .workflow_storage import RevisionConflict
