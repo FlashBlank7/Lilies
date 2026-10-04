@@ -52,7 +52,7 @@ export default function ProjectWorkflowOverview({ projectId, selectedId, progres
   const items = main ? progress.value.items : progress.value.items.filter(i => i.workflow_ids.includes(selectedId))
   const detailRef = useRef<HTMLElement>(null)
   const [itemId, setItemId] = useState(initialItemId || items[0]?.id || '')
-  const [view, setView] = useState<'requirements' | 'path'>('requirements')
+  const [view, setView] = useState<'requirements' | 'path'>(items.length ? 'requirements' : 'path')
   const selectedItem = items.find(item => item.id === itemId) || items[0]
   const note = progress.value.workflows?.find(n => n.workflow_id === selectedId)
   const flow = topology.flows?.[selectedId]
@@ -63,10 +63,21 @@ export default function ProjectWorkflowOverview({ projectId, selectedId, progres
   </span>)}</div> }
   return <div className={styles.overview}>
     <header className={styles.heading}><div><small>{main ? '主流程 · 项目协作入口' : '成员工作流'}</small><h2>{member?.display_name || member?.name || '工作流'}</h2>
-      <p>{note?.purpose || (main ? progress.value.goal : member?.description) || '尚未整理这条工作流的业务说明。'}</p></div>
+      <p>{note?.purpose || (main ? progress.value.goal : '') || member?.description || '从下方输入输出和处理路径了解这条工作流。'}</p></div>
       <div className={styles.actions}><button onClick={onRequirements}>查看原需求</button><button onClick={onEdit}>编辑画布</button></div></header>
-    <div className={styles.io}><div><h3>需要什么输入</h3><p>{note?.inputs || '尚未整理输入说明，可让统筹根据当前草稿补充。'}</p></div><ArrowRight size={20}/><div><h3>产出什么</h3><p>{note?.outputs || '尚未整理产出说明，请查看下方已有结果。'}</p></div></div>
-    {!note && <button onClick={() => explain()}>让统筹补充这条流程的说明</button>}
+    <div className={styles.io}>
+      <section aria-label="工作流输入"><h3>需要什么输入</h3>{note?.inputs && <p>{note.inputs}</p>}
+        {flow?.inputs ? <><small>当前已保存配置 · r{flow.revision}</small>{flow.inputs.length ? <ul>{flow.inputs.map(field => <li key={field.name}>
+          <strong>{field.label || field.name}</strong> · {field.required ? '必填' : '可选'}
+          {field.type && <> · {({file:'文件',string:'文本',number:'数字',boolean:'是或否',array:'列表',object:'结构化内容',any:'任意类型'} as Record<string,string>)[field.type] || field.type}</>}
+          {field.description && <p>{field.description}</p>}
+        </li>)}</ul> : <p>当前流程未声明需要填写的输入。</p>}</> : !note?.inputs && <p>暂未读取到输入配置，可打开画布查看。</p>}
+      </section><ArrowRight size={20}/>
+      <section aria-label="工作流输出"><h3>产出什么</h3>{note?.outputs && <p>{note.outputs}</p>}
+        {flow?.outputs ? <>{flow.outputs.length ? <><p>流程声明的输出字段：</p><ul>{flow.outputs.map(name => <li key={name}>{name === 'answer' ? '回答文本（answer）' : name}</li>)}</ul><small>具体内容以实际运行结果为准。</small></> : <p>当前流程未声明结束输出，可在画布配置结束积木。</p>}</> : !note?.outputs && <p>暂未读取到输出配置，可打开画布查看。</p>}
+      </section>
+    </div>
+    {!note && <button onClick={() => explain()}>让智能体进一步解释这条流程</button>}
     <div className={styles.viewTabs} role="tablist" aria-label="工作流说明视图"><button role="tab" aria-selected={view === 'requirements'} onClick={() => setView('requirements')}>用途与需求对照</button><button role="tab" aria-selected={view === 'path'} onClick={() => setView('path')}>协作如何执行</button></div>
     {view === 'requirements' && <section aria-label="需求与当前结果对照"><div className={styles.sectionHeading}><h3>{main ? '业务能力与需求对照' : '这条流程参与解决的需求'}</h3><small>{progress.updated_at ? '整理于 ' + new Date(progress.updated_at).toLocaleString() : '等待统筹整理'}</small></div>
       {!items.length && <p>尚未关联业务事项，不能据此判断达到什么程度。<button onClick={() => explain()}>整理需求对照</button></p>}
