@@ -5404,7 +5404,8 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             items.sort(key=lambda item: item["path"])
             return items[:2000]
 
-        return await asyncio.to_thread(_collect)
+        files = await asyncio.to_thread(_collect)
+        return await services.projects.store.annotate_files(application_id, files)
 
     @app.get(
         "/api/v1/applications/{application_id}/workspace/table-columns",

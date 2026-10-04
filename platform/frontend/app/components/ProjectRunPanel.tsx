@@ -94,8 +94,8 @@ export function ProjectTaskOutput({ projectId, task, onTask, canConfigureModel=f
   </>
 }
 
-export default function ProjectRunPanel({ projectId, members, initialWorkflowId, reuseTask, onTask, canConfigureModel=false }: {
-  projectId: string; members: ProjectMember[]; initialWorkflowId?: string; reuseTask?: ProjectTask; onTask?: (task: ProjectTask) => void; canConfigureModel?:boolean
+export default function ProjectRunPanel({ projectId, members, initialWorkflowId, reuseTask, reuseCompletedSteps=true, onTask, canConfigureModel=false }: {
+  projectId: string; members: ProjectMember[]; initialWorkflowId?: string; reuseTask?: ProjectTask; reuseCompletedSteps?: boolean; onTask?: (task: ProjectTask) => void; canConfigureModel?:boolean
 }) {
   const [workflowId, setWorkflowId] = useState(initialWorkflowId || projectId)
   const [fields, setFields] = useState<Field[]>([])
@@ -184,13 +184,13 @@ export default function ProjectRunPanel({ projectId, members, initialWorkflowId,
           try { inputs[field.name] = JSON.parse(raw) } catch { throw new Error(`${field.name} 需要有效 JSON`) }
         } else inputs[field.name] = raw
       }
-      const next = await api<ProjectTask>(base + '/tasks', { method: 'POST', body: JSON.stringify({ request_key: clientId(), mode: 'workflow', workflow_id: workflowId, inputs, purpose: 'customer_trial', ...(reuseTask?.workflow_id === workflowId ? {reuse_task_id: reuseTask.id} : {}) }) })
+      const next = await api<ProjectTask>(base + '/tasks', { method: 'POST', body: JSON.stringify({ request_key: clientId(), mode: 'workflow', workflow_id: workflowId, inputs, purpose: 'customer_trial', ...(reuseCompletedSteps && reuseTask?.workflow_id === workflowId ? {reuse_task_id: reuseTask.id} : {}) }) })
       setTask(next); onTask?.(next)
     } catch (cause) { setError(String(cause)) } finally { setBusy(false); lock.current = false }
   }
   return <section className={styles.panel} aria-label="手动运行工作流">
     <h2>运行工作流</h2><p>选择工作流和本次资料，直接运行当前已保存的配置。</p>
-    {reuseTask?.workflow_id === workflowId && <p>按当前配置重算：按各步骤实际读取的输入和依赖判断能否复用。旧运行缺少复用记录时会重新计算。代码默认重跑，可在代码积木配置中声明允许复用。</p>}
+    {reuseTask?.workflow_id === workflowId && (reuseCompletedSteps ? <p>按当前配置重算：按各步骤实际读取的输入和依赖判断能否复用。旧运行缺少复用记录时会重新计算。代码默认重跑，可在代码积木配置中声明允许复用。</p> : <p>已带入所选运行的资料和参数。启动后使用当前已保存的工作流完整运行一次，原结果保留；新增字段使用当前默认值。</p>)}
     <label>入口工作流<select aria-label="入口工作流" disabled={active || busy} value={workflowId} onChange={event => { setWorkflowId(event.target.value); setTask(null) }}>{members.map(member => <option key={member.id} value={member.id}>{member.id === projectId ? '主流程 · ' : ''}{member.display_name || member.name}</option>)}</select></label>
     <p><Link href={`/applications/${workflowId}?tab=edit`} target="_blank">编辑这条工作流 ↗</Link></p>
     <WorkflowReadiness value={readiness} projectId={projectId} canConfigureModel={canConfigureModel&&!active&&!busy} onRecheck={async()=>{setCheckVersion(v=>v+1)}}/>{readinessError&&<p role="status">{readinessError}</p>}

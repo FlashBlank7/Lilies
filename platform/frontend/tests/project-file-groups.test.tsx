@@ -3,6 +3,8 @@ import {afterEach, beforeEach, expect, it, vi} from 'vitest'
 import {api} from '@/lib/platform'
 import ProjectSpace from '@/app/components/ProjectSpace'
 import ProjectRunPanel from '@/app/components/ProjectRunPanel'
+import ProjectFileField from '@/app/components/ProjectFileField'
+import WorkflowInputTable from '@/app/components/WorkflowInputTable'
 import {groupProjectFiles} from '@/app/components/project-files'
 
 const {guide} = vi.hoisted(() => ({guide: {active: false, mark: vi.fn()}}))
@@ -87,6 +89,41 @@ it('keeps same-prefix directories distinct even without timestamps', () => {
   const labels = groups[0].files.map(file => file.label)
   expect(new Set(labels).size).toBe(2)
   expect(labels.every(label => label.includes('目录') && !label.includes('运行编号') && !label.includes('aaaa-4000'))).toBe(true)
+})
+
+it('shows the same related workflow, second and input summaries in file lists and choices', async () => {
+  const paths = [first, second].map(path => path.replace('report.md', 'samples.csv'))
+  const available = paths.map((path, index) => ({path, related_run: {
+    run_id: `run-${index}`, task_id: `task-${index}`, workflow_id: 'w', workflow_name: '样本清洗',
+    created_at: `2026-10-03T03:00:0${index + 1}Z`,
+    file_parameters: [{name: 'source_path', label: '输入表格', value: 'new-samples.csv'}],
+    input_parameters: [
+      {name: 'purpose', label: '用途', value: '预测'},
+      {name: 'duplicate_policy', label: '重复记录', value: '保留'},
+      {name: 'invalid_policy', label: '转换失败处理', value: index ? '排除' : '保留'},
+      {name: 'id_columns', label: '标识列', value: 'internal-detail'},
+    ],
+  }}))
+  files = available
+  render(<ProjectSpace {...props} />)
+  const choices = await screen.findAllByRole('checkbox', {name: /samples.csv · 关联运行：样本清洗/})
+  const choose = vi.fn()
+  render(<ProjectFileField name="source_path" label="待处理文件" value="" files={available} disabled={false} onChange={choose} />)
+  render(<WorkflowInputTable name="sources" label="材料" columns={[{name: 'path', label: '文件', type: 'file'}]} value={'[{"path":""}]'} files={available} onChange={choose} />)
+  const select = screen.getByRole('combobox', {name: '为 source_path 选择项目文件'})
+  const table = screen.getByRole('combobox', {name: '材料第1行文件'})
+  for (const [index, path] of paths.entries()) {
+    const option = within(select).getAllByRole('option').find(item => (item as HTMLOptionElement).value === path)!
+    expect(option).toHaveTextContent('关联运行：样本清洗')
+    expect(option).toHaveTextContent('输入表格：new-samples.csv')
+    expect(option).toHaveTextContent(`转换失败处理：${index ? '排除' : '保留'}`)
+    expect(option).toHaveTextContent(new RegExp(`:0${index + 1} ·`))
+    expect(option).not.toHaveTextContent('internal-detail')
+    expect(choices[index]).toHaveAccessibleName(option.textContent!)
+    expect(within(table).getByRole('option', {name: option.textContent!})).toHaveValue(path)
+  }
+  fireEvent.change(select, {target: {value: paths[1]}})
+  expect(choose).toHaveBeenCalledWith(paths[1])
 })
 
 it('groups both file inputs and table choices and submits the unchanged full paths', async () => {

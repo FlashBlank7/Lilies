@@ -3,12 +3,12 @@ from __future__ import annotations
 
 import asyncio
 import json
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from .db import connect
 from .models import utc_now
-from .task_input_summary import input_parameters
+from .task_input_summary import _FILE_FIELD, _PRIVATE_FIELD, _SECRET_VALUE, input_parameters
 
 
 # A resumed task may have a newer main run with supplemented inputs. Read that
@@ -20,6 +20,49 @@ _TASK_COLUMNS = """t.*, (
     WHERE tr.task_id=t.id AND r.application_id=t.workflow_id AND tr.step_key LIKE 'main:%'
     ORDER BY tr.created_at DESC, r.created_at DESC LIMIT 1
 ) AS input_run_state_json"""
+
+# File listings are a small read of recent saved outputs, never a log search.
+_FILE_RUN_LIMIT = 100
+_FILE_OUTPUT_LIMIT = 1_000_000
+
+
+def _output_file_paths(value: Any) -> set[str]:
+    paths, pending = set(), [value]
+    for _ in range(10_000):
+        if not pending:
+            break
+        item = pending.pop()
+        if isinstance(item, dict):
+            if isinstance(item.get('file_path'), str):
+                paths.add(item['file_path'])
+            pending.extend(child for child in item.values() if isinstance(child, (dict, list)))
+        elif isinstance(item, list):
+            pending.extend(child for child in item if isinstance(child, (dict, list)))
+    return paths
+
+
+def _file_parameters(inputs: dict, snapshot: dict) -> list[dict[str, str]]:
+    parameters = []
+    for node in snapshot.get('workflow', {}).get('nodes', []):
+        if node.get('type') != 'start':
+            continue
+        for field in node.get('config', {}).get('inputs', []):
+            name, label = field.get('name', ''), field.get('label') or field.get('name', '')
+            if (not (field.get('type') == 'file' or
+                     (field.get('type', 'string') == 'string' and _FILE_FIELD.search(name)))
+                    or _PRIVATE_FIELD.search(name + ' ' + label)
+                    or any(field.get(key) for key in ('secret', 'sensitive', 'writeOnly'))):
+                continue
+            value = inputs.get(name, field.get('default'))
+            if not isinstance(value, str) or not value or _SECRET_VALUE.search(value):
+                continue
+            path = PurePosixPath(value)
+            if path.is_absolute() or '..' in path.parts or '\\' in value or not path.name:
+                continue
+            parameters.append({'name': name[:80], 'label': label[:48], 'value': path.name[:80]})
+            if len(parameters) == 2:
+                return parameters
+    return parameters
 
 
 class ProjectConflict(ValueError):
@@ -432,4 +475,59 @@ class ProjectStore:
                     "SELECT r.id,r.application_id,r.status,r.draft_revision,r.outputs_json,r.state_json,r.error,r.created_at,t.step_key "
                     "FROM project_task_runs t JOIN workflow_runs r ON r.id=t.run_id "
                     "WHERE t.task_id=? ORDER BY t.created_at", (task_id,))]
+        return await asyncio.to_thread(read)
+
+    async def annotate_files(self, project_id: str, files: list[dict]) -> list[dict]:
+        """Attach the latest evidenced related run, not an exclusive creator.
+
+        Match exact output file_path values within the same project's tasks.
+        Historical or oversized outputs without a bounded match stay unlabelled.
+        """
+        if not files:
+            return files
+
+        def read():
+            remaining = {file['path'] for file in files}
+            related = {}
+            with connect(self.db_path, readonly=True) as c:
+                # Select run IDs before reading output JSON, so old large
+                # results never enter the output scan used for file labels.
+                rows = c.execute(
+                    "SELECT r.id,r.application_id,r.created_at,tr.task_id,"
+                    "CASE WHEN length(r.outputs_json)<=? THEN r.outputs_json ELSE '{}' END AS outputs_json "
+                    "FROM workflow_runs r JOIN project_task_runs tr ON tr.run_id=r.id "
+                    "WHERE r.id IN (SELECT recent.id FROM project_tasks t "
+                    "JOIN project_task_runs linked ON linked.task_id=t.id "
+                    "JOIN workflow_runs recent ON recent.id=linked.run_id WHERE t.project_id=? "
+                    "ORDER BY recent.created_at DESC,recent.id DESC LIMIT ?) "
+                    "ORDER BY r.created_at DESC,r.id DESC",
+                    (_FILE_OUTPUT_LIMIT, project_id, _FILE_RUN_LIMIT)).fetchall()
+                for row in rows:
+                    matches = remaining & _output_file_paths(json.loads(row['outputs_json']))
+                    if not matches:
+                        continue
+                    # Read only the frozen input/snapshot data for matching runs;
+                    # do not load run events, node outputs, or current drafts.
+                    saved = c.execute(
+                        "SELECT json_extract(state_json,'$.inputs') AS inputs_json,"
+                        "json_extract(state_json,'$.snapshot') AS snapshot_json "
+                        "FROM workflow_runs WHERE id=?", (row['id'],)).fetchone()
+                    snapshot = json.loads(saved['snapshot_json'] or '{}')
+                    name = snapshot.get('name')
+                    if not isinstance(name, str) or not name.strip():
+                        continue
+                    run = {'run_id': row['id'], 'task_id': row['task_id'],
+                           'workflow_id': row['application_id'], 'workflow_name': name,
+                           'created_at': row['created_at'],
+                           'input_parameters': []}
+                    inputs = json.loads(saved['inputs_json'] or '{}')
+                    run['file_parameters'] = _file_parameters(inputs, snapshot)
+                    run['input_parameters'] = input_parameters(inputs, snapshot)
+                    related.update({path: run for path in matches})
+                    remaining.difference_update(matches)
+                    if not remaining:
+                        break
+            return [{**file, **({'related_run': related[file['path']]} if file['path'] in related else {})}
+                    for file in files]
+
         return await asyncio.to_thread(read)

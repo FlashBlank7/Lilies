@@ -153,7 +153,7 @@ it('follows a configuration link when only the current project query changes', a
 
 it('preserves new manual-run input summaries while refreshing compact history', async () => {
   navigation.query = 'task=previous'
-  const previous = {...completedTask('previous'), purpose:'customer_trial', input_files:['previous.csv']}
+  const previous = {...completedTask('previous'), purpose:'customer_trial', input_files:['previous.csv'], inputs:{source_path:'requirement-package/previous.csv',removed_field:'must not carry'}}
   vi.mocked(api).mockImplementation(async (path, options) => {
     if (path.endsWith('/tasks/previous')) return previous as never
     if (path.endsWith('/tasks') && options?.method === 'POST') return {...completedTask('new'), inputs:JSON.parse(options.body as string).inputs,
@@ -174,7 +174,8 @@ it('preserves new manual-run input summaries while refreshing compact history', 
   })
   await act(async () => {render(<Suspense><ProjectPage params={Promise.resolve({id:'p'})}/></Suspense>)})
   fireEvent.click(await screen.findByRole('button',{name:'再次运行此工作流'}))
-  fireEvent.change(await screen.findByRole('textbox',{name:'source_path'}),{target:{value:'requirement-package/new.csv'}})
+  expect(await screen.findByRole('textbox',{name:'source_path'})).toHaveValue('requirement-package/previous.csv')
+  fireEvent.change(screen.getByRole('textbox',{name:'source_path'}),{target:{value:'requirement-package/new.csv'}})
   fireEvent.click(screen.getByRole('button',{name:'启动工作流'}))
   await screen.findByText('保存的结果 new')
   await act(async()=>{fireEvent.click(screen.getByRole('tab',{name:'运行记录'}))})
@@ -185,7 +186,12 @@ it('preserves new manual-run input summaries while refreshing compact history', 
   expect(current).not.toHaveTextContent('row-data.csv')
   expect(current).toHaveTextContent('汇总维度：按月、商户和币种 · 标记疑似重复：否')
   expect(screen.getByRole('button',{name:/资料整理 · 运行完成.*输入：previous.csv/})).toBeVisible()
-  expect(vi.mocked(api).mock.calls.filter(([,options])=>options?.method==='POST')).toHaveLength(1)
+  const submits=vi.mocked(api).mock.calls.filter(([,options])=>options?.method==='POST')
+  expect(submits).toHaveLength(1)
+  const body=JSON.parse(submits[0][1]!.body as string)
+  expect(body.reuse_task_id).toBeUndefined()
+  expect(body.inputs.removed_field).toBeUndefined()
+  expect(body.inputs.files).toHaveLength(3)
   expect(vi.mocked(api).mock.calls.some(([path])=>path.endsWith('/tasks/new'))).toBe(false)
 })
 

@@ -32,3 +32,15 @@ def test_business_summary_keeps_false_and_zero_and_bounds_card_size():
                           {'name': 'limit', 'label': 'limit', 'value': '0'}]
     assert len(result) == 6
     assert all(len(parameter['label']) <= 48 and len(parameter['value']) <= 80 for parameter in result)
+
+
+def test_choices_remain_visible_after_long_field_lists():
+    fields = [{'name': f'columns_{i}', 'default': 'length load'} for i in range(8)]
+    fields += [{'name': 'invalid_policy', 'label': '转换问题', 'type': 'string',
+                'options': ['保留', '排除'], 'default': '保留'}]
+    snapshot = {'workflow': {'nodes': [{'type': 'start', 'config': {'inputs': fields}}]}}
+    first = input_parameters({}, snapshot)
+    changed = input_parameters({'invalid_policy': '排除'}, snapshot)
+    assert first[0] == {'name': 'invalid_policy', 'label': '转换问题', 'value': '保留'}
+    assert changed[0]['value'] == '排除'
+    assert len(changed) == 6

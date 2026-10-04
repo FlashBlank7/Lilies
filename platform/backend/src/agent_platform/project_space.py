@@ -33,6 +33,7 @@ async def space(services, project_id):
                 pass
         return listing
     files = await asyncio.to_thread(listed_files)
+    files['files'] = await services.projects.store.annotate_files(project_id, files['files'])
     return {'project_id': project_id, 'workflows': workflows, 'files': files['files'], 'files_truncated': files['truncated']}
 
 

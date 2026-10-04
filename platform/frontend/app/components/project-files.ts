@@ -1,4 +1,11 @@
-export type ProjectFile = {path: string; size?: number; modified_at?: string}
+export type ProjectFile = {
+  path: string; size?: number; modified_at?: string
+  related_run?: {
+    run_id: string; task_id: string; workflow_id: string; workflow_name: string; created_at: string
+    file_parameters: {name: string; label: string; value: string}[]
+    input_parameters: {name: string; label: string; value: string}[]
+  }
+}
 
 const groupNames = ['原始资料', '说明', '运行结果', '其他'] as const
 
@@ -25,6 +32,18 @@ function modifiedTime(value?: string): string {
   return '更新 ' + date.toLocaleString('zh-CN', {year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'})
 }
 
+function relatedRun(file: ProjectFile): string {
+  const run = file.related_run
+  if (!run) return ''
+  const date = new Date(run.created_at)
+  const time = Number.isNaN(date.getTime()) ? '' : date.toLocaleString('zh-CN', {
+    year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit',
+  })
+  return [`关联运行：${run.workflow_name}`, time,
+    ...[...run.file_parameters.slice(0, 2), ...run.input_parameters.slice(0, 3)]
+      .map(parameter => `${parameter.label}：${parameter.value}`)].filter(Boolean).join(' · ')
+}
+
 export function groupProjectFiles(files: ProjectFile[]) {
   const names = new Map<string, number>()
   for (const file of files) {
@@ -34,8 +53,8 @@ export function groupProjectFiles(files: ProjectFile[]) {
   const displayed = files.map(file => {
     const name = file.path.split('/').pop() || file.path
     const group = fileGroup(file)
-    const detail = group === 2 || names.get(name)! > 1
-      ? [shortDirectory(file.path), modifiedTime(file.modified_at)].filter(Boolean).join(' · ') : ''
+    const detail = relatedRun(file) || (group === 2 || names.get(name)! > 1
+      ? [shortDirectory(file.path), modifiedTime(file.modified_at)].filter(Boolean).join(' · ') : '')
     return {...file, name, group, detail, label: name + (detail ? ' · ' + detail : '')}
   })
   // Two shortened directory names can coincide; keep every choice distinguishable.

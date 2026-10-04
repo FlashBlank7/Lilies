@@ -34,8 +34,9 @@ def input_parameters(inputs: dict, snapshot: dict) -> list[dict[str, str]]:
                 display = ' '.join(value.split())
             else:
                 continue
-            parameters.append({'name': name[:80], 'label': label[:48],
-                               'value': display if len(display) <= 80 else display[:79] + '…'})
-            if len(parameters) == 6:
-                return parameters
-    return parameters
+            # Choices often appear after lengthy field lists. Keep the decisions
+            # visible so two runs with different handling rules are distinguishable.
+            priority = 0 if field.get('options') or field.get('type') in {'number', 'boolean'} else 1
+            parameters.append((priority, {'name': name[:80], 'label': label[:48],
+                               'value': display if len(display) <= 80 else display[:79] + '…'}))
+    return [parameter for _, parameter in sorted(parameters, key=lambda item: item[0])[:6]]
