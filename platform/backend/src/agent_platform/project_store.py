@@ -149,6 +149,8 @@ class ProjectStore:
                     "JOIN applications a ON a.id=m.application_id "
                     "JOIN application_drafts d ON d.application_id=a.id "
                     "WHERE m.project_id=? ORDER BY m.created_at,a.id", (project_id,))]
+                from .shared_methods import label_installed_copies
+                label_installed_copies(c, project_id, result['members'])
                 return result
         return await asyncio.to_thread(get)
 

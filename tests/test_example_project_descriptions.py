@@ -15,6 +15,13 @@ def legacy_install(app, key):
     for flow in item['workflows']:
         for field in ('description', 'inputs', 'outputs'):
             flow.pop(field, None)
+        if key == 'composition':
+            for node in flow['workflow']['nodes']:
+                if node['type'] == 'code':
+                    node['config']['code'] = node['config']['code'].replace(
+                        "'+group+' / '+value+'；可用字段：'+'、'.join(fields)", "'+group+' / '+value")
+                for field in node['config'].get('inputs', []) if node['type'] == 'start' else []:
+                    field.pop('column_source', None)
         if key == 'expenses':
             for node in flow['workflow']['nodes']:
                 for field in node['config'].get('inputs', []) if node['type'] == 'start' else []:
@@ -61,6 +68,27 @@ def test_cutting_catalog_import_and_overview_have_distinct_purpose_and_io(config
     assert client.get(base+'/tasks').json() == []
 
 
+def test_composition_import_and_legacy_refresh_explain_each_member_without_changing_graphs(configured):
+    client,app,_,_=configured
+    new_pid=install(client,'composition')
+    pid=legacy_install(app,'composition')
+    base='/api/v1/projects/'+pid
+    flows=client.get(base+'/example').json()['workflows']
+    before={flow['id']:client.get('/api/v1/applications/'+flow['id']+'/draft').json() for flow in flows}
+    asyncio.run(refresh_example_defaults(app.state.services))
+    for project_id in (new_pid,pid):
+        members=client.get('/api/v1/projects/'+project_id).json()['members']
+        assert len({member['description'] for member in members})==3
+        notes=client.get('/api/v1/projects/'+project_id+'/progress').json()['value']['workflows']
+        assert len(notes)==3
+        assert any('缺失值' in note['purpose'] and '无需指定分组' in note['inputs'] for note in notes)
+        assert any('均值' in note['purpose'] and 'SVG' in note['outputs'] for note in notes)
+    after={wid:client.get('/api/v1/applications/'+wid+'/draft').json() for wid in before}
+    assert all(after[wid]['revision']==old['revision']+1 and after[wid]['snapshot']['workflow']==old['snapshot']['workflow'] for wid,old in before.items())
+    asyncio.run(refresh_example_defaults(app.state.services))
+    assert after=={wid:client.get('/api/v1/applications/'+wid+'/draft').json() for wid in before}
+
+
 def test_legacy_cutting_refresh_updates_current_cards_once_and_preserves_history(configured):
     client, app, _, settings = configured
     pid = legacy_install(app, 'cutting-candidates')
@@ -95,14 +123,17 @@ def test_legacy_cutting_refresh_updates_current_cards_once_and_preserves_history
     assert (settings.workspace_root/pid/guide['manual_path']).read_bytes() == manual
 
 
-@pytest.mark.parametrize('custom', ['description', 'graph'])
-def test_legacy_refresh_preserves_employee_workflow_and_progress_edits(configured, custom):
+@pytest.mark.parametrize('key', ['cutting-candidates', 'composition'])
+@pytest.mark.parametrize('custom', ['name', 'description', 'graph'])
+def test_legacy_refresh_preserves_employee_workflow_and_progress_edits(configured, custom, key):
     client, app, _, _ = configured
-    pid = legacy_install(app, 'cutting-candidates')
+    pid = legacy_install(app, key)
     base = '/api/v1/projects/'+pid
     flow = client.get(base+'/example').json()['workflows'][1]
     wid = flow['id']
-    if custom == 'description':
+    if custom == 'name':
+        edit(client, wid, 'set_metadata', {'name':'员工自定义流程'})
+    elif custom == 'description':
         edit(client, wid, 'set_metadata', {'description':'员工修改：仅检查部门批准条件'})
     else:
         workflow = client.get('/api/v1/applications/'+wid+'/draft').json()['snapshot']['workflow']

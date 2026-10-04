@@ -153,6 +153,35 @@ def visible(services, project_id, method_id=''):
     return [{k:r[k] for k in ('id','name','description','limitations','created_at')} for r in rows]
 
 
+def copy_name(title, item, root, used):
+    base = title if item['id'] == root else title + ' · ' + item['name']
+    index = 1
+    while True:
+        suffix = ' · 共享副本' + (f' {index}' if index > 1 else '')
+        name = base[:100-len(suffix)] + suffix
+        if name not in used:
+            used.add(name)
+            return name
+        index += 1
+
+
+def label_installed_copies(db, project_id, members):
+    """Distinguish old installs on read without changing drafts or custom names."""
+    if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='shared_method_installs'").fetchone():
+        return
+    by_id = {member['id']:member for member in members}
+    used = {member['name'] for member in members}
+    rows = db.execute('SELECT s.name,s.payload,i.result FROM shared_method_installs i '
+                      'JOIN shared_methods s ON s.id=i.method_id WHERE i.project_id=? '
+                      'ORDER BY s.created_at,s.id', (project_id,))
+    for row in rows:
+        payload, result = json.loads(row['payload']), json.loads(row['result'])
+        for item in payload.get('workflows', []):
+            member = by_id.get(result.get('mapping', {}).get(item['id']))
+            if member and member['name'] == item['name']:
+                member['display_name'] = copy_name(row['name'], item, payload.get('root'), used)
+
+
 async def install(services, project_id, method_id):
     row = visible(services, project_id, method_id)
     with connect(services.projects.store.db_path) as db:
@@ -172,8 +201,12 @@ async def install(services, project_id, method_id):
         existing_skill = db.execute("SELECT 1 FROM project_records WHERE project_id=? AND collection='skills' AND record_key=?", (project_id, skill_id)).fetchone()
     skill_document = None
     try:
+        project = await services.projects.store.get(project_id)
+        used_names = {member.get('display_name', member['name']) for member in project['members']}
+        used_names.update(member['name'] for member in project['members'])
         for item in payload['workflows']:
-            member = await services.projects.add_member(project_id, item['name'], item['description'])
+            name = copy_name(row['name'], item, payload.get('root'), used_names)
+            member = await services.projects.add_member(project_id, name, item['description'])
             remap[item['id']] = member['id']
         def rewrite(obj):
             if isinstance(obj, dict):

@@ -56,13 +56,13 @@ export default function ProjectWorkflowOverview({ projectId, selectedId, progres
   const selectedItem = items.find(item => item.id === itemId) || items[0]
   const note = progress.value.workflows?.find(n => n.workflow_id === selectedId)
   const flow = topology.flows?.[selectedId]
-  const explain = (item?: ProgressItem) => onTalk(item, `请仅依据本项目已确认需求、当前工作流和实际结果，整理「${item?.title || member?.name || '当前工作流'}」的用途、输入输出，以及逐项需求对照：原要求及出处、目前达到的程度、尚存差距和下一步；更新项目进展中的流程说明与需求对照。缺少验证就明确写尚未验证。本次只整理说明，不运行工作流、不训练、不改算法或已有任务结果。`)
+  const explain = (item?: ProgressItem) => onTalk(item, `请仅依据本项目已确认需求、当前工作流和实际结果，整理「${item?.title || member?.display_name || member?.name || '当前工作流'}」的用途、输入输出，以及逐项需求对照：原要求及出处、目前达到的程度、尚存差距和下一步；更新项目进展中的流程说明与需求对照。缺少验证就明确写尚未验证。本次只整理说明，不运行工作流、不训练、不改算法或已有任务结果。`)
   function resultLinks(results: ProgressResult[]) { return <div className={styles.resultLinks}>{results.map((r, index) => <span key={index}>
     {r.task_id && <button onClick={() => onTask(r.task_id)}>{r.label} · 运行</button>}
     {r.file_path && <button onClick={() => onFile(r.file_path)}>{r.label} · 文件</button>}
   </span>)}</div> }
   return <div className={styles.overview}>
-    <header className={styles.heading}><div><small>{main ? '主流程 · 项目协作入口' : '成员工作流'}</small><h2>{member?.name || '工作流'}</h2>
+    <header className={styles.heading}><div><small>{main ? '主流程 · 项目协作入口' : '成员工作流'}</small><h2>{member?.display_name || member?.name || '工作流'}</h2>
       <p>{note?.purpose || (main ? progress.value.goal : member?.description) || '尚未整理这条工作流的业务说明。'}</p></div>
       <div className={styles.actions}><button onClick={onRequirements}>查看原需求</button><button onClick={onEdit}>编辑画布</button></div></header>
     <div className={styles.io}><div><h3>需要什么输入</h3><p>{note?.inputs || '尚未整理输入说明，可让统筹根据当前草稿补充。'}</p></div><ArrowRight size={20}/><div><h3>产出什么</h3><p>{note?.outputs || '尚未整理产出说明，请查看下方已有结果。'}</p></div></div>
@@ -78,7 +78,7 @@ export default function ProjectWorkflowOverview({ projectId, selectedId, progres
         {!!item.requirements?.length ? <div className={styles.tableWrap}><table><thead><tr><th>原需求</th><th>当前实际情况</th><th>对照结论与差距</th></tr></thead><tbody>{item.requirements.map((check, index) => <tr key={index}>
           <td>{check.requirement}{check.source && <small>{check.source}</small>}</td><td>{check.current}{resultLinks(check.results)}</td><td><strong data-status={check.status}>{comparisonNames[check.status]}</strong><p>{check.gap || (check.status === 'met' ? '已满足上述范围，其他要求见对应条目。' : '尚未说明具体差距。')}</p></td>
         </tr>)}</tbody></table></div> : <div className={styles.unverified}>尚未逐项对照原需求；当前可用程度来自已有进展说明。<button onClick={() => explain(item)}>让统筹补充对照</button></div>}
-        {!!item.workflow_ids.length && <div className={styles.memberLinks}><small>共同参与的流程</small>{topology.members.filter(m => item.workflow_ids.includes(m.id) && m.id !== projectId).map(m => <button key={m.id} onClick={() => onWorkflow(m.id)}>{m.name}</button>)}</div>}
+        {!!item.workflow_ids.length && <div className={styles.memberLinks}><small>共同参与的流程</small>{topology.members.filter(m => item.workflow_ids.includes(m.id) && m.id !== projectId).map(m => <button key={m.id} onClick={() => onWorkflow(m.id)}>{m.display_name || m.name}</button>)}</div>}
         <div className={styles.actions}>{item.availability !== 'not_ready' && <button onClick={() => onTalk(item, `我想试用「${item.title}」，请说明需要哪份业务输入，并使用已有工作流处理。`)}>试用这项能力</button>}<button onClick={() => onTalk(item, '')}>反馈或继续完善</button></div>
         {!!item.results.length && <details><summary>已有结果与资料（{item.results.length}）</summary>{resultLinks(item.results)}</details>}
       </article>)}

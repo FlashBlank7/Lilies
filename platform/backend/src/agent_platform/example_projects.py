@@ -118,10 +118,10 @@ async def refresh_example_defaults(services):
     with connect(services.storage.db_path) as db:
         guides = [(row['project_id'], json.loads(row['value_json'])) for row in db.execute(
             "SELECT project_id,value_json FROM project_records WHERE collection='example' AND record_key='guide'")]
-    guides = [(pid, guide) for pid, guide in guides if guide.get('id') in {'cutting-candidates', 'expenses'}]
+    guides = [(pid, guide) for pid, guide in guides if guide.get('id') in {'cutting-candidates', 'expenses', 'composition'}]
     if not guides:
         return
-    items = {item['id']:item for item in catalog() if item['id'] in {'cutting-candidates', 'expenses'}}
+    items = {item['id']:item for item in catalog() if item['id'] in {'cutting-candidates', 'expenses', 'composition'}}
     from .workflow_storage import RevisionConflict
     for project_id, guide in guides:
         item = items[guide['id']]
@@ -131,6 +131,7 @@ async def refresh_example_defaults(services):
         project = await services.projects.store.get(project_id)
         members = {member['id']: member for member in project['members']}
         files = {file['name']:file for file in guide.get('files', [])}
+        workflow_ids = {flow['key']:flow['id'] for flow in guide.get('workflows', []) if flow.get('key') and flow.get('id')}
         notes = []
         for flow in item['workflows']:
             installed = next((w for w in guide.get('workflows', []) if w.get('name') == flow['name']), None)
@@ -143,10 +144,21 @@ async def refresh_example_defaults(services):
             if snapshot.name != expected_name or snapshot.description != item['description']:
                 continue
             try:
-                expected_workflow = WorkflowSpec.model_validate(replace_refs(deepcopy(flow['workflow']), files, {}))
+                expected_workflow = WorkflowSpec.model_validate(replace_refs(deepcopy(flow['workflow']), files, workflow_ids))
             except KeyError:
                 continue
-            if snapshot.workflow != expected_workflow:
+            # Column selection hints were absent from the original composition
+            # example. A description correction must not rewrite its graph.
+            current = snapshot.workflow.model_copy(deep=True)
+            if guide['id'] == 'composition':
+                for graph in (current, expected_workflow):
+                    for node in graph.nodes:
+                        if node.type == 'code':
+                            node.config['code'] = node.config.get('code', '').replace(
+                                "'+group+' / '+value+'；可用字段：'+'、'.join(fields)", "'+group+' / '+value")
+                        for field in node.config.get('inputs', []) if node.type == 'start' else []:
+                            field.pop('column_source', None)
+            if current != expected_workflow:
                 continue
             if snapshot.description != flow['description']:
                 try:

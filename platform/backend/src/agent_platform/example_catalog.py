@@ -133,7 +133,7 @@ def catalog():
     for key,name,operation,extra,question,exercise in [
         ('profile','表格数据体检','profile',[],'检查这份数据有哪些缺失和重复，先不要删除。','换成 data-2.csv，检查发现1条完全重复和1个缺失数值。'),
         ('join','多表整理与关联','join',[field('second_path','检测表','@file:labels.csv'),field('key','关联字段','sample_id')],'把生产记录和检测记录关联，保留未匹配的记录。','为右表加入重复键，检查明确报错而不是放大样本数量。'),
-        ('summary','数据汇总与报告','summary',[field('group','分组字段','device'),field('value','数值字段','value')],'按设备汇总数据，给我结果表和图。','修改分组字段，查看报告与图表；缺失数值需先处理。')]:
+        ('summary','数据汇总与报告','summary',[{**field('group','分组字段','device'),'column_source':'source_path'},{**field('value','数值字段','value'),'column_source':'source_path'}],'按设备汇总数据，给我结果表和图。','修改分组字段，查看报告与图表；缺失数值需先处理。')]:
         add(key,name,'数据处理',question,question,exercise,deepcopy(tables),[dict(key='main',name=name,workflow=code_graph(operation,[field('source_path','数据表','@file:data.csv'),*extra]))],['Python 代码执行'])
     data, alternate=datasets(),datasets(1)
     for key,name,problem,grouped,process in [
@@ -185,9 +185,18 @@ def catalog():
         node('summary','tool','调用汇总报告',tool_name='workflow:@workflow:summary',input={'source_path':ref('$inputs','source_path'),'group':'device','value':'value'}),
         node('end','end','组合结果',outputs={'profile':ref('profile','output','result'),'summary':ref('summary','output','result'),'markdown':ref('summary','output','markdown')})])
     add('composition','多工作流协作与修改','流程搭建','两个可独立使用的子流程组合为数据检查与汇总；人和智能体编辑同一份流程。','发现项目里的工作流，调用组合流程处理 data.csv。','切换创建工作流模式，让智能体根据现有流程生成按其他字段汇总的副本；检查原流程没有被覆盖。',
-        deepcopy(tables),[dict(key='main',name='数据检查与汇总',workflow=combined),
-         dict(key='profile',name='数据体检',workflow=code_graph('profile',[field('source_path','数据表','@file:data.csv')])),
-         dict(key='summary',name='汇总报告',workflow=code_graph('summary',[field('source_path','数据表','@file:data.csv'),field('group','分组字段','device'),field('value','数值字段','value')]))],['Python 代码执行；AI 修改需智能体连接'])
+        deepcopy(tables),[dict(key='main',name='数据检查与汇总',workflow=combined,
+            description='依次调用数据体检和汇总报告，集中返回数据问题与按设备汇总的结果。',
+            inputs='数据表 source_path；包含 device 分组列和 value 数值列。',
+            outputs='数据体检结果、分组汇总表、报告正文和下载文件。'),
+         dict(key='profile',name='数据体检',workflow=code_graph('profile',[field('source_path','数据表','@file:data.csv')]),
+            description='检查表格的缺失值、完全重复记录与字段分布，保留原始记录。',
+            inputs='数据表 source_path；无需指定分组或数值字段。',
+            outputs='数据体检报告、字段概况和带原文件行号的问题清单。'),
+         dict(key='summary',name='汇总报告',workflow=code_graph('summary',[field('source_path','数据表','@file:data.csv'),{**field('group','分组字段','device'),'column_source':'source_path'},{**field('value','数值字段','value'),'column_source':'source_path'}]),
+            description='按选定字段分组，计算数值列的条数、合计与均值，生成报告和图表。',
+            inputs='数据表 source_path、分组字段 group、数值字段 value；数值列需无缺失且可转换为数字。',
+            outputs='分组统计表、Markdown 报告与分组汇总 SVG 图。')],['Python 代码执行；AI 修改需智能体连接'])
     from .data_guidance import workflow as guidance_workflow, GUIDE
     guidance=guidance_workflow()
     guidance['nodes'][0]['config']['inputs'][0]['default']='@file:classification.csv'

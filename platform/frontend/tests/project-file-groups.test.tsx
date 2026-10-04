@@ -121,3 +121,27 @@ it('groups both file inputs and table choices and submits the unchanged full pat
   const submitted = vi.mocked(api).mock.calls.find(([, options]) => options?.method === 'POST')!
   expect(JSON.parse(submitted[1]!.body as string).inputs).toEqual({source_path: second, sources: [{path: instructions, note: '保留说明'}]})
 })
+
+it('uses grouped short filenames in conversation attachments while submitting their distinct full paths', async () => {
+  const {default: ConversationWorkflowCreator} = await import('@/app/components/ConversationWorkflowCreator')
+  const saved = vi.fn()
+  vi.mocked(api).mockImplementation(async (path, options) => {
+    if (path.endsWith('/space')) return {files: fixture} as never
+    if (options?.method === 'POST') return {workflow_id:'generated', draft:{revision:1}, previous_workflow:{}, workflow_card:{id:'generated',name:'新流程'}} as never
+    return [] as never
+  })
+  render(<ConversationWorkflowCreator projectId="p" visible storageKey="conversation-files" message="使用所选结果制作流程" members={[{...workflow,display_name:'我的流程 · 共享副本'}]} context={null} onClearTarget={vi.fn()} onSaved={saved}/>)
+  await waitFor(() => expect(screen.getByText('运行结果（2）')).toBeInTheDocument())
+  fireEvent.click(screen.getByText('关联项目文件（已选 0）'))
+  fireEvent.click(screen.getByText('参考已有工作流（已选 0）'))
+  expect(screen.getByRole('checkbox',{name:'我的流程 · 共享副本'})).toBeInTheDocument()
+  const reports = within(screen.getByRole('region',{name:'运行结果'})).getAllByRole('checkbox')
+  expect(reports[0]).toHaveAccessibleName(/report.md · 目录 examples \/ 87654321/)
+  expect(reports[1]).toHaveAccessibleName(/report.md · 目录 examples \/ 12345678/)
+  expect(screen.queryByText(second)).not.toBeInTheDocument()
+  fireEvent.click(reports[0]); fireEvent.click(reports[1])
+  fireEvent.click(screen.getByRole('button',{name:'生成新工作流'}))
+  await waitFor(() => expect(saved).toHaveBeenCalledWith('使用所选结果制作流程'))
+  const submitted=vi.mocked(api).mock.calls.find(([,options])=>options?.method==='POST')!
+  expect(JSON.parse(submitted[1]!.body as string).file_paths).toEqual([second,first])
+})

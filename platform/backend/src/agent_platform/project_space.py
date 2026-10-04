@@ -19,6 +19,7 @@ async def space(services, project_id):
         draft = await services.workflow_store.get_draft(member['id'])
         snapshot = draft['snapshot']
         workflows.append({'id': member['id'], 'name': snapshot.name,
+            **({'display_name':member['display_name']} if member.get('display_name') else {}),
             'description': snapshot.description, 'revision': draft['revision'],
             'node_count': len(snapshot.workflow.nodes), 'allowed': blocks.supports_workflow(snapshot.workflow),
             'inputs': [f for n in snapshot.workflow.nodes if n.type == 'start' for f in n.config.get('inputs', [])]})

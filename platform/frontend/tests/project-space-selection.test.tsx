@@ -101,6 +101,22 @@ it('opens the materials tab with files already visible before knowledge and proj
 })
 
 const props = { projectId: 'p', onWorkflow: vi.fn(), onFile: vi.fn(), onTalk: vi.fn(), onChanged: vi.fn() }
+it('distinguishes legacy shared copies and invokes the selected copy by its own id', async () => {
+  const normal = vi.mocked(api).getMockImplementation()!
+  vi.mocked(api).mockImplementation(async (path, options) => path.endsWith('/space') ? {
+    workflows: [member, { ...member, id: 'copy', display_name: '部门检查 · 质量分析 · 共享副本' }].map(flow => ({ ...flow, node_count: 2, allowed: true, inputs: [] })),
+    files: [], files_truncated: false,
+  } as never : normal(path, options))
+  const onTalk = vi.fn(), onWorkflow = vi.fn()
+  render(<ProjectSpace {...props} onTalk={onTalk} onWorkflow={onWorkflow} />)
+  const row = (await screen.findByText('部门检查 · 质量分析 · 共享副本')).closest('tr')!
+  expect(screen.getByText('质量分析')).toBeInTheDocument()
+  fireEvent.click(within(row).getByRole('button', { name: '让智能体调用' }))
+  expect(onTalk).toHaveBeenCalledWith(expect.stringContaining('「部门检查 · 质量分析 · 共享副本」（copy）'))
+  fireEvent.click(within(row).getByRole('button', { name: '查看与编辑' }))
+  expect(onWorkflow).toHaveBeenCalledWith('copy')
+})
+
 it.each(['project', 'account'])('keeps each %s selection separate and restores it when returning', async scope => {
   const view = render(<ProjectSpace {...props} />)
   fireEvent.click(await screen.findByRole('checkbox', { name: 'input.csv' }))

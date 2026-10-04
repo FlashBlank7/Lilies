@@ -5407,6 +5407,22 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         return await asyncio.to_thread(_collect)
 
     @app.get(
+        "/api/v1/applications/{application_id}/workspace/table-columns",
+        dependencies=[Depends(require_token)],
+    )
+    async def workspace_table_columns(application_id: str, path: str, sheet: str = '') -> dict[str, Any]:
+        from .project_table_columns import table_columns
+        from .sandbox import SandboxError
+        from .table_intake import TableIntakeError
+        try:
+            root = await asyncio.to_thread(services.sandboxes.resolve_workspace, application_id)
+            return await asyncio.to_thread(table_columns, root, path, sheet)
+        except (FileNotFoundError, SandboxError) as error:
+            raise HTTPException(404, '文件不存在') from error
+        except TableIntakeError as error:
+            raise HTTPException(422, str(error)) from error
+
+    @app.get(
         "/api/v1/applications/{application_id}/workspace/files/{file_path:path}",
         dependencies=[Depends(require_token)],
     )

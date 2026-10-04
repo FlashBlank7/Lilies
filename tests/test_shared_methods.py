@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 from tests.test_users import platform, signup, project  # noqa:F401
 from tests.test_projects import configured, start, settled  # noqa:F401
@@ -39,6 +41,55 @@ def test_composed_workflow_share_rewrites_children_and_runs_in_target_project(co
     assert list((settings.workspace_root/target/'results/examples').rglob('report.md'))
     assert not (settings.workspace_root/source/'results/examples').exists()
     assert client.post(dest+'/space/shared-methods/'+ident+'/install').json()==result
+
+
+def test_same_project_shared_copies_have_distinct_names_and_keep_child_references(configured):
+    client,_,_,_=configured
+    source,_,_=composition_share(client)
+    base='/api/v1/projects/'+source
+    originals={member['id']:member for member in client.get(base).json()['members']}
+    results=[]
+    for _ in range(2):
+        share=client.post(base+'/space/shared-methods',json={'workflow_id':source,
+            'name':'部门数据检查','target_project_ids':[source]}).json()
+        response=client.post(base+'/space/shared-methods/'+share['id']+'/install')
+        assert response.status_code==201,response.text
+        results.append(response.json())
+    members={member['id']:member for member in client.get(base).json()['members']}
+    assert len({member['name'] for member in members.values()})==len(members)==9
+    assert all(members[wid]==member for wid,member in originals.items())
+    for result in results:
+        assert all('部门数据检查' in members[wid]['name'] and '共享副本' in members[wid]['name'] for wid in result['mapping'].values())
+        root=client.get('/api/v1/applications/'+result['workflow_id']+'/draft').json()['snapshot']['workflow']
+        assert {node['config']['tool_name'][9:] for node in root['nodes'] if node['type']=='tool'}==set(result['mapping'].values())-{result['workflow_id']}
+
+
+def test_legacy_shared_copy_labels_do_not_rename_drafts_or_custom_names(configured,monkeypatch):
+    client,app,_,_=configured
+    source,_,_=composition_share(client)
+    base='/api/v1/projects/'+source
+    results=[]
+    for _ in range(2):
+        share=client.post(base+'/space/shared-methods',json={'workflow_id':source,
+            'name':'部门数据检查','target_project_ids':[source]}).json()
+        with monkeypatch.context() as patch:
+            patch.setattr('agent_platform.shared_methods.copy_name',lambda title,item,root,used:item['name'])
+            results.append(client.post(base+'/space/shared-methods/'+share['id']+'/install').json())
+    custom=results[0]['workflow_id']
+    from tests.test_example_project_descriptions import edit
+    edit(client,custom,'set_metadata',{'name':'员工自己的流程名'})
+    ids=[source]+[wid for result in results for wid in result['mapping'].values()]
+    before={wid:client.get('/api/v1/applications/'+wid+'/draft').json() for wid in ids}
+    members=client.get(base).json()['members']
+    labels=[member.get('display_name',member['name']) for member in members]
+    assert len(set(labels))==len(labels)==9
+    assert next(member for member in members if member['id']==custom)['name']=='员工自己的流程名'
+    assert 'display_name' not in next(member for member in members if member['id']==custom)
+    space={flow['id']:flow for flow in client.get(base+'/space').json()['workflows']}
+    assert all(space[member['id']].get('display_name')==member.get('display_name') for member in members)
+    asyncio.run(app.state.services.projects.initialize())
+    assert before=={wid:client.get('/api/v1/applications/'+wid+'/draft').json() for wid in ids}
+    assert client.get(base).json()['members']==members
 
 
 @pytest.mark.parametrize('failure',['workflow','skill','skill_after_write','member'])

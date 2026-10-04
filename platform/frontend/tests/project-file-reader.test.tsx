@@ -76,3 +76,15 @@ it('previews a project image without decoding it as text, and keeps its original
   expect(screen.getByRole('link',{name:'下载原文件'})).toHaveAttribute('download')
   expect(fetcher).not.toHaveBeenCalled()
 })
+
+it('previews generated SVG as an image and keeps executable markup out of the page DOM',()=>{
+  const fetcher=vi.fn();vi.stubGlobal('fetch',fetcher)
+  const view=render(<ProjectFileReader projectId="p" path="results/summary/chart.svg" onClose={()=>{}} />)
+  expect(screen.getByRole('img',{name:'chart.svg'})).toHaveAttribute('src','/api/platform/api/v1/applications/p/workspace/files/results/summary/chart.svg')
+  expect(screen.getByRole('link',{name:'下载原文件'})).toHaveAttribute('download')
+  expect(fetcher).not.toHaveBeenCalled()
+  expect(screen.getByRole('img',{name:'chart.svg'}).closest('figure')!.querySelector('svg,object,embed,iframe')).toBeNull()
+  view.rerender(<ProjectFileReader projectId="p" path="results/../other/chart.svg" onClose={()=>{}} />)
+  expect(screen.getByRole('alert')).toHaveTextContent('只能预览当前项目')
+  expect(screen.queryByRole('img')).not.toBeInTheDocument()
+})

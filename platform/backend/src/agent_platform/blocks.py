@@ -94,6 +94,8 @@ class InputField(BaseModel):
     # Optional file-extension hints for human input forms; execution still
     # validates actual content in the corresponding processing node.
     accept: list[str] = Field(default_factory=list)
+    # Name of the file input whose headers supply this string field's choices.
+    column_source: str = ''
 
 
 class StartConfig(BaseModel):

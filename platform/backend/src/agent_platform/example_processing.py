@@ -263,7 +263,7 @@ def main(inputs):
     if mode == 'summary':
         group,value = inputs.get('group','device'),inputs.get('value','value')
         if group not in fields or value not in fields:
-            raise ValueError('缺少分组或数值字段：'+group+' / '+value)
+            raise ValueError('缺少分组或数值字段：'+group+' / '+value+'；可用字段：'+'、'.join(fields))
         groups=defaultdict(list)
         for i,r in enumerate(rows):
             groups[r[group] or '未填写'].append(decimal(r[value],i+2,value))

@@ -27,7 +27,7 @@ export function projectFileFromLink(projectId: string, href: string): string | n
 
 export function projectPreviewFromLink(projectId: string, href: string): string | null {
   const path=projectFilePathFromLink(projectId,href)
-  return path&&/\.(md|txt|csv|json|html?|png|jpe?g|webp)$/i.test(path)?path:null
+  return path&&/\.(md|txt|csv|json|html?|png|jpe?g|webp|svg)$/i.test(path)?path:null
 }
 
 export function resolveProjectFileLink(projectId: string, sourcePath: string, href: string): string {

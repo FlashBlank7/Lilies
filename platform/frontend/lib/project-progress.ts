@@ -22,7 +22,7 @@ export type WorkflowOutline = {
 }
 export type ProjectTopology = { members: ProjectMember[]; calls: { source: string; target: string; node_id: string; label: string }[]; flows?: Record<string, WorkflowOutline> }
 export const comparisonNames = { met: '已满足此项', partial: '部分满足', unmet: '尚未满足', unverified: '尚未验证' }
-export type ProjectMember = { id: string; name: string; description: string; revision: number; purpose: string }
+export type ProjectMember = { id: string; name: string; display_name?: string; description: string; revision: number; purpose: string }
 export type ConversationFocus = { nonce: number; item_id?: string; question_id?: string; task_id?: string; label: string; message?: string; mode?: 'task' | 'workflow' }
 export type ProjectTask = {
   input_files?: string[]

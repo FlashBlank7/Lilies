@@ -13,6 +13,7 @@ import FeatureResults from './FeatureResults'
 import WorkflowReadiness, {type Readiness} from './WorkflowReadiness'
 import WorkflowRecovery from './WorkflowRecovery'
 import ProjectFileField from './ProjectFileField'
+import ProjectColumnField, {canReadColumns, columnKey, unknownColumn, useProjectColumns} from './ProjectColumnField'
 import {fileFormatError} from '@/lib/file-formats'
 import { WorkflowValueField } from './WorkflowValueField'
 import { useEffect, useRef, useState } from 'react'
@@ -22,7 +23,7 @@ import { resolveProjectLink } from '@/lib/project-links'
 import { taskNames, type ProjectMember, type ProjectTask } from '@/lib/project-progress'
 import styles from '@/app/projects/projects.module.css'
 
-type Field = { name: string; label?: string; type: string; required?: boolean; default?: unknown; description?: string; options?: string[]; columns?: InputColumn[]; accept?: string[] }
+type Field = { name: string; label?: string; type: string; required?: boolean; default?: unknown; description?: string; options?: string[]; columns?: InputColumn[]; accept?: string[]; column_source?: string }
 type Draft = { snapshot: { workflow: { nodes: { type: string; config: { inputs?: Field[] } }[] } } }
 type FileEntry = { path: string }
 
@@ -110,6 +111,13 @@ export default function ProjectRunPanel({ projectId, members, initialWorkflowId,
   const lock = useRef(false)
   const base = `/api/v1/projects/${projectId}`
   const active = Boolean(task && ['queued', 'running'].includes(task.status))
+  // Older summary examples predate column_source; keep their saved defaults intact.
+  const legacySummary = ['source_path', 'group', 'value'].every(name => fields.some(field => field.name === name))
+  const columnSource = (field: Field) => field.type === 'string' ? field.column_source || (legacySummary && ['group', 'value'].includes(field.name) ? 'source_path' : '') : ''
+  const sheet = values.sheet || ''
+  const columnPaths = [...new Set(fields.map(columnSource).filter(Boolean).map(name => values[name] || '').filter(canReadColumns))].sort()
+  const columnRequests = JSON.stringify(columnPaths.map(path => ({path, sheet})))
+  const columnChoices = useProjectColumns(projectId, columnRequests)
   useEffect(()=>{
     let current=true
     setReadiness(undefined);setReadinessError('')
@@ -164,6 +172,9 @@ export default function ProjectRunPanel({ projectId, members, initialWorkflowId,
         }
         const formatError = fileFormatError(field.label || field.name, raw, field.accept)
         if (formatError) throw new Error(formatError)
+        const source = columnSource(field)
+        const columnError = source && unknownColumn(field.label || field.name, raw, columnChoices[columnKey(values[source] || '', sheet)])
+        if (columnError) throw new Error(columnError)
         if (field.type === 'number') {
           const number = Number(raw)
           if (!Number.isFinite(number)) throw new Error(`${field.name} 需要有效数字`)
@@ -180,12 +191,12 @@ export default function ProjectRunPanel({ projectId, members, initialWorkflowId,
   return <section className={styles.panel} aria-label="手动运行工作流">
     <h2>运行工作流</h2><p>选择工作流和本次资料，直接运行当前已保存的配置。</p>
     {reuseTask?.workflow_id === workflowId && <p>按当前配置重算：按各步骤实际读取的输入和依赖判断能否复用。旧运行缺少复用记录时会重新计算。代码默认重跑，可在代码积木配置中声明允许复用。</p>}
-    <label>入口工作流<select aria-label="入口工作流" disabled={active || busy} value={workflowId} onChange={event => { setWorkflowId(event.target.value); setTask(null) }}>{members.map(member => <option key={member.id} value={member.id}>{member.id === projectId ? '主流程 · ' : ''}{member.name}</option>)}</select></label>
+    <label>入口工作流<select aria-label="入口工作流" disabled={active || busy} value={workflowId} onChange={event => { setWorkflowId(event.target.value); setTask(null) }}>{members.map(member => <option key={member.id} value={member.id}>{member.id === projectId ? '主流程 · ' : ''}{member.display_name || member.name}</option>)}</select></label>
     <p><Link href={`/applications/${workflowId}?tab=edit`} target="_blank">编辑这条工作流 ↗</Link></p>
     <WorkflowReadiness value={readiness} projectId={projectId} canConfigureModel={canConfigureModel&&!active&&!busy} onRecheck={async()=>{setCheckVersion(v=>v+1)}}/>{readinessError&&<p role="status">{readinessError}</p>}
     <button disabled={active||busy} onClick={()=>setCheckVersion(v=>v+1)}>重新检查运行准备</button>
     {loading ? <p role="status">正在读取输入配置…</p> : fields.map(field => <div key={field.name}>
-      {(field.type==='file'||/(?:path|file|document|attachment)$/i.test(field.name)) ? <ProjectFileField name={field.name} label={(field.label||field.name)+(field.required?' *':'')} value={values[field.name]||''} files={files} accept={field.accept} disabled={active||busy} onChange={value=>setValues(previous=>({...previous,[field.name]:value}))}/> : field.type==='array' && field.columns?.length ? <WorkflowInputTable name={field.name} label={field.label||field.name} columns={field.columns} files={files} value={values[field.name]||'[]'} disabled={active||busy} onChange={value=>setValues(previous=>({...previous,[field.name]:value}))}/> : <label>{field.label || field.name}{field.required ? ' *' : ''}
+      {columnSource(field) ? <ProjectColumnField name={field.name} label={field.label || field.name} value={values[field.name] || ''} source={values[columnSource(field)] || ''} choices={columnChoices[columnKey(values[columnSource(field)] || '', sheet)]} required={field.required} disabled={active || busy} onChange={value => setValues(previous => ({...previous, [field.name]: value}))}/> : (field.type==='file'||/(?:path|file|document|attachment)$/i.test(field.name)) ? <ProjectFileField name={field.name} label={(field.label||field.name)+(field.required?' *':'')} value={values[field.name]||''} files={files} accept={field.accept} disabled={active||busy} onChange={value=>setValues(previous=>({...previous,[field.name]:value}))}/> : field.type==='array' && field.columns?.length ? <WorkflowInputTable name={field.name} label={field.label||field.name} columns={field.columns} files={files} value={values[field.name]||'[]'} disabled={active||busy} onChange={value=>setValues(previous=>({...previous,[field.name]:value}))}/> : <label>{field.label || field.name}{field.required ? ' *' : ''}
         {field.name === 'dataset_id' ? <WorkflowValueField allowReference={false} disabled={active || busy} projectId={projectId} field="dataset_id" nodeId="run" nodes={[]} label="预测数据集" value={values[field.name] || ''} onChange={next => setValues(previous => ({...previous, [field.name]: next}))} /> : field.type === 'boolean' ? <select aria-label={field.name} disabled={active || busy} value={values[field.name] || ''} onChange={event => setValues(previous => ({ ...previous, [field.name]: event.target.value }))}><option value="">请选择</option><option value="true">是</option><option value="false">否</option></select>
           : field.type === 'string' && field.options?.length ? <select aria-label={field.name} disabled={active || busy} value={values[field.name] || ''} onChange={event => setValues(previous => ({ ...previous, [field.name]: event.target.value }))}><option value="">请选择</option>{field.options.map(option => <option key={option} value={option}>{option}</option>)}</select>
           : <textarea aria-label={field.name} rows={['object', 'array', 'any'].includes(field.type) ? 4 : 2} disabled={active || busy} value={values[field.name] || ''} onChange={event => setValues(previous => ({ ...previous, [field.name]: event.target.value }))} />}
