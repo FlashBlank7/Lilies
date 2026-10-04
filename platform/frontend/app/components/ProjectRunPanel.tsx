@@ -10,6 +10,7 @@ import WorkflowInputTable, {type InputColumn} from './WorkflowInputTable'
 import KnowledgeResults, {isKnowledgeSearchResult} from './KnowledgeResults'
 import FeatureResults from './FeatureResults'
 import WorkflowReadiness, {type Readiness} from './WorkflowReadiness'
+import WorkflowRecovery from './WorkflowRecovery'
 import ProjectFileField from './ProjectFileField'
 import { WorkflowValueField } from './WorkflowValueField'
 import { useEffect, useRef, useState } from 'react'
@@ -33,7 +34,7 @@ export function ProjectRunEvents({ runs, members }: { runs: ProjectTask['runs'];
   </>
 }
 
-export function ProjectTaskOutput({ projectId, task, onTask }: { projectId: string; task: ProjectTask; onTask?: (task: ProjectTask) => void }) {
+export function ProjectTaskOutput({ projectId, task, onTask, canConfigureModel=false, onConfigurationChanged }: { projectId: string; task: ProjectTask; onTask?: (task: ProjectTask) => void; canConfigureModel?:boolean; onConfigurationChanged?:()=>void }) {
   const output = task.outputs || {}
   const markdown = task.presentation?.markdown || (typeof output.markdown === 'string' ? output.markdown : '') || task.presentation?.message || (typeof output.message === 'string' ? output.message : '')
   const results = [output, ...Object.values(output).map(v => typeof v==='string'?{artifact:v}:v)].filter((v):v is Record<string,unknown> => !!v && typeof v==='object' && !Array.isArray(v))
@@ -54,6 +55,7 @@ export function ProjectTaskOutput({ projectId, task, onTask }: { projectId: stri
   const duplicates = (expenses && (Array.isArray(expenses.duplicate_records) ? expenses.duplicate_records : Array.isArray(expenses.preview) ? expenses.preview.filter((row:Record<string,unknown>)=>row.suspected_duplicate==='yes') : []) || []) as Record<string,unknown>[]
   return <>
     <TaskError error={task.error}/>
+    {task.error && task.workflow_id && task.status==='failed' && <WorkflowRecovery key={projectId+':'+task.id} projectId={projectId} workflowId={task.workflow_id} canConfigureModel={canConfigureModel} onChanged={onConfigurationChanged}/>}
     {expenses && <section aria-label="疑似重复费用"><h3>需要复核：{Number(expenses.suspected_duplicates)} 条疑似重复费用</h3><p>仅提示核对，汇总金额仍包含这些记录，没有自动扣除。</p>
       {!!duplicates.length && <div style={{overflowX:'auto'}}><table><thead><tr>{['日期','商户','金额','币种','来源与行号'].map(label=><th key={label}>{label}</th>)}</tr></thead><tbody>{duplicates.map((row,i)=><tr key={i}><td>{String(row.date||'')}</td><td>{String(row.merchant||'')}</td><td>{String(row.amount||'')}</td><td>{String(row.currency||'')}</td><td>{row.source_file?`${String(row.source_file).split('/').pop()} · 第 ${row.source_row} 行`:'见明细下载'}</td></tr>)}</tbody></table></div>}
       {duplicates.length < Number(expenses.suspected_duplicates) && <p>当前展示 {duplicates.length} 条，完整标记请下载费用明细。</p>}
@@ -88,8 +90,8 @@ export function ProjectTaskOutput({ projectId, task, onTask }: { projectId: stri
   </>
 }
 
-export default function ProjectRunPanel({ projectId, members, initialWorkflowId, reuseTask, onTask }: {
-  projectId: string; members: ProjectMember[]; initialWorkflowId?: string; reuseTask?: ProjectTask; onTask?: (task: ProjectTask) => void
+export default function ProjectRunPanel({ projectId, members, initialWorkflowId, reuseTask, onTask, canConfigureModel=false }: {
+  projectId: string; members: ProjectMember[]; initialWorkflowId?: string; reuseTask?: ProjectTask; onTask?: (task: ProjectTask) => void; canConfigureModel?:boolean
 }) {
   const [workflowId, setWorkflowId] = useState(initialWorkflowId || projectId)
   const [fields, setFields] = useState<Field[]>([])
@@ -175,7 +177,7 @@ export default function ProjectRunPanel({ projectId, members, initialWorkflowId,
     {reuseTask?.workflow_id === workflowId && <p>按当前配置重算：按各步骤实际读取的输入和依赖判断能否复用。旧运行缺少复用记录时会重新计算。代码默认重跑，可在代码积木配置中声明允许复用。</p>}
     <label>入口工作流<select aria-label="入口工作流" disabled={active || busy} value={workflowId} onChange={event => { setWorkflowId(event.target.value); setTask(null) }}>{members.map(member => <option key={member.id} value={member.id}>{member.id === projectId ? '主流程 · ' : ''}{member.name}</option>)}</select></label>
     <p><Link href={`/applications/${workflowId}?tab=edit`} target="_blank">编辑这条工作流 ↗</Link></p>
-    <WorkflowReadiness value={readiness} projectId={projectId}/>{readinessError&&<p role="status">{readinessError}</p>}
+    <WorkflowReadiness value={readiness} projectId={projectId} canConfigureModel={canConfigureModel&&!active&&!busy} onRecheck={async()=>{setCheckVersion(v=>v+1)}}/>{readinessError&&<p role="status">{readinessError}</p>}
     <button disabled={active||busy} onClick={()=>setCheckVersion(v=>v+1)}>重新检查运行准备</button>
     {loading ? <p role="status">正在读取输入配置…</p> : fields.map(field => <div key={field.name}>
       {(field.type==='file'||/(?:path|file|document|attachment)$/i.test(field.name)) && files.length>0 ? <ProjectFileField name={field.name} label={(field.label||field.name)+(field.required?' *':'')} value={values[field.name]||''} files={files} disabled={active||busy} onChange={value=>setValues(previous=>({...previous,[field.name]:value}))}/> : field.type==='array' && field.columns?.length ? <WorkflowInputTable name={field.name} label={field.label||field.name} columns={field.columns} files={files} value={values[field.name]||'[]'} disabled={active||busy} onChange={value=>setValues(previous=>({...previous,[field.name]:value}))}/> : <label>{field.label || field.name}{field.required ? ' *' : ''}
@@ -188,7 +190,7 @@ export default function ProjectRunPanel({ projectId, members, initialWorkflowId,
       {(active || task?.status === 'waiting_input') && task && <button disabled={busy} onClick={async () => { setBusy(true); try { const next = await api<ProjectTask>(`${base}/tasks/${task.id}/stop`, { method: 'POST' }); setTask(next); onTask?.(next) } catch (cause) { setError(String(cause)) } finally { setBusy(false) } }}>停止运行</button>}
     </div>
     {error && <p role="alert" className={styles.error}>{error}</p>}
-    {task && <section aria-label="本次运行结果"><h3>{taskNames[task.status] || task.status}</h3><ProjectTaskOutput projectId={projectId} task={task} onTask={next=>{setTask(next);onTask?.(next)}} />
+    {task && <section aria-label="本次运行结果"><h3>{taskNames[task.status] || task.status}</h3><ProjectTaskOutput projectId={projectId} task={task} canConfigureModel={canConfigureModel} onConfigurationChanged={()=>setCheckVersion(v=>v+1)} onTask={next=>{setTask(next);onTask?.(next)}} />
       <details><summary>实际输入输出与运行详情</summary><pre>{JSON.stringify({ inputs: task.inputs, outputs: task.outputs }, null, 2)}</pre><ProjectRunEvents key={task.id} runs={task.runs} members={members} />
       </details>
     </section>}

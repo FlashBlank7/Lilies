@@ -1,5 +1,6 @@
 """Shared project resources and private conversation-to-workflow creation."""
 import json
+from datetime import datetime
 from types import SimpleNamespace
 
 from agent_platform.conversation_scope import conversation_scope
@@ -33,7 +34,8 @@ def test_added_workflow_and_uploaded_file_are_discoverable_and_callable(configur
     wid=response.json()['workflow_id']
     scene=client.get(base+'/space').json()
     assert any(w['id']==wid and w['inputs'][0]['name']=='file' for w in scene['workflows'])
-    assert any(f['path']==path for f in scene['files'])
+    uploaded_file = next(f for f in scene['files'] if f['path'] == path)
+    assert abs(datetime.fromisoformat(uploaded_file['modified_at']).timestamp() - (settings.workspace_root / pid / path).stat().st_mtime) < 0.000001
     tools=base+'/agent-tools'
     inspected=client.post(tools,json={'name':'project_workflows','arguments':{'action':'inspect','workflow_id':wid}})
     assert inspected.status_code==200

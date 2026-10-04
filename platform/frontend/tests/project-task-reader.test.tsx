@@ -119,3 +119,53 @@ it('shows actual workflows and an older waiting run without legacy progress item
   expect(screen.queryByRole('region',{name:'等待补充的运行'})).not.toBeInTheDocument()
   expect(vi.mocked(api).mock.calls.some(([path])=>path.includes('agent-session/messages'))).toBe(false)
 })
+
+it('follows a configuration link when only the current project query changes', async () => {
+  projectReads(async id => completedTask(id))
+  const params = Promise.resolve({ id: 'p' })
+  const page = await act(async () => render(<Suspense><ProjectPage params={params} /></Suspense>))
+  expect(screen.getByRole('tab', {name:'对话'})).toHaveAttribute('aria-selected','true')
+  navigation.query = 'tab=settings'
+  await act(async () => page.rerender(<Suspense><ProjectPage params={params} /></Suspense>))
+  expect(screen.getByRole('tab', {name:'设置'})).toHaveAttribute('aria-selected','true')
+  expect(screen.getByRole('button', {name:'模型设置'})).toBeInTheDocument()
+  expect(vi.mocked(api).mock.calls.every(([, options]) => !options)).toBe(true)
+})
+
+it('shows input file names immediately after a manual run without refreshing the compact history', async () => {
+  navigation.query = 'task=previous'
+  const previous = {...completedTask('previous'), purpose:'customer_trial', input_files:['previous.csv']}
+  vi.mocked(api).mockImplementation(async (path, options) => {
+    if (path.endsWith('/tasks/previous')) return previous as never
+    if (path.endsWith('/tasks') && options?.method === 'POST') return {...completedTask('new'), inputs:JSON.parse(options.body as string).inputs} as never
+    if (path.includes('/tasks?purpose=customer_trial')) return [previous] as never
+    if (path.endsWith('/conversations') || path.includes('/tasks?') || path.endsWith('/workspace/files')) return [] as never
+    if (path.endsWith('/example')) return null as never
+    if (path.endsWith('/progress')) return {revision:0,value:{goal:'',summary:'',items:[]}} as never
+    if (path.endsWith('/readiness')) return {status:'configured',issues:[],note:'运行时检查'} as never
+    if (path.endsWith('/draft')) return {snapshot:{workflow:{nodes:[{type:'start',config:{inputs:[
+      {name:'source_path',type:'string',default:'requirement-package/original.csv'},
+      {name:'files',type:'array',default:['results/prior/review.csv','requirement-package/notes.txt','requirement-package/new.csv']},
+      {name:'request',type:'string',default:'不得把完整要求展示在历史文件摘要'},
+      {name:'rows',type:'array',default:[{path:'requirement-package/row-data.csv',value:'完整行数据'}]},
+    ]}}]}}} as never
+    if (options) throw new Error(path)
+    return {id:'p',name:'项目',members:[{id:'member',name:'资料整理',revision:1,purpose:'business'}]} as never
+  })
+  await act(async () => {render(<Suspense><ProjectPage params={Promise.resolve({id:'p'})}/></Suspense>)})
+  fireEvent.click(await screen.findByRole('button',{name:'再次运行此工作流'}))
+  fireEvent.change(await screen.findByRole('textbox',{name:'source_path'}),{target:{value:'requirement-package/new.csv'}})
+  const historyReads = vi.mocked(api).mock.calls.filter(([path])=>path.includes('/tasks?')).length
+  fireEvent.click(screen.getByRole('button',{name:'启动工作流'}))
+  await screen.findByText('保存的结果 new')
+  fireEvent.click(screen.getByRole('tab',{name:'运行记录'}))
+  const current = screen.getByRole('button',{name:/资料整理 · 运行完成.*输入：new.csv、review.csv、notes.txt/})
+  expect(current).toBeVisible()
+  expect(current).not.toHaveTextContent('requirement-package/')
+  expect(current).not.toHaveTextContent('完整要求')
+  expect(current).not.toHaveTextContent('row-data.csv')
+  expect(screen.getByRole('button',{name:/资料整理 · 运行完成.*输入：previous.csv/})).toBeVisible()
+  expect(vi.mocked(api).mock.calls.filter(([path])=>path.includes('/tasks?'))).toHaveLength(historyReads)
+  expect(vi.mocked(api).mock.calls.filter(([,options])=>options?.method==='POST')).toHaveLength(1)
+  expect(vi.mocked(api).mock.calls.some(([path])=>path.endsWith('/tasks/new'))).toBe(false)
+})

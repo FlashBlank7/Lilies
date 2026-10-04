@@ -4,7 +4,7 @@ from copy import deepcopy
 
 import pytest
 from tests.test_modeling import modeling, real_compute, wait_task  # noqa: F401
-from tests.test_projects import configured, graph, ref, start  # noqa: F401
+from tests.test_projects import configured, graph, ref, start, settled  # noqa: F401
 from agent_platform.official_workflows import CATALOG, RULE_CODE, REPLAY_INPUT_CODE
 
 
@@ -26,6 +26,57 @@ def test_install_editable_copies_and_skill_without_resources(configured):
         assert client.get(base + '/skills/official-' + first).json()['content'].find(first) >= 0
     assert client.get(base + '/tasks').json() == []
     assert client.post(base + '/space/official-workflows/missing').status_code == 404
+
+
+def test_existing_example_can_add_profile_with_locations_without_overwriting_edits_or_results(configured):
+    import csv
+    import io
+    client, _, _, settings = configured
+    response = client.post('/api/v1/example-projects/profile/instantiate', json={'request_key': 'old-profile'})
+    assert response.status_code == 201, response.text
+    pid = response.json()['project_id']
+    base = '/api/v1/projects/' + pid
+    guide = client.get(base + '/example').json()
+    source = next(item['path'] for item in guide['files'] if item['name'] == 'data-2.csv')
+    original_file = (settings.workspace_root / pid / source).read_bytes()
+    draft_url = '/api/v1/applications/' + pid + '/draft'
+    old = client.get(draft_url).json()
+    workflow = old['snapshot']['workflow']
+    next(node for node in workflow['nodes'] if node['id'] == 'process')['config']['code'] = (
+        "def main(inputs):\n    return {'markdown':'# 旧版体检报告', 'duplicates':1}\n")
+    workflow['nodes'][-1]['config']['outputs']['note'] = '员工保留的修改'
+    response = client.put(base + '/workflows/' + pid + '/draft', json={'expected_revision': old['revision'], 'workflow': workflow})
+    assert response.status_code == 200, response.text
+    saved_draft = client.get(draft_url).json()
+    first = settled(client, base, start(client, base, 'old-run', workflow_id=pid, inputs={'source_path': source}))
+    assert first['status'] == 'succeeded', first
+    assert first['outputs']['note'] == '员工保留的修改'
+    assert first['outputs']['result'] == {'markdown': '# 旧版体检报告', 'duplicates': 1}
+
+    current = install(client, base, 'table-profile')
+    assert current != pid
+    assert client.get(draft_url).json() == saved_draft
+    skill = client.get(base + '/skills/official-' + current).json()['content']
+    assert 'source_path' in skill and 'workflow_run' in skill and '不覆盖原工作流' in skill
+    assert len(client.get(base + '/tasks').json()) == 1
+    second = settled(client, base, start(client, base, 'new-profile', workflow_id=current, inputs={'source_path': source}))
+    assert second['status'] == 'succeeded', second
+    result = second['outputs']['result']
+    duplicate = next(item for item in result['issues'] if item['reason'] == '完全重复')
+    assert (duplicate['row'], duplicate['first_row'], duplicate['source_file']) == (3, 2, source)
+    assert '| 3 | 2 |' in second['outputs']['markdown']
+    downloads = {}
+    for artifact in result['artifacts']:
+        response = client.get('/api/v1/applications/' + pid + '/workspace/files/' + artifact['file_path'])
+        assert response.status_code == 200, response.text
+        downloads[artifact['file_path'].rsplit('/', 1)[-1]] = response
+    assert downloads['result.json'].json()['issues'] == result['issues']
+    rows = list(csv.DictReader(io.StringIO(downloads['details.csv'].content.decode('utf-8-sig'))))
+    assert rows == [{key: str(value) for key, value in issue.items()} for issue in result['issues']]
+    assert downloads['report.md'].text == second['outputs']['markdown']
+    assert client.get(draft_url).json() == saved_draft
+    assert client.get(base + '/tasks/' + first['id']).json()['outputs'] == first['outputs']
+    assert (settings.workspace_root / pid / source).read_bytes() == original_file
 
 
 def test_rule_decisions_require_actual_model_probabilities(tmp_path, monkeypatch):

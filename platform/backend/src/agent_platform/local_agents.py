@@ -103,6 +103,7 @@ class LocalAgents:
         elif state.get('provider') == 'official':
             connection = self.connections.load(application_id)
             state.update(self.connections.public(connection) if connection else {'provider': None})
+        state['model_egress_enabled'] = self.services.settings.model_egress_enabled
         return state
 
     def save(self, application_id: str, state: dict) -> None:

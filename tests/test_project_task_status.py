@@ -1,6 +1,22 @@
 from tests.test_projects import configured, graph, node, edge, start, settled  # noqa: F401
 
 
+def test_compact_run_list_keeps_small_file_labels_without_large_inputs(configured):
+    client, _, project, _ = configured
+    pid=project['id']; base='/api/v1/projects/'+pid
+    graph(client,pid,[node('start','start'),node('end','end',outputs={'ok':True})],[edge('start','end')])
+    original={'source_path':'requirement-package/first/data.csv','second_path':'results/previous/review.csv',
+              'files':['requirement-package/notes.txt'], 'request':'private full prompt','rows':[{'value':i} for i in range(300)]}
+    first=settled(client,base,start(client,base,'first-file',workflow_id=pid,inputs=original))
+    second=settled(client,base,start(client,base,'second-file',workflow_id=pid,inputs={'source_path':'requirement-package/data-2.csv'}))
+    rows=client.get(base+'/tasks?compact=true').json()
+    assert rows[0]['input_files']==['data-2.csv']
+    assert set(rows[1]['input_files'])=={'data.csv','review.csv','notes.txt'}
+    assert all('inputs' not in row and 'outputs' not in row for row in rows)
+    assert client.get(base+'/tasks/'+first['id']).json()['inputs']==original
+    assert first['id'] != second['id']
+
+
 def test_waiting_tasks_filter_precedes_pagination_and_tracks_stopping(configured):
     client,app,project,_=configured;pid=project['id'];base='/api/v1/projects/'+pid
     graph(client,pid,[node('start','start'),node('ask','human_input',title='补充业务事实',fields=[{'name':'answer','type':'string','label':'答案'}]),node('end','end')],[edge('start','ask'),edge('ask','end')])

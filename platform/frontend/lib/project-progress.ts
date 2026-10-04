@@ -25,10 +25,25 @@ export const comparisonNames = { met: '已满足此项', partial: '部分满足'
 export type ProjectMember = { id: string; name: string; description: string; revision: number; purpose: string }
 export type ConversationFocus = { nonce: number; item_id?: string; question_id?: string; task_id?: string; label: string; message?: string; mode?: 'task' | 'workflow' }
 export type ProjectTask = {
+  input_files?: string[]
   id: string; request_key: string; status: string; mode: string; purpose: string; item_id: string; workflow_id?: string
   feedback_task_id: string; message: string; error: string; inputs?: object; outputs?: Record<string, unknown>
   presentation: { message?: string; markdown?: string; artifacts?: { label: string; file_path: string }[] }
   created_at: string; updated_at: string; runs?: { id: string; status: string; application_id: string; draft_revision: number; waiting_input?: {node_id:string;title:string;description?:string;context?:unknown;fields:{name:string;label:string;type:string;required?:boolean;options?:string[]}[]}; reuse?: {source_run_id: string | null; nodes: string[]; titles?: string[]} }[]
+}
+export function taskInputFileNames(task: ProjectTask): string[] {
+  if (task.input_files) return task.input_files
+  const names: string[] = []
+  for (const [key, value] of Object.entries(task.inputs || {})) {
+    if (!/(?:path|file|document|attachment)s?$/i.test(key)) continue
+    for (const path of Array.isArray(value) ? value : [value]) {
+      if (typeof path !== 'string' || !path.trim() || path.includes('\n') || path.includes('://')) continue
+      const name = path.replaceAll('\\', '/').split('/').pop()?.slice(0, 200)
+      if (name && !names.includes(name)) names.push(name)
+      if (names.length === 20) return names
+    }
+  }
+  return names
 }
 export type ProjectActivity = {
   id: string; operation_id: string; request_id: string; title: string; status: string

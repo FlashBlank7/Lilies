@@ -326,3 +326,17 @@ it('prepares a workflow next step without sending it or replacing the current dr
     expect(vi.mocked(api).mock.calls.some(([path,options])=>options?.method==='POST'&&(path.endsWith('/messages')||path.endsWith('/tasks')))).toBe(false)
   } finally {task.outputs=old}
 })
+
+it('identifies each historical run by input files without loading its complete output', async()=>{
+  await setup()
+  const previous = vi.mocked(api).getMockImplementation()!
+  vi.mocked(api).mockImplementation(async(path,options)=>{
+    if(path.includes('/tasks?'))return [{...task,input_files:['data.csv']},{...task,id:'t2',created_at:'2026-09-12T08:00:00Z',input_files:['data-2.csv']}] as never
+    return previous(path,options)
+  })
+  await act(async()=>{fireEvent.click(screen.getByRole('button',{name:'刷新状态'}))})
+  fireEvent.click(screen.getByRole('tab',{name:'运行记录'}))
+  expect(await screen.findByText('输入：data.csv')).toBeVisible()
+  expect(await screen.findByText('输入：data-2.csv')).toBeVisible()
+  expect(vi.mocked(api).mock.calls.some(([path])=>/\/tasks\/t[12]$/.test(path))).toBe(false)
+})

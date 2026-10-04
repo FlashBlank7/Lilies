@@ -1,5 +1,6 @@
 """Small, editable workflow recipes built from the public block contract."""
 from copy import deepcopy
+from pathlib import Path
 
 from .workflow_models import WorkflowSpec
 from .project_space import AddWorkflow, add_workflow
@@ -134,6 +135,19 @@ def prediction(rules=False):
     return graph(nodes)
 
 
+def table_profile():
+    return graph([
+        node('start', 'start', '选择需要体检的数据表', inputs=[
+            {'name': 'source_path', 'type': 'string', 'required': True, 'label': '数据表',
+             'description': '当前项目的 CSV、TSV 或 XLSX 文件；Excel 使用当前活动工作表'}]),
+        node('process', 'code', '检查数据与重复位置',
+             code=Path(__file__).with_name('example_processing.py').read_text(),
+             inputs={'operation': 'profile', 'source_path': ref('start', 'source_path')}),
+        node('end', 'end', '体检报告与明细', outputs={
+            'result': ref('process', 'output'), 'markdown': ref('process', 'output', 'markdown')}),
+    ])
+
+
 CATALOG = {
     'tabular-classification': {'name': '表格分类训练', 'description': '质量类别、缺陷判别等已标注表格；分析、特征、三种基线候选与独立测试。', 'workflow': training('classification')},
     'model-rules-prediction': {'name': '模型与规则批量预测', 'description': '达到配置阈值才采纳分类建议，否则交由复核。产品放行、专有优先级和物理规则需另行编辑。', 'workflow': prediction(True)},
@@ -141,6 +155,13 @@ CATALOG = {
     'process-regression': {'name': '工业过程窗口质量预测', 'description': '过程表加样本标签表，按预测时点截取窗口、按炉次隔离；需要真实标签与时间字段。', 'workflow': training('regression', True)},
     'batch-prediction': {'name': '已训练模型批量预测', 'description': '使用原模型、预处理和环境处理新数据，生成 CSV，不重新训练。', 'workflow': prediction()},
     'prediction-rules-replay': {'name': '已有预测的规则重算', 'description': '选择前次规则重算输入文件，只修改规则和报告；不调用模型、不重新训练。', 'workflow': replay_rules()},
+    'table-profile': {'name': '表格数据体检（含重复行定位）',
+        'description': '检查缺失、完全重复与数值异常，列出重复行及首次出现行；保留原资料，下载报告和完整明细。',
+        'workflow': table_profile(),
+        'guide': '''使用 project_workflows inspect 查看当前输入，将本项目 CSV、TSV 或 XLSX 的路径填写为 source_path，再用 workflow_run 调用本流程；只执行 Python 数据检查，不调用模型。
+报告列出来源、重复行与同组首次出现行，首次记录不计入额外重复数量。CSV/TSV 按记录起始物理行定位，空白行仍占行号，跨行单元格按记录开始行定位；Excel 使用当前活动工作表的行号，第一行是表头，读取已保存的单元格值、不执行公式，空白数据行仍参与体检。
+重复仅标记，不删除或修改原资料。页面最多展示前 100 条重复位置，完整问题及位置见明细 CSV 和结构化结果 JSON。
+已有示例项目可从项目空间的公共工作流市场明确加入本流程，再选择原项目资料重新运行。加入的是独立可编辑副本，不覆盖原工作流、人工修改或历史运行结果。'''}
 }
 
 from . import data_guidance

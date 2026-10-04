@@ -42,11 +42,13 @@ async def readiness(services, workflow, project_id=None, seen=None, related=None
         kind, config = node['type'], node['config']
         title = node.get('title') or node['id']
         if kind in ('llm', 'knowledge_search'):
+            from .providers.openai_chat import _is_loopback
             role = 'embedding' if kind == 'knowledge_search' else ('vision' if config.get('model_role') == 'vision' else 'main')
+            connection = services.local_agents.connections.load(project_id, role) if project_id else None
             label = {'main': '工作流大模型', 'vision': '视觉模型', 'embedding': 'Embedding 模型'}[role]
             if not project_id or not services.local_agents.connections.enabled(project_id, role):
                 missing('model:'+role, label+'尚未配置或启用。官方智能体连接不能代替工作流模型连接。', 'settings', title)
-            if not services.settings.model_egress_enabled:
+            if not services.settings.model_egress_enabled and not (connection and _is_loopback(connection.base_url)):
                 missing('egress', '平台模型调用尚未启用，请管理员配置模型出口。', 'admin', title,
                         '由管理员在部署配置中启用 MODEL_EGRESS_ENABLED，按发布流程重启后端；项目仍需单独配置模型连接。')
         image = services.settings.sandbox_image if kind == 'code' else services.settings.modeling_image if kind in ('data_analysis', 'feature_extract', 'model_train', 'model_predict') else ''

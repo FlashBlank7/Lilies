@@ -1,5 +1,6 @@
 """Examples are private editable projects, not precomputed demonstration runs."""
 from concurrent.futures import ThreadPoolExecutor
+import csv
 import json
 from pathlib import Path
 
@@ -60,6 +61,8 @@ def test_examples_explain_missing_resources_before_running_and_refresh_configura
     assert client.get(base+'/tasks').json() == []
     client.put(base+'/agent-session', json={'provider':'api','base_url':'http://127.0.0.1:9001/v1',
         'model':'offline-double','api_key':'test-only','runtime_enabled':True}).raise_for_status()
+    # Existing runtime permits loopback API endpoints while external egress is off.
+    assert client.get(check).json()['status'] == 'configured'
     # This test changes only a settings flag; there is no provider request.
     services.settings.model_egress_enabled = True
     assert client.get(check).json()['status'] == 'configured'
@@ -142,6 +145,78 @@ def sample_files(tmp_path,monkeypatch):
     def write(name,text):
         path=root/name;path.write_text(text,encoding='utf-8');return 'requirement-package/'+name
     return write
+
+
+@pytest.mark.parametrize('suffix,delimiter', [('csv', ','), ('tsv', '\t')])
+def test_profile_duplicates_use_source_lines_and_agree_in_all_reports(sample_files, suffix, delimiter):
+    lines = ['id,value', 'a,"line one\nline two"', '', 'a,"line one\nline two"',
+             'b,3', 'a,"line one\nline two"', ',', ',', 'c,1', 'd,2']
+    text = '\n'.join(lines).replace(',', delimiter) + '\n'
+    path = sample_files('profile.' + suffix, text)
+    before = Path(path).read_bytes()
+    result = processing.main({'operation': 'profile', 'source_path': path})
+    assert result['rows'] == 8
+    assert result['duplicates'] == 3
+    duplicates = [issue for issue in result['issues'] if issue['reason'] == '完全重复']
+    assert [(issue['row'], issue['first_row']) for issue in duplicates] == [(5, 2), (8, 2), (11, 10)]
+    assert all(issue['source_file'] == path and issue['sheet'] == '' for issue in result['issues'])
+    assert [issue['row'] for issue in result['issues'] if issue['reason'] == '缺失字段'] == [10, 11]
+    assert '记录起始物理行' in result['markdown']
+    assert path in result['markdown']
+    assert '| 5 | 2 |' in result['markdown'] and '| 8 | 2 |' in result['markdown']
+    folder = Path(result['artifacts'][0]['file_path']).parent
+    assert json.loads((folder / 'result.json').read_text())['issues'] == result['issues']
+    assert (folder / 'report.md').read_text() == result['markdown']
+    with (folder / 'details.csv').open(encoding='utf-8-sig', newline='') as stream:
+        downloaded = list(csv.DictReader(stream))
+    assert downloaded == [{key: str(value) for key, value in issue.items()} for issue in result['issues']]
+    assert Path(path).read_bytes() == before
+
+
+def test_profile_excel_preserves_sheet_rows_and_empty_records(sample_files):
+    from openpyxl import Workbook
+    path = Path(sample_files('source.xlsx', ''))
+    book = Workbook()
+    book.active.append(['ignored'])
+    sheet = book.create_sheet('检测数据')
+    book.active = 1
+    for row in [('id', 'value'), ('a', 'two\nlines'), (None, None), ('a', 'two\nlines'),
+                (None, None), ('a', 'two\nlines')]:
+        sheet.append(row)
+    book.save(path)
+    before = path.read_bytes()
+    result = processing.main({'operation': 'profile', 'source_path': str(path)})
+    assert result['rows'] == 5 and result['duplicates'] == 3
+    duplicates = [issue for issue in result['issues'] if issue['reason'] == '完全重复']
+    assert [(issue['row'], issue['first_row']) for issue in duplicates] == [(4, 2), (5, 3), (6, 2)]
+    assert all(issue['sheet'] == '检测数据' for issue in result['issues'])
+    assert '工作表：检测数据' in result['markdown'] and '工作表行号' in result['markdown']
+    assert path.read_bytes() == before
+
+
+def test_profile_keeps_duplicate_missing_and_outlier_rows_in_one_download(sample_files):
+    path = sample_files('numbers.csv', 'id,value\na,1\na,1\nb,2\nc,3\nd,100\ne,\n')
+    result = processing.main({'operation': 'profile', 'source_path': path})
+    assert result['duplicates'] == 1
+    assert {(issue['row'], issue['reason'], issue['first_row']) for issue in result['issues']} == {
+        (3, '完全重复', 2), (7, '缺失字段', ''), (6, '数值超出四分位距范围（需人工判断）', '')}
+    folder = Path(result['artifacts'][0]['file_path']).parent
+    with (folder / 'details.csv').open(encoding='utf-8-sig', newline='') as stream:
+        assert len(list(csv.DictReader(stream))) == 3
+
+
+def test_profile_keeps_all_duplicate_locations_when_report_preview_is_full(sample_files):
+    path = sample_files('repeated.csv', 'id,value\n' + 'same,1\n' * 106)
+    result = processing.main({'operation': 'profile', 'source_path': path})
+    assert result['duplicates'] == 105
+    assert len(result['issues']) == 105
+    assert result['issues'][-1]['row'] == 107 and result['issues'][-1]['first_row'] == 2
+    assert '当前显示前 100 条，共 105 条' in result['markdown']
+    assert '| 102 | 2 |' in result['markdown'] and '| 103 | 2 |' not in result['markdown']
+    folder = Path(result['artifacts'][0]['file_path']).parent
+    assert len(json.loads((folder / 'result.json').read_text())['issues']) == 105
+    with (folder / 'details.csv').open(encoding='utf-8-sig', newline='') as stream:
+        assert len(list(csv.DictReader(stream))) == 105
 
 
 def test_expenses_exact_arithmetic_currencies_and_duplicates(sample_files):
@@ -292,4 +367,7 @@ def test_editing_example_changes_new_run_and_keeps_history(configured):
     assert second['outputs']['note']=='员工修改后的报告'
     assert second['outputs']['result']['duplicates']==1
     assert second['outputs']['result']['missing']['value']==1
+    duplicate=next(issue for issue in second['outputs']['result']['issues'] if issue['reason']=='完全重复')
+    assert (duplicate['row'],duplicate['first_row'],duplicate['source_file'])==(3,2,alternate)
+    assert '| 3 | 2 |' in second['outputs']['markdown']
     assert client.get(base+'/tasks/'+first['id']).json()['outputs']==first['outputs']

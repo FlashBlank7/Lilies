@@ -37,7 +37,7 @@ it('opens an independently generated result without selecting it or starting a c
   render(<ProjectSpace projectId="p" onWorkflow={vi.fn()} onFile={open} onTalk={talk} onChanged={vi.fn()}/>)
   fireEvent.click(await screen.findByRole('button',{name:`查看 ${path}`}))
   expect(open).toHaveBeenCalledWith(path)
-  expect(screen.getByRole('checkbox',{name:'sources.md'})).not.toBeChecked()
+  expect(screen.getByRole('checkbox',{name:/^sources.md/})).not.toBeChecked()
   expect(talk).not.toHaveBeenCalled()
   expect(screen.getByRole('button',{name:'带着所选资料开始对话'})).toBeDisabled()
   expect(vi.mocked(api).mock.calls.every(([,options])=>!options?.method||options.method==='GET')).toBe(true)

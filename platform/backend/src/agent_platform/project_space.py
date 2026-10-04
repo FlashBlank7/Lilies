@@ -1,5 +1,6 @@
 """A project's callable workflows and files form its shared working context."""
 import asyncio
+from datetime import datetime, timezone
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -21,7 +22,16 @@ async def space(services, project_id):
             'description': snapshot.description, 'revision': draft['revision'],
             'node_count': len(snapshot.workflow.nodes), 'allowed': blocks.supports_workflow(snapshot.workflow),
             'inputs': [f for n in snapshot.workflow.nodes if n.type == 'start' for f in n.config.get('inputs', [])]})
-    files = await asyncio.to_thread(ProjectTools(services, project_id, services.local_agents).file, ProjectFile(action='list'))
+    tools = ProjectTools(services, project_id, services.local_agents)
+    def listed_files():
+        listing = tools.file(ProjectFile(action='list'))
+        for file in listing['files']:
+            try:
+                file['modified_at'] = datetime.fromtimestamp(tools.path(file['path']).stat().st_mtime, tz=timezone.utc).isoformat()
+            except (OSError, ValueError):
+                pass
+        return listing
+    files = await asyncio.to_thread(listed_files)
     return {'project_id': project_id, 'workflows': workflows, 'files': files['files'], 'files_truncated': files['truncated']}
 
 

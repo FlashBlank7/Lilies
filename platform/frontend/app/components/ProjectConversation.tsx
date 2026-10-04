@@ -24,6 +24,7 @@ import styles from '@/app/projects/projects.module.css'
 
 type Event = { id: string; kind: string; text: string; time: string; result?: string; arguments?: string; success?: boolean; request_id?: string; item_id?: string; task_id?: string; purpose?: string; workflow?: WorkflowCard }
 type Session = OfficialConnection & {
+  model_egress_enabled?: boolean
   provider: string | null; queue_reason?: string; status: string; error: string; revision: number; events: Event[]
   has_more: boolean; first_cursor: string; last_cursor: string; active_item_id?: string
   project_task_id?: string; conversation_context?: { item_id?: string; task_id?: string }
@@ -139,7 +140,6 @@ export default function ProjectConversation({ id, conversationId, projectName, c
       {running && <button disabled={busy} onClick={() => void act(() => api(conversationId ? conversationBase + '/stop' : base + '/agent-session/stop', { method: 'POST' }))}>停止</button>}</div>
     {canConfigureModel && <AssistantSourcePanel base={base} running={Boolean(running)} onSaved={refresh} />}
     {session?.provider === 'official' && <><OfficialConnectionStatus connection={session}/>{session.status==='queued'&&<p>{session.queue_reason||'排队中'}</p>}{session.status==='waiting_compute'&&<p>等待计算完成</p>}</>}
-    {canConfigureModel ? <ModelConnectionPanel base={base} connected={Boolean(session?.provider)} running={Boolean(running)} onSaved={refresh} /> : !session?.provider && <p>请联系项目负责人配置模型连接，随后即可使用项目对话。</p>}
     {session?.provider && !['api', 'official'].includes(session.provider) && <p>此项目的旧会话使用外部 Agent。请在模型设置中连接模型 API，由 Lilies 继续处理；原有记录会保留。</p>}
     {session?.requirements?.document && <div className={styles.requirements}><FileText size={14} />
       <button onClick={() => setReader({ title: '当前需求文档', text: session.requirements.document })}>当前需求文档</button>
@@ -192,6 +192,9 @@ export default function ProjectConversation({ id, conversationId, projectName, c
       {running && !focus && <div className={styles.focus}>补充将发送到：{activeItem?.title || '当前处理的请求'}</div>}
       {focus && <div className={styles.focus}><span>关于：{focus.label}</span><button onClick={onSent}>取消关联</button></div>}
       <textarea ref={composer} aria-label="给项目统筹的消息" value={message} onChange={e => updateDraft(e.target.value)} placeholder={mode==='workflow'?'例如：把刚才的数据分析和模型预测组合成一条新工作流':'例如：调用项目里的质量预测流程，处理刚上传的数据'} />
+      {!session?.provider && <p role="status">此项目尚未连接模型，暂时不能发送。已填写的消息会保留。{canConfigureModel ? '请先连接模型，再发送这条消息。' : '请联系项目负责人配置模型连接。'}</p>}
+      {session?.provider==='api' && session.model_egress_enabled===false && <p role="status">平台尚未允许外部模型 API 调用；使用外部服务前请联系平台管理员启用。本机模型服务仍可使用。</p>}
+      {canConfigureModel && <ModelConnectionPanel base={base} connected={Boolean(session?.provider)} running={Boolean(running)} onSaved={refresh} />}
       {sentNotice && <small role="status">{sentNotice}</small>}
       <ConversationWorkflowCreator projectId={id} conversationId={conversationId} visible={mode==='workflow'} storageKey={draftKey} message={message} members={members} context={modelingContext} taskId={focus?.task_id} target={editWorkflow} onClearTarget={()=>setEditWorkflow(undefined)} onWorkflow={onWorkflow} onSaved={submitted=>{if(submitted && messageRef.current===submitted)updateDraft('');void refresh();void onUpdated();followBottom.current=true}} />
       {mode==='task' && <div className={styles.actions}><button className={styles.primary} disabled={busy || !['api', 'official'].includes(session?.provider || '') || !message.trim()} onClick={() => send()}>{running ? '发送补充' : '发送'}</button>
