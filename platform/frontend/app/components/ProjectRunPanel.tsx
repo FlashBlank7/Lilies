@@ -13,6 +13,7 @@ import FeatureResults from './FeatureResults'
 import WorkflowReadiness, {type Readiness} from './WorkflowReadiness'
 import WorkflowRecovery from './WorkflowRecovery'
 import ProjectFileField from './ProjectFileField'
+import {fileFormatError} from '@/lib/file-formats'
 import { WorkflowValueField } from './WorkflowValueField'
 import { useEffect, useRef, useState } from 'react'
 import { api, withFrontendToken } from '@/lib/platform'
@@ -21,7 +22,7 @@ import { resolveProjectLink } from '@/lib/project-links'
 import { taskNames, type ProjectMember, type ProjectTask } from '@/lib/project-progress'
 import styles from '@/app/projects/projects.module.css'
 
-type Field = { name: string; label?: string; type: string; required?: boolean; default?: unknown; description?: string; options?: string[]; columns?: InputColumn[] }
+type Field = { name: string; label?: string; type: string; required?: boolean; default?: unknown; description?: string; options?: string[]; columns?: InputColumn[]; accept?: string[] }
 type Draft = { snapshot: { workflow: { nodes: { type: string; config: { inputs?: Field[] } }[] } } }
 type FileEntry = { path: string }
 
@@ -161,6 +162,8 @@ export default function ProjectRunPanel({ projectId, members, initialWorkflowId,
           else if (['string', 'file'].includes(field.type)) inputs[field.name] = ''
           continue
         }
+        const formatError = fileFormatError(field.label || field.name, raw, field.accept)
+        if (formatError) throw new Error(formatError)
         if (field.type === 'number') {
           const number = Number(raw)
           if (!Number.isFinite(number)) throw new Error(`${field.name} 需要有效数字`)
@@ -182,7 +185,7 @@ export default function ProjectRunPanel({ projectId, members, initialWorkflowId,
     <WorkflowReadiness value={readiness} projectId={projectId} canConfigureModel={canConfigureModel&&!active&&!busy} onRecheck={async()=>{setCheckVersion(v=>v+1)}}/>{readinessError&&<p role="status">{readinessError}</p>}
     <button disabled={active||busy} onClick={()=>setCheckVersion(v=>v+1)}>重新检查运行准备</button>
     {loading ? <p role="status">正在读取输入配置…</p> : fields.map(field => <div key={field.name}>
-      {(field.type==='file'||/(?:path|file|document|attachment)$/i.test(field.name)) && files.length>0 ? <ProjectFileField name={field.name} label={(field.label||field.name)+(field.required?' *':'')} value={values[field.name]||''} files={files} disabled={active||busy} onChange={value=>setValues(previous=>({...previous,[field.name]:value}))}/> : field.type==='array' && field.columns?.length ? <WorkflowInputTable name={field.name} label={field.label||field.name} columns={field.columns} files={files} value={values[field.name]||'[]'} disabled={active||busy} onChange={value=>setValues(previous=>({...previous,[field.name]:value}))}/> : <label>{field.label || field.name}{field.required ? ' *' : ''}
+      {(field.type==='file'||/(?:path|file|document|attachment)$/i.test(field.name)) ? <ProjectFileField name={field.name} label={(field.label||field.name)+(field.required?' *':'')} value={values[field.name]||''} files={files} accept={field.accept} disabled={active||busy} onChange={value=>setValues(previous=>({...previous,[field.name]:value}))}/> : field.type==='array' && field.columns?.length ? <WorkflowInputTable name={field.name} label={field.label||field.name} columns={field.columns} files={files} value={values[field.name]||'[]'} disabled={active||busy} onChange={value=>setValues(previous=>({...previous,[field.name]:value}))}/> : <label>{field.label || field.name}{field.required ? ' *' : ''}
         {field.name === 'dataset_id' ? <WorkflowValueField allowReference={false} disabled={active || busy} projectId={projectId} field="dataset_id" nodeId="run" nodes={[]} label="预测数据集" value={values[field.name] || ''} onChange={next => setValues(previous => ({...previous, [field.name]: next}))} /> : field.type === 'boolean' ? <select aria-label={field.name} disabled={active || busy} value={values[field.name] || ''} onChange={event => setValues(previous => ({ ...previous, [field.name]: event.target.value }))}><option value="">请选择</option><option value="true">是</option><option value="false">否</option></select>
           : field.type === 'string' && field.options?.length ? <select aria-label={field.name} disabled={active || busy} value={values[field.name] || ''} onChange={event => setValues(previous => ({ ...previous, [field.name]: event.target.value }))}><option value="">请选择</option>{field.options.map(option => <option key={option} value={option}>{option}</option>)}</select>
           : <textarea aria-label={field.name} rows={['object', 'array', 'any'].includes(field.type) ? 4 : 2} disabled={active || busy} value={values[field.name] || ''} onChange={event => setValues(previous => ({ ...previous, [field.name]: event.target.value }))} />}

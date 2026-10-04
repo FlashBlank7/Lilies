@@ -96,6 +96,7 @@
 .canvasHeading h2 { font-size:14px; margin:0; }
 @media(max-width:600px) { .canvasHeading { flex-wrap:wrap; } .canvasHeading h2 { flex-basis:100%; order:-1; overflow-wrap:anywhere; } .canvasHeading button,.canvasHeading a { flex-shrink:0; } }
 .taskTime { display:block; font-size:11px; margin-top:5px; }
+.taskParameters { max-width:100%; overflow-wrap:anywhere; }
 .page :global(.markdown-document) { color:var(--ui-ink); font-size:14px; }
 .page :global(.markdown-table-wrap) { max-width:100%; overflow:auto; }
 .page :global(.markdown-table-wrap table) { width:max-content; min-width:100%; }

@@ -4,6 +4,7 @@ import {useEffect, useState} from 'react'
 import Link from 'next/link'
 import {api} from '@/lib/platform'
 import {resolveProjectLink} from '@/lib/project-links'
+import {MarkdownDocument} from '@/lib/markdown'
 import type {ProjectTask} from '@/lib/project-progress'
 import TaskError from './TaskError'
 import styles from './project-run-steps.module.css'
@@ -11,12 +12,14 @@ import styles from './project-run-steps.module.css'
 export type RunStep = {
   id:string; node_path:string[]; title:string; description:string; type:string; status:string
   scope?:string; input_source?:string; input_preview:unknown; output_preview:unknown
+  input_summary?:unknown; output_summary?:unknown
   error?:string|null; duration_ms?:number|null
 }
 type StepPage = {run_id:string;application_id:string;name:string;status:string;steps:RunStep[];total:number;next_offset?:number|null;error?:string;draft_revision?:number|null}
 const statuses:Record<string,string> = {pending:'尚未执行',running:'正在处理',completed:'已完成',reused:'复用已有结果',skipped:'此分支未执行',waiting:'等待补充',failed:'失败',interrupted:'已中断',warning:'完成，需留意异常'}
 const labels:Record<string,string> = {source_path:'资料文件',second_path:'第二份资料',output:'处理结果',outputs:'输出',result:'结果',logs:'执行说明',markdown:'报告正文',rows:'记录数',columns:'字段',preview:'数据预览',artifacts:'结果文件',file_path:'文件',path:'路径',summary:'汇总',message:'说明',items:'条目',count:'数量',error:'错误',value:'数值',inputs:'输入',group_by:'汇总维度',mark_duplicates:'标记疑似重复',suspected_duplicates:'疑似重复数',duplicate_records:'重复记录',missing:'缺失',operation:'处理方式',horizon:'预测步数',omitted_items:'未展示条目数',omitted_fields:'未展示字段'}
 const operations:Record<string,string> = {expenses:'费用整理',profile:'数据体检',summary:'数据汇总',join:'多表关联'}
+Object.assign(labels,{prepared:'已核对的输入',snapshot_path:'本次输入快照',sources:'资料来源',stock:'物料表',demand:'需求表',stock_path:'物料表',demand_path:'需求表',stock_sheet:'物料工作表',demand_sheet:'需求工作表',config:'本次处理条件',unit:'长度单位',kerf:'单次切缝宽度',kerf_mode:'切缝计数方式',end_allowance:'每根物料共预留长度',max_pieces:'每根最多产出段数',max_types:'每根最多需求种类',search_limit:'最多检查组合分支',length_mode:'需求长度方式',allocation_mode:'范围内长度分配方式',length_precision:'范围长度最多小数位',stocks:'每根物料的处理结果',stock_id:'物料标识',material:'物料类型',candidates:'候选组合数',reason:'无候选原因',patterns_path:'需求数量与分配长度文件',label:'文件说明'})
 
 function Preview({value,projectId,depth=0}:{value:unknown;projectId:string;depth?:number}) {
   if(value===undefined || value===null)return <span className={styles.muted}>无记录</span>
@@ -39,7 +42,7 @@ function Preview({value,projectId,depth=0}:{value:unknown;projectId:string;depth
   const entries=Object.entries(object)
   if(!entries.length)return <span className={styles.muted}>无字段</span>
   if(depth>=4)return <span>{entries.length} 个字段</span>
-  return <dl className={styles.fields}>{entries.slice(0,12).map(([key,item])=><div key={key}><dt>{labels[key]||key}</dt><dd><Preview value={key==='operation'&&typeof item==='string'?(operations[item]||item):item} projectId={projectId} depth={depth+1}/></dd></div>)}{entries.length>12&&<div><dt>更多内容</dt><dd>另有 {entries.length-12} 个字段，见原始输入输出。</dd></div>}</dl>
+  return <dl className={styles.fields}>{entries.slice(0,12).map(([key,item])=><div key={key}><dt>{labels[key]||key}</dt><dd>{key==='markdown'&&typeof item==='string'?<MarkdownDocument source={item} resolveLink={href=>resolveProjectLink(projectId,href)} emptyLabel=""/>:<Preview value={key==='operation'&&typeof item==='string'?(operations[item]||item):item} projectId={projectId} depth={depth+1}/>}</dd></div>)}{entries.length>12&&<div><dt>更多内容</dt><dd>另有 {entries.length-12} 个字段，见原始输入输出。</dd></div>}</dl>
 }
 
 function Step({step,projectId,applicationId,index}:{step:RunStep;projectId:string;applicationId:string;index:number}) {
@@ -56,8 +59,9 @@ function Step({step,projectId,applicationId,index}:{step:RunStep;projectId:strin
       {step.error&&<TaskError error={step.error}/>}
       <div className={styles.actions}><button aria-expanded={show} onClick={()=>setExpanded(!show)}>{show?'收起本步输入与产物':'查看本步输入与产物'}</button>{path.length>0&&applicationId&&<Link href={`/applications/${encodeURIComponent(applicationId)}?tab=edit&node_path=${encodeURIComponent(JSON.stringify(path))}`} target="_blank" rel="noreferrer">在当前画布定位 ↗</Link>}</div>
       {show&&<div className={styles.previews}>
-        <section aria-label={`${step.title}的输入`}><h4>输入</h4><small>{step.input_source||'本次运行记录'}</small><Preview value={step.input_preview} projectId={projectId}/></section>
-        <section aria-label={`${step.title}的产物`}><h4>产物</h4>{step.output_preview==null?<p className={styles.muted}>{step.status==='pending'?'尚未产生输出':step.status==='skipped'?'未进入此分支':'没有保存的输出'}</p>:<Preview value={step.output_preview} projectId={projectId}/>}</section>
+        <section aria-label={`${step.title}的输入`}><h4>业务输入</h4><small>{step.input_source||'本次运行记录'}</small><Preview value={step.input_summary??step.input_preview} projectId={projectId}/></section>
+        <section aria-label={`${step.title}的产物`}><h4>处理结果与依据</h4>{step.output_preview==null?<p className={styles.muted}>{step.status==='pending'?'尚未产生输出':step.status==='skipped'?'未进入此分支':'没有保存的输出'}</p>:<><Preview value={step.output_summary??step.output_preview} projectId={projectId}/><small>摘自本步保存的结果；较长内容仅展示节选，完整内容见结果文件。</small></>}</section>
+        <details className={styles.technical}><summary>技术详情：输入、输出与校验信息</summary><h4>输入记录</h4><Preview value={step.input_preview} projectId={projectId}/><h4>输出记录</h4><Preview value={step.output_preview} projectId={projectId}/></details>
       </div>}
     </div>
   </li>

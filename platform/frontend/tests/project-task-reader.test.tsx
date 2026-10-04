@@ -137,7 +137,8 @@ it('shows input file names immediately after a manual run without refreshing the
   const previous = {...completedTask('previous'), purpose:'customer_trial', input_files:['previous.csv']}
   vi.mocked(api).mockImplementation(async (path, options) => {
     if (path.endsWith('/tasks/previous')) return previous as never
-    if (path.endsWith('/tasks') && options?.method === 'POST') return {...completedTask('new'), inputs:JSON.parse(options.body as string).inputs} as never
+    if (path.endsWith('/tasks') && options?.method === 'POST') return {...completedTask('new'), inputs:JSON.parse(options.body as string).inputs,
+      input_parameters:[{name:'group_by',label:'汇总维度',value:'按月、商户和币种'},{name:'mark_duplicates',label:'标记疑似重复',value:'否'}]} as never
     if (path.includes('/tasks?purpose=customer_trial')) return [previous] as never
     if (path.endsWith('/conversations') || path.includes('/tasks?') || path.endsWith('/workspace/files')) return [] as never
     if (path.endsWith('/example')) return null as never
@@ -164,8 +165,43 @@ it('shows input file names immediately after a manual run without refreshing the
   expect(current).not.toHaveTextContent('requirement-package/')
   expect(current).not.toHaveTextContent('完整要求')
   expect(current).not.toHaveTextContent('row-data.csv')
+  expect(current).toHaveTextContent('汇总维度：按月、商户和币种 · 标记疑似重复：否')
   expect(screen.getByRole('button',{name:/资料整理 · 运行完成.*输入：previous.csv/})).toBeVisible()
   expect(vi.mocked(api).mock.calls.filter(([path])=>path.includes('/tasks?'))).toHaveLength(historyReads)
   expect(vi.mocked(api).mock.calls.filter(([,options])=>options?.method==='POST')).toHaveLength(1)
   expect(vi.mocked(api).mock.calls.some(([path])=>path.endsWith('/tasks/new'))).toBe(false)
+})
+
+it('distinguishes same-file runs with saved business parameters without reading the current draft', async () => {
+  const rows = [
+    {...completedTask('category'), input_files:['expenses.csv'], input_parameters:[
+      {name:'group_by',label:'汇总维度',value:'按月、类别和币种'},
+      {name:'mark_duplicates',label:'标记疑似重复',value:'是'},
+    ]},
+    {...completedTask('merchant'), input_files:['expenses.csv'], input_parameters:[
+      {name:'group_by',label:'汇总维度',value:'按月、商户和币种'},
+      {name:'mark_duplicates',label:'标记疑似重复',value:'否'},
+    ]},
+    {...completedTask('older'), input_files:['older.csv']},
+  ]
+  vi.mocked(api).mockImplementation(async path => {
+    if (path.includes('/tasks?purpose=customer_trial')) return rows as never
+    if (path.includes('/tasks?') || path.endsWith('/conversations') || path.endsWith('/workspace/files')) return [] as never
+    if (path.includes('/tasks/')) return rows.find(row=>path.endsWith('/'+row.id)) as never
+    if (path.endsWith('/example')) return null as never
+    if (path.endsWith('/progress')) return {revision:0,value:{goal:'',summary:'',items:[]}} as never
+    if (path.endsWith('/draft')) throw new Error('Run history must not load current draft inputs')
+    return {id:'p',name:'费用归集',members:[{id:'member',name:'费用归集',purpose:'business'}]} as never
+  })
+  await act(async()=>{render(<Suspense><ProjectPage params={Promise.resolve({id:'p'})}/></Suspense>)})
+  fireEvent.click(screen.getByRole('tab',{name:'运行记录'}))
+  const category = screen.getByRole('button',{name:/费用归集 · 运行完成.*输入：expenses.csv.*汇总维度：按月、类别和币种.*标记疑似重复：是/})
+  const merchant = screen.getByRole('button',{name:/费用归集 · 运行完成.*输入：expenses.csv.*汇总维度：按月、商户和币种.*标记疑似重复：否/})
+  expect(category).toBeVisible()
+  expect(merchant).toBeVisible()
+  expect(screen.getByRole('button',{name:/费用归集 · 运行完成.*输入：older.csv/})).toBeVisible()
+  fireEvent.click(merchant)
+  expect(await screen.findByText('保存的结果 merchant')).toBeInTheDocument()
+  expect(api).toHaveBeenCalledWith('/api/v1/projects/p/tasks/merchant')
+  expect(vi.mocked(api).mock.calls.some(([path])=>path.endsWith('/draft'))).toBe(false)
 })

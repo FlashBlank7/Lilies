@@ -161,3 +161,32 @@ it('recomputes the current draft using historical inputs and a scoped reuse task
   const call=vi.mocked(api).mock.calls.find(([,options])=>options?.method==='POST')!
   expect(JSON.parse(call[1]!.body as string)).toMatchObject({reuse_task_id:'old',workflow_id:'member',inputs:{source_path:'original.csv'}})
 })
+
+it('filters declared file formats and prevents invalid saved or typed paths before launch', async () => {
+  const allowed={type:'file',accept:['.csv','.tsv','.xlsx']}
+  vi.mocked(api).mockImplementation(async (path,options)=>{
+    if(path.endsWith('/readiness'))return {status:'configured',issues:[]} as never
+    if(path.endsWith('/draft'))return {snapshot:{workflow:{nodes:[{type:'start',config:{inputs:[
+      {...allowed,name:'source_path',label:'费用表',required:true,default:'requirement-package/说明.md'},
+      {...allowed,name:'second_path',label:'追加费用表',required:false,default:''},
+    ]}}]}}} as never
+    if(path.endsWith('/workspace/files'))return ['说明.md','expenses.CSV','extra.tsv','sheet.xlsx'].map(name=>({path:'requirement-package/'+name})) as never
+    if(options?.method==='POST')return {id:'ok',status:'succeeded',outputs:{markdown:'格式已通过'}} as never
+    return [] as never
+  })
+  await act(async()=>{render(<ProjectRunPanel projectId="p" members={members} initialWorkflowId="member"/>)})
+  const selector=screen.getByRole('combobox',{name:'为 source_path 选择项目文件'})
+  expect(selector).toHaveAttribute('aria-invalid','true')
+  expect(screen.getByRole('option',{name:'说明.md（格式不支持，请重新选择）'})).toBeDisabled()
+  expect(screen.getByRole('alert')).toHaveTextContent('费用表不支持此文件格式，请选择 CSV、TSV、XLSX 文件')
+  fireEvent.click(screen.getByRole('button',{name:'启动工作流'}))
+  expect(vi.mocked(api).mock.calls.some(([,options])=>options?.method==='POST')).toBe(false)
+  fireEvent.change(selector,{target:{value:'requirement-package/expenses.CSV'}})
+  fireEvent.change(screen.getByRole('textbox',{name:'second_path'}),{target:{value:'requirement-package/说明.md'}})
+  fireEvent.click(screen.getByRole('button',{name:'启动工作流'}))
+  expect(vi.mocked(api).mock.calls.some(([,options])=>options?.method==='POST')).toBe(false)
+  fireEvent.change(screen.getByRole('textbox',{name:'second_path'}),{target:{value:''}})
+  fireEvent.click(screen.getByRole('button',{name:'启动工作流'}))
+  await screen.findByText('格式已通过')
+  expect(JSON.parse(vi.mocked(api).mock.calls.find(([,o])=>o?.method==='POST')![1]!.body as string).inputs).toEqual({source_path:'requirement-package/expenses.CSV',second_path:''})
+})

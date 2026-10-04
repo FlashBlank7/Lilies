@@ -158,3 +158,21 @@ def test_run_steps_require_login_and_project_membership(configured):
     client.post(f'/api/v1/projects/{project["id"]}/access-members', json={'name': '无关员工'}).raise_for_status()
     assert client.get(route, headers=outsider).status_code == 200
     assert client.get('/api/v1/runs/missing/steps').status_code == 404
+
+
+def test_business_summary_prefers_saved_report_even_after_technical_keys(configured):
+    client, _, project, _ = configured
+    report = '共4根物料、6个单料组合。\n\n料三：长度不足；料四：没有同类型需求。\n\n只覆盖本次声明条件。'
+    result = {**{f'technical_{i}': i for i in range(14)}, 'markdown': report,
+              'sha256': 'fingerprint', 'comparison_inputs': {'source_path': 'results/candidates.csv'}}
+    graph(client, project['id'], [node('start', 'start'),
+          node('prepare', 'variable_assigner', assignments={'result': result}),
+          node('end', 'end', outputs={'result': ref('prepare', 'output', 'result')})],
+          [edge('start', 'prepare'), edge('prepare', 'end')])
+    _, task, run_id = execute(client, project)
+    assert task['status'] == 'succeeded', task
+    saved = steps(client, run_id)['steps'][1]
+    assert saved['output_summary'] == {'markdown': report}
+    assert 'technical_0' in json.dumps(saved['output_preview'])
+    graph(client, project['id'], [node('new', 'start')], [])
+    assert steps(client, run_id)['steps'][1]['output_summary'] == {'markdown': report}

@@ -91,6 +91,9 @@ class InputField(BaseModel):
     example: Any = None
     options: list[str] = Field(default_factory=list)
     columns: list[InputColumn] = Field(default_factory=list)
+    # Optional file-extension hints for human input forms; execution still
+    # validates actual content in the corresponding processing node.
+    accept: list[str] = Field(default_factory=list)
 
 
 class StartConfig(BaseModel):

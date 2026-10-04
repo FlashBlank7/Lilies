@@ -8,6 +8,18 @@ from typing import Any
 
 from .db import connect
 from .models import utc_now
+from .task_input_summary import input_parameters
+
+
+# A resumed task may have a newer main run with supplemented inputs. Read that
+# persisted run in the same query as the task, without fetching current drafts.
+_TASK_COLUMNS = """t.*, (
+    SELECT json_object('inputs', json_extract(r.state_json, '$.inputs'),
+                       'snapshot', json_extract(r.state_json, '$.snapshot'))
+    FROM project_task_runs tr JOIN workflow_runs r ON r.id=tr.run_id
+    WHERE tr.task_id=t.id AND r.application_id=t.workflow_id AND tr.step_key LIKE 'main:%'
+    ORDER BY tr.created_at DESC, r.created_at DESC LIMIT 1
+) AS input_run_state_json"""
 
 
 class ProjectConflict(ValueError):
@@ -285,10 +297,18 @@ class ProjectStore:
     @staticmethod
     def task(row, *, snapshots=False) -> dict:
         result = dict(row)
+        run_state = result.pop('input_run_state_json', None)
+        frozen = json.loads(result['snapshots_json']) if snapshots or (result['mode'] == 'workflow' and not run_state) else {}
         for key in ('inputs', 'outputs', 'snapshots', 'presentation'):
             raw = result.pop(key + '_json')
             if key != 'snapshots' or snapshots:
-                result[key] = json.loads(raw)
+                result[key] = frozen if key == 'snapshots' else json.loads(raw)
+        if result['mode'] == 'workflow':
+            state = json.loads(run_state) if run_state else {
+                'inputs': result['inputs'],
+                'snapshot': frozen.get(result['workflow_id'], {}).get('snapshot', {}),
+            }
+            result['input_parameters'] = input_parameters(state.get('inputs', {}), state.get('snapshot', {}))
         return result
 
     async def create_task(self, task_id: str, project_id: str, request_key: str, mode: str,
@@ -318,7 +338,7 @@ class ProjectStore:
     async def get_task(self, project_id: str, task_id: str, *, snapshots=False) -> dict:
         def read():
             with connect(self.db_path) as c:
-                row = c.execute("SELECT * FROM project_tasks WHERE id=? AND project_id=?", (task_id, project_id)).fetchone()
+                row = c.execute(f"SELECT {_TASK_COLUMNS} FROM project_tasks t WHERE t.id=? AND t.project_id=?", (task_id, project_id)).fetchone()
                 if row is None:
                     raise KeyError("没有找到这个项目任务")
                 return self.task(row, snapshots=snapshots)
@@ -361,7 +381,7 @@ class ProjectStore:
                     before: str = '', limit: int = 100, status: str = '') -> list[dict]:
         def read():
             with connect(self.db_path) as c:
-                query, args = 'SELECT * FROM project_tasks WHERE project_id=?', [project_id]
+                query, args = f'SELECT {_TASK_COLUMNS} FROM project_tasks t WHERE project_id=?', [project_id]
                 if status:
                     query += ' AND status=?'
                     args.append(status)

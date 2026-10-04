@@ -20,8 +20,8 @@ it('shows saved business steps by default in the actual result component and ope
   expect(within(steps).getByText('用时 0.12 秒')).toBeInTheDocument()
   fireEvent.click(within(steps).getByRole('button',{name:'查看本步输入与产物'}))
   expect(screen.getByText('按本次记录还原')).toBeInTheDocument()
-  expect(screen.getByRole('link',{name:'expenses.csv ↗'})).toHaveAttribute('href','/api/platform/api/v1/applications/p/workspace/files/requirement-package/a/expenses.csv')
-  expect(screen.getByText('36.50')).toBeInTheDocument()
+  expect(within(screen.getByRole('region',{name:'读取费用表的输入'})).getByRole('link',{name:'expenses.csv ↗'})).toHaveAttribute('href','/api/platform/api/v1/applications/p/workspace/files/requirement-package/a/expenses.csv')
+  expect(within(screen.getByRole('region',{name:'读取费用表的产物'})).getByText('36.50')).toBeInTheDocument()
   expect(steps.querySelector('pre')).toBeNull()
   const href=screen.getByRole('link',{name:'在当前画布定位 ↗'}).getAttribute('href')!
   expect(JSON.parse(new URL(href,'http://localhost').searchParams.get('node_path')!)).toEqual(['read'])
@@ -38,7 +38,7 @@ it('keeps loop occurrences separate, opens failures and waiting input, and disti
   render(<ProjectRunSteps projectId="p" runs={[run]}/> )
   expect(await screen.findByText('逐批处理 · 第 2 轮')).toBeInTheDocument()
   expect(screen.getByRole('alert')).toHaveTextContent('缺少费用字段：金额')
-  expect(screen.getByText('差旅是否含税？')).toBeInTheDocument()
+  expect(within(screen.getByRole('region',{name:'确认费用类别的输入'})).getByText('差旅是否含税？')).toBeInTheDocument()
   expect(screen.getByText('此分支未执行')).toBeInTheDocument()
   expect(screen.getAllByText('读取费用表')).toHaveLength(2)
 })
@@ -75,4 +75,28 @@ it('refreshes active steps and stops polling after completion',async()=>{
   expect(screen.getByText('已完成')).toBeInTheDocument()
   await act(async()=>{await vi.advanceTimersByTimeAsync(10000)})
   expect(api).toHaveBeenCalledTimes(2)
+})
+
+it('leads with saved business explanations and keeps transport fields in collapsed technical details',async()=>{
+  vi.mocked(api).mockResolvedValue({...page,steps:[{...step,
+    input_preview:{inputs:{prepared:{snapshot_path:'results/b/input.json',sha256:'test-fingerprint'}}},
+    input_summary:{prepared:{snapshot_path:'results/b/input.json'}},
+    output_preview:{output:{rows:6,search_states:17,comparison_inputs:{source_path:'results/b/candidates.csv'}}},
+    output_summary:{markdown:'共4根物料、6个单料组合。\n\n料三：长度不足；料四：没有同类型需求。\n\n只覆盖本次声明条件，不代表整体排程。'},
+  }]})
+  render(<ProjectRunSteps projectId="p" runs={[run]}/> )
+  fireEvent.click(await screen.findByRole('button',{name:'查看本步输入与产物'}))
+  const output=screen.getByRole('region',{name:'读取费用表的产物'})
+  expect(within(output).getByText('料三：长度不足；料四：没有同类型需求。')).toBeVisible()
+  expect(output).not.toHaveTextContent('search_states')
+  expect(output).not.toHaveTextContent('comparison_inputs')
+  const input=screen.getByRole('region',{name:'读取费用表的输入'})
+  expect(input).toHaveTextContent('已核对的输入')
+  expect(input).not.toHaveTextContent('sha256')
+  const technical=screen.getByText('技术详情：输入、输出与校验信息').closest('details')!
+  expect(technical.open).toBe(false)
+  fireEvent.click(within(technical).getByText('技术详情：输入、输出与校验信息'))
+  expect(technical.open).toBe(true)
+  expect(technical).toHaveTextContent('test-fingerprint')
+  expect(technical).toHaveTextContent('search_states')
 })

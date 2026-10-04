@@ -93,6 +93,41 @@ def _error_preview(error):
     return _preview(reason.strip(), string_limit=1000)
 
 
+def _business_preview(value):
+    """Prefer saved explanations over transport wrappers; never infer outcomes."""
+    technical = {'sha256', 'logs', 'operation', 'comparison_inputs', 'search_states',
+                 'complete_within_declared_limits', *_CODE}
+    remaining = 160
+
+    def select(item, depth=0):
+        nonlocal remaining
+        remaining -= 1
+        if remaining < 0:
+            return '其余内容见结果文件'
+        if depth >= 5:
+            return item
+        if isinstance(item, list):
+            result = [select(v, depth + 1) for v in item[:8]]
+            if len(item) > 8:
+                result.append(f'另有 {len(item) - 8} 项，见结果文件')
+            return result
+        if not isinstance(item, dict) or '$secret' in item:
+            return item
+        # Code and end nodes wrap their saved result. A business report may be
+        # beyond the first twelve keys of that result; select it before bounding.
+        if isinstance(item.get('markdown'), str) and item['markdown'].strip():
+            return {'markdown': item['markdown']}
+        keys = list(islice((key for key in item if key not in technical), 13))
+        if len(keys) == 1 and keys[0] in {'output', 'result', 'inputs', 'outputs'}:
+            return select(item[keys[0]], depth + 1)
+        result = {key: select(item[key], depth + 1) for key in keys[:12]}
+        if len(keys) > 12:
+            result['更多内容'] = '其余字段见技术详情或结果文件'
+        return result
+
+    return _preview(select(value), string_limit=2000)
+
+
 def _ordered_nodes(graph):
     """Match the runtime's stable topological order, independent of canvas position."""
     nodes = {node['id']: node for node in graph.get('nodes', [])}
@@ -196,6 +231,8 @@ async def run_steps(services, run_id, *, offset=0, limit=100):
                       'description': _preview(node.get('description', '')), 'type': node['type'],
                       'status': status, 'input_preview': input_preview, 'input_source': input_source,
                       'output_preview': _preview(output), 'error': _error_preview(error),
+                      'input_summary': _business_preview(input_preview),
+                      'output_summary': _business_preview(output),
                       'duration_ms': detail.get('duration_ms'), 'scope': scope})
     return {'run_id': run_id, 'application_id': record['application_id'],
             'name': _preview(state.snapshot.name), 'status': record['status'],

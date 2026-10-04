@@ -116,8 +116,8 @@ def catalog():
          'after-2.txt':'温度每1000毫秒更新。\n连续2次超过85摄氏度提示复核。\n不自动停机。'},
         [dict(key='main',name='原文差异比较',workflow=code_graph('diff',[field('source_path','原版本','@file:before.txt'),field('second_path','新版本','@file:after.txt')]))],['Python 代码执行'])
     bills='date,category,amount,currency,merchant\n2026-09-01,交通,12.30,CNY,示例交通\n2026-09-02,餐饮,35.70,CNY,示例餐馆\n2026-09-02,餐饮,35.70,CNY,示例餐馆\n2026-09-03,资料,10,USD,示例书店\n'
-    expense_flow = code_graph('expenses', [field('source_path','费用表','@file:expenses.csv'),
-        field('second_path','追加费用表（可留空）','',required=False),
+    expense_flow = code_graph('expenses', [{**field('source_path','费用表','@file:expenses.csv',kind='file'), 'accept':['.csv','.tsv','.xlsx']},
+        {**field('second_path','追加费用表（可留空）','',kind='file',required=False), 'accept':['.csv','.tsv','.xlsx']},
         {**field('group_by','汇总维度','按月、类别和币种'), 'options':['按月、类别和币种','按月、商户和币种'],
          'description':'选择按类别或商户汇总；不同币种始终分别计算。'},
         {**field('mark_duplicates','标记疑似重复',True,kind='boolean'),
@@ -326,9 +326,18 @@ def catalog():
     add('cutting-candidates',cutting_candidates.NAME,'数据处理',cutting_candidates.DESCRIPTION,
         '请根据物料和需求生成单料组合，解释哪些物料无方案、余量怎么计算，先不替我决定整体排程。',
         '换需求-变更.csv生成新候选；或选需求-范围.csv及长度范围，比较比例与中点优先分配。再把产物交给比较流程，明确产出与余量的优先顺序。',
-        cutting_candidates.example_files(),[dict(key='main',name=cutting_candidates.NAME,workflow=cutting),
-            dict(key='compare',name=candidate_comparison.NAME,workflow=candidate_comparison.workflow()),
-            dict(key='allocate',name='已有候选的共同需求分配',workflow=allocation_after_cutting)],['Python代码执行；Excel需openpyxl；无需模型'],
+        cutting_candidates.example_files(),[dict(key='main',name=cutting_candidates.NAME,workflow=cutting,
+            description=cutting_candidates.DESCRIPTION,
+            inputs='物料表、定长或长度范围需求表，以及长度单位、切缝、端部预留和枚举范围。',
+            outputs='单料候选 candidates.csv、需求数量与实际长度明细 patterns.csv、余量和无候选原因。候选可交给比较流程。'),
+            dict(key='compare',name=candidate_comparison.NAME,workflow=candidate_comparison.workflow(),
+                description=candidate_comparison.DESCRIPTION,
+                inputs='已生成的 candidates.csv，按 stock_id 分组；填写必须满足的条件及产出、余量等比较目标。',
+                outputs='带条件检查结果与组内顺位的候选表、失败原因及并列方案，供共同需求分配使用。各组首位不能直接合并为排程。'),
+            dict(key='allocate',name='已有候选的共同需求分配',workflow=allocation_after_cutting,
+                description='按物料处理顺序，从已比较的候选中每根最多选一个，逐次扣减共同需求；输出已选方案、未选原因和剩余需求，不修改实际库存。',
+                inputs='同一批比较后的候选表、原 patterns.csv 用量明细和原需求表；指定物料处理顺序，默认长料优先。',
+                outputs='每根物料的已选方案、未选原因、逐次用量与共同需求余额。顺序会影响结果，不保证全局最优。')],['Python代码执行；Excel需openpyxl；无需模型'],
         ['阅读自编尺寸及单位说明，选择物料和定长或范围需求。','填写实际损耗、预留及枚举范围；范围需求再选分配方式和实际长度精度。','查看组合、各段实际长度、余量及无候选原因，下载明细。','明确目标后调用同项目的比较流程；再按需运行共同需求分配，选择比较结果、原patterns.csv与对应需求表。'])
     items[-1]['guide']=cutting_candidates.GUIDE + '\n' + candidate_allocation.GUIDE
     from . import presentation_workflow
@@ -395,5 +404,7 @@ def public_item(item, detail=False):
     result={k:deepcopy(v) for k,v in item.items() if k not in ('files','workflows')}
     result['files']=[{'name':name,'size':len(content if isinstance(content,bytes) else content.encode())} for name,content in item['files'].items()]
     result['workflow_count']=len(item['workflows'])
-    if detail:result['workflows']=[{'key':w['key'],'name':w['name']} for w in item['workflows']]
+    if detail:result['workflows']=[{'key':w['key'],'name':w['name'],
+        'description':w.get('description',item['description']),
+        **{key:w[key] for key in ('inputs','outputs') if key in w}} for w in item['workflows']]
     return result

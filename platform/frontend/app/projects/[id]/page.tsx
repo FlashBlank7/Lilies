@@ -231,7 +231,7 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
     </div>
     {tab === 'results' && <div tabIndex={-1} data-guide="results">
       <section className={styles.panel}><h2>运行记录</h2><p>查看训练、预测和工作流的结果，也可以停止或继续原任务。</p>
-        <ul className={styles.list}>{tasks.map(t => {const inputFiles=taskInputFileNames(t);return <li key={t.id}><button onClick={() => void showTask(t.id)}>{taskTitle(t)} · {taskNames[t.status] || t.status}{!!inputFiles.length&&<small className={styles.taskTime}>输入：{inputFiles.join('、')}</small>}<small className={styles.taskTime}>{new Date(t.created_at).toLocaleString()}</small></button></li>})}</ul>
+        <ul className={styles.list}>{tasks.map(t => {const inputFiles=taskInputFileNames(t);return <li key={t.id}><button onClick={() => void showTask(t.id)}>{taskTitle(t)} · {taskNames[t.status] || t.status}{!!inputFiles.length&&<small className={styles.taskTime}>输入：{inputFiles.join('、')}</small>}{!!t.input_parameters?.length&&<small className={`${styles.taskTime} ${styles.taskParameters}`}>{t.input_parameters.map(parameter=>`${parameter.label}：${parameter.value}`).join(' · ')}</small>}<small className={styles.taskTime}>{new Date(t.created_at).toLocaleString()}</small></button></li>})}</ul>
         {!tasks.length && <p>尚无运行记录。可以开始训练、运行工作流，或通过对话执行任务。</p>}{moreResults && <button onClick={() => void olderResults()}>加载更早的结果</button>}
       </section>
     </div>}

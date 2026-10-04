@@ -88,10 +88,111 @@ def manual_text(guide):
     text+='\n\n## 资料与字段\n'+'\n'.join(f'- {f["name"]}：{f["path"]}' for f in guide['files'])
     if notes := field_notes(guide['id']):
         text+='\n\n'+notes
-    text+='\n\n## 工作流\n'+'\n'.join(f'- {w["name"]}：{w["id"]}' for w in guide['workflows'])
+    text+='\n\n## 工作流\n'+'\n'.join(
+        f'- {w["name"]}：{w["id"]}'
+        + (f'\n  用途：{w["description"]}' if w.get('description') else '')
+        + (f'\n  输入：{w["inputs"]}' if w.get('inputs') else '')
+        + (f'\n  输出：{w["outputs"]}' if w.get('outputs') else '')
+        for w in guide['workflows'])
     if guide.get('guide'):
         text+='\n\n## 方法与调用\n'+guide['guide']
     return text+'\n\n在项目空间选择资料和已有工作流，点击“让智能体调用”准备消息，检查后发送；也可以填写运行参数直接运行。结果在运行记录中查看和下载。换资料后创建新运行，原结果保留。创建项目不会自动执行任务。'
+
+
+async def seed_workflow_notes(services, project_id, flows):
+    notes = [{'workflow_id':flow['id'], 'purpose':flow['description'],
+              'inputs':flow['inputs'], 'outputs':flow['outputs']}
+             for flow in flows if flow.get('inputs') and flow.get('outputs')]
+    progress = await services.projects.store.progress(project_id)
+    if notes and progress['revision'] == 0:
+        from .project_store import ProjectConflict
+        try:
+            await services.projects.store.put_progress(project_id, {**progress['value'], 'workflows':notes}, 0)
+        except ProjectConflict:
+            # A concurrent owner edit takes precedence over example defaults.
+            pass
+
+
+async def refresh_example_defaults(services):
+    """Repair recognized legacy defaults using normal draft revisions."""
+    with connect(services.storage.db_path) as db:
+        guides = [(row['project_id'], json.loads(row['value_json'])) for row in db.execute(
+            "SELECT project_id,value_json FROM project_records WHERE collection='example' AND record_key='guide'")]
+    guides = [(pid, guide) for pid, guide in guides if guide.get('id') in {'cutting-candidates', 'expenses'}]
+    if not guides:
+        return
+    items = {item['id']:item for item in catalog() if item['id'] in {'cutting-candidates', 'expenses'}}
+    from .workflow_storage import RevisionConflict
+    for project_id, guide in guides:
+        item = items[guide['id']]
+        if guide['id'] == 'expenses':
+            await refresh_expense_file_inputs(services, project_id, guide, item)
+            continue
+        project = await services.projects.store.get(project_id)
+        members = {member['id']: member for member in project['members']}
+        files = {file['name']:file for file in guide.get('files', [])}
+        notes = []
+        for flow in item['workflows']:
+            installed = next((w for w in guide.get('workflows', []) if w.get('name') == flow['name']), None)
+            if not installed or installed.get('id') not in members:
+                continue
+            workflow_id = installed['id']
+            draft = await services.workflow_store.get_draft(workflow_id)
+            snapshot = draft['snapshot']
+            expected_name = project['name'] if flow['key'] == 'main' else flow['name']
+            if snapshot.name != expected_name or snapshot.description != item['description']:
+                continue
+            try:
+                expected_workflow = WorkflowSpec.model_validate(replace_refs(deepcopy(flow['workflow']), files, {}))
+            except KeyError:
+                continue
+            if snapshot.workflow != expected_workflow:
+                continue
+            if snapshot.description != flow['description']:
+                try:
+                    await services.applications.apply_operations_atomically(workflow_id,
+                        expected_revision=draft['revision'], expected_content_hash=draft['content_hash'],
+                        idempotency_key=f'example-flow-description:{draft["revision"]}',
+                        operations=[{'op':'set_metadata','data':{'description':flow['description']}}],
+                        change_context_operation='example_description_correction')
+                except RevisionConflict:
+                    continue
+            notes.append({**flow, 'id':workflow_id})
+        await seed_workflow_notes(services, project_id, notes)
+
+
+async def refresh_expense_file_inputs(services, project_id, guide, item):
+    files = {file['name']:file for file in guide.get('files', [])}
+    draft = await services.workflow_store.get_draft(project_id)
+    snapshot = draft['snapshot']
+    try:
+        expected = WorkflowSpec.model_validate(replace_refs(deepcopy(item['workflows'][0]['workflow']), files, {}))
+    except KeyError:
+        return
+    current = snapshot.workflow.model_copy(deep=True)
+    fields = {field['name']:field for node in current.nodes if node.type == 'start'
+              for field in node.config.get('inputs', [])}
+    for node in expected.nodes:
+        for field in node.config.get('inputs', []) if node.type == 'start' else []:
+            if field['name'] not in {'source_path', 'second_path'}:
+                continue
+            saved = fields.get(field['name'])
+            if not saved or saved.get('type') != 'string' or 'accept' in saved:
+                return
+            # A different selected file is still the same expense input; retain it.
+            field['default'] = saved.get('default', '')
+            saved.update(type=field['type'], accept=field['accept'])
+    if current != expected:
+        return
+    from .workflow_storage import RevisionConflict
+    try:
+        await services.applications.apply_operations_atomically(project_id,
+            expected_revision=draft['revision'], expected_content_hash=draft['content_hash'],
+            idempotency_key=f'example-expense-file-inputs:{draft["revision"]}',
+            operations=[{'op':'replace_workflow','data':{'workflow':current.model_dump(mode='json')}}],
+            change_context_operation='example_file_input_correction')
+    except RevisionConflict:
+        pass
 
 
 async def discard_new_project(services, project_id):
@@ -134,7 +235,9 @@ async def instantiate(services,user,item,body):
         return result
     project=None
     try:
-        project=await services.projects.create(body.name.strip() or item['name']+' · 示例',item['description'])
+        main = next(flow for flow in item['workflows'] if flow['key'] == 'main')
+        project=await services.projects.create(body.name.strip() or item['name']+' · 示例',item['description'],
+            workflow_description=main.get('description',item['description']))
         pid=project['id']
         with connect(services.storage.db_path) as db:
             db.execute('UPDATE example_project_installs SET project_id=? WHERE user_id=? AND request_key=?',(pid,user['id'],body.request_key))
@@ -144,7 +247,7 @@ async def instantiate(services,user,item,body):
         workflows={'main':pid}
         for flow in item['workflows']:
             if flow['key']!='main':
-                member=await services.projects.add_member(pid,flow['name'],item['description'])
+                member=await services.projects.add_member(pid,flow['name'],flow.get('description',item['description']))
                 workflows[flow['key']]=member['id']
         # All IDs exist before any graph is saved, including nested calls.
         for flow in reversed(item['workflows']):
@@ -159,13 +262,14 @@ async def instantiate(services,user,item,body):
             from .project_knowledge import KnowledgeSettings,KnowledgeSource
             resource=await services.projects.knowledge.save(pid,'example-knowledge',KnowledgeSettings(name='示例借用制度'))
             await services.projects.knowledge.add(pid,'example-knowledge',KnowledgeSource(expected_revision=resource['revision'],source_path=files['handbook.txt']['path']))
-        guide={**public_item(item,True),'files':list(files.values()),
-               'workflows':[{'id':workflows[w['key']],'name':w['name']} for w in item['workflows']]}
+        guide=public_item(item,True)
+        guide.update(files=list(files.values()), workflows=[{**w,'id':workflows[w['key']]} for w in guide['workflows']])
         text=manual_text(guide)
         manual=await add_material(services,pid,UploadFile(file=io.BytesIO(text.encode()),filename='使用说明.md'))
         guide['manual_path']=manual['path']
         await save_skill(services,pid,'example-guide',SkillDocument(name=item['name']+'使用说明',description=item['description'][:500],content=text+'\n\n智能体可用 project_workflows inspect 查看当前输入和默认值，再用 workflow_run 调用。一次性问题可直接回答。连接缺失时请配置，不自动换服务商；未实际运行不得报告已完成。'))
         await services.projects.store.put_record(pid,'example','guide',guide,0)
+        await seed_workflow_notes(services,pid,guide['workflows'])
         if user['id']!='root':await services.accounts.add_member(pid,user['id'],'owner')
         result={'project_id':pid,'template_id':item['id'],'template_version':item['version']}
         with connect(services.storage.db_path) as db:

@@ -26,6 +26,7 @@ export type ProjectMember = { id: string; name: string; description: string; rev
 export type ConversationFocus = { nonce: number; item_id?: string; question_id?: string; task_id?: string; label: string; message?: string; mode?: 'task' | 'workflow' }
 export type ProjectTask = {
   input_files?: string[]
+  input_parameters?: {name: string; label: string; value: string}[]
   id: string; request_key: string; status: string; mode: string; purpose: string; item_id: string; workflow_id?: string
   feedback_task_id: string; message: string; error: string; inputs?: object; outputs?: Record<string, unknown>
   presentation: { message?: string; markdown?: string; artifacts?: { label: string; file_path: string }[] }
