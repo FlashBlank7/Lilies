@@ -96,8 +96,11 @@ async def save_workflow(services, project_id, workflow_id, body):
         expected_revision=body.expected_revision, expected_content_hash=draft['content_hash'],
         idempotency_key=body.request_key, operations=[{'op': 'replace_workflow', 'data': {'workflow': body.workflow.model_dump(mode='json')}}],
         change_context_operation='workflow_edit')
+    from .project_draft_context import structure_check
+    saved = await services.workflow_store.get_draft(workflow_id)
     return {**jsonable_encoder(result), 'workflow_id': workflow_id, 'previous_workflow': previous,
-            'draft': jsonable_encoder(await services.workflow_store.get_draft(workflow_id))}
+            'draft': jsonable_encoder(saved),
+            'structure_check': structure_check(services.applications, saved['snapshot'], revision=saved['revision'])}
 
 
 async def generate_workflow(services, project_id, body, *, conversation_context=None):

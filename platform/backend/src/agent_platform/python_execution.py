@@ -16,6 +16,28 @@ class CodeConfig(BaseModel):
         description='仅用于所有依赖文件通过输入声明、产物路径通过输出返回的代码。外部调用、隐藏文件依赖或需要每次执行的代码请勿开启。')
 
 
+def code_syntax_diagnostics(workflow):
+    """Compile source without executing it or resolving inputs/dependencies."""
+    from .project_draft_context import indexed_nodes
+
+    diagnostics = []
+    for node, _, scope in indexed_nodes(workflow.model_dump(mode='json')):
+        if node['type'] != 'code':
+            continue
+        source = node.get('config', {}).get('code', CodeConfig.model_fields['code'].default)
+        if not isinstance(source, str):
+            continue  # The block schema reports invalid field types separately.
+        try:
+            compile(source, 'workflow.py', 'exec', dont_inherit=True)
+        except SyntaxError as error:
+            line = (error.text or '').rstrip('\r\n')
+            diagnostics.append({'node_id': node['id'], 'scope': list(scope),
+                'field': 'config.code', 'error_type': type(error).__name__,
+                'message': error.msg, 'line': error.lineno, 'column': error.offset,
+                'source_line': line[:500], 'source_line_truncated': len(line) > 500})
+    return diagnostics
+
+
 async def execute_python(sandboxes, workspace, code, timeout):
     workspace = sandboxes.resolve_workspace(str(workspace))
     sandboxes.protect_inputs(workspace, ['requirement-package', 'requirements'])

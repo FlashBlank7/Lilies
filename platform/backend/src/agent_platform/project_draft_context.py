@@ -1,7 +1,35 @@
 """Selected graph details and bounded, actual edit results for project tools."""
+import logging
+import platform
+
 from .project_agent_context import result_preview
 from .project_metrics import payload_measurement
 from .workflow_models import ApplicationSnapshot, EdgeSpec
+
+
+def structure_check(applications, snapshot, *, revision=0):
+    """Return advisory diagnostics for this saved version, never a save gate."""
+    try:
+        report = applications.validate_structure(snapshot)
+    except Exception:
+        logging.getLogger(__name__).exception('Saved draft structure check could not finish')
+        report = {'valid': None, 'errors': ['结构检查未能完成；草稿仍已保存，可稍后单独 validate。'], 'warnings': []}
+    check = {'validation_scope': 'structure', 'revision': revision, 'content_hash': snapshot.content_hash(),
+             'valid': report['valid'], 'runtime_checked': False,
+             'python_version': platform.python_version(),
+             'detail': 'Python 仅按平台版本静态检查语法，不执行代码，不验证依赖、业务或运行环境兼容性。'
+                       '请根据 diagnostics 原地修正代码；无需重新读取未改动节点或运行自测。'}
+    for key in ('errors', 'warnings'):
+        messages = report[key]
+        check[key] = [message if len(message) <= 500 else message[:500] + '…' for message in messages[:5]]
+        if len(messages) > 5 or any(len(message) > 500 for message in messages[:5]):
+            check[key + '_truncated'] = True
+            check['detail'] += ' workflow_run(action="validate", workflow_id=id) reads the complete current check.'
+    diagnostics = report.get('diagnostics', [])
+    check['diagnostics'] = diagnostics[:5]
+    if len(diagnostics) > 5:
+        check['diagnostics_truncated'] = True
+    return check
 
 
 def indexed_nodes(graph, scope=()):

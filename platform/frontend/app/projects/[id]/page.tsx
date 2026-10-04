@@ -235,11 +235,14 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
             ? <a key={index} href={download(result.file_path)} download>{result.label} ↓</a>
             : <button key={index} onClick={() => void showTask(result.task_id)}>{result.label} ↗</button>)}</div></details>}
         </section>)}
-        <section className={styles.panel}><h2>最近结果</h2>{tasks.length ? tasks.slice(0, 3).map(t => <div key={t.id} className={styles.resultLinks}><button onClick={() => void showTask(t.id)}>{taskTitle(t)} · {taskNames[t.status] || t.status}</button></div>) : <p>试用后，结果会保留在这里。</p>}</section>
+        <section className={styles.panel} aria-label="最近结果"><h2>最近结果</h2>{tasks.length ? tasks.slice(0, 3).map(t => <div key={t.id} className={styles.resultLinks}><button onClick={() => void showTask(t.id)}>{taskTitle(t)} · {taskNames[t.status] || t.status}
+          {!!taskInputFileNames(t).length && <small className={styles.taskTime}>输入：{taskInputFileNames(t).slice(0, 3).join('、')}</small>}
+          {!!t.input_parameters?.length && <small className={`${styles.taskTime} ${styles.taskParameters}`}>{t.input_parameters.slice(0, 3).map(p => `${p.label}：${p.value}`).join(' · ')}</small>}
+        </button><small className={styles.taskTime}>{new Date(t.created_at).toLocaleString()}</small></div>) : <p>试用后，结果会保留在这里。</p>}</section>
       </aside>
     </div>
     {tab === 'results' && <div tabIndex={-1} data-guide="results">
-      <section className={styles.panel}><h2>运行记录</h2><p>查看训练、预测和工作流的结果，也可以停止或继续原任务。</p>
+      <section className={styles.panel} aria-label="运行记录"><h2>运行记录</h2><p>查看训练、预测和工作流的结果，也可以停止或继续原任务。</p>
         <button onClick={() => void refresh()}>刷新运行记录</button>
         <ul className={styles.list}>{tasks.map(t => {const inputFiles=taskInputFileNames(t);return <li key={t.id}><button onClick={() => void showTask(t.id)}>{taskTitle(t)} · {taskNames[t.status] || t.status}{!!inputFiles.length&&<small className={styles.taskTime}>输入：{inputFiles.join('、')}</small>}{!!t.input_parameters?.length&&<small className={`${styles.taskTime} ${styles.taskParameters}`}>{t.input_parameters.map(parameter=>`${parameter.label}：${parameter.value}`).join(' · ')}</small>}<small className={styles.taskTime}>{new Date(t.created_at).toLocaleString()}</small></button></li>})}</ul>
         {!tasks.length && <p>尚无运行记录。可以开始训练、运行工作流，或通过对话执行任务。</p>}{moreResults && <button onClick={() => void olderResults()}>加载更早的结果</button>}

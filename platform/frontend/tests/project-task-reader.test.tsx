@@ -35,13 +35,13 @@ it('refreshes history on entering or returning to the results tab without launch
   await act(async()=>{render(<Suspense><ProjectPage params={Promise.resolve({id:'p'})}/></Suspense>)})
   latest = [...latest,completedTask('second')]
   fireEvent.click(screen.getByRole('tab',{name:'运行记录'}))
-  expect(await screen.findByText('输入：second.csv')).toBeVisible()
+  expect(await within(screen.getByRole('region',{name:'运行记录'})).findByText('输入：second.csv')).toBeVisible()
   latest = [...latest,completedTask('third')]
   await act(async()=>{fireEvent(document,new Event('visibilitychange'))})
-  expect(await screen.findByText('输入：third.csv')).toBeVisible()
+  expect(await within(screen.getByRole('region',{name:'运行记录'})).findByText('输入：third.csv')).toBeVisible()
   latest = [...latest,completedTask('fourth')]
   fireEvent.click(screen.getByRole('button',{name:'刷新运行记录'}))
-  expect(await screen.findByText('输入：fourth.csv')).toBeVisible()
+  expect(await within(screen.getByRole('region',{name:'运行记录'})).findByText('输入：fourth.csv')).toBeVisible()
   expect(vi.mocked(api).mock.calls.some(([,options])=>options?.method==='POST')).toBe(false)
 })
 
@@ -217,6 +217,15 @@ it('distinguishes same-file runs with saved business parameters without reading 
     return {id:'p',name:'费用归集',members:[{id:'member',name:'费用归集',purpose:'business'}]} as never
   })
   await act(async()=>{render(<Suspense><ProjectPage params={Promise.resolve({id:'p'})}/></Suspense>)})
+  fireEvent.click(screen.getByRole('tab',{name:'运行记录'}))
+  fireEvent.click(screen.getByRole('tab',{name:'对话'}))
+  const recent = screen.getByRole('region',{name:'最近结果'})
+  expect(within(recent).getByRole('button',{name:/费用归集.*按月、类别和币种/})).toBeVisible()
+  const recentMerchant = within(recent).getByRole('button',{name:/费用归集.*按月、商户和币种/})
+  expect(recentMerchant).toHaveTextContent('expenses.csv')
+  fireEvent.click(recentMerchant)
+  expect(await screen.findByText('保存的结果 merchant')).toBeVisible()
+  fireEvent.click(screen.getByRole('button',{name:'关闭阅读窗口'}))
   fireEvent.click(screen.getByRole('tab',{name:'运行记录'}))
   const category = screen.getByRole('button',{name:/费用归集 · 运行完成.*输入：expenses.csv.*汇总维度：按月、类别和币种.*标记疑似重复：是/})
   const merchant = screen.getByRole('button',{name:/费用归集 · 运行完成.*输入：expenses.csv.*汇总维度：按月、商户和币种.*标记疑似重复：否/})

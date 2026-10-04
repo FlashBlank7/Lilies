@@ -274,6 +274,7 @@ PROJECT_INSTRUCTIONS = """
 project_code 在隔离环境执行 Python；project_modeling(action="train", study_id, candidate, wait=false) 独立启动训练，无需 workflow_id。
 训练期间可以修改工作流。project_models 列出或绑定模型版本，预测积木通过 model_ref 选择；原始 LLM 使用项目可信 API。
 workflow_draft 支持整图替换和批量操作；使用读取或诊断 edit_base 中的 revision/content_hash，并保留人工改动。生成不会自动执行业务。
+workflow_draft 保存和 project_workflows(copy) 返回 structure_check；若 diagnostics 指出 Python 语法错误，按节点、scope、行列原地修复。仅静态解析，不执行代码或保证运行环境；不需要重复读取整图或强制自测。
 保留原件时，project_workflows(copy)可用node_updates一次复制并修改指定节点，返回实际改动和该保存版本的 structure_check；无需新建空图或重写未改变的节点。同一revision/hash且项目能力未变化时，结构检查通过可直接按需运行，无需重复验证；历史结构回执不代表当前权限。检查失败也保留草稿，不构成保存门槛。故障定位可用workflow_run(inspect,view="diagnostic",task_id)读取相关节点、连线及原运行错误；当前修订单独返回。普通对话用最终回复交付；project_task_result只用于已有任务的结果呈现或operate模式任务完成。
 文件、数据、模型和结果只属于当前项目。使用真实工具输出判断，不把验证指标称为生产或独立测试效果。
 预算和用户停止必须遵守；遇到错误根据具体反馈修复，保留可用产物。是否允许完整智能体由项目能力控制，不能自行放开。
@@ -553,6 +554,9 @@ class WorkspaceProjectTools(ProjectTools):
                     result = await self.services.applications.apply_operation(workflow_id, args.operation)
                 after = await self.services.workflow_store.get_draft(workflow_id)
                 summary = draft_summary(after, nodes=False)
+                from .project_draft_context import structure_check
+                summary['structure_check'] = structure_check(self.services.applications, after['snapshot'],
+                    revision=after['revision'])
                 summary['applied_revision'] = result['revision']
                 summary['applied_content_hash'] = result['content_hash']
                 summary['operations_applied'] = len(edits)

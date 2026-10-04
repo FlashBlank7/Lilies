@@ -530,7 +530,14 @@ class ApplicationService:
 
     def validate_structure(self, snapshot: ApplicationSnapshot) -> dict[str, Any]:
         """Inspect this exact snapshot without reading bindings or executing work."""
+        from .python_execution import code_syntax_diagnostics
+
         errors = self.blocks.validate_workflow(snapshot.workflow)
+        diagnostics = code_syntax_diagnostics(snapshot.workflow)
+        for diagnostic in diagnostics:
+            location = '/'.join([*diagnostic['scope'], diagnostic['node_id']])
+            errors.append(f"{location}: Python {diagnostic['error_type']} "
+                f"(line {diagnostic['line']}, column {diagnostic['column']}): {diagnostic['message']}")
 
         def self_references(payload: Any, owner: str) -> list[list[str]]:
             found: list[list[str]] = []
@@ -553,7 +560,10 @@ class ApplicationService:
                     "节点不能读取自身的产出。要么改引用上游节点，要么把该值"
                     "直接算在本节点的表达式里。"
                 )
-        return {"valid": not errors, "errors": errors, "warnings": self._input_warnings(snapshot)}
+        report = {"valid": not errors, "errors": errors, "warnings": self._input_warnings(snapshot)}
+        if diagnostics:
+            report['diagnostics'] = diagnostics
+        return report
 
     async def validate_draft(
         self, application_id: str, *, structure_only: bool = False,
@@ -629,6 +639,7 @@ class ApplicationService:
             "revision": draft["revision"],
             "content_hash": draft["content_hash"],
             "test_count": len(snapshot.tests),
+            **({'diagnostics': structure['diagnostics']} if 'diagnostics' in structure else {}),
             **({"validation_scope": "structure"} if structure_only else {}),
         }
 
