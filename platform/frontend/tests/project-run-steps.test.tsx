@@ -11,6 +11,33 @@ const run={id:'r',application_id:'w',status:'succeeded',draft_revision:3}
 const step:RunStep={id:'read',node_path:['read'],title:'读取费用表',description:'按月份和币种整理费用',type:'code',status:'completed',input_source:'按本次记录还原',input_preview:{source_path:'requirement-package/a/expenses.csv'},output_preview:{rows:4,summary:[{month:'2026-10',amount:'36.50'}]},duration_ms:120}
 const page={run_id:'r',application_id:'w',name:'费用整理',status:'succeeded',steps:[step],total:1,next_offset:null,draft_revision:3}
 
+it('distinguishes same-named downloads using saved result sections and keeps their actual links',()=>{
+  const task={id:'t',status:'succeeded',outputs:{
+    profile:{markdown:'# 数据体检\n\n2条重复',artifacts:[{label:'报告 Markdown',file_path:'results/profile/report.md'},{label:'结构化结果 JSON',file_path:'results/profile/result.json'}]},
+    summary:{markdown:'# 数据汇总\n\nA:30',artifacts:[{label:'报告 Markdown',file_path:'results/summary/report.md'},{label:'结构化结果 JSON',file_path:'results/summary/result.json'},{label:'明细 CSV',file_path:'results/summary/details.csv'}]},
+  }}
+  const {rerender}=render(<ProjectTaskOutput projectId="p" task={task as never}/>)
+  for(const [section,path] of [['数据体检','profile'],['数据汇总','summary']]) {
+    expect(screen.getByRole('link',{name:`${section} · 报告 Markdown ↓`})).toHaveAttribute('href',`/api/platform/api/v1/applications/p/workspace/files/results/${path}/report.md?download=1`)
+    expect(screen.getByRole('link',{name:`${section} · 结构化结果 JSON ↓`})).toBeVisible()
+  }
+  expect(screen.getByRole('link',{name:'明细 CSV ↓'})).toBeVisible()
+  expect(api).not.toHaveBeenCalled()
+  // Presentation may flatten the same files; their saved section still applies.
+  rerender(<ProjectTaskOutput projectId="p" task={{...task,presentation:{artifacts:[...task.outputs.profile.artifacts,...task.outputs.summary.artifacts]}} as never}/>)
+  expect(screen.getByRole('link',{name:'数据体检 · 报告 Markdown ↓'})).toBeVisible()
+})
+
+it('uses output fields when headings are absent and rejects unsafe download paths',()=>{
+  render(<ProjectTaskOutput projectId="p" task={{id:'t',status:'succeeded',outputs:{
+    first:{artifacts:[{label:'报告',file_path:'results/first/report.md'}]},
+    second:{artifacts:[{label:'报告',file_path:'results/second/report.md'},{label:'不可下载',file_path:'results/../private.md'}]},
+  }} as never}/>)
+  expect(screen.getByRole('link',{name:'first · 报告 ↓'})).toBeVisible()
+  expect(screen.getByRole('link',{name:'second · 报告 ↓'})).toBeVisible()
+  expect(screen.queryByRole('link',{name:'不可下载 ↓'})).not.toBeInTheDocument()
+})
+
 it('shows saved business steps by default in the actual result component and opens readable input/output',async()=>{
   vi.mocked(api).mockResolvedValue(page)
   render(<ProjectTaskOutput projectId="p" task={{id:'t',status:'succeeded',outputs:{markdown:'费用报告'},runs:[run]} as never}/> )

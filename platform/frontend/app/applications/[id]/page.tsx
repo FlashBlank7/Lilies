@@ -39,6 +39,7 @@ import {
   getClientToken,
   idempotency,
   isAuthError,
+  PlatformApiError,
   saveClientToken,
   type AcceptanceRepairPreview,
   type Block,
@@ -110,6 +111,7 @@ const VISIBLE_STUDIO_TABS = [...CORE_STUDIO_TABS, 'integrations'] as const
 const STUDIO_TABS = [...VISIBLE_STUDIO_TABS, 'run'] as const
 type StudioTab = typeof STUDIO_TABS[number]
 type ConfigEditorMode = 'form' | 'json'
+type ManualSaveUndo = { workflow: Draft['snapshot']['workflow']; revision: number; title: string }
 const STUDIO_CHROME_STORAGE_KEY = 'lilies.studio.chrome.v1'
 const BLOCK_DRAG_MIME = 'application/x-lilies-block-type'
 const DEFAULT_STUDIO_CHROME: StudioChromePreferences = {
@@ -865,6 +867,10 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   const [configEditorMode, setConfigEditorMode] = useState<ConfigEditorMode>('form')
   const [configFieldValues, setConfigFieldValues] = useState<ConfigEditorValues>({})
   const [configEditorBase, setConfigEditorBase] = useState<Record<string, unknown>>({})
+  const [manualSaveUndo, setManualSaveUndo] = useState<ManualSaveUndo | null>(null)
+  const [manualSaveBusy, setManualSaveBusy] = useState(false)
+  const [manualSaveMessage, setManualSaveMessage] = useState('')
+  const manualSaveBusyRef = useRef(false)
   const [build, setBuild] = useState<Build | null>(null)
   const [transcript, setTranscript] = useState<BuildTranscript | null>(null)
   const [transcriptOpen, setTranscriptOpen] = useState(true)
@@ -1689,23 +1695,91 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   }
 
   async function saveConfig() {
-    if (!selected) return
+    if (!selected || manualSaveBusyRef.current) return
     const editVersion = configEditVersionRef.current
     const scope = [...containerScopeRef.current]
+    const nodeId = selected.id
+    let config: Record<string, unknown>
     try {
       const fields = editorFieldsForBlock(blocks.find(block => block.type === selected.type))
-      const config = configEditorMode === 'form' && fields.length
+      config = configEditorMode === 'form' && fields.length
         ? configFromEditorValues(configEditorBase, fields, configFieldValues)
         : parseConfigObject(configText)
-      setConfigText(JSON.stringify(config, null, 2))
-      setConfigEditorBase(config)
-      const next = await mutation('update_node', { node_id: selected.id, changes: { config }, merge_config: false }, scope)
-      if (!next) return
-      await reconcileIncomingEdges(selected.id, config, next, scope)
-      if (next && selectedId.current === selected.id && configEditVersionRef.current === editVersion) configDirtyRef.current = false
     } catch (error) {
       setNotice(configEditorMode === 'form' ? t.configFieldInvalid(String(error)) : t.invalidJson(String(error)))
+      return
     }
+    setConfigText(JSON.stringify(config, null, 2))
+    setConfigEditorBase(config)
+    manualSaveBusyRef.current = true; setManualSaveBusy(true); setManualSaveMessage('')
+    const queued = mutationQueueRef.current.then(async () => {
+      const current = draftRef.current
+      const graph = activeWorkflow(current, scope)
+      const node = graph?.nodes.find(item => item.id === nodeId)
+      if (!current || !graph || !node) throw new Error('当前积木已被修改或删除，请重新打开。')
+      let edit = scopedMutation(current.snapshot.workflow, scope, 'update_node', { node_id: nodeId, changes: { config }, merge_config: false })
+      // Save aggregator connections with its config, so one manual save has one revision to undo.
+      if (node.type === 'variable_aggregator') {
+        const sources = referencedNodeIds(config)
+        const edges = graph.edges.filter(edge => edge.target !== nodeId || edge.branch || sources.has(edge.source))
+        for (const source of sources) {
+          if (source !== nodeId && graph.nodes.some(item => item.id === source) && !edges.some(edge => edge.target === nodeId && edge.source === source && !edge.branch)) {
+            edges.push({ id: idempotency(), source, target: nodeId, source_port: 'output', target_port: 'input' })
+          }
+        }
+        edit = scopedMutation(current.snapshot.workflow, scope, 'replace_workflow', { workflow: {
+          ...graph, nodes: graph.nodes.map(item => item.id === nodeId ? { ...item, config } : item), edges,
+        } })
+      }
+      const previousWorkflow = structuredClone(current.snapshot.workflow)
+      const saved = await api<Pick<Draft, 'revision'>>(`/api/v1/applications/${id}/draft`, {
+        method: 'POST', body: JSON.stringify({ expected_revision: current.revision, idempotency_key: idempotency(), ...edit }),
+      })
+      setManualSaveUndo({ workflow: previousWorkflow, revision: saved.revision, title: node.title || node.id })
+      if (selectedId.current === nodeId && configEditVersionRef.current === editVersion) configDirtyRef.current = false
+      setNotice(t.savedDraft)
+      setManualSaveMessage(locale === 'zh' ? '配置已保存，可撤销这次手动保存。' : 'Configuration saved. You can undo this manual save.')
+      await refresh().catch(error => {
+        setNotice(String(error))
+        setManualSaveMessage(locale === 'zh' ? '配置已保存，但读取最新草稿失败，请刷新后查看。' : 'Configuration saved, but the latest draft could not be loaded. Refresh to view it.')
+      })
+    })
+    mutationQueueRef.current = queued.then(() => undefined, () => undefined)
+    try { await queued } catch (error) {
+      setManualSaveMessage(locale === 'zh' ? `保存失败：${String(error)}` : `Save failed: ${String(error)}`)
+      await refresh().catch(() => undefined)
+    } finally { manualSaveBusyRef.current = false; setManualSaveBusy(false) }
+  }
+
+  async function undoManualSave() {
+    if (!manualSaveUndo || manualSaveBusyRef.current) return
+    if (configDirtyRef.current) {
+      setManualSaveMessage(locale === 'zh' ? '当前还有未保存的配置，请先保存或重新选择积木放弃编辑，再撤销。' : 'Save the current configuration or select the brick again to discard unsaved edits before undoing.')
+      return
+    }
+    manualSaveBusyRef.current = true; setManualSaveBusy(true); setManualSaveMessage('')
+    const queued = mutationQueueRef.current.then(async () => {
+      const current = await api<Draft>(`/api/v1/applications/${id}/draft`)
+      syncCanvas(current)
+      if (current.revision !== manualSaveUndo.revision) throw new PlatformApiError(409, 'Conflict', 'draft revision changed')
+      if (configDirtyRef.current) throw new Error(locale === 'zh' ? '当前有未保存的配置，请处理后重试。' : 'There are unsaved configuration edits. Resolve them and retry.')
+      await api(`/api/v1/applications/${id}/draft`, {
+        method: 'POST', body: JSON.stringify({ expected_revision: manualSaveUndo.revision, idempotency_key: idempotency(), op: 'replace_workflow', data: { workflow: manualSaveUndo.workflow } }),
+      })
+      setManualSaveUndo(null)
+      setManualSaveMessage(locale === 'zh' ? '已撤销上次手动保存，配置及关联连线已恢复。' : 'Last manual save undone. Configuration and its connections have been restored.')
+      await refresh().catch(error => {
+        setNotice(String(error))
+        setManualSaveMessage(locale === 'zh' ? '撤销已保存，但读取最新草稿失败，请刷新后查看。' : 'Undo saved, but the latest draft could not be loaded. Refresh to view it.')
+      })
+    })
+    mutationQueueRef.current = queued.then(() => undefined, () => undefined)
+    try { await queued } catch (error) {
+      setManualSaveMessage(error instanceof PlatformApiError && error.status === 409
+        ? locale === 'zh' ? '无法撤销：草稿已有后续修改，未覆盖这些修改。请查看最新配置后手动调整。' : 'Cannot undo: the draft has newer changes. They were preserved. Review the latest configuration and edit it manually.'
+        : locale === 'zh' ? `撤销失败：${String(error)}` : `Undo failed: ${String(error)}`)
+      await refresh().catch(() => undefined)
+    } finally { manualSaveBusyRef.current = false; setManualSaveBusy(false) }
   }
 
   async function previewDraftPatch() {
@@ -1854,27 +1928,6 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
       await refresh().catch(() => undefined)
     } finally {
       setAcceptanceRepairApplying(false)
-    }
-  }
-
-  async function reconcileIncomingEdges(nodeId: string, config: Record<string, unknown>, next: Draft | null, scope = [...containerScopeRef.current]) {
-    const current = next || draftRef.current
-    const node = activeWorkflow(current, scope)?.nodes.find(item => item.id === nodeId)
-    if (!current || node?.type !== 'variable_aggregator') return
-    const desiredSources = referencedNodeIds(config)
-    const availableSources = new Set((activeWorkflow(current, scope)?.nodes || []).map(item => item.id))
-    const incoming = (activeWorkflow(current, scope)?.edges || []).filter(edge => edge.target === nodeId && !edge.branch)
-    for (const edge of incoming) {
-      if (!desiredSources.has(edge.source)) await mutation('remove_edge', { edge_id: edge.id }, scope)
-    }
-    const refreshed = draftRef.current || current
-    const existingSources = new Set((activeWorkflow(refreshed, scope)?.edges || []).filter(edge => edge.target === nodeId && !edge.branch).map(edge => edge.source))
-    for (const source of desiredSources) {
-      if (source !== nodeId && availableSources.has(source) && !existingSources.has(source)) {
-        await mutation('add_edge', { edge: {
-          id: idempotency(), source, target: nodeId, source_port: 'output', target_port: 'input',
-        } }, scope)
-      }
     }
   }
 
@@ -2353,6 +2406,12 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
             </div>}
           </section>
 </>}
+          <section className="node-inspector-guide" aria-label={locale === 'zh' ? '手动保存恢复' : 'Manual save recovery'}>
+            <button type="button" disabled={!manualSaveUndo || manualSaveBusy} onClick={() => void undoManualSave()}>{locale === 'zh' ? '撤销上次手动保存' : 'Undo last manual save'}</button>
+            <small>{locale === 'zh' ? '仅撤销本页最近一次“保存配置”及其连线调整。刷新或离开页面后不可用；后续修改会阻止撤销。AI 修改使用独立的 AI 撤销。' : 'Undoes only this page’s last Save configuration and its connection changes. Unavailable after refreshing or leaving this page; newer changes prevent undo. AI changes have their own undo.'}</small>
+            {manualSaveUndo && <small>{locale === 'zh' ? `待撤销：${manualSaveUndo.title} · r${manualSaveUndo.revision}` : `Saved: ${manualSaveUndo.title} · r${manualSaveUndo.revision}`}</small>}
+            {manualSaveMessage && <p role="status">{manualSaveMessage}</p>}
+          </section>
           <h3>{t.nodeInspector}</h3>
           <section className="node-inspector-guide" data-node-inspector={selected ? 'selection-summary' : selectedEdge ? 'edge-summary' : 'empty-selection'}>
             <div className="node-inspector-guide-head"><strong>{selected ? t.nodeInspectorSummaryTitle : selectedEdge ? t.nodeInspectorEdgeTitle : t.nodeInspectorNoSelectionTitle}</strong><small>{selected ? t.nodeInspectorSummaryHelp : selectedEdge ? t.nodeInspectorEdgeHelp : t.nodeInspectorNoSelectionHelp}</small></div>
@@ -2421,7 +2480,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
                 </div>
               }) : <p className="muted">{t.configFormNoFields}</p>}
             </div> : <div className="config-expert" data-config-editor="expert-json"><p className="muted">{t.configExpertHelp}</p><textarea className="json-editor" value={configText} onChange={event => { configDirtyRef.current = true; configEditVersionRef.current += 1; setConfigText(event.target.value) }} /></div>}
-            <button className="wide" data-config-editor-action="save" onClick={saveConfig}>{t.saveConfig}</button><button className="danger-link" onClick={deleteSelectedNode}>{t.deleteNode}</button>
+            <button className="wide" data-config-editor-action="save" disabled={manualSaveBusy} onClick={saveConfig}>{t.saveConfig}</button><button className="danger-link" onClick={deleteSelectedNode}>{t.deleteNode}</button>
           </> : <p className="muted">{selectedEdge ? t.edgeSelectedHint : t.nodeHelp}</p>}
         </div>}
         {tab === 'test' && projectContext && <div className="panel-body"><ProjectWorkflowChecks projectId={projectContext.id} workflowId={id} cases={acceptanceCaseViews} report={displayedTestReport} running={testsRunning} dirty={configDirtyRef.current} onRun={() => void runTests()} />{versions.length > 0 && <details><summary>已保存版本（{versions.length}）</summary>{versions.map(version => <div className="version-row" key={version.version}><span>v{version.version}</span><button onClick={async () => { try { await api(`/api/v1/applications/${id}/versions/${version.version}/restore`, { method: 'POST' }); await refresh() } catch (cause) { setNotice(String(cause)) } }}>恢复为当前草稿</button></div>)}</details>}</div>}

@@ -21,6 +21,7 @@ import { api, withFrontendToken } from '@/lib/platform'
 import { MarkdownDocument } from '@/lib/markdown'
 import { resolveProjectLink } from '@/lib/project-links'
 import { taskNames, type ProjectMember, type ProjectTask } from '@/lib/project-progress'
+import { taskArtifacts } from '@/lib/task-artifacts'
 import styles from '@/app/projects/projects.module.css'
 
 type Field = { name: string; label?: string; type: string; required?: boolean; default?: unknown; description?: string; options?: string[]; columns?: InputColumn[]; accept?: string[]; column_source?: string }
@@ -41,7 +42,7 @@ export function ProjectTaskOutput({ projectId, task, onTask, canConfigureModel=f
   const output = task.outputs || {}
   const markdown = task.presentation?.markdown || (typeof output.markdown === 'string' ? output.markdown : '') || task.presentation?.message || (typeof output.message === 'string' ? output.message : '')
   const results = [output, ...Object.values(output).map(v => typeof v==='string'?{artifact:v}:v)].filter((v):v is Record<string,unknown> => !!v && typeof v==='object' && !Array.isArray(v))
-  const artifacts = task.presentation?.artifacts?.length ? task.presentation.artifacts : results.flatMap(result => Array.isArray(result.artifacts) ? result.artifacts : typeof result.file === 'string' ? [{file_path:result.file}] : [])
+  const artifacts = taskArtifacts(task)
   const predictions = [...results.reduce((files,result)=>{
     const path=result.artifact
     if(typeof path==='string' && /^datasets\/[\w-]+\/files\/[\w./-]+$/.test(path) && !path.split('/').includes('..') && (!files.has(path)||Array.isArray(result.preview))) files.set(path,result)

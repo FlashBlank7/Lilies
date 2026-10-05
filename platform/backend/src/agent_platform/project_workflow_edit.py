@@ -55,6 +55,11 @@ def editable_fragment(workflow, node_ids):
 
 
 def merge_generated_workflow(original, generated, path, node_ids):
+    # Validate the fragment's fields without treating boundary endpoints as
+    # missing nodes. Connections are checked against the complete scope below.
+    if not isinstance(generated, dict):
+        return WorkflowSpec.model_validate(generated)
+    WorkflowSpec.model_validate({**generated, 'edges': []})
     result = deepcopy(original)
     target = scoped_workflow(result, path)
     originals = {n['id']: n for n in target['nodes']}
@@ -65,14 +70,31 @@ def merge_generated_workflow(original, generated, path, node_ids):
         outside = {n['id'] for n in target['nodes']} - selected
         if outside & {n['id'] for n in generated['nodes']}:
             raise ValueError('生成结果包含选区外的节点；请扩大选区或只返回选中的节点')
+        nodes = [n for n in target['nodes'] if n['id'] not in selected] + generated['nodes']
+        fragment = WorkflowSpec.model_validate({**generated, 'nodes': nodes})
         # Keep all boundary edges and everything outside the selection exactly.
         # Deleting a boundary endpoint needs an expanded selection, not a silent
         # rewrite of a neighbor's configuration or references.
+        preserved = [e for e in target['edges'] if not (e['source'] in selected and e['target'] in selected)]
+        from .workflow_models import EdgeSpec
+        preserved_by_id = {e['id']: EdgeSpec.model_validate(e) for e in preserved}
+        added = []
+        for raw, edge in zip(generated['edges'], fragment.edges):
+            previous = preserved_by_id.get(edge.id)
+            if previous is not None:
+                if edge != previous:
+                    raise ValueError('生成结果修改了选区外的连接；请扩大选区')
+                continue  # An unchanged boundary edge may be echoed once.
+            if edge.source in outside and edge.target in outside:
+                raise ValueError('生成结果包含选区外的连接；请扩大选区')
+            added.append(raw)
         replacement = {**target,
-            'nodes': [n for n in target['nodes'] if n['id'] not in selected] + generated['nodes'],
-            'edges': [e for e in target['edges'] if not (e['source'] in selected and e['target'] in selected)] + generated['edges']}
+            'nodes': nodes, 'edges': preserved + added}
     else:
         replacement = {**generated, 'viewport': target.get('viewport', {})}
+    # A nested scope is stored in config, so validate it explicitly as well as
+    # the outer graph. Keep the original serialized neighbors/layout intact.
+    WorkflowSpec.model_validate(replacement)
     target.clear()
     target.update(replacement)
     return WorkflowSpec.model_validate(result)
@@ -179,9 +201,10 @@ async def generate_workflow(services, project_id, body, *, conversation_context=
     from .generation_file_bindings import bind_selected_files
     if isinstance(generated, dict) and conversation_context:
         generated = bind_selected_files(generated, conversation_context.get('selected_files', []))
-    workflow = WorkflowSpec.model_validate(generated)
     if original is not None:
         workflow = merge_generated_workflow(original, generated, body.workflow_path, body.node_ids)
+    else:
+        workflow = WorkflowSpec.model_validate(generated)
     blocks.validate_workflow(workflow)
     errors = services.blocks.validate_draft(workflow)
     if errors:
