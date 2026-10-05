@@ -107,7 +107,8 @@ class OfficialAgent:
             for name in ('queue_seconds', 'execution_seconds'):
                 if name not in columns:
                     db.execute(f'ALTER TABLE official_agent_jobs ADD COLUMN {name} REAL NOT NULL DEFAULT 0')
-            db.execute("DELETE FROM official_agent_jobs WHERE status NOT IN ('queued','running','waiting') AND ended<?", (time.time()-30*86400,))
+            if self.services.settings.automatic_tasks_enabled:
+                db.execute("DELETE FROM official_agent_jobs WHERE status NOT IN ('queued','running','waiting') AND ended<?", (time.time()-30*86400,))
             db.execute("UPDATE official_agent_jobs SET status='interrupted',ended=?,error='服务重启，进度保留，请手动继续' WHERE status IN ('running','waiting')", (time.time(),))
         self.initialized = True
 

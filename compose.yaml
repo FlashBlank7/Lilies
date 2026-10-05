@@ -82,7 +82,8 @@ services:
 
   # ── 备份兜底（可选）: docker compose --profile backup up -d backup ──
   # 每日一次：cp SQLite 主库 + tar 打包 events/build_transcripts 到 ./backups/日期目录，保留 7 份。
-  # 生产推荐 scripts/backup.sh + 宿主 cron（VACUUM INTO 一致性快照）；本服务是容器内兜底。
+  # 仅旧版局部文件副本，不是完整或一致的恢复点；不用于发布回退。
+  # 完整备份先停 API/计算任务，再执行 scripts/backup.sh；见 docs/backup-restore.md。
   backup:
     image: alpine
     profiles: ["backup"]
