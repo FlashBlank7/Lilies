@@ -14,6 +14,7 @@ from .db import connect
 from .models import utc_now
 from .modeling_models import DatasetRequest, StudyRequest, CandidateRequest, FeaturePlan, AideSearch
 from .modeling_search import choose_step
+from .modeling_summary import split_summary
 from .project_store import ProjectConflict, encode
 from .workspace_copy import copy_workspace_file
 from .training_notes import make_note, render_note
@@ -100,7 +101,8 @@ class Modeling:
                         for key in ('request', 'profile', 'preview', 'features_result'):
                             value.pop(key, None)
                         if value.get('split'):
-                            value['split'] = {k: v for k, v in value['split'].items() if k in {'missing_labels', 'evaluation_label'}}
+                            value['split'] = (split_summary(value['split']) if kind == 'study' else
+                                              {k: v for k, v in value['split'].items() if k in {'missing_labels', 'evaluation_label'}})
                         for trial in value.get('trials', []):
                             for key in ('prediction_preview', 'group_errors', 'importance', 'fold_metrics', 'feature_columns', 'effective_model', 'search', 'requested_parameters'):
                                 trial.pop(key, None)

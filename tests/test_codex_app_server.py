@@ -33,7 +33,8 @@ for line in sys.stdin:
         assert all(t['deferLoading'] for t in namespace['tools'])
         assert any(t['name'] == 'workflow_run' for t in tools)
         assert any(t['name'] == 'workflow_draft' for t in tools)
-        assert message['params']['baseInstructions'] == 'project tools only'
+        assert message['params']['baseInstructions'].startswith('project tools only\\n')
+        assert 'JSON.parse(raw)' in message['params']['baseInstructions']
         assert message['params']['developerInstructions'] == ''
         assert 'model_auto_compact_token_limit' not in message['params']['config']
         emit({'id':message['id'],'result':{'thread':{'id':'t1'}}})
@@ -129,6 +130,64 @@ for line in sys.stdin:
     finally:
         await client.close()
     assert client.process.returncode is not None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('resume', [False, True])
+@pytest.mark.parametrize('with_tools', [False, True])
+async def test_dynamic_tool_result_instructions_follow_the_transport(tmp_path, monkeypatch, resume, with_tools):
+    """Start/resume explain the actual text result; graph-only requests stay exact."""
+    client = CodexAppServer('unused', tmp_path / 'runtime')
+    sent = []
+
+    async def connect():
+        client.config = {}
+
+    async def request(method, params):
+        sent.append((method, params))
+        return {'thread': {'id': 'project-thread'}}
+
+    monkeypatch.setattr(client, 'connect', connect)
+    monkeypatch.setattr(client, 'request', request)
+    specs = [{'type': 'function', 'name': 'workflow_draft', 'description': 'Read current draft',
+              'inputSchema': {'type': 'object', 'properties': {}}}] if with_tools else []
+    original_specs = json.loads(json.dumps(specs))
+    for _ in range(2):
+        await client.start(specs, 'Keep current project instructions', 'project-thread' if resume else None)
+    assert specs == original_specs
+    assert sent[0] == sent[1]
+    method, params = sent[0]
+    assert method == ('thread/resume' if resume else 'thread/start')
+    instructions = params['baseInstructions']
+    if not with_tools:
+        assert instructions == 'Keep current project instructions'
+        return
+    assert instructions.startswith('Keep current project instructions\n')
+    assert instructions.count('JSON.parse(raw)') == 1
+    assert 'typeof raw === "string"' in instructions
+    assert '仍可按任务需要读取最新或更详细的数据' in instructions
+    # The declared parsing matches the existing wire response, including Unicode
+    # and nested objects. Neither the tool schema nor response format changes.
+    responses = []
+
+    async def on_tool(name, arguments):
+        assert name == 'workflow_draft' and arguments == {}
+        return {'revision': 3, 'snapshot': {'workflow': {'nodes': [], 'name': '学习流程'}}}
+
+    async def send(message):
+        responses.append(message)
+
+    client.on_tool = on_tool
+    monkeypatch.setattr(client, '_send', send)
+    await client._server_request({'id': 'read-draft', 'method': 'item/tool/call',
+        'params': {'threadId': 'project-thread', 'tool': 'workflow_draft', 'arguments': {}}})
+    result = responses[0]['result']
+    assert result['success'] is True
+    item, = result['contentItems']
+    assert item['type'] == 'inputText'
+    decoded = json.loads(item['text'])
+    assert decoded['snapshot']['workflow'] == {'nodes': [], 'name': '学习流程'}
+    assert decoded['revision'] == 3
 
 
 @pytest.mark.asyncio

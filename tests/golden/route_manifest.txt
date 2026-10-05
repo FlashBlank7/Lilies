@@ -24,6 +24,7 @@ GET     /api/v1/applications/{application_id}/versions                          
 GET     /api/v1/applications/{application_id}/views                                      list_application_views
 GET     /api/v1/applications/{application_id}/workspace/files                            list_workspace_files
 GET     /api/v1/applications/{application_id}/workspace/files/{file_path:path}           download_workspace_file
+GET     /api/v1/applications/{application_id}/workspace/table-columns                    workspace_table_columns
 GET     /api/v1/block-manuals                                                            list_block_manuals
 GET     /api/v1/blocks                                                                   list_blocks
 GET     /api/v1/blocks/{block_type}                                                      get_block
@@ -89,6 +90,7 @@ GET     /api/v1/runs/{run_id}/artifacts/{artifact_path:path}                    
 GET     /api/v1/runs/{run_id}/events                                                     run_events
 GET     /api/v1/runs/{run_id}/events/list                                                run_events_list
 GET     /api/v1/runs/{run_id}/metrics                                                    run_metrics
+GET     /api/v1/runs/{run_id}/steps                                                      get_run_steps
 GET     /api/v1/scenarios                                                                list_scenarios
 GET     /api/v1/scenarios/{scenario_id}                                                  get_scenario
 GET     /api/v1/scheduler/health                                                         scheduler_health

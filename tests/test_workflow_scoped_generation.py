@@ -37,7 +37,8 @@ def test_one_response_scope_preserves_neighbors_and_undo(configured, monkeypatch
                       'instruction':'把结果改为42','workflow_path':path,'node_ids':['e']})
     assert result.status_code == 200, result.text
     assert len(seen)==1 and [n['id'] for n in seen[0]['workflow']['nodes']]==['e']
-    assert len(seen[0]['read_only_context']['nodes'])==2
+    assert [n['id'] for n in seen[0]['read_only_context']['nodes']]==['s']
+    assert seen[0]['read_only_context']['edges']==scoped_workflow(old, path)['edges']
     expected=deepcopy(old); cursor=expected
     for item in path: cursor=next(n for n in cursor['nodes'] if n['id']==item)['config']['workflow']
     next(n for n in cursor['nodes'] if n['id']=='e')['config']['outputs']={'new':42}
@@ -194,6 +195,57 @@ def test_echoed_boundary_edges_are_preserved_once(configured, monkeypatch):
     assert result.status_code == 200, result.text
     assert result.json()['draft']['snapshot']['workflow']['edges'] == draft['snapshot']['workflow']['edges']
     assert client.get(base+'/tasks').json() == []
+
+
+@pytest.mark.parametrize('path', [[], ['repeat']])
+def test_insert_template_reconnects_only_inside_boundary_and_runs(configured, monkeypatch, path):
+    client, app, project, _ = configured
+    pid = project['id']; base = f'/api/v1/projects/{pid}'
+    original = report_graph(client, pid)
+    if path:
+        original = {'nodes': [node('s', 'start'), node('repeat', 'iteration', items=[1], workflow=original,
+            output_node_id='end'), node('e', 'end')], 'edges': [edge('s', 'repeat'), edge('repeat', 'e')]}
+    graph(client, pid, **original)
+    draft = client.get(f'/api/v1/applications/{pid}/draft').json()
+    before = draft['snapshot']['workflow']; scope = scoped_workflow(before, path)
+    fragment = report_fragment(scope)
+    boundary = next(e for e in scope['edges'] if e['target'] == 'end')
+    # Actual fresh model response: same incoming edge id, outside endpoint and
+    # port stay fixed, inside target changes from end to the new template.
+    fragment['edges'][0] = {**boundary, 'target': 'summary_notice'}
+    seen = []; install_provider(app, monkeypatch, fragment, seen)
+    result = client.post(base+'/workflow-generation', json={'workflow_id': pid,
+        'expected_revision': draft['revision'], 'instruction': NOTICE, 'workflow_path': path, 'node_ids': ['end']})
+    assert result.status_code == 200, result.text
+    after = scoped_workflow(result.json()['draft']['snapshot']['workflow'], path)
+    assert [e for e in after['edges'] if e['id'] == boundary['id']] == [fragment['edges'][0]]
+    assert after['nodes'][:3] == scope['nodes'][:3]
+    assert after['edges'][:2] == scope['edges'][:2]
+    if not path:
+        task = client.post(base+'/tasks', json={'request_key': 'insert-run', 'workflow_id': pid}).json()
+        done = settled(client, base, task)
+        assert done['status'] == 'succeeded', done
+        assert done['outputs']['markdown'] == NOTICE+'\n\n# 设备汇总\n\n完整正文'
+        assert done['outputs']['profile'] == {'download': 'results/profile.csv'}
+    undo = client.put(base+f'/workflows/{pid}/draft', json={
+        'expected_revision': result.json()['draft']['revision'], 'workflow': before})
+    assert undo.status_code == 200 and undo.json()['draft']['snapshot']['workflow'] == before
+
+
+def test_outgoing_boundary_only_allows_inside_source_to_change():
+    from agent_platform.project_workflow_edit import merge_generated_workflow
+    original = {'nodes': [node('s', 'start'), node('m', 'template_transform', template='old'), node('e', 'end')],
+                'edges': [edge('s', 'm'), edge('m', 'e')]}
+    fragment = {'nodes': [node('m', 'template_transform', template='old'),
+                           node('n', 'template_transform', template='new')],
+                'edges': [edge('m', 'n'), {**edge('m', 'e'), 'source': 'n', 'source_port': 'text'}]}
+    merged = merge_generated_workflow(original, fragment, [], ['m'])
+    outgoing = next(e for e in merged.edges if e.id == 'm-e')
+    assert outgoing.source == 'n' and outgoing.target == 'e'
+    assert outgoing.source_port == 'text' and outgoing.target_port == 'input'
+    fragment['edges'][1]['target_port'] = 'changed-external-input'
+    with pytest.raises(ValueError, match='选区外'):
+        merge_generated_workflow(original, fragment, [], ['m'])
 
 
 def test_fragment_cannot_overwrite_concurrent_revision(configured, monkeypatch):

@@ -38,6 +38,67 @@ it('uses output fields when headings are absent and rejects unsafe download path
   expect(screen.queryByRole('link',{name:'不可下载 ↓'})).not.toBeInTheDocument()
 })
 
+it('deduplicates flattened and nested report artifacts by full path and keeps their specific saved source',()=>{
+  const profile={markdown:'# 数据体检',artifacts:[
+    {label:'报告 Markdown',file_path:'results/profile/report.md'},
+    {label:'结构化结果 JSON',file_path:'results/profile/result.json'},
+  ]}
+  const summary={markdown:'# 数据汇总',artifacts:[
+    {label:'报告 Markdown',file_path:'results/summary/report.md'},
+    {label:'结构化结果 JSON',file_path:'results/summary/result.json'},
+    {label:'明细 CSV',file_path:'results/summary/details.csv'},
+  ]}
+  const flattened=[...profile.artifacts,...summary.artifacts]
+  const report={markdown:'# 设备日报',artifacts:flattened,profile,summary}
+  const task={id:'t',status:'succeeded',outputs:{markdown:'# 设备日报',
+    artifacts:flattened.map(entry=>({...entry,label:entry.file_path})),report,profile,summary}}
+  const before=JSON.stringify(task)
+  render(<ProjectTaskOutput projectId="p" task={task as never}/>)
+  const downloads=screen.getAllByRole('link').filter(link=>link.getAttribute('href')?.endsWith('?download=1'))
+  expect(downloads).toHaveLength(5)
+  expect(new Set(downloads.map(link=>link.getAttribute('href'))).size).toBe(5)
+  for(const [section,path] of [['数据体检','profile'],['数据汇总','summary']]) {
+    expect(screen.getByRole('link',{name:`${section} · 报告 Markdown ↓`})).toHaveAttribute('href',`/api/platform/api/v1/applications/p/workspace/files/results/${path}/report.md?download=1`)
+    expect(screen.getByRole('link',{name:`${section} · 结构化结果 JSON ↓`})).toBeVisible()
+  }
+  expect(screen.getByRole('link',{name:'明细 CSV ↓'})).toBeVisible()
+  expect(JSON.stringify(task)).toBe(before)
+  expect(api).not.toHaveBeenCalled()
+})
+
+it('keeps same-name files in different directories and disambiguates only the distinct paths',()=>{
+  const entries=[
+    {label:'报告 Markdown',file_path:'results/first/report.md'},
+    {label:'报告 Markdown',file_path:'results/second/report.md'},
+  ]
+  render(<ProjectTaskOutput projectId="p" task={{id:'t',status:'succeeded',outputs:{
+    result:{markdown:'# 数据体检',artifacts:[entries[0],entries[0],entries[1]]},
+  }} as never}/>)
+  const downloads=screen.getAllByRole('link').filter(link=>link.getAttribute('href')?.endsWith('?download=1'))
+  expect(downloads).toHaveLength(2)
+  for(const entry of entries) expect(screen.getByRole('link',{name:`数据体检 · ${entry.file_path} · 报告 Markdown ↓`})).toHaveAttribute('href',`/api/platform/api/v1/applications/p/workspace/files/${entry.file_path}?download=1`)
+})
+
+it('deduplicates presentation downloads without adding unlisted outputs and retains explicit labels',()=>{
+  const profile={markdown:'# 数据体检',artifacts:[{label:'报告 Markdown',file_path:'results/profile/report.md'}]}
+  const summary={markdown:'# 数据汇总',artifacts:[{label:'报告 Markdown',file_path:'results/summary/report.md'}]}
+  render(<ProjectTaskOutput projectId="p" task={{id:'t',status:'succeeded',outputs:{
+    markdown:'# 设备日报',artifacts:[...profile.artifacts,...summary.artifacts],profile,summary,
+    reviewed:{artifacts:[{label:'原说明',file_path:'solution/review.md'}]},
+    unused:{artifacts:[{label:'未选文件',file_path:'results/not-presented.json'}]},
+  },presentation:{artifacts:[
+    ...profile.artifacts,...profile.artifacts,...summary.artifacts,
+    {label:'review.md',file_path:'solution/review.md'},
+    {label:'已复核说明',file_path:'solution/review.md'},
+  ]}} as never}/>)
+  const downloads=screen.getAllByRole('link').filter(link=>link.getAttribute('href')?.endsWith('?download=1'))
+  expect(downloads).toHaveLength(3)
+  expect(screen.getByRole('link',{name:'数据体检 · 报告 Markdown ↓'})).toBeVisible()
+  expect(screen.getByRole('link',{name:'数据汇总 · 报告 Markdown ↓'})).toBeVisible()
+  expect(screen.getByRole('link',{name:'已复核说明 ↓'})).toHaveAttribute('href','/api/platform/api/v1/applications/p/workspace/files/solution/review.md?download=1')
+  expect(screen.queryByRole('link',{name:/未选文件/})).not.toBeInTheDocument()
+})
+
 it('shows saved business steps by default in the actual result component and opens readable input/output',async()=>{
   vi.mocked(api).mockResolvedValue(page)
   render(<ProjectTaskOutput projectId="p" task={{id:'t',status:'succeeded',outputs:{markdown:'费用报告'},runs:[run]} as never}/> )

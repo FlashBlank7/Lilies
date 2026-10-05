@@ -34,7 +34,7 @@ class FakeAgent:
         self.turns.append((self.thread_id, message, self.options))
         while self.hold:
             await asyncio.sleep(.01)
-        if self.tools:
+        if self.tools and self.tools[0]['name'] != 'return_workflow':
             result = await on_tool('project_file', {'action': 'list'})
             text = json.dumps(result, ensure_ascii=False)
         else:
@@ -42,6 +42,9 @@ class FakeAgent:
                 {'id':'start','type':'start','title':'输入','config':{},'position':{'x':0,'y':0}},
                 {'id':'end','type':'end','title':'输出','config':{'outputs':{'ok':True}},'position':{'x':200,'y':0}}
             ], 'edges':[{'id':'edge','source':'start','target':'end'}]}})
+            assert [tool['name'] for tool in self.tools] == ['return_workflow']
+            assert await on_tool('return_workflow', json.loads(text)) == {'received': True}
+            text = '已提交。'
         await on_event('thread/tokenUsage/updated', {'tokenUsage': {'total': {'totalTokens': 100, 'inputTokens':80,'outputTokens':20}}})
         await on_event('item/completed', {'item': {'type': 'agentMessage', 'text': text}})
         self.turn_id = None
@@ -224,7 +227,7 @@ def test_queued_cancel_and_duplicate_active_request(official):
     assert {j['status'] for j in service.jobs()}=={'completed','interrupted'}
 
 
-def test_generation_no_tools_and_api_credentials_not_required(official):
+def test_generation_no_business_tools_and_api_credentials_not_required(official):
     client,app,service=official
     _,a=signup(client,'Alice');pid=project(client,a);enable(client,pid)
     path=chat(client,pid,a)
@@ -239,7 +242,7 @@ def test_generation_no_tools_and_api_credentials_not_required(official):
     assert result['result']['draft']['revision']>=1
     assert service.jobs()[0]['kind']=='generation'
     assert len(FakeAgent.turns)==1
-    assert '只生成图，不调用工具' in FakeAgent.instructions[0]
+    assert '只生成图，不执行工作流或业务操作' in FakeAgent.instructions[0]
     assert not client.get('/api/v1/projects/'+pid+'/tasks',headers=a).json()
 
 

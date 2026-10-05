@@ -32,6 +32,14 @@ def dataset_summary(value):
     return result
 
 
+def split_summary(value):
+    result = pick(value, ('missing_labels', 'evaluation_label'))
+    for source, target in (('development', 'development_samples'), ('holdout', 'holdout_samples'), ('folds', 'folds')):
+        if isinstance(value.get(source), list):
+            result[target] = len(value[source])
+    return result
+
+
 def study_summary(value):
     result = pick(value, ('id', 'dataset_id', 'name', 'item_id', 'parent_study_id', 'status', 'evaluation', 'budget',
                          'best', 'baseline', 'trials_used', 'next_action', 'error', 'repair_candidate_id',
@@ -43,7 +51,7 @@ def study_summary(value):
                                   'trials': max(0, budget.get('trials', 0) - value.get('trials_used', 0))}
     result['metric_direction'] = 'minimize' if value['evaluation']['metric'] in {'mae', 'rmse'} else 'maximize'
     if value.get('split'):
-        result['split'] = pick(value['split'], ('missing_labels', 'evaluation_label'))
+        result['split'] = split_summary(value['split'])
     result.update(view='summary', detail=detail('read_study', study_id=value['id']))
     return result
 

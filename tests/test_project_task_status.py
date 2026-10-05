@@ -49,9 +49,9 @@ def test_run_history_parameters_keep_saved_labels_defaults_and_actual_choices(co
     graph(client, pid, [node('start', 'start', inputs=fields), node('end', 'end')], [edge('start', 'end')])
     first = start(client, base, 'category', workflow_id=pid, inputs={'source_path': 'requirement-package/expenses.csv'})
     expected = [
-        {'name': 'group_by', 'label': '汇总维度', 'value': '按月、类别和币种'},
         {'name': 'mark_duplicates', 'label': '标记疑似重复', 'value': '是'},
         {'name': 'minimum_amount', 'label': '最低金额', 'value': '0'},
+        {'name': 'group_by', 'label': '汇总维度', 'value': '按月、类别和币种'},
     ]
     assert first['input_parameters'] == expected
     settled(client, base, first)
@@ -63,7 +63,7 @@ def test_run_history_parameters_keep_saved_labels_defaults_and_actual_choices(co
     graph(client, pid, [node('start', 'start', inputs=fields), node('end', 'end')], [edge('start', 'end')])
     rows = {task['id']: task for task in client.get(base + '/tasks?compact=true').json()}
     assert rows[first['id']]['input_parameters'] == expected
-    expected_second = [{**expected[0], 'value': '按月、商户和币种'}, {**expected[1], 'value': '否'}, expected[2]]
+    expected_second = [{**expected[0], 'value': '否'}, expected[1], {**expected[2], 'value': '按月、商户和币种'}]
     assert rows[second['id']]['input_parameters'] == expected_second
     assert rows[first['id']]['input_files'] == rows[second['id']]['input_files'] == ['expenses.csv']
     assert all('inputs' not in row and 'snapshots' not in row for row in rows.values())

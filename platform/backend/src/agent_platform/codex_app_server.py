@@ -10,6 +10,15 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable
 
 
+_DYNAMIC_TOOL_RESULT_INSTRUCTIONS = """
+项目动态工具通过 JSON 文本返回结果。在 exec 中需要访问返回字段时，先解析一次：
+const raw = await tools.workflow_draft({});
+const value = typeof raw === "string" ? JSON.parse(raw) : raw;
+之后使用 value 中的字段；直接展示结果可用 text(raw)。在同次可编程调用中处理返回值，
+无需仅为探测返回类型再次调用工具；仍可按任务需要读取最新或更详细的数据。
+"""
+
+
 class CodexError(RuntimeError):
     pass
 
@@ -147,6 +156,8 @@ class CodexAppServer:
         cwd = self.runtime_dir / 'empty-workspace'
         codex_home = self.runtime_dir / 'codex-home'
         config = self.config
+        if tools:
+            instructions += '\n' + _DYNAMIC_TOOL_RESULT_INSTRUCTIONS.strip()
         params = {"cwd": str(cwd.resolve()), "approvalPolicy": "never", "sandbox": "read-only",
                   "baseInstructions": instructions, "developerInstructions": "",
                   "modelProvider": "openai", "config": config}

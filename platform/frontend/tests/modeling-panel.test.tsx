@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { api } from '@/lib/platform'
 import ModelingPanel from '@/app/components/ModelingPanel'
@@ -240,4 +240,57 @@ it('explains AIDE branch selection and keeps each actual trial note accessible',
   expect(await screen.findByText(/AIDE：修复失败方案/)).toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: '查看线性模型第 1 次训练笔记' }))
   expect(await screen.findByText('本次使用按组隔离，保留全部验证样本。')).toBeInTheDocument()
+})
+
+it('shows saved sample counts before opening details and distinguishes same-name studies by their actual sources', async () => {
+  const original = vi.mocked(api).getMockImplementation()!
+  vi.mocked(api).mockImplementation(async (path, options) => {
+    if (path.includes('/modeling/studies') && !path.includes('/candidates')) return [
+      { ...study, name: '自主建模', split: { development_samples: 192, holdout_samples: 48, folds: 3 } },
+      { ...study, id: 's2', name: '自主建模', dataset_id: 'd2', evaluation: { metric: 'mae', split: 'time' },
+        split: { development_samples: 120, holdout_samples: 0, folds: 4 } },
+    ] as never
+    if (path.includes('/datasets?')) return [
+      { ...dataset, files: { source: { original: 'requirement-package/classification.csv' } } },
+      { ...dataset, id: 'd2', files: { source: { original: 'results/second/classification.csv' } } },
+    ] as never
+    return original(path, options)
+  })
+  render(<ModelingPanel projectId="p" onContext={vi.fn()} />)
+  const summary = await screen.findByLabelText('已保存的评价划分')
+  expect(summary).toHaveTextContent('划分方式：按组隔离 · 开发样本：192 条 · 保留测试样本：48 条 · 交叉验证：3 折')
+  expect(screen.getByText('来源：requirement-package/classification.csv')).toBeInTheDocument()
+  expect(vi.mocked(api).mock.calls.some(([path]) => path.endsWith('/note'))).toBe(false)
+  fireEvent.click(screen.getByRole('button', { name: '查看结果' }))
+  const dialog = within(screen.getByRole('dialog'))
+  expect(dialog.getByLabelText('已保存的评价划分')).toHaveTextContent('开发样本：192 条')
+  expect(dialog.getByRole('option', { name: '自主建模 · 来源：requirement-package/classification.csv' })).toBeInTheDocument()
+  expect(dialog.getByRole('option', { name: '自主建模 · 来源：results/second/classification.csv' })).toBeInTheDocument()
+  fireEvent.change(dialog.getByRole('combobox', { name: '选择建模研究' }), { target: { value: 's2' } })
+  expect(dialog.getByLabelText('已保存的评价划分')).toHaveTextContent('划分方式：时间向前验证 · 开发样本：120 条 · 保留测试样本：0 条 · 交叉验证：4 折')
+  expect(dialog.queryByText(/开发样本：192 条/)).not.toBeInTheDocument()
+  expect(vi.mocked(api).mock.calls.every(([, options]) => !options?.method || options.method === 'GET')).toBe(true)
+})
+
+it('uses the saved creation time when a source is unavailable and does not invent sample counts', async () => {
+  const original = vi.mocked(api).getMockImplementation()!
+  vi.mocked(api).mockImplementation(async (path, options) => {
+    if (path.includes('/modeling/studies') && !path.includes('/candidates')) return [
+      { ...study, name: '自主建模', dataset_id: 'unlisted', created_at: '2026-10-06T02:00:00Z' },
+      { ...study, id: 's2', name: '自主建模', created_at: '2026-10-06T03:00:00Z', split: { evaluation_label: '仅验证集结果' } },
+    ] as never
+    return original(path, options)
+  })
+  render(<ModelingPanel compact projectId="p" onContext={vi.fn()} />)
+  fireEvent.click(await screen.findByRole('button', { name: '查看建模结果' }))
+  const dialog = within(screen.getByRole('dialog'))
+  const options = dialog.getAllByRole('option').filter(option => option.textContent?.startsWith('自主建模'))
+  expect(options).toHaveLength(2)
+  expect(options[0]).toHaveTextContent(/创建于.*2026/)
+  expect(options[1]).toHaveTextContent(/创建于.*2026/)
+  expect(options[0].textContent).not.toBe(options[1].textContent)
+  expect(dialog.queryByLabelText('已保存的评价划分')).not.toBeInTheDocument()
+  fireEvent.change(dialog.getByRole('combobox', { name: '选择建模研究' }), { target: { value: 's2' } })
+  expect(dialog.getByLabelText('已保存的评价划分')).toHaveTextContent('划分方式：按组隔离')
+  expect(dialog.queryByText(/开发样本：|保留测试样本：|交叉验证：/)).not.toBeInTheDocument()
 })

@@ -113,6 +113,53 @@ def test_foreign_references_files_and_forbidden_blocks_fail_before_spending(conf
     assert len(client.get(base+'/members').json())==initial
 
 
+def test_generation_reuses_observed_output_structure_without_values_or_file_history(configured, monkeypatch):
+    from tests.test_projects import settled
+    client, app, p, _ = configured
+    pid = p['id']; base = '/api/v1/projects/' + pid
+    output = {'summary': [{'group': 'private-customer-value', 'count': 2, 'sum': '30'}],
+              'artifacts': [{'file_path': 'results/private-name.csv'}], 'empty': [], 'enabled': True}
+    graph(client, pid, [node('s', 'start'), node('e', 'end', outputs=output)], [edge('s', 'e')])
+    started = client.post(base + '/tasks', json={'request_key': 'existing', 'workflow_id': pid}).json()
+    done = settled(client, base, started)
+    assert done['status'] == 'succeeded'
+    upload = client.post(base + '/materials', files={'file': ('data.csv', b'x\n1\n', 'text/csv')}).json()
+    annotate = app.state.services.projects.store.annotate_files
+
+    async def with_history(project_id, files):
+        result = await annotate(project_id, files)
+        for file in result:
+            file['related_run'] = {'workflow_name': 'unrelated-history-name', 'details': 'history' * 1000}
+        return result
+
+    monkeypatch.setattr(app.state.services.projects.store, 'annotate_files', with_history)
+    cid = client.post(base + '/conversations', json={}).json()['id']
+    seen = []
+    provider(monkeypatch, app.state.services, echo_graph(), seen)
+    body = {'instruction': '复用参考流程', 'reference_workflow_ids': [pid], 'file_paths': [upload['path']]}
+    response = client.post(base + f'/conversations/{cid}/workflow-generation', json=body)
+    assert response.status_code == 200, response.text
+    reference = seen[0]['reference_workflows'][0]
+    observed = reference['observed_output']
+    assert observed['run_id'] == done['runs'][0]['id']
+    fields = observed['shape']['properties']
+    assert fields['summary']['items']['properties'] == {
+        'group': {'type': 'string'}, 'count': {'type': 'integer'}, 'sum': {'type': 'string'}}
+    assert fields['empty']['items'] == {} and fields['enabled']['type'] == 'boolean'
+    assert 'private-customer-value' not in json.dumps(observed)
+    assert 'private-name.csv' not in json.dumps(observed)
+    context = seen[0]['project_context']
+    assert context['selected_files'][0]['path'] == upload['path']
+    assert any(f['path'] == upload['path'] for f in context['files'])
+    assert 'unrelated-history-name' not in json.dumps(context)
+    # A changed draft must not be described by a previous version's output.
+    graph(client, pid, [node('s', 'start'), node('e', 'end', outputs={'different': 1})], [edge('s', 'e')])
+    again = client.post(base + f'/conversations/{cid}/workflow-generation', json=body)
+    assert again.status_code == 200, again.text
+    assert 'observed_output' not in seen[1]['reference_workflows'][0]
+    assert [task['id'] for task in client.get(base + '/tasks').json()] == [done['id']]
+
+
 def test_space_is_shared_but_generation_cannot_read_another_members_conversation(platform,monkeypatch):
     client,app=platform;_,alice=signup(client,'Alice');_,bob=signup(client,'Bob');pid=project(client,alice)
     base='/api/v1/projects/'+pid

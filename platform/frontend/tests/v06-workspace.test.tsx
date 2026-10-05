@@ -146,3 +146,23 @@ it('distinguishes same-name datasets and submits the chosen training and predict
  const prediction=vi.mocked(api).mock.calls.find(([path])=>path.endsWith('/predict'))!
  expect(JSON.parse(String(prediction[1]!.body)).dataset_id).toBe('predict2')
 })
+
+it('identifies same-name training records by source before selecting the model version',async()=>{
+ vi.mocked(api).mockImplementation(async(path)=>{
+  if(path.includes('/datasets?'))return [
+   {id:'d1',name:'data.csv',mapping:{target:'quality'},files:{source:{original:'results/first/data.csv'}}},
+   {id:'d2',name:'data.csv',mapping:{target:'quality'},files:{source:{original:'results/second/data.csv'}}},
+  ] as never
+  if(path.includes('/modeling/studies?'))return [
+   {id:'s1',name:'自主建模',dataset_id:'d1',status:'completed'},
+   {id:'s2',name:'自主建模',dataset_id:'d2',status:'completed'},
+  ] as never
+  return [] as never
+ })
+ render(<ProjectModels projectId="p" onWorkflow={vi.fn()} onTask={vi.fn()} onTalk={vi.fn()}/> )
+ expect(await screen.findByRole('option',{name:'自主建模 · 来源：results/first/data.csv · 已完成'})).toBeInTheDocument()
+ expect(screen.getByRole('option',{name:'自主建模 · 来源：results/second/data.csv · 已完成'})).toBeInTheDocument()
+ fireEvent.change(screen.getByRole('combobox',{name:'绑定训练记录'}),{target:{value:'s2'}})
+ await waitFor(()=>expect(api).toHaveBeenCalledWith('/api/v1/projects/p/modeling/studies/s2/candidates?limit=100'))
+ expect(vi.mocked(api).mock.calls.every(([,options])=>!options?.method||options.method==='GET')).toBe(true)
+})
