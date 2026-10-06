@@ -160,6 +160,7 @@ def test_native_training_keeps_candidate_comparison_without_fold_row_indices():
     trials = [{'slot': i, 'model': model, 'status': 'completed',
                'metrics': {'macro_f1': score}, 'baseline': {'macro_f1': .22},
                'warnings': ['Small class'], 'fold_metrics': [{'macro_f1': score - .1}],
+               'diagnostics': [{'fold': 1, 'train_rows': 128, 'validation_rows': 64}],
                'fold_indices': list(range(3000))}
               for i, (model, score) in enumerate([('linear', .39), ('forest', .47)])]
     task = {'id': 'task', 'outputs': {'training': {
@@ -168,8 +169,10 @@ def test_native_training_keeps_candidate_comparison_without_fold_row_indices():
     original = deepcopy(task)
     summary = task_summary(task)['outputs']['training']
     assert summary['view'] == 'summary'
-    for expected, actual in zip(trials, summary['trials'], strict=True):
-        for key in ('slot', 'model', 'status', 'metrics', 'baseline', 'warnings', 'fold_metrics'):
+    assert set(summary['trial_shared']) == {'baseline', 'diagnostics'}
+    restored = [{**summary['trial_shared'], **trial} for trial in summary['trials']]
+    for expected, actual in zip(trials, restored, strict=True):
+        for key in ('slot', 'model', 'status', 'metrics', 'baseline', 'warnings', 'fold_metrics', 'diagnostics'):
             assert actual[key] == expected[key]
         assert 'fold_indices' not in actual
     assert summary['detail']['arguments']['candidate_id'] == 'candidate'

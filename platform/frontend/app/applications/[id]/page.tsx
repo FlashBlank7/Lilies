@@ -215,6 +215,10 @@ const CANVAS_LAYOUT_ORIGIN = { x: 90, y: 110 }
 const CANVAS_LAYOUT_COLUMN_WIDTH = 300
 const CANVAS_LAYOUT_ROW_HEIGHT = 150
 const CANVAS_PAN_STEP = 80
+// React Flow's 50% default clips wide workflows in the embedded canvas.
+// Allow an overview while retaining the same limit for fitting and manual zoom.
+const CANVAS_MIN_ZOOM = 0.05
+const CANVAS_FIT_VIEW_OPTIONS = { padding: 0.22 }
 
 function safeCanvasPosition(value: unknown, fallback: CanvasPoint = CANVAS_LAYOUT_ORIGIN): CanvasPoint {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return fallback
@@ -1017,7 +1021,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     lastFitSignature.current = signature
     window.requestAnimationFrame(() => {
       window.requestAnimationFrame(() => {
-        flowRef.current?.fitView({ padding: 0.22, duration: 250 })
+        flowRef.current?.fitView({ ...CANVAS_FIT_VIEW_OPTIONS, duration: 250 })
       })
     })
   }
@@ -1406,7 +1410,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     })
     setNodes(renderNodes => renderNodes.map(node => ({ ...node, position: positions.get(node.id) || safeCanvasPosition(node.position) })))
     canvasWrapRef.current?.focus({ preventScroll: true })
-    window.setTimeout(() => flowRef.current?.fitView({ padding: 0.24, duration: 260 }), 30)
+    window.setTimeout(() => flowRef.current?.fitView({ ...CANVAS_FIT_VIEW_OPTIONS, duration: 260 }), 30)
     if (!changedNodes.length) {
       setNotice(t.canvasArrangeDone)
       return
@@ -1417,7 +1421,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
       const arranged = { ...graph, nodes: graph.nodes.map(node => ({ ...node, position: positions.get(node.id) || node.position })) }
       if (!await mutation('replace_workflow', { workflow: arranged }, scope)) return
       setNotice(t.canvasArrangeDone)
-      window.setTimeout(() => flowRef.current?.fitView({ padding: 0.24, duration: 260 }), 40)
+      window.setTimeout(() => flowRef.current?.fitView({ ...CANVAS_FIT_VIEW_OPTIONS, duration: 260 }), 40)
     } catch (error) {
       setNotice(String(error))
       await refresh().catch(() => undefined)
@@ -2675,7 +2679,8 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
           deleteKeyCode={['Backspace', 'Delete']}
           edges={edges}
           fitView
-          fitViewOptions={{ padding: 0.22 }}
+          fitViewOptions={CANVAS_FIT_VIEW_OPTIONS}
+          minZoom={CANVAS_MIN_ZOOM}
           nodeTypes={nodeTypes}
           nodes={nodes}
           onConnect={onConnect}
@@ -2704,7 +2709,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
           selectionMode={SelectionMode.Partial}
           selectionOnDrag
         >
-          <Background color="#d9e1eb" gap={24} size={1}/><MiniMap pannable zoomable nodeColor={node => accents[(node.data as { blockType?: string } | undefined)?.blockType || ''] || '#64748b'}/><Controls/>
+          <Background color="#d9e1eb" gap={24} size={1}/><MiniMap pannable zoomable nodeColor={node => accents[(node.data as { blockType?: string } | undefined)?.blockType || ''] || '#64748b'}/><Controls fitViewOptions={CANVAS_FIT_VIEW_OPTIONS}/>
         </ReactFlow>
         {canvasSelectionBox && <div
           aria-hidden="true"

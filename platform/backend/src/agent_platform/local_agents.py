@@ -694,17 +694,24 @@ class LocalAgents:
                             for e in current['events'] if e['kind'] in {'user', 'assistant'}][-6:]
                         reason = '原模型会话的恢复文件缺失，已建立新的模型会话。' if current.get('context_handoff_reason') == 'missing_rollout' else '工具已升级。'
                         context['instruction'] += ' ' + reason + ' 原项目消息、需求和结果均保留；从当前事项接续，不重复执行已完成的工具操作。'
+                # Put the current request after reference material; project
+                # indexes describe resources, not extra work to carry out.
+                # Replies received while loading context are the newest input.
+                for key in ('user_message', 'latest_messages'):
+                    if key in context:
+                        context[key] = context.pop(key)
                 productive = False
                 turn_key = str(uuid4())
+                turn_message = json.dumps(context, ensure_ascii=False, separators=(',', ':'))
                 self.event(application_id, 'agent_turn_started', 'Agent 回合开始', agent_turn_id=turn_key,
-                           context_bytes=payload_measurement(context)['bytes'],
+                           context_bytes=len(turn_message.encode('utf-8')),
                            context_parts={k: payload_measurement(v) for k, v in context.items()})
                 try:
                     if official:
                         turn = await self.services.official_agent.run_turn(application_id, job_id, client,
-                            json.dumps(context, ensure_ascii=False), on_event, on_tool)
+                            turn_message, on_event, on_tool)
                     else:
-                        turn = await client.turn(json.dumps(context, ensure_ascii=False), on_event, on_tool, timeout=900)
+                        turn = await client.turn(turn_message, on_event, on_tool, timeout=900)
                 finally:
                     self.event(application_id, 'agent_turn_ended', 'Agent 回合结束', agent_turn_id=turn_key)
                 if turn.get('status') == 'failed':

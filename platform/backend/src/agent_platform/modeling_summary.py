@@ -101,6 +101,23 @@ def candidate_summary(value):
                          'batch_size', 'features', 'task_id', 'run_id', 'current', 'error', 'code_sha256',
                          'search_decision', 'created_at', 'updated_at'))
     result['trials'] = [trial_summary(t) for t in value.get('trials', [])]
+    trials = result['trials']
+    if len(trials) >= 2:
+        shared = {}
+        for key in ('baseline', 'diagnostics', 'task_id', 'run_id'):
+            if all(key in trial for trial in trials):
+                # Compare JSON values including their types: Python equality
+                # alone would also merge false with 0 in nested diagnostics.
+                first = json.dumps(trials[0][key], sort_keys=True)
+                if all(json.dumps(trial[key], sort_keys=True) == first for trial in trials[1:]):
+                    shared[key] = trials[0][key]
+                    for trial in trials:
+                        del trial[key]
+        if shared:
+            result['trial_shared'] = shared
+            result['trial_shared_detail'] = (
+                'Every trial inherits trial_shared; its own fields take precedence. '
+                'Shared values were identical in all recorded trials.')
     result.update(view='summary', detail=detail('candidates', study_id=value['study_id'], candidate_id=value['id']))
     result['training_note'] = detail('training_note', study_id=value['study_id'], candidate_id=value['id'], slot=0)
     return result
