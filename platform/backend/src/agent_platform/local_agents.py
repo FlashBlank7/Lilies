@@ -388,14 +388,16 @@ class LocalAgents:
             metadata.update(task_id=task_id, item_id=self.load(application_id).get('active_item_id', ''))
             self.event(application_id, 'tool_progress', operation['tool_name'], **metadata)
 
-    def task_result_event(self, application_id: str, task: dict, text: str, *, request_id: str | None = None) -> None:
+    def task_result_event(self, application_id: str, task: dict, text: str, *, request_id: str | None = None,
+                          result_kind: str = '') -> None:
         state = self.load(application_id)
         request_id = request_id if request_id is not None else state.get('request_id', '')
         if any(e['kind'] == 'result' and e.get('task_id') == task['id'] and e.get('request_id') == request_id
                for e in state['events']):
             return
         self.event(application_id, 'result', text, request_id=request_id, task_id=task['id'],
-                   item_id=task.get('item_id', ''), purpose=task.get('purpose', ''))
+                   item_id=task.get('item_id', ''), purpose=task.get('purpose', ''),
+                   **({'result_kind': result_kind} if result_kind else {}))
 
     async def stop_project_tests(self, application_id: str) -> None:
         for task_id in self.project_test_tasks.pop(self.key(application_id), set()):
@@ -639,6 +641,16 @@ class LocalAgents:
                     try:
                         task = await self.services.projects.store.get_task(application_id, result.get('project_task_id') or result['id'])
                         metadata['task_id'] = task['id']
+                        if (current.get('conversation_enabled') and metadata.get('request_id')
+                                and name == 'workflow_run' and arguments.get('action') == 'inspect'
+                                and arguments.get('task_id') == task['id']
+                                and task.get('purpose') != 'build_test'):
+                            # Expose the saved result as soon as it has been read;
+                            # the model may spend much longer composing its reply.
+                            # Reading never takes ownership of the task, so stopping
+                            # this explanation must not cancel an existing run.
+                            self.task_result_event(application_id, task, '已读取的运行结果',
+                                                   request_id=metadata['request_id'], result_kind='inspected')
                         if task['status'] in {'queued', 'running'} and arguments.get('wait') is False:
                             pending_workers.add(task['id'])
                             if official:

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '@/lib/platform'
 import { MarkdownDocument } from '@/lib/markdown'
 import { resolveProjectLink } from '@/lib/project-links'
-import { taskNames, type ProjectActivity as Activity, type ProjectTask, type ProjectMember, type ConversationFocus, type ProgressItem } from '@/lib/project-progress'
+import { taskNames, taskInputFileNames, type ProjectActivity as Activity, type ProjectTask, type ProjectMember, type ConversationFocus, type ProgressItem } from '@/lib/project-progress'
 import ProjectActivity from './ProjectActivity'
 import ModelConnectionPanel from './ModelConnectionPanel'
 import AssistantSourcePanel from './AssistantSourcePanel'
@@ -22,7 +22,7 @@ import workflowStyles from './conversation-workflow.module.css'
 import { FileText, ArrowUpRight } from 'lucide-react'
 import styles from '@/app/projects/projects.module.css'
 
-type Event = { id: string; kind: string; text: string; time: string; result?: string; arguments?: string; success?: boolean; request_id?: string; item_id?: string; task_id?: string; purpose?: string; workflow?: WorkflowCard }
+type Event = { id: string; kind: string; text: string; time: string; result?: string; result_kind?: string; arguments?: string; success?: boolean; request_id?: string; item_id?: string; task_id?: string; purpose?: string; workflow?: WorkflowCard }
 type Session = OfficialConnection & {
   model_egress_enabled?: boolean
   provider: string | null; queue_reason?: string; status: string; error: string; revision: number; events: Event[]
@@ -152,12 +152,18 @@ export default function ProjectConversation({ id, conversationId, projectName, c
       {events.map((event, index) => {
         if (event.kind === 'result' && event.purpose === 'build_test') return null
         const result = event.task_id ? (liveResults[event.task_id] || tasks.find(t => t.id === event.task_id)) : undefined
+        const inspected = event.result_kind === 'inspected'
+        const inputFiles = inspected && result ? taskInputFileNames(result) : []
+        const createdAt = inspected && result?.created_at ? new Date(result.created_at) : null
         const proposed = (result?.outputs?.result as {suggestions?:unknown} | undefined)?.suggestions
         const suggestions = Array.isArray(proposed) ? proposed.filter((s):s is string=>typeof s==='string') : []
         const lastInRequest = event.request_id && !events.slice(index + 1).some(e => e.request_id === event.request_id)
         return <div key={event.id}>
-          {event.kind === 'result' && event.task_id ? <article className={styles.resultCard} aria-label="关联业务结果"><h3><FileText size={15} /> {result ? members.find(m=>m.id===result.workflow_id)?.name || '工作流结果' : event.text || '业务结果'}</h3>
+          {event.kind === 'result' && event.task_id ? <article className={styles.resultCard} aria-label="关联业务结果"><h3><FileText size={15} /> {inspected ? '已读取的运行结果' : result ? members.find(m=>m.id===result.workflow_id)?.name || '工作流结果' : event.text || '业务结果'}</h3>
             {result && <span className={styles.tag}>{taskNames[result.status] || result.status}</span>}
+            {inputFiles.length > 0 && <p>输入资料：{inputFiles.join('、')}</p>}
+            {result && createdAt && Number.isFinite(createdAt.getTime()) && <p>启动时间：<time dateTime={result.created_at}>{createdAt.toLocaleString('zh-CN', { hour12: false })}</time></p>}
+            {inspected && running && event.request_id && event.request_id === session?.request_id && <p>解释尚未完成，可以先查看已有结果。</p>}
             <ProjectTaskInput projectId={id} taskId={event.task_id} initialTask={result} onTask={next=>{setLiveResults(previous=>({...previous,[next.id]:next}));if(result?.status!==next.status)void onUpdated()}}/>
             {suggestions.map((suggestion,i)=><button key={i} onClick={()=>{updateDraft(messageRef.current.trim()?messageRef.current+'\n\n'+suggestion:suggestion);composer.current?.focus()}}>准备下一步：{suggestion}</button>)}
             <div className={styles.actions}><button onClick={() => onTask?.(event.task_id!)}>查看结果 <ArrowUpRight size={13} /></button><button onClick={() => onFeedback?.(event.item_id || result?.item_id || '', event.task_id!)}>让智能体修改</button><FeedbackButton source={{project_id:id,task_id:event.task_id,page:"run"}} category="result"/>
