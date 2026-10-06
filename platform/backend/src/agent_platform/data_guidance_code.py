@@ -135,7 +135,6 @@ def main(inputs):
     facts = prepared['facts']; path = source(facts['source_path'])
     if hashlib.sha256(path.read_bytes()).hexdigest() != facts['source_sha256']:
         raise ValueError('等待期间原文件内容改变，请以新资料重新运行，避免混用分析依据')
-    folder = Path(prepared['folder'])
     # Always keep final reports independent, including resumed/recomputed variants.
     output = Path('results/data-guidance') / str(uuid4()); output.mkdir(parents=True)
     suggestions = [s for s in advice.get('next_steps',[]) if isinstance(s,str)]

@@ -48,7 +48,7 @@ async def save_skill(services, project_id, skill_id, body):
             raise ValueError('引用资料需使用相对名称')
     if sum(map(len, body.references.values())) > 160000:
         raise ValueError('引用资料过大，请使用项目资料保存大文件')
-    result = await services.projects.store.put_record(project_id, 'skills', skill_id,
+    await services.projects.store.put_record(project_id, 'skills', skill_id,
         body.model_dump(exclude={'expected_revision'}), body.expected_revision)
     return await skills(services, project_id, skill_id)
 

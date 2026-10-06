@@ -419,7 +419,6 @@ class LocalAgents:
         status, error = "idle", ""
         is_project = self.services.projects.store.exists(application_id)
         from .project_agent_tools import WorkspaceProjectTools, PROJECT_INSTRUCTIONS, project_tool_specs
-        from .project_conversation import CONVERSATION_INSTRUCTIONS
         initial_state = self.load(application_id)
         official = initial_state.get('provider') == 'official'
         job_id = initial_state.get('request_id', '')

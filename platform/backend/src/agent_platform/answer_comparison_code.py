@@ -56,7 +56,7 @@ def metric(usage,key):
 
 
 def finish(inputs):
-    data=frozen(inputs['prepared']);answers=[]
+    frozen(inputs['prepared']);answers=[]
     for label in ['A','B']:
         value=inputs.get(label)
         if not isinstance(value,dict):raise ValueError('回答'+label+'缺少步骤输出')
