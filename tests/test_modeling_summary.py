@@ -5,9 +5,35 @@ import json
 
 import pytest
 
-from agent_platform.modeling_summary import candidate_summary, study_summary, note_summary, trial_summary
+from agent_platform.modeling_summary import baseline_comparison, candidate_summary, study_summary, note_summary, trial_summary
 from tests.test_modeling import modeling, setup  # noqa: F401
 from tests.test_projects import configured  # noqa: F401
+
+
+def test_baseline_arithmetic_keeps_units_and_does_not_call_r2_an_error_reduction():
+    metrics = {'mae': 2., 'rmse': 12., 'r2': .5, 'accuracy': .9}
+    baseline = {'mae': 10., 'rmse': 8., 'r2': -.5, 'accuracy': .6}
+    original = deepcopy((metrics, baseline))
+    result = baseline_comparison(metrics, baseline)
+    assert result['mae'] == {'baseline': 10., 'value_minus_baseline': -8., 'error_reduction_fraction': .8}
+    assert result['rmse'] == {'baseline': 8., 'value_minus_baseline': 4., 'error_reduction_fraction': -.5}
+    assert result['r2'] == {'baseline': -.5, 'value_minus_baseline': 1.}
+    assert result['accuracy']['value_minus_baseline'] == pytest.approx(.3)
+    assert 'error_reduction_fraction' not in result['accuracy']
+    assert (metrics, baseline) == original
+
+
+@pytest.mark.parametrize('value,baseline', [(None, 1), (1, None), (True, 1), (1, False),
+    ('1', 2), (1, '2'), (float('inf'), 1), (1, float('nan')), (1e308, -1e308),
+    (10**400, 1), (1, 10**400)])
+def test_baseline_arithmetic_does_not_fabricate_invalid_comparisons(value, baseline):
+    assert baseline_comparison({'mae': value}, {'mae': baseline}) == {}
+
+
+@pytest.mark.parametrize('value,baseline', [(0, 0), (1, 0), (-1, 2), (1, -2)])
+def test_baseline_arithmetic_avoids_undefined_or_invalid_error_ratios(value, baseline):
+    assert baseline_comparison({'mae': value}, {'mae': baseline}) == {
+        'mae': {'baseline': baseline, 'value_minus_baseline': value - baseline}}
 
 
 def saved_trials():

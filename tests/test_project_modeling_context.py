@@ -203,3 +203,51 @@ def test_next_turn_refreshes_shared_facts_without_rewriting_history_or_full_tool
         if study['id'] != changed['id']:
             assert client.get(base + '/modeling/studies/' + study['id']).json() == before_http[study['id']]
     assert client.get(base + '/tasks').json() == []
+
+
+def test_context_compares_the_selected_trial_without_mutating_history(study_context):
+    (client, app, project, _), save, read = study_context
+    study = saved_studies(1)[0]
+    study.update(status='ready', best={'candidate_id': 'best-candidate', 'slot': 0,
+                                      'metrics': {'mae': 2., 'r2': .5}},
+                 baseline={'mae': 100., 'r2': -.2})  # A later trial's baseline.
+    candidate = {'id': 'best-candidate', 'study_id': study['id'], 'trials': [
+        {'slot': 0, 'status': 'completed', 'metrics': {'mae': 2., 'r2': .5},
+         'baseline': {'mae': 10., 'r2': -.5}},
+        {'slot': 1, 'status': 'completed', 'metrics': {'mae': 8.}, 'baseline': {'mae': 100.}}]}
+    save([study])
+    service = app.state.services.modeling
+    client.portal.call(service.put, project['id'], 'candidate', candidate)
+    saved_study = client.portal.call(service.get, project['id'], 'study', study['id'])
+    saved_candidate = client.portal.call(service.get, project['id'], 'candidate', candidate['id'])
+
+    context = read()
+    best = context['modeling'][0]['best']
+    assert best['candidate_id'] == 'best-candidate' and best['slot'] == 0
+    assert best['baseline_comparison']['mae'] == {
+        'baseline': 10., 'value_minus_baseline': -8., 'error_reduction_fraction': .8}
+    assert best['baseline_comparison']['r2'] == {'baseline': -.5, 'value_minus_baseline': 1.}
+    assert client.portal.call(service.get, project['id'], 'study', study['id']) == saved_study
+    assert client.portal.call(service.get, project['id'], 'candidate', candidate['id']) == saved_candidate
+    assert client.get('/api/v1/projects/' + project['id'] + '/tasks').json() == []
+
+
+@pytest.mark.parametrize('problem', ['missing', 'other-study', 'different-slot', 'different-metrics', 'failed', 'sealed'])
+def test_context_does_not_invent_a_comparison_from_unmatched_records(study_context, problem):
+    (client, app, project, _), save, read = study_context
+    study = saved_studies(1)[0]
+    study.update(status='ready', best={'candidate_id': 'best-candidate', 'slot': 0, 'metrics': {'mae': 2.}},
+                 baseline={'mae': 10.})
+    trial = {'slot': 0, 'status': 'completed', 'metrics': {'mae': 2.}, 'baseline': {'mae': 10.}}
+    candidate = {'id': 'best-candidate', 'study_id': study['id'], 'trials': [trial]}
+    if problem == 'other-study': candidate['study_id'] = 'another-study'
+    if problem == 'different-slot': trial['slot'] = 1
+    if problem == 'different-metrics': trial['metrics']['mae'] = 3.
+    if problem == 'failed': trial['status'] = 'failed'
+    if problem == 'sealed': study['status'] = 'sealed'
+    save([study])
+    if problem != 'missing':
+        client.portal.call(app.state.services.modeling.put, project['id'], 'candidate', candidate)
+    context = read()
+    assert 'baseline_comparison' not in (context['modeling'][0].get('best') or {})
+    if problem == 'sealed': assert 'best' not in context['modeling'][0]

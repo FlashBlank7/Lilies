@@ -266,7 +266,7 @@ async def conversation_context(services, project_id: str, state: dict, discussio
             context['recent_results'].append(recent)
     if getattr(services, 'modeling', None):
         studies = await services.modeling.list(project_id, 'study', limit=5)
-        from .modeling_summary import split_summary
+        from .modeling_summary import baseline_comparison, split_summary
         context['modeling'] = []
         for study in studies:
             # Finished studies are discoverable resources, not an additional
@@ -278,6 +278,23 @@ async def conversation_context(services, project_id: str, state: dict, discussio
                     ('id', 'dataset_id', 'name', 'status', 'best', 'baseline', 'trials_used', 'budget',
                      'next_action', 'error', 'repair_candidate_id', 'failure_streak', 'search_strategy', 'evaluation'))
             entry = {key: study.get(key) for key in keys}
+            best = entry.get('best')
+            if isinstance(best, dict) and best.get('candidate_id') and type(best.get('slot')) is int:
+                # A study's top-level baseline comes from its latest trial.
+                # Derive differences only from the actual best trial's pair.
+                try:
+                    candidate = await services.modeling.get(project_id, 'candidate', best['candidate_id'])
+                except KeyError:
+                    candidate = {}  # Older/incomplete records remain readable.
+                if candidate.get('study_id') == study['id']:
+                    for trial in candidate.get('trials', []):
+                        if (trial.get('slot') == best['slot'] and trial.get('status') == 'completed'
+                                and json.dumps(trial.get('metrics'), sort_keys=True)
+                                == json.dumps(best.get('metrics'), sort_keys=True)):
+                            comparison = baseline_comparison(trial.get('metrics'), trial.get('baseline'))
+                            if comparison:
+                                entry['best'] = {**best, 'baseline_comparison': comparison}
+                            break
             if isinstance(study.get('split'), dict):
                 entry['split'] = split_summary(study['split'], study=study)
             if study.get('status') == 'sealed':

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 import json
+import math
 import time
 
 
@@ -12,6 +13,32 @@ def pick(value, keys):
 
 def detail(action, **ids):
     return {'tool': 'project_modeling', 'arguments': {'action': action, **ids, 'view': 'full'}}
+
+
+def baseline_comparison(metrics, baseline):
+    """Derived arithmetic for one recorded trial, never a production claim."""
+    if not isinstance(metrics, dict) or not isinstance(baseline, dict):
+        return {}
+    result = {}
+    for name, value in metrics.items():
+        reference = baseline.get(name)
+        try:
+            valid = all(type(number) in (int, float) and math.isfinite(number)
+                        for number in (value, reference))
+        except OverflowError:
+            continue
+        if not valid:
+            continue
+        delta = value - reference
+        if not math.isfinite(delta):
+            continue
+        comparison = {'baseline': reference, 'value_minus_baseline': delta}
+        if name in {'mae', 'rmse'} and value >= 0 and reference > 0:
+            fraction = (reference - value) / reference
+            if math.isfinite(fraction):
+                comparison['error_reduction_fraction'] = fraction
+        result[name] = comparison
+    return result
 
 
 def profile_summary(value):
