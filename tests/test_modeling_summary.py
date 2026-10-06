@@ -209,3 +209,47 @@ def test_http_study_summary_counts_saved_split_without_changing_detail(modeling,
     assert current['split']['evaluation_label'] == '保留测试已完成并保存结果，未参与模型搜索'
     assert client.get(detail_url).json()['split'] == split
     assert client.get(base + '/tasks').json() == []
+
+
+def test_finished_studies_remain_readable_without_repeating_scores_in_every_turn(modeling, monkeypatch):
+    (client, app, project, settings), service = modeling
+    from agent_platform.project_agent_context import conversation_context
+    from tests.test_project_tool_help import prepare
+    prepare(modeling[0])
+    base, _, study, _ = setup(client, project, settings)
+    study.update(best={'candidate_id': 'saved-candidate', 'slot': 0, 'metrics': {'mae': 0.0}},
+                 baseline={'mae': 0.7}, failure_streak=2,
+                 repair_candidate_id='failed-candidate', next_action='read previous error')
+
+    async def unexpected_compute(*args, **kwargs):
+        raise AssertionError('Context and result reads must not start computation')
+
+    monkeypatch.setattr(service, 'compute', unexpected_compute)
+    discussion = {'status': 'draft', 'revision': 0, 'document': ''}
+
+    for status in ('running', 'failed', 'sealed'):
+        study['status'] = status
+        asyncio.run(service.put(project['id'], 'study', study))
+        before = client.get(base + '/modeling/studies/' + study['id']).json()
+        context = asyncio.run(conversation_context(
+            app.state.services, project['id'], {'phase': 'working'}, discussion, '解释已有结果'))
+        entry = next(value for value in context['modeling'] if value['id'] == study['id'])
+        assert entry['dataset_id'] == study['dataset_id']
+        assert entry['evaluation'] == study['evaluation']
+        assert entry['status'] == status
+        if status == 'sealed':
+            assert not {'best', 'baseline', 'budget', 'next_action', 'repair_candidate_id'} & entry.keys()
+            read = entry['read_with']
+            response = client.post(base + '/agent-tools', json={
+                'name': read['tool'], 'arguments': read['arguments']})
+            assert response.status_code == 200, response.text
+            result = response.json()
+            assert result['best'] == before['best']
+            assert result['baseline'] == before['baseline']
+            assert result['evaluation'] == before['evaluation']
+            assert result['budget'] == before['budget']
+        else:
+            for key in ('best', 'baseline', 'budget', 'next_action', 'repair_candidate_id', 'failure_streak'):
+                assert entry[key] == before[key]
+        assert client.get(base + '/modeling/studies/' + study['id']).json() == before
+        assert client.get(base + '/tasks').json() == []

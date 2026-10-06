@@ -253,10 +253,23 @@ async def conversation_context(services, project_id: str, state: dict, discussio
     if getattr(services, 'modeling', None):
         studies = await services.modeling.list(project_id, 'study', limit=5)
         from .modeling_summary import split_summary
-        context['modeling'] = [{
-            **{k: s.get(k) for k in ('id', 'dataset_id', 'name', 'status', 'best', 'baseline', 'trials_used', 'budget', 'next_action', 'error', 'repair_candidate_id', 'failure_streak', 'search_strategy', 'evaluation')},
-            **({'split': split_summary(s['split'], study=s)} if isinstance(s.get('split'), dict) else {}),
-        } for s in studies]
+        context['modeling'] = []
+        for study in studies:
+            # Finished studies are discoverable resources, not an additional
+            # result to compare on every turn. Keep the evaluation/split facts
+            # needed to explain saved results without an extra lookup. Active
+            # studies retain their budget and recovery information.
+            keys = (('id', 'dataset_id', 'name', 'status', 'trials_used', 'evaluation')
+                    if study.get('status') == 'sealed' else
+                    ('id', 'dataset_id', 'name', 'status', 'best', 'baseline', 'trials_used', 'budget',
+                     'next_action', 'error', 'repair_candidate_id', 'failure_streak', 'search_strategy', 'evaluation'))
+            entry = {key: study.get(key) for key in keys}
+            if isinstance(study.get('split'), dict):
+                entry['split'] = split_summary(study['split'], study=study)
+            if study.get('status') == 'sealed':
+                entry['read_with'] = {'tool': 'project_modeling', 'arguments': {
+                    'action': 'read_study', 'study_id': study['id']}}
+            context['modeling'].append(entry)
         if link.get('dataset_id') and not studies:
             data = await services.modeling.get(project_id, 'dataset', link['dataset_id'])
             context['dataset'] = {k: data.get(k) for k in ('id', 'name', 'mapping', 'status')}

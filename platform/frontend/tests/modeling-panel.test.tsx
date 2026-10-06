@@ -103,14 +103,140 @@ it('keeps compact conversation controls small while preserving results, notes an
 it.each([true,false])('prepares prediction creation from the selected result without running it (candidate details loaded=%s)',async detailsLoaded=>{
   if(!detailsLoaded){
     const original=vi.mocked(api).getMockImplementation()!
-    vi.mocked(api).mockImplementation(async(path,options)=>path.includes('/candidates')?[] as never:original(path,options))
+    vi.mocked(api).mockImplementation(async(path,options)=>path.endsWith('/candidates/c')?candidate as never:path.includes('/candidates')?[] as never:original(path,options))
   }
   const onContext=vi.fn()
   render(<ModelingPanel projectId="p" onContext={onContext}/> )
   fireEvent.click(await screen.findByRole('button',{name:'查看结果'}))
   fireEvent.click(await screen.findByRole('button',{name:'创建预测工作流'}))
-  expect(onContext).toHaveBeenCalledWith(expect.objectContaining({study_id:'s',candidate_id:'c',dataset_id:'d'}),expect.stringContaining('生成可复用的预测工作流'),'workflow')
+  await waitFor(()=>expect(onContext).toHaveBeenCalledWith(expect.objectContaining({study_id:'s',candidate_id:'c',dataset_id:'d',task_id:'t'}),expect.stringContaining('生成可复用的预测工作流'),'workflow'))
   expect(vi.mocked(api).mock.calls.some(([,options])=>options?.method)).toBe(false)
+})
+
+it('waits for the selected candidate before handing off its task and ignores repeated clicks', async () => {
+  const original = vi.mocked(api).getMockImplementation()!
+  let finish!: (value: unknown) => void
+  const pending = new Promise(resolve => { finish = resolve })
+  vi.mocked(api).mockImplementation(async (path, options) => {
+    if (path.endsWith('/candidates/c')) return pending as never
+    if (path.includes('/candidates?')) return new Promise(() => {}) as never
+    return original(path, options)
+  })
+  const onContext = vi.fn()
+  render(<ModelingPanel projectId="p" onContext={onContext}/>)
+  fireEvent.click(await screen.findByRole('button', { name: '查看结果' }))
+  const create = screen.getByRole('button', { name: '创建预测工作流' })
+  fireEvent.click(create)
+  fireEvent.click(create)
+  expect(onContext).not.toHaveBeenCalled()
+  expect(create).toBeDisabled()
+  expect(vi.mocked(api).mock.calls.filter(([path]) => path.endsWith('/candidates/c'))).toHaveLength(1)
+  await act(async () => { finish(candidate); await pending })
+  expect(onContext).toHaveBeenCalledTimes(1)
+  expect(onContext).toHaveBeenCalledWith(expect.objectContaining({ study_id: 's', dataset_id: 'd', candidate_id: 'c', task_id: 't' }), expect.any(String), 'workflow')
+})
+
+it('keeps the result open after a candidate read failure and can retry a legacy record without a task id', async () => {
+  const original = vi.mocked(api).getMockImplementation()!
+  let attempts = 0
+  vi.mocked(api).mockImplementation(async (path, options) => {
+    if (path.includes('/candidates?')) return [] as never
+    if (path.endsWith('/candidates/c')) {
+      if (!attempts++) throw new Error('网络暂时中断')
+      return { ...candidate, task_id: undefined } as never
+    }
+    return original(path, options)
+  })
+  const onContext = vi.fn()
+  render(<ModelingPanel projectId="p" onContext={onContext}/>)
+  fireEvent.click(await screen.findByRole('button', { name: '查看结果' }))
+  fireEvent.click(screen.getByRole('button', { name: '创建预测工作流' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('无法读取所选模型的关联运行，请重试：Error: 网络暂时中断')
+  expect(screen.getByRole('dialog')).toBeInTheDocument()
+  expect(onContext).not.toHaveBeenCalled()
+  const retry = screen.getByRole('button', { name: '创建预测工作流' })
+  expect(retry).toBeEnabled()
+  fireEvent.click(retry)
+  await waitFor(() => expect(onContext).toHaveBeenCalledTimes(1))
+  expect(onContext).toHaveBeenCalledWith(expect.objectContaining({ study_id: 's', candidate_id: 'c', task_id: undefined }), expect.any(String), 'workflow')
+  expect(vi.mocked(api).mock.calls.some(([, options]) => options?.method)).toBe(false)
+})
+
+it('cancels a handoff when its dialog closes and can prepare it again after reopening', async () => {
+  const original = vi.mocked(api).getMockImplementation()!
+  const pending: ((value: unknown) => void)[] = []
+  vi.mocked(api).mockImplementation(async (path, options) => {
+    if (path.includes('/candidates?')) return [] as never
+    if (path.endsWith('/candidates/c')) return new Promise(resolve => pending.push(resolve)) as never
+    return original(path, options)
+  })
+  const onContext = vi.fn()
+  render(<ModelingPanel projectId="p" onContext={onContext}/>)
+  fireEvent.click(await screen.findByRole('button', { name: '查看结果' }))
+  fireEvent.click(screen.getByRole('button', { name: '创建预测工作流' }))
+  expect(pending).toHaveLength(1)
+  fireEvent.click(screen.getByRole('button', { name: '关闭阅读窗口' }))
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: '查看结果' }))
+  const create = screen.getByRole('button', { name: '创建预测工作流' })
+  expect(create).toBeEnabled()
+  fireEvent.click(create)
+  expect(pending).toHaveLength(2)
+  await act(async () => { pending[0](candidate) })
+  expect(onContext).not.toHaveBeenCalled()
+  expect(create).toBeDisabled()
+  expect(screen.getByRole('dialog')).toBeInTheDocument()
+  await act(async () => { pending[1](candidate) })
+  expect(onContext).toHaveBeenCalledTimes(1)
+  expect(onContext).toHaveBeenCalledWith(expect.objectContaining({ candidate_id: 'c', task_id: 't' }), expect.any(String), 'workflow')
+  expect(vi.mocked(api).mock.calls.some(([, options]) => options?.method)).toBe(false)
+})
+
+it.each(['study', 'project'])('discards a late handoff after switching the %s and uses only the new selection', async change => {
+  const original = vi.mocked(api).getMockImplementation()!
+  const nextStudy = { ...study, id: change === 'study' ? 's2' : 's', name: '新研究', dataset_id: 'd2', best: { ...study.best, candidate_id: 'c2' } }
+  const nextCandidate = { ...candidate, id: 'c2', task_id: 'new-task' }
+  let finish!: (value: unknown) => void
+  const pending = new Promise(resolve => { finish = resolve })
+  vi.mocked(api).mockImplementation(async (path, options) => {
+    if (path.includes('/candidates?')) return [] as never
+    if (path.endsWith('/candidates/c')) return pending as never
+    if (path.endsWith('/candidates/c2')) return nextCandidate as never
+    if (path.includes('/modeling/studies')) return (path.includes('/projects/q/') ? [nextStudy] : change === 'study' ? [study, nextStudy] : [study]) as never
+    return original(path, options)
+  })
+  const onContext = vi.fn()
+  const mounted = render(<ModelingPanel projectId="p" onContext={onContext}/>)
+  fireEvent.click(await screen.findByRole('button', { name: '查看结果' }))
+  fireEvent.click(screen.getByRole('button', { name: '创建预测工作流' }))
+  expect(onContext).not.toHaveBeenCalled()
+  if (change === 'study') fireEvent.change(screen.getByRole('combobox', { name: '选择建模研究' }), { target: { value: 's2' } })
+  else mounted.rerender(<ModelingPanel projectId="q" onContext={onContext}/>)
+  await screen.findByRole('dialog', { name: '新研究' })
+  await act(async () => { finish(candidate); await pending })
+  expect(onContext).not.toHaveBeenCalled()
+  expect(screen.getByRole('button', { name: '创建预测工作流' })).toBeEnabled()
+  fireEvent.click(screen.getByRole('button', { name: '创建预测工作流' }))
+  await waitFor(() => expect(onContext).toHaveBeenCalledTimes(1))
+  expect(onContext).toHaveBeenCalledWith(expect.objectContaining({ label: '新研究', study_id: nextStudy.id, dataset_id: 'd2', candidate_id: 'c2', task_id: 'new-task' }), expect.any(String), 'workflow')
+})
+
+it('does not hand off a pending candidate after leaving the modeling panel', async () => {
+  const original = vi.mocked(api).getMockImplementation()!
+  let finish!: (value: unknown) => void
+  const pending = new Promise(resolve => { finish = resolve })
+  vi.mocked(api).mockImplementation(async (path, options) => {
+    if (path.includes('/candidates?')) return [] as never
+    if (path.endsWith('/candidates/c')) return pending as never
+    return original(path, options)
+  })
+  const onContext = vi.fn()
+  const mounted = render(<ModelingPanel projectId="p" onContext={onContext}/>)
+  fireEvent.click(await screen.findByRole('button', { name: '查看结果' }))
+  fireEvent.click(screen.getByRole('button', { name: '创建预测工作流' }))
+  mounted.unmount()
+  await act(async () => { finish(candidate); await pending })
+  expect(onContext).not.toHaveBeenCalled()
 })
 
 it('keeps failed trials readable and retries a failed note request without claiming a model exists', async () => {

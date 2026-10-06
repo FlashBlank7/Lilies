@@ -34,6 +34,9 @@ export default function ModelingPanel({ projectId, onContext, onTask, compact = 
   const [note, setNote] = useState<{ candidateId: string; slot: number }>()
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [preparingContext, setPreparingContext] = useState(false)
+  const contextRequest = useRef(0)
+  const contextPending = useRef(false)
   const [column, setColumn] = useState('')
   const [more, setMore] = useState(false)
   const [connected, setConnected] = useState(false)
@@ -64,6 +67,10 @@ export default function ModelingPanel({ projectId, onContext, onTask, compact = 
   const candidateScope = base + '/' + sid
   const currentCandidateScope = useRef(candidateScope)
   currentCandidateScope.current = candidateScope
+  useEffect(() => {
+    contextRequest.current += 1; contextPending.current = false; setPreparingContext(false)
+    return () => { contextRequest.current += 1 }
+  }, [candidateScope])
   const loadCandidates = useCallback(async (offset = 0) => {
     if (!sid) return
     try {
@@ -75,14 +82,33 @@ export default function ModelingPanel({ projectId, onContext, onTask, compact = 
   }, [base, sid, open, candidateScope])
   useEffect(() => { setCandidates([]); setNote(undefined) }, [sid])
   useEffect(() => { if (!sid) return; void loadCandidates(); const timer = window.setInterval(() => void loadCandidates(), 3000); return () => window.clearInterval(timer) }, [loadCandidates, sid])
+  function closeResults() {
+    contextRequest.current += 1; contextPending.current = false; setPreparingContext(false); setOpen(false)
+  }
   function remember(nextTab: string, nextSelected = selected, nextDataset = datasetId) { setTab(nextTab); setSelected(nextSelected); setDatasetId(nextDataset); try { sessionStorage.setItem(key, JSON.stringify({ tab: nextTab, selected: nextSelected, datasetId: nextDataset })) } catch {} }
   async function action(fn: () => Promise<unknown>) { setBusy(true); setError(''); try { await fn(); await refresh(); await loadCandidates(); await loadDataset() } catch (cause) { setError(String(cause)) } finally { setBusy(false) } }
   const active = study && ['ready', 'running', 'queued', 'interrupted'].includes(study.status) ? candidates.find(c => ['running', 'queued', 'interrupted', 'failed'].includes(c.status)) : undefined
   const bestCandidate = candidates.find(c => c.id === study?.best?.candidate_id)
   const bestTrial = bestCandidate?.trials.find(t => t.slot === study?.best?.slot)
   const repairCandidate = candidates.find(c => c.id === study?.repair_candidate_id)
-  function feedback(candidate = bestCandidate, message?: string, mode?: 'task' | 'workflow') {
+  async function feedback(candidate = bestCandidate, message?: string, mode?: 'task' | 'workflow') {
+    if (contextPending.current) return
     const context = { label: study?.name || dataset?.name || '数据分析', study_id: study?.id, dataset_id: study?.dataset_id || dataset?.id, candidate_id: candidate?.id || (mode === 'workflow' ? study?.best?.candidate_id : undefined), task_id: candidate?.task_id || undefined, item_id: study?.item_id || undefined }
+    if (!candidate && context.study_id && context.candidate_id) {
+      const request = ++contextRequest.current
+      contextPending.current = true; setPreparingContext(true); setError('')
+      try {
+        const selectedCandidate = await api<Candidate>(base + '/modeling/studies/' + encodeURIComponent(context.study_id) + '/candidates/' + encodeURIComponent(context.candidate_id))
+        if (request !== contextRequest.current || currentCandidateScope.current !== candidateScope) return
+        if (selectedCandidate.id !== context.candidate_id) throw new Error('返回的候选与所选模型不一致，请重试')
+        context.task_id = selectedCandidate.task_id || undefined
+      } catch (cause) {
+        if (request === contextRequest.current && currentCandidateScope.current === candidateScope) setError('无法读取所选模型的关联运行，请重试：' + String(cause))
+        return
+      } finally {
+        if (request === contextRequest.current) { contextPending.current = false; setPreparingContext(false) }
+      }
+    }
     if (mode) onContext(context, message, mode)
     else onContext(context, message)
     setOpen(false)
@@ -137,11 +163,11 @@ export default function ModelingPanel({ projectId, onContext, onTask, compact = 
     <div className={styles.toolbar}><span><Database size={15} /> 数据与建模</span><label className={styles.upload}><Upload size={14} /> 导入数据<input type="file" accept=".csv,.tsv,.xlsx" disabled={busy} aria-label="上传建模数据" onChange={e => { const file = e.target.files?.[0]; if (file) void upload(file); e.target.value = '' }} /></label>{datasets.length > 0 && <button onClick={() => { setTab('数据'); setOpen(true) }}>查看数据</button>}{compact && study && <><small>{study.best ? `最佳 ${metric.toUpperCase()} ${num(study.best.score)}` : statusNames[study.status] || study.status}</small><button onClick={() => setOpen(true)}>查看建模结果 <ArrowUpRight size={13} /></button></>}</div>
     {!compact && studyCard}
     {error && <p role="alert" className={styles.error}>{error} <button onClick={() => void refresh()}>重试连接</button></p>}
-    {open && <ReadingDialog wide storageKey={key + ":" + (study?.id || dataset?.id) + ":" + tab + (note ? ":note:" + note.candidateId + ":" + note.slot : "")} title={study?.name || '数据分析'} onClose={() => setOpen(false)}>
+    {open && <ReadingDialog wide storageKey={key + ":" + (study?.id || dataset?.id) + ":" + tab + (note ? ":note:" + note.candidateId + ":" + note.slot : "")} title={study?.name || '数据分析'} onClose={closeResults}>
       {studies.length > 1 && <label>建模研究<select aria-label="选择建模研究" value={study?.id} onChange={e => remember(tab, e.target.value, '')}>{studies.map(s => <option key={s.id} value={s.id}>{[s.name, studySourceLabel(s, datasets)].filter(Boolean).join(' · ')}</option>)}</select></label>}
       <div role="tablist" className={styles.tabs}>{['概览', '数据', '特征', '实验'].map(name => <button key={name} role="tab" aria-selected={tab === name} onClick={() => remember(name)}>{name}</button>)}</div>
       <div role="tabpanel">
-        {tab === '概览' && <>{compact && studyCard}{!compact && <>{studySource && <p>{studySource}</p>}{evaluationSummary}</>}<h3>{study?.best ? `${modelNames[study.best.model] || study.best.model} 当前表现最好` : '先得到第一个可用模型'}</h3>{!compact && <p>{study?.next_action || '数据已保存。通过对话说明目标，统筹会分析数据并建立建模研究。'}</p>}<p>{study?.test_result ? '保留测试集 ' + study.test_result.rows + ' 条 · ' + metric.toUpperCase() + ' ' + num(study.test_result.metrics[metric]) + '。这项结果未参与选模' : study?.split?.evaluation_label || '尚未开始评价'}。训练完成与业务目标达成分别判断。</p><div className={styles.actions}><button onClick={() => feedback(undefined, '请用当前最佳模型生成可复用的预测工作流，并说明无标签输入格式。', 'workflow')}>创建预测工作流</button>{study?.best && <a href={withFrontendToken('/api/platform' + base + '/modeling/studies/' + study.id + '/candidates/' + study.best.candidate_id + '/download')}><Download size={14} /> 下载模型</a>}<button onClick={report} disabled={!study}>导出结果报告</button></div>{bestTrial?.group_errors?.length ? <><h4>需要关注的分组</h4><div className={styles.table}><table><thead><tr><th>设备／批次</th><th>验证样本</th><th>平均误差</th></tr></thead><tbody>{bestTrial.group_errors.slice(0, 10).map(g => <tr key={g.group}><td>{g.group}</td><td>{g.samples}</td><td>{num(g.error)}</td></tr>)}</tbody></table></div></> : null}</>}
+        {tab === '概览' && <>{compact && studyCard}{!compact && <>{studySource && <p>{studySource}</p>}{evaluationSummary}</>}<h3>{study?.best ? `${modelNames[study.best.model] || study.best.model} 当前表现最好` : '先得到第一个可用模型'}</h3>{!compact && <p>{study?.next_action || '数据已保存。通过对话说明目标，统筹会分析数据并建立建模研究。'}</p>}<p>{study?.test_result ? '保留测试集 ' + study.test_result.rows + ' 条 · ' + metric.toUpperCase() + ' ' + num(study.test_result.metrics[metric]) + '。这项结果未参与选模' : study?.split?.evaluation_label || '尚未开始评价'}。训练完成与业务目标达成分别判断。</p>{preparingContext && <p role="status">正在读取所选模型的关联运行…</p>}<div className={styles.actions}><button disabled={busy || preparingContext} onClick={() => void feedback(undefined, '请用当前最佳模型生成可复用的预测工作流，并说明无标签输入格式。', 'workflow')}>创建预测工作流</button>{study?.best && <a href={withFrontendToken('/api/platform' + base + '/modeling/studies/' + study.id + '/candidates/' + study.best.candidate_id + '/download')}><Download size={14} /> 下载模型</a>}<button onClick={report} disabled={!study}>导出结果报告</button></div>{bestTrial?.group_errors?.length ? <><h4>需要关注的分组</h4><div className={styles.table}><table><thead><tr><th>设备／批次</th><th>验证样本</th><th>平均误差</th></tr></thead><tbody>{bestTrial.group_errors.slice(0, 10).map(g => <tr key={g.group}><td>{g.group}</td><td>{g.samples}</td><td>{num(g.error)}</td></tr>)}</tbody></table></div></> : null}</>}
         {tab === '数据' && <><label>数据版本<select aria-label="选择数据集" value={dataset?.id || ''} onChange={e => remember(tab, selected, e.target.value)}>{datasets.map(d => <option key={d.id} value={d.id}>{d.name} · {d.id.slice(0, 6)}</option>)}</select></label>{dataset && <div className={styles.actions}><button disabled={busy} onClick={() => void action(() => api(base + '/datasets/' + dataset.id + '/profile?sampled=true', { method: 'POST' }))}>快速预览</button><button disabled={busy} onClick={() => void action(() => api(base + '/datasets/' + dataset.id + '/profile', { method: 'POST' }))}>完整分析</button><button onClick={() => { onContext({ dataset_id: dataset.id, label: dataset.name }, '请分析这份数据，确认目标、字段含义和合适的评价划分。'); setOpen(false) }}>和统筹分析</button></div>}{busy && <p role="status">正在分析，完成后显示实际统计。</p>}{profile ? <><p>{profile.sampled ? '抽样预览（最多前 1,000 行）' : '完整扫描'} · {profile.rows.toLocaleString()} 行 · {profile.columns.length} 列 · {profile.duplicates} 行重复。异常值仅提示，未自动删除。</p>{profile.time && <p>{profile.time.start} — {profile.time.end} · 采样间隔中位数 {num(profile.time.median_interval_seconds)} 秒</p>}{profile.labels && <p>标签 {profile.labels.rows} 条 · 重复 {profile.labels.duplicates} 条；标签字段在下方可选。</p>}{profile.time?.preview && <><p>时序抽样预览 · {profile.time.preview.series} · {profile.time.preview.group}（最多 120 点）</p><div className={styles.chart}><ResponsiveContainer width="100%" height={200}><LineChart data={profile.time.preview.points}><CartesianGrid stroke="#E4EAF2" /><XAxis dataKey="time" tick={false} /><YAxis domain={["auto", "auto"]} /><Tooltip /><Line isAnimationActive={false} dataKey="value" name={profile.time.preview.series} stroke="#3F639F" dot={false} /></LineChart></ResponsiveContainer></div></>}<select aria-label="查看字段分布" value={field?.name || ''} onChange={e => setColumn(e.target.value)}>{visibleColumns.map(c => <option key={c.name}>{c.name}</option>)}</select>{field?.distribution && <div className={styles.chart}><ResponsiveContainer width="100%" height={240}><BarChart data={field.distribution}><CartesianGrid vertical={false} stroke="#E4EAF2" /><XAxis dataKey="label" tick={{ fontSize: 11 }} /><YAxis width={45} /><Tooltip /><Bar dataKey="count" name="样本数" fill="#567BAD" radius={[3, 3, 0, 0]} /></BarChart></ResponsiveContainer></div>}<div className={styles.table}><table><thead><tr><th>字段</th><th>类型</th><th>缺失</th><th>不同值</th><th>异常提示</th></tr></thead><tbody>{profile.columns.map(c => <tr key={c.name}><td>{c.name}</td><td>{c.dtype}</td><td>{c.missing}</td><td>{c.unique}</td><td>{c.outliers ?? '—'}</td></tr>)}</tbody></table></div></> : <p>数据尚未分析。可以先快速预览，再完成全量统计。</p>}</>}
         {tab === '特征' && <><p>填补、编码和选择在训练折内拟合。时间范围和适用条件以下方实际记录为准；未记录的条件不代表已验证。</p>{bestTrial?.importance?.length ? <><p>模型内部权重／重要性，不能解释为因果关系。</p><div className={styles.chart}><ResponsiveContainer width="100%" height={280}><BarChart data={bestTrial.importance.slice(0, 10)} layout="vertical"><XAxis type="number" /><YAxis type="category" dataKey="name" width={140} tick={{ fontSize: 11 }} /><Tooltip /><Bar dataKey="value" name="重要性" fill="#567BAD" /></BarChart></ResponsiveContainer></div></> : <p>当前模型尚无贡献分析。</p>}<div className={styles.table}><table><thead><tr><th>特征／来源</th><th>计算方式</th><th>窗口与适用条件</th><th>调整</th></tr></thead><tbody>{(bestCandidate?.features_result || candidates[0]?.features_result || []).map(f => <tr key={f.name}><td>{f.name}<small>{f.source}</small></td><td>{f.calculation}</td><td>{f.window_seconds ? f.window_seconds + ' 秒' : '未设置时间窗口'}<small>{f.condition || '未记录可用时点条件，需结合数据来源确认'}</small></td><td><button onClick={() => feedback(bestCandidate, `请分析停用来源字段「${f.source}」的影响；在相同划分下建立新候选比较，保留原结果。`)}>建议停用</button></td></tr>)}</tbody></table></div></>}
         {tab === '实验' && note && study && <TrainingNote base={base + '/modeling/studies/' + study.id} candidateId={note.candidateId} slot={note.slot} onBack={() => setNote(undefined)} />}

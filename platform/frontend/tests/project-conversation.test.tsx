@@ -333,6 +333,7 @@ it.each([false,true])('hands the selected training result to a prepared workflow
       return rows as never
     }
     if(path.includes('/conversations/'))return {...session,events:[]} as never
+    if(path.endsWith('/candidates/candidate-selected'))return candidate as never
     if(path.includes('/candidates'))return [candidate] as never
     if(path.includes('/modeling/studies'))return [study] as never
     if(path.includes('/datasets'))return [{id:'data-selected',name:'本次数据',status:'profiled',mapping:{target:'y',kind:'tabular'}}] as never
