@@ -75,6 +75,69 @@ def assert_slot_occupied(client, service):
     client.portal.call(probe)
 
 
+@pytest.mark.parametrize('stop_waiter', [False, True], ids=['start-preparation', 'stop-preparation'])
+def test_initial_data_preparation_reports_queue_and_can_be_stopped(modeling, workers, stop_waiter):
+    (client, _, project, settings), service = modeling
+    base, dataset, first_study, _ = setup(client, project, settings)
+    prepare_split(service, project, first_study)
+    first = start(client, base, 'owns-slot-before-preparation')
+    deadline = time.monotonic() + 5
+    while not workers and time.monotonic() < deadline:
+        time.sleep(.01)
+    assert len(workers) == 1
+
+    study = client.post(base + '/modeling/studies', json={
+        'dataset_id': dataset['id'], 'request_key': 'new-study-without-split',
+        'budget': {'seconds': 180, 'trials': 5, 'trial_seconds': 45},
+    }).json()
+    candidate = client.post(base + f'/modeling/studies/{study["id"]}/candidates', json={
+        'request_key': 'first-candidate-without-split', 'batch_size': 1, 'models': ['linear'],
+    }).json()
+    graph(client, project['id'], [node('start', 'start', inputs=[]),
+          node('train', 'model_train', study_id=study['id'], candidate_id=candidate['id']),
+          node('end', 'end', outputs={'result': ref('train', 'output')})],
+          [edge('start', 'train'), edge('train', 'end')])
+    second = start(client, base, 'wait-for-first-preparation')
+    path = base + f'/modeling/studies/{study["id"]}/candidates/{candidate["id"]}'
+    study_path = base + f'/modeling/studies/{study["id"]}'
+    try:
+        queued = wait_candidate(client, path, 'queued')
+        research = client.get(study_path).json()
+        assert research['status'] == 'queued'
+        assert research['next_action'] == '等待计算资源，之后准备数据划分'
+        assert queued['trials'] == [] and research['trials_used'] == 0
+        assert len(workers) == 1
+        assert client.get(base + f'/tasks/{first["id"]}').json()['status'] == 'running'
+        assert not (service.path(project['id'], study['id']) / 'output/split.json').exists()
+
+        if stop_waiter:
+            assert client.post(base + f'/tasks/{second["id"]}/stop').status_code == 200
+            assert wait_task(client, base, second, seconds=5)['status'] == 'interrupted'
+            assert client.get(path).json()['status'] == 'interrupted'
+            assert client.get(study_path).json()['active_since'] is None
+            assert_slot_occupied(client, service)
+            assert len(workers) == 1
+            resumed = client.post(base + f'/tasks/{second["id"]}/resume', json={})
+            assert resumed.status_code == 202
+            assert resumed.json()['id'] == second['id']
+            wait_candidate(client, path, 'queued')
+            assert len(workers) == 1
+        assert client.post(base + f'/tasks/{first["id"]}/stop').status_code == 200
+        running = wait_candidate(client, path, 'running')
+        research = client.get(study_path).json()
+        assert running['task_id'] == second['id']
+        assert research['status'] == 'running'
+        assert research['next_action'] == '正在准备数据划分'
+        deadline = time.monotonic() + 5
+        while len(workers) < 2 and time.monotonic() < deadline:
+            time.sleep(.01)
+        assert len(workers) == 2
+        assert research['trials_used'] == 0
+    finally:
+        assert client.post(base + f'/tasks/{second["id"]}/stop').status_code == 200
+        assert client.post(base + f'/tasks/{first["id"]}/stop').status_code == 200
+
+
 @pytest.mark.parametrize('stop_waiter', [False, True], ids=['queue-budget', 'queue-stop'])
 def test_waiting_task_reports_budget_or_stop_and_keeps_owners_slot(modeling, workers, stop_waiter):
     (client, _, project, settings), service = modeling

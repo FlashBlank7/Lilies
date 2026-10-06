@@ -503,9 +503,14 @@ class Modeling:
             folder = self.path(project_id, candidate_id)
             study_folder = self.path(project_id, study_id)
             split_path = study_folder / 'output' / 'split.json'
+            compute_phase = '准备数据划分'
             async def event(event):
                 if event['kind'] in {'queued', 'compute_started'}:
                     candidate['status'] = 'queued' if event['kind'] == 'queued' else 'running'
+                    study.update(status=candidate['status'], next_action=(
+                        f'等待计算资源，之后{compute_phase}' if event['kind'] == 'queued'
+                        else f'正在{compute_phase}'))
+                    await self.put(project_id, 'study', study)
                 elif event['kind'] == 'trial_started':
                     candidate['current'] = event
                 elif event['kind'] == 'trial':
@@ -529,8 +534,9 @@ class Modeling:
                     await self.save_training_note(project_id, study_id, candidate_id, event['slot'])
             try:
                 if not split_path.exists():
-                    study['split'] = await self.compute(project_id, dataset, {'action': 'prepare', 'evaluation': study['evaluation']}, study_folder, image=study['image'], timeout=remaining)
+                    study['split'] = await self.compute(project_id, dataset, {'action': 'prepare', 'evaluation': study['evaluation']}, study_folder, image=study['image'], on_event=event, timeout=remaining)
                     await self.put(project_id, 'study', study)
+                compute_phase = '训练模型'
                 config = {**candidate['request'], 'action': 'train', 'evaluation': study['evaluation'], 'split': '/split.json',
                           'remaining_seconds': max(1, study['budget']['seconds'] - self.elapsed(study)), 'trial_seconds': study['budget']['trial_seconds'], 'batch_size': min(slots, candidate['batch_size'])}
                 mounts = [(split_path, '/split.json')]
