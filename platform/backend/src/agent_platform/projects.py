@@ -55,10 +55,13 @@ class Projects:
         await self.knowledge.initialize()
         for project in await self.store.list():
             self.services.sandboxes.protect_inputs(self.workspace(project['id']), ['requirement-package', 'requirements'])
+        from .example_projects import refresh_example_defaults
+        await refresh_example_defaults(self.services)
 
-    async def create(self, name: str, description: str = '', requirement: str = '') -> dict:
+    async def create(self, name: str, description: str = '', requirement: str = '', *, workflow_description: str | None = None) -> dict:
         app = await self.services.workflow_store.create_application(ApplicationCreateRequest(
-            name=name, description=description, requirement=requirement))
+            name=name, description=description if workflow_description is None else workflow_description,
+            requirement=requirement))
         return await self.adopt_new_application(app['id'], name, description)
 
     async def adopt_new_application(self, application_id: str, name: str, description: str):

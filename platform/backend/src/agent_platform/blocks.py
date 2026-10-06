@@ -91,6 +91,11 @@ class InputField(BaseModel):
     example: Any = None
     options: list[str] = Field(default_factory=list)
     columns: list[InputColumn] = Field(default_factory=list)
+    # Optional file-extension hints for human input forms; execution still
+    # validates actual content in the corresponding processing node.
+    accept: list[str] = Field(default_factory=list)
+    # Name of the file input whose headers supply this string field's choices.
+    column_source: str = ''
 
 
 class StartConfig(BaseModel):
@@ -290,7 +295,7 @@ class ConnectorActionConfig(BaseModel):
 
 class IterationConfig(BaseModel):
     items: Any
-    workflow: WorkflowSpec
+    workflow: WorkflowSpec = Field(description='完整子流程，包含一个开始节点和至少一个 end/answer 结束节点，并通过连线接入执行路径；output_node_id 指定收集哪个节点的结果，不能替代结束节点。')
     variables: dict[str, Any] = Field(default_factory=dict, max_length=100)
     item_name: str = "item"
     output_node_id: str
@@ -300,7 +305,7 @@ class IterationConfig(BaseModel):
 
 
 class LoopConfig(BaseModel):
-    workflow: WorkflowSpec
+    workflow: WorkflowSpec = Field(description='完整子流程，包含一个开始节点和至少一个 end/answer 结束节点，并通过连线接入执行路径；output_node_id 指定收集哪个节点的结果，不能替代结束节点。')
     variables: dict[str, Any] = Field(default_factory=dict)
     initial_state: Any = None
     state_input_name: str = Field(default="loop_state", pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -356,7 +361,7 @@ def validate_human_values(config: HumanInputConfig, values: dict) -> dict:
 
 
 class EndConfig(BaseModel):
-    outputs: dict[str, Any] = Field(default_factory=dict)
+    outputs: dict[str, Any] = Field(default_factory=dict, description='工作流输出字段，可使用变量引用。任务页正文使用 markdown 字符串；下载文件使用 artifacts 数组，每项含 file_path（results/ 或 solution/ 下的项目相对路径）和 label。其他业务字段可按需保留。')
 
 
 class AnswerConfig(BaseModel):
@@ -1107,6 +1112,26 @@ def _manual(
     *,
     legacy: bool = False,
 ) -> dict[str, Any]:
+    if block_type == "start":
+        return {
+            "summary": "Declare named workflow inputs, their types, and optional defaults.",
+            "when_to_use": ["Accept user or caller input at the beginning of a workflow."],
+            "examples": [{
+                "description": "Require a source name and default an omitted batch size to 20.",
+                "connection": "start -> processing -> end",
+                "config": {"inputs": [
+                    {"name": "source", "type": "string", "required": True},
+                    {"name": "batch_size", "type": "number", "required": False, "default": 20},
+                ]},
+            }],
+            "anti_patterns": ["Do not put input declarations in input/settings; use the inputs array."],
+            "common_errors": [
+                "A required field without a default must be supplied when running.",
+                "Downstream references use the field name: $ref={node_id: start, path: [batch_size]}.",
+            ],
+            "claude_architecture_mapping": mapping,
+            "composability_constraints": ["The start node has no upstream input; connect its output to the next node."],
+        }
     if legacy:
         return {
             "summary": "Compatibility wrapper for old drafts. Prefer composing explicit agent architecture blocks.",
@@ -1133,16 +1158,14 @@ def _manual(
             {
                 "description": f"Use {title} as one visible runtime step.",
                 "connection": f"... -> {block_type} -> ...",
-                "config": {"input": {"$ref": {"node_id": "<upstream>", "path": ["output"]}}, "settings": {}},
             }
         ],
         "anti_patterns": [
             "Do not use this block as decoration without connecting its output.",
-            "Do not bypass the manual and emit a whole graph JSON in one step.",
         ],
         "common_errors": [
             "Input references point to a skipped or missing upstream node.",
-            "Settings are shaped like prose instead of the config schema.",
+            "Configuration does not match the block's config schema.",
             "The block is connected but its output is not consumed by a downstream step or test.",
         ],
         "claude_architecture_mapping": mapping,

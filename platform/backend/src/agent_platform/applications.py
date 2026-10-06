@@ -528,13 +528,97 @@ class ApplicationService:
             pending.extend(outgoing.get(current, []))
         return False
 
+    def validate_structure(self, snapshot: ApplicationSnapshot) -> dict[str, Any]:
+        """Inspect this exact snapshot without reading bindings or executing work."""
+        from .python_execution import code_syntax_diagnostics
+
+        errors = self.blocks.validate_workflow(snapshot.workflow)
+        diagnostics = code_syntax_diagnostics(snapshot.workflow)
+        for diagnostic in diagnostics:
+            location = '/'.join([*diagnostic['scope'], diagnostic['node_id']])
+            errors.append(f"{location}: Python {diagnostic['error_type']} "
+                f"(line {diagnostic['line']}, column {diagnostic['column']}): {diagnostic['message']}")
+
+        # These executors have fixed outer result keys, regardless of user code
+        # or bindings. Inspect only that known boundary, never infer user fields
+        # or run code. Incomplete drafts remain saveable with this feedback.
+        wrapped_outputs = {
+            'code': {'output', 'logs'}, 'variable_assigner': {'output'},
+            'variable_aggregator': {'output'},
+        }
+
+        def output_references(workflow: WorkflowSpec, scope: tuple[str, ...] = ()) -> None:
+            nodes = {node.id: node for node in workflow.nodes}
+
+            def inspect(value: Any, location: str) -> None:
+                if isinstance(value, dict):
+                    reference = value.get('$ref')
+                    if isinstance(reference, dict) and set(value).issubset({'$ref', 'optional'}):
+                        source_id = reference.get('node_id')
+                        source = nodes.get(source_id) if isinstance(source_id, str) else None
+                        path = reference.get('path') or []
+                        allowed = wrapped_outputs.get(source.type) if source else None
+                        first = (next((part for part in path[0].split('.') if part), '')
+                                 if isinstance(path, list) and path and isinstance(path[0], str) else None)
+                        if allowed and first is not None and first not in allowed:
+                            errors.append(f'{location}: 引用 {source.id} 的路径 {path!r} 缺少输出层；'
+                                f'{source.type} 顶层字段为 {sorted(allowed)!r}。'
+                                f'读取业务值请用 {["output", *path]!r}；'
+                                '读取整个业务结果用 ["output"]，空路径 [] 表示含输出包装的整个节点结果。')
+                    for key, item in value.items():
+                        inspect(item, f'{location}.{key}')
+                elif isinstance(value, list):
+                    for index, item in enumerate(value):
+                        inspect(item, f'{location}[{index}]')
+
+            for node in workflow.nodes:
+                nested = node.type in {'iteration', 'loop'}
+                for key, value in node.config.items():
+                    if nested and key == 'workflow':
+                        try:
+                            child = WorkflowSpec.model_validate(value)
+                        except ValueError:
+                            continue  # Already described by block validation.
+                        output_references(child, (*scope, node.id))
+                    else:
+                        inspect(value, '/'.join((*scope, node.id)) + f'.config.{key}')
+
+        output_references(snapshot.workflow)
+
+        def self_references(payload: Any, owner: str) -> list[list[str]]:
+            found: list[list[str]] = []
+            if isinstance(payload, dict):
+                reference = payload.get("$ref")
+                if isinstance(reference, dict) and reference.get("node_id") == owner:
+                    found.append([str(item) for item in (reference.get("path") or [])])
+                for item in payload.values():
+                    found.extend(self_references(item, owner))
+            elif isinstance(payload, list):
+                for item in payload:
+                    found.extend(self_references(item, owner))
+            return found
+
+        for node in snapshot.workflow.nodes:
+            self_refs = self_references(node.config, node.id)
+            if self_refs:
+                errors.append(
+                    f"{node.id}: 节点引用了它自己（path={self_refs[:3]}）——"
+                    "节点不能读取自身的产出。要么改引用上游节点，要么把该值"
+                    "直接算在本节点的表达式里。"
+                )
+        report = {"valid": not errors, "errors": errors, "warnings": self._input_warnings(snapshot)}
+        if diagnostics:
+            report['diagnostics'] = diagnostics
+        return report
+
     async def validate_draft(
         self, application_id: str, *, structure_only: bool = False,
     ) -> dict[str, Any]:
         """Check graph structure; legacy validation also requires bindings and tests."""
         draft = await self.store.get_draft(application_id)
         snapshot: ApplicationSnapshot = draft["snapshot"]
-        errors = self.blocks.validate_workflow(snapshot.workflow)
+        structure = self.validate_structure(snapshot)
+        errors = structure["errors"]
         if self.projects is not None:
             try:
                 await self.projects.validate_capabilities(application_id, snapshot)
@@ -571,58 +655,6 @@ class ApplicationService:
                             f"{node.id}: tool binding not found: {tool_name}; "
                             f"available tools: {sorted(known_tools)}"
                         )
-        # 自引用是结构性错误，必须在校验期拒绝而不是运行期崩。实测 32B 在
-        # variable_assigner 里加了个引用自身产出的 output 赋值，draft_validate
-        # 全绿、发布前才在 test_run 里炸——这类"能过结构校验的死图"正是
-        # 静默失败的温床。
-        def _self_references(payload: Any, owner: str) -> list[list[str]]:
-            found: list[list[str]] = []
-            if isinstance(payload, dict):
-                reference = payload.get("$ref")
-                if isinstance(reference, dict) and reference.get("node_id") == owner:
-                    found.append([str(item) for item in (reference.get("path") or [])])
-                for item in payload.values():
-                    found.extend(_self_references(item, owner))
-            elif isinstance(payload, list):
-                for item in payload:
-                    found.extend(_self_references(item, owner))
-            return found
-
-        for node in snapshot.workflow.nodes:
-            self_refs = _self_references(node.config, node.id)
-            if self_refs:
-                errors.append(
-                    f"{node.id}: 节点引用了它自己（path={self_refs[:3]}）——"
-                    "节点不能读取自身的产出。要么改引用上游节点，要么把该值"
-                    "直接算在本节点的表达式里。"
-                )
-
-        # 自引用是结构性错误，必须在校验期拒绝而不是运行期崩。实测 32B 在
-        # variable_assigner 里加了个引用自身产出的 output 赋值，draft_validate
-        # 全绿、发布前才在 test_run 里炸——这类"能过结构校验的死图"正是
-        # 静默失败的温床。
-        def _self_references(payload: Any, owner: str) -> list[list[str]]:
-            found: list[list[str]] = []
-            if isinstance(payload, dict):
-                reference = payload.get("$ref")
-                if isinstance(reference, dict) and reference.get("node_id") == owner:
-                    found.append([str(item) for item in (reference.get("path") or [])])
-                for item in payload.values():
-                    found.extend(_self_references(item, owner))
-            elif isinstance(payload, list):
-                for item in payload:
-                    found.extend(_self_references(item, owner))
-            return found
-
-        for node in snapshot.workflow.nodes:
-            self_refs = _self_references(node.config, node.id)
-            if self_refs:
-                errors.append(
-                    f"{node.id}: 节点引用了它自己（path={self_refs[:3]}）——"
-                    "节点不能读取自身的产出。要么改引用上游节点，要么把该值"
-                    "直接算在本节点的表达式里。"
-                )
-
         if not structure_only:
             mandatory_tests = [test for test in snapshot.tests if test.mandatory]
             if not mandatory_tests:
@@ -646,14 +678,14 @@ class ApplicationService:
                 if missing_tool_nodes:
                     errors.append(f"test {test.id} missing required tool nodes: {missing_tool_nodes}")
             errors.extend(self._validate_simulated_human_inputs(snapshot))
-        warnings = self._input_warnings(snapshot)
         return {
             "valid": not errors,
             "errors": errors,
-            "warnings": warnings,
+            "warnings": structure["warnings"],
             "revision": draft["revision"],
             "content_hash": draft["content_hash"],
             "test_count": len(snapshot.tests),
+            **({'diagnostics': structure['diagnostics']} if 'diagnostics' in structure else {}),
             **({"validation_scope": "structure"} if structure_only else {}),
         }
 

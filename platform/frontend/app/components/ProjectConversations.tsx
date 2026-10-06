@@ -20,6 +20,8 @@ export default function ProjectConversations(props: Props) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const selection = useRef('')
+  const creating = useRef(false)
+  const prepared = useRef<number | undefined>(undefined)
   useEffect(() => {
     let alive = true
     selection.current = ''; setSelected(''); setRows([]); setLoading(true)
@@ -47,14 +49,21 @@ export default function ProjectConversations(props: Props) {
     try { sessionStorage.setItem(storageKey, row.id) } catch {}
   }
   async function create() {
+    if (creating.current) return
+    creating.current = true
     setBusy(true); setError('')
     try {
       const row = await api<Conversation>(base, { method: 'POST', body: JSON.stringify({ title: '新会话' }) })
       const switching = Boolean(selection.current)
       setRows(previous => [row, ...previous]); choose(row, switching)
     } catch (cause) { setError(String(cause)) }
-    finally { setBusy(false) }
+    finally { creating.current = false; setBusy(false) }
   }
+  useEffect(() => {
+    if (loading || busy || error || selected || !props.focus?.message?.trim() || prepared.current === props.focus.nonce) return
+    prepared.current = props.focus.nonce
+    void create()
+  }, [loading, busy, error, selected, props.focus])
   async function rename() {
     setBusy(true); setError('')
     try {

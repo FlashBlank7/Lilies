@@ -36,6 +36,9 @@
 .page details { margin:10px 0; }
 .page summary { cursor:pointer; padding:6px 0; }
 .page table { border-collapse:collapse; width:100%; font-size:14px; }
+.page .predictionTable { width:max-content; min-width:100%; }
+.predictionTable th,.predictionTable td { white-space:nowrap; }
+.predictionTable[data-has-source="true"] th:first-child,.predictionTable[data-has-source="true"] td:first-child { position:sticky; left:0; z-index:1; background:var(--ui-panel,#fff); }
 .page td,.page th { text-align:left; padding:12px 8px; border-bottom:1px solid var(--ui-line); vertical-align:top; }
 .error { color:var(--ui-danger)!important; background:var(--ui-danger-soft); padding:12px; border-radius:8px; }
 .canvas { width:100%; height:calc(100dvh - 235px); min-height:480px; border:1px solid var(--ui-line); border-radius:10px; background:var(--ui-bg); }
@@ -96,6 +99,7 @@
 .canvasHeading h2 { font-size:14px; margin:0; }
 @media(max-width:600px) { .canvasHeading { flex-wrap:wrap; } .canvasHeading h2 { flex-basis:100%; order:-1; overflow-wrap:anywhere; } .canvasHeading button,.canvasHeading a { flex-shrink:0; } }
 .taskTime { display:block; font-size:11px; margin-top:5px; }
+.taskParameters { max-width:100%; overflow-wrap:anywhere; }
 .page :global(.markdown-document) { color:var(--ui-ink); font-size:14px; }
 .page :global(.markdown-table-wrap) { max-width:100%; overflow:auto; }
 .page :global(.markdown-table-wrap table) { width:max-content; min-width:100%; }

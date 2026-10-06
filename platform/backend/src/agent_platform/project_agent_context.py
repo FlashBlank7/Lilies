@@ -1,6 +1,9 @@
 """Bounded, explicit previews for the project agent; authoritative data stays intact."""
 from __future__ import annotations
 
+from copy import deepcopy
+import json
+
 from fastapi.encoders import jsonable_encoder
 
 from .project_metrics import payload_measurement
@@ -24,6 +27,21 @@ def preview(value, *, depth=0):
     return value
 
 
+def training_result_preview(value):
+    """Recognize saved candidates in both workflow and independent task outputs."""
+    if (isinstance(value, dict) and isinstance(value.get('id'), str) and isinstance(value.get('study_id'), str)
+            and isinstance(value.get('engine'), str) and value['engine'] in {'sklearn', 'optuna', 'autogluon'}
+            and isinstance(value.get('trials'), list) and all(isinstance(t, dict) for t in value['trials'])):
+        from .modeling_summary import candidate_summary
+        try:
+            candidate = candidate_summary(value)
+        except (TypeError, KeyError):
+            return None  # Custom workflow outputs may reuse these field names.
+        if payload_measurement(candidate)['bytes'] <= 8000:
+            return candidate
+    return None
+
+
 def result_preview(value):
     """Keep small results exact; describe bulky branches instead of copying rows.
 
@@ -36,19 +54,27 @@ def result_preview(value):
     if size <= 1000:
         return value
 
+    # Native data-analysis results already contain the statistics an employee
+    # needs. Generic table truncation hid even column names and class counts,
+    # causing the agent to reread entire CSV files to reconstruct them.
+    if (isinstance(value, dict) and isinstance(value.get('dataset_id'), str)
+            and isinstance(value.get('sampled'), bool) and isinstance(value.get('rows'), int)
+            and isinstance(value.get('columns'), list)
+            and all(isinstance(c, dict) and 'name' in c and 'dtype' in c for c in value['columns'])):
+        from .modeling_summary import profile_summary
+        try:
+            profile = {**value, **profile_summary(value)}
+        except (TypeError, KeyError, AttributeError):
+            profile = None  # Custom workflow outputs may reuse these field names.
+        if profile is not None and payload_measurement(profile)['bytes'] <= 8000:
+            return profile
+
     # A native training candidate contains large fold indices and run metadata.
     # Its existing modeling summary retains metrics/baselines for each trial;
     # treating the entire trials list as a table hides the comparison itself.
-    if (isinstance(value, dict) and isinstance(value.get('id'), str) and isinstance(value.get('study_id'), str)
-            and isinstance(value.get('engine'), str) and value['engine'] in {'sklearn', 'autogluon'}
-            and isinstance(value.get('trials'), list) and all(isinstance(t, dict) for t in value['trials'])):
-        from .modeling_summary import candidate_summary
-        try:
-            candidate = candidate_summary(value)
-        except (TypeError, KeyError):
-            candidate = None  # Other workflows may use these same field names.
-        if candidate is not None and payload_measurement(candidate)['bytes'] <= 8000:
-            return candidate
+    candidate = training_result_preview(value)
+    if candidate is not None:
+        return candidate
 
     def omitted(item, size):
         description = {'preview_omitted': True, 'bytes': size}
@@ -124,8 +150,11 @@ def task_summary(task: dict) -> dict:
         outputs['result'] = {key: value for key, value in nested.items() if key != 'markdown'}
         result['output_aliases'] = [{'path': ['result', 'markdown'], 'same_as': ['markdown']}]
     result['outputs_truncated'] = payload_measurement(outputs)['bytes'] > 8000
-    result['outputs'] = ({key: result_preview(value) for key, value in outputs.items()}
-                         if result['outputs_truncated'] else outputs)
+    result['outputs'] = outputs
+    if result['outputs_truncated']:
+        candidate = training_result_preview(outputs)
+        result['outputs'] = (candidate if candidate is not None else
+                             {key: result_preview(value) for key, value in outputs.items()})
     inputs = task.get('inputs', {})
     result['inputs_truncated'] = payload_measurement(inputs)['bytes'] > 8000
     result['inputs'] = preview(inputs) if result['inputs_truncated'] else inputs
@@ -134,7 +163,11 @@ def task_summary(task: dict) -> dict:
         result['runs'] = [{k: r[k] for k in ('id', 'application_id', 'status', 'error', 'parent_run_id', 'draft_revision', 'waiting_node', 'waiting_input') if k in r}
                           for r in task['runs']]
     result['view'] = 'summary'
-    result['detail'] = ('Read summary first. workflow_run(action="inspect", task_id="' + task.get('id', '') +
+    if task.get('status') == 'failed':
+        result['diagnostic_with'] = {'tool': 'workflow_run', 'arguments': {
+            'action': 'inspect', 'task_id': task.get('id', ''), 'view': 'diagnostic'}}
+    result['detail'] = ('Saved values without preview_omitted markers remain exact; outputs_truncated does not mean every branch is incomplete. '
+                        'workflow_run(action="inspect", task_id="' + task.get('id', '') +
                         '", output_path=["output_key"]) reads an exact output branch without traces; '
                         'view="full" includes all inputs, outputs and member runs for diagnosis. '
                         'output_aliases identifies identical report copies; their original output paths remain readable.')
@@ -186,8 +219,10 @@ async def conversation_context(services, project_id: str, state: dict, discussio
         'progress': progress_summary(progress, item_id), 'workflows': workflows,
         'workflow_detail': workflow_detail,
         'conversation_context': link, 'continue_work': state.get('continue_work', False),
-        'instruction': 'Use the current item and revision summaries. Read relevant node/file details only when needed. '
-                       'Keep existing customer answers and human edits. Solve the requested task using project tools. '
+        'instruction': 'This context describes available resources, not additional tasks. '
+                       'The user_message defines the current task and permitted source scope. '
+                       'Use saved results directly when explaining them; omitted unrelated details need not be filled in. '
+                       'Keep existing customer answers and human edits. '
                        'Workflow generation only saves a draft; execute it when requested. Full data remains available via tools.'}
     from .local_agent_tools import ProjectTools, ProjectFile
     import asyncio
@@ -231,8 +266,64 @@ async def conversation_context(services, project_id: str, state: dict, discussio
             context['recent_results'].append(recent)
     if getattr(services, 'modeling', None):
         studies = await services.modeling.list(project_id, 'study', limit=5)
-        context['modeling'] = [{k: s.get(k) for k in ('id', 'dataset_id', 'name', 'status', 'best', 'baseline', 'trials_used', 'budget', 'next_action', 'error', 'repair_candidate_id', 'failure_streak', 'search_strategy')} for s in studies]
+        from .modeling_summary import baseline_comparison, split_summary
+        context['modeling'] = []
+        for study in studies:
+            # Finished studies are discoverable resources, not an additional
+            # result to compare on every turn. Keep the evaluation/split facts
+            # needed to explain saved results without an extra lookup. Active
+            # studies retain their budget and recovery information.
+            keys = (('id', 'dataset_id', 'name', 'status', 'trials_used', 'evaluation')
+                    if study.get('status') == 'sealed' else
+                    ('id', 'dataset_id', 'name', 'status', 'best', 'baseline', 'trials_used', 'budget',
+                     'next_action', 'error', 'repair_candidate_id', 'failure_streak', 'search_strategy', 'evaluation'))
+            entry = {key: study.get(key) for key in keys}
+            best = entry.get('best')
+            if isinstance(best, dict) and best.get('candidate_id') and type(best.get('slot')) is int:
+                # A study's top-level baseline comes from its latest trial.
+                # Derive differences only from the actual best trial's pair.
+                try:
+                    candidate = await services.modeling.get(project_id, 'candidate', best['candidate_id'])
+                except KeyError:
+                    candidate = {}  # Older/incomplete records remain readable.
+                if candidate.get('study_id') == study['id']:
+                    for trial in candidate.get('trials', []):
+                        if (trial.get('slot') == best['slot'] and trial.get('status') == 'completed'
+                                and json.dumps(trial.get('metrics'), sort_keys=True)
+                                == json.dumps(best.get('metrics'), sort_keys=True)):
+                            comparison = baseline_comparison(trial.get('metrics'), trial.get('baseline'))
+                            if comparison:
+                                entry['best'] = {**best, 'baseline_comparison': comparison}
+                            break
+            if isinstance(study.get('split'), dict):
+                entry['split'] = split_summary(study['split'], study=study)
+            if study.get('status') == 'sealed':
+                entry['read_with'] = {'tool': 'project_modeling', 'arguments': {
+                    'action': 'read_study', 'study_id': study['id']}}
+            context['modeling'].append(entry)
         if link.get('dataset_id') and not studies:
             data = await services.modeling.get(project_id, 'dataset', link['dataset_id'])
             context['dataset'] = {k: data.get(k) for k in ('id', 'name', 'mapping', 'status')}
+        if len(context['modeling']) >= 2:
+            shared = {}
+            for key in ('evaluation', 'split'):
+                if all(key in entry for entry in context['modeling']):
+                    first = json.dumps(context['modeling'][0][key], sort_keys=True)
+                    if all(json.dumps(entry[key], sort_keys=True) == first for entry in context['modeling'][1:]):
+                        shared[key] = deepcopy(context['modeling'][0][key])
+            if shared:
+                compact = {
+                    'modeling': [{key: value for key, value in entry.items() if key not in shared}
+                                 for entry in context['modeling']],
+                    'modeling_shared': shared,
+                    'modeling_shared_detail': (
+                        'Each modeling entry inherits modeling_shared; its own fields take precedence. '
+                        'Shared values are identical in all listed studies.'),
+                }
+                # Count the inheritance explanation too, using the actual turn
+                # serialization. Small or dissimilar studies keep their format.
+                original = {'modeling': context['modeling']}
+                if (len(json.dumps(compact, ensure_ascii=False, separators=(',', ':')).encode('utf-8'))
+                        < len(json.dumps(original, ensure_ascii=False, separators=(',', ':')).encode('utf-8'))):
+                    context.update(compact)
     return context

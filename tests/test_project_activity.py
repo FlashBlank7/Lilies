@@ -1,9 +1,42 @@
 """Persisted activity is the projection of actual local-agent tool calls."""
 import asyncio
+import json
 import time
 from tests.test_projects import configured, graph, node, edge  # noqa: F401
 from tests.test_project_conversation import configure_agent, TestSession, put_progress, item
 from tests.test_local_agents import settled
+
+
+def test_python_exit_failure_and_repair_are_visible_without_another_workflow(configured, monkeypatch):
+    """Real offline Docker execution; only the conversation model is replaced."""
+    from agent_platform.project_metrics import session_metrics
+    results = []
+
+    class Repair(TestSession):
+        async def turn(self, message, on_event, on_tool, **kwargs):
+            results.append(await on_tool('project_code', {'code':
+                'print("准备读取数据")\nopen("requirement-package/missing.csv").read()'}))
+            assert results[-1]['exit_code'] != 0
+            results.append(await on_tool('project_code', {'code':
+                'import sys\nprint("业务提示，不是执行失败", file=sys.stderr)\nprint(2 + 3)'}))
+            assert results[-1]['exit_code'] == 0
+            return {'status': 'completed'}
+
+    client, app, project, _, base = configure_agent(configured, monkeypatch, Repair)
+    client.post(base + '/conversation/messages', json={'message': '检查失败原因，修正后继续计算'}).raise_for_status()
+    state = settled(client, base)
+    assert state['status'] == 'idle', state['error']
+    activity = client.get(base + '/conversation?kind=activity').json()['events']
+    ended = [op for op in activity if op['tool_name'] == 'project_code' and op['ended_at']]
+    assert [op['status'] for op in ended] == ['failed', 'completed']
+    assert all(op['title'] == '执行项目代码' for op in ended)
+    assert '退出码 1' in ended[0]['summary'] and 'missing.csv' in ended[0]['summary']
+    assert [json.loads(op['result']) for op in ended] == results
+    assert results[1]['stdout'].strip() == '5'
+    assert '不是执行失败' in results[1]['stderr']
+    metrics = session_metrics(app.state.services.local_agents.load(project['id'])['events'])
+    assert metrics['requests'][0]['tool_failures'] == 1
+    assert client.get(base + '/tasks').json() == []
 
 
 def test_activity_has_stable_operations_scopes_and_incremental_pages(configured, monkeypatch):

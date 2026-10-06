@@ -4,10 +4,11 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '@/lib/platform'
 import { MarkdownDocument } from '@/lib/markdown'
 import { resolveProjectLink } from '@/lib/project-links'
-import { taskNames, type ProjectActivity as Activity, type ProjectTask, type ProjectMember, type ConversationFocus, type ProgressItem } from '@/lib/project-progress'
+import { taskNames, taskInputFileNames, type ProjectActivity as Activity, type ProjectTask, type ProjectMember, type ConversationFocus, type ProgressItem } from '@/lib/project-progress'
 import ProjectActivity from './ProjectActivity'
 import ModelConnectionPanel from './ModelConnectionPanel'
 import AssistantSourcePanel from './AssistantSourcePanel'
+import OfficialConnectionStatus, {type OfficialConnection} from './OfficialConnectionStatus'
 import SaveMethod from './SaveMethod'
 import ProjectTaskInput from './ProjectTaskInput'
 import ResultFeedback from './ResultFeedback'
@@ -21,12 +22,13 @@ import workflowStyles from './conversation-workflow.module.css'
 import { FileText, ArrowUpRight } from 'lucide-react'
 import styles from '@/app/projects/projects.module.css'
 
-type Event = { id: string; kind: string; text: string; time: string; result?: string; arguments?: string; success?: boolean; request_id?: string; item_id?: string; task_id?: string; purpose?: string; workflow?: WorkflowCard }
-type Session = {
+type Event = { id: string; kind: string; text: string; time: string; incomplete?: boolean; result?: string; result_kind?: string; arguments?: string; success?: boolean; request_id?: string; item_id?: string; task_id?: string; purpose?: string; workflow?: WorkflowCard }
+type Session = OfficialConnection & {
+  model_egress_enabled?: boolean
   provider: string | null; queue_reason?: string; status: string; error: string; revision: number; events: Event[]
   has_more: boolean; first_cursor: string; last_cursor: string; active_item_id?: string
   project_task_id?: string; conversation_context?: { item_id?: string; task_id?: string }
-  request_id?: string; current_activity?: Activity | null; request_activity?: Record<string, Activity>
+  request_id?: string; current_activity?: Activity | null; request_activity?: Record<string, Activity>; streaming_message?: Event | null
   requirements: { status: string; document: string; revision: number }
 }
 
@@ -64,14 +66,33 @@ export default function ProjectConversation({ id, conversationId, projectName, c
   const composer = useRef<HTMLTextAreaElement>(null)
   const historyElement = useRef<HTMLDivElement>(null)
   const followBottom = useRef(true)
+  const conversationScope = useRef({ base: conversationBase })
+  const pollNumber = useRef(0)
+  const appliedPoll = useRef(0)
   const merge = (previous: Event[], incoming: Event[]) => [...new Map([...previous, ...incoming].map(e => [e.id, e])).values()]
+  const streamingMessage = session?.streaming_message?.kind === 'assistant' && session.streaming_message.text
+    && !events.some(event => event.id === session.streaming_message?.id) ? session.streaming_message : null
+  const displayedEvents = streamingMessage ? [...events, streamingMessage] : events
+  useEffect(() => {
+    conversationScope.current = { base: conversationBase }
+    cursor.current = ''; revision.current = -1; restored.current = false; followBottom.current = true
+    setSession(null); setEvents([]); setSummaries({}); setLiveResults({}); setTools([])
+    setOlder(false); setMoreTools(false); setShowTools(false); setConnectionError(''); setError(''); setSentNotice('')
+    setReader(null); setEditWorkflow(undefined); setBusy(false)
+  }, [conversationBase])
   const refresh = useCallback(async () => {
+    const scope = conversationScope.current
+    if (scope.base !== conversationBase) return
+    const requestNumber = ++pollNumber.current
+    const current = () => mounted.current && scope === conversationScope.current && requestNumber >= appliedPoll.current
+    const after = cursor.current
     try {
       let page: Session
       try {
-        page = await api<Session>(conversationBase + (cursor.current ? '?after=' + encodeURIComponent(cursor.current) : ''))
+        page = await api<Session>(conversationBase + (after ? '?after=' + encodeURIComponent(after) : ''))
       } catch (cause) {
-        if (!cursor.current || !cause || typeof cause !== 'object'
+        if (!current()) return
+        if (!after || !cause || typeof cause !== 'object'
           || !('status' in cause) || cause.status !== 422
           || !('detail' in cause) || cause.detail !== '会话分页位置不存在') throw cause
         // A prior connection may hold an obsolete cursor. Keep the displayed
@@ -79,26 +100,32 @@ export default function ProjectConversation({ id, conversationId, projectName, c
         cursor.current = ''
         page = await api<Session>(conversationBase)
       }
-      if (!mounted.current) return
+      if (!current()) return
+      appliedPoll.current = requestNumber
       if (!cursor.current) setOlder(page.has_more)
       if (page.last_cursor) cursor.current = page.last_cursor
       setSession(page); setSummaries(previous => ({ ...previous, ...page.request_activity })); setEvents(previous => merge(previous, page.events)); setConnectionError('')
       if (revision.current !== page.revision) { revision.current = page.revision; void onUpdated() }
-    } catch (cause) { setConnectionError(String(cause)) }
+    } catch (cause) { if (current()) setConnectionError(String(cause)) }
   }, [conversationBase, onUpdated])
-  useEffect(() => { try { const saved = sessionStorage.getItem(draftKey); if (saved) {setMessage(saved);messageRef.current=saved} const context = sessionStorage.getItem(draftKey + ':modeling'); if (context) setModelingContext(JSON.parse(context)); if(sessionStorage.getItem(draftKey+':mode')==='workflow')setMode('workflow') } catch {} }, [draftKey])
+  useEffect(() => {
+    let saved = '', context: ModelingContext | null = null, savedMode: 'task'|'workflow' = 'task'
+    try { saved = sessionStorage.getItem(draftKey) || ''; const value = sessionStorage.getItem(draftKey + ':modeling'); if (value) context = JSON.parse(value); if (sessionStorage.getItem(draftKey + ':mode') === 'workflow') savedMode = 'workflow' } catch {}
+    setMessage(saved); messageRef.current = saved; setModelingContext(context); setMode(savedMode)
+  }, [draftKey])
   useEffect(() => { void refresh(); const timer = window.setInterval(() => void refresh(), 1500); return () => window.clearInterval(timer) }, [refresh])
-  useEffect(() => { if (focus) { if (focus.message !== undefined) { const previous = messageRef.current; updateDraft(focus.label === '项目空间' && previous.trim() && !previous.includes(focus.message) ? previous + '\n\n' + focus.message : focus.label === '项目空间' && previous.includes(focus.message) ? previous : focus.message); } changeMode(focus.mode || 'task'); composer.current?.focus() } }, [focus])
+  useEffect(() => { if (focus) { if (focus.message !== undefined) prepareMessage(focus.message); if (focus.modeling) updateModelingContext(focus.modeling); changeMode(focus.mode || 'task'); composer.current?.focus() } }, [focus])
   useEffect(() => {
     const el = historyElement.current
-    if (!el || !events.length) return
+    if (!el || (!events.length && !streamingMessage)) return
     if (!restored.current) {
       restored.current = true
       try { const saved = sessionStorage.getItem(draftKey + ':scroll'); if (saved !== null) { el.scrollTop = Number(saved); followBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80; return } } catch {}
     }
     if (followBottom.current) el.scrollTop = el.scrollHeight
-  }, [events.length, draftKey])
+  }, [events.length, streamingMessage?.text, draftKey])
   function updateDraft(text: string) { setMessage(text); messageRef.current=text; try { sessionStorage.setItem(draftKey, text) } catch {} }
+  function prepareMessage(text: string) { const previous = messageRef.current; updateDraft(previous.includes(text) ? previous : previous.trim() ? previous + '\n\n' + text : text) }
   function changeMode(value: 'task'|'workflow') {setMode(value);try{sessionStorage.setItem(draftKey+':mode',value)}catch{}}
   function updateModelingContext(value: ModelingContext | null) { setModelingContext(value); try { if (value) sessionStorage.setItem(draftKey + ':modeling', JSON.stringify(value)); else sessionStorage.removeItem(draftKey + ':modeling') } catch {} }
   async function act(action: () => Promise<unknown>) {
@@ -137,8 +164,7 @@ export default function ProjectConversation({ id, conversationId, projectName, c
     <div className={styles.conversationHeader}><div><h2>{projectName || '和统筹继续沟通'}</h2><small>{running ? activeItem ? '正在处理：' + activeItem.title : '统筹正在处理你的请求' : '查看进度、试用已有能力，或告诉我哪里需要调整'}</small></div>
       {running && <button disabled={busy} onClick={() => void act(() => api(conversationId ? conversationBase + '/stop' : base + '/agent-session/stop', { method: 'POST' }))}>停止</button>}</div>
     {canConfigureModel && <AssistantSourcePanel base={base} running={Boolean(running)} onSaved={refresh} />}
-    {session?.provider === 'official' && <p>官方智能体 · {session.status === 'queued' ? session.queue_reason || '排队中' : session.status === 'waiting_compute' ? '等待计算完成' : '已连接'}</p>}
-    {canConfigureModel ? <ModelConnectionPanel base={base} connected={Boolean(session?.provider)} running={Boolean(running)} onSaved={refresh} /> : !session?.provider && <p>请联系项目负责人配置模型连接，随后即可使用项目对话。</p>}
+    {session?.provider === 'official' && <><OfficialConnectionStatus connection={session}/>{session.status==='queued'&&<p>{session.queue_reason||'排队中'}</p>}{session.status==='waiting_compute'&&<p>等待计算完成</p>}</>}
     {session?.provider && !['api', 'official'].includes(session.provider) && <p>此项目的旧会话使用外部 Agent。请在模型设置中连接模型 API，由 Lilies 继续处理；原有记录会保留。</p>}
     {session?.requirements?.document && <div className={styles.requirements}><FileText size={14} />
       <button onClick={() => setReader({ title: '当前需求文档', text: session.requirements.document })}>当前需求文档</button>
@@ -146,21 +172,30 @@ export default function ProjectConversation({ id, conversationId, projectName, c
     </div>}
     <div ref={historyElement} className={styles.chatHistory} onScroll={e => { const el = e.currentTarget; followBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80; try { sessionStorage.setItem(draftKey + ':scroll', String(el.scrollTop)) } catch {} }}>
       {older && <button onClick={() => void act(history)} disabled={busy}>加载更早的对话</button>}
-      {!events.length && <p>从“请分析这些资料”开始；已有项目可以直接问“现在做到哪了”。</p>}
-      {events.map((event, index) => {
+      {!displayedEvents.length && <p>从“请分析这些资料”开始；已有项目可以直接问“现在做到哪了”。</p>}
+      {displayedEvents.map((event, index) => {
         if (event.kind === 'result' && event.purpose === 'build_test') return null
         const result = event.task_id ? (liveResults[event.task_id] || tasks.find(t => t.id === event.task_id)) : undefined
+        const inspected = event.result_kind === 'inspected'
+        const inputFiles = inspected && result ? taskInputFileNames(result) : []
+        const createdAt = inspected && result?.created_at ? new Date(result.created_at) : null
         const proposed = (result?.outputs?.result as {suggestions?:unknown} | undefined)?.suggestions
         const suggestions = Array.isArray(proposed) ? proposed.filter((s):s is string=>typeof s==='string') : []
-        const lastInRequest = event.request_id && !events.slice(index + 1).some(e => e.request_id === event.request_id)
+        const streaming = event === streamingMessage
+        const lastInRequest = event.request_id && !displayedEvents.slice(index + 1).some(e => e.request_id === event.request_id)
         return <div key={event.id}>
-          {event.kind === 'result' && event.task_id ? <article className={styles.resultCard} aria-label="关联业务结果"><h3><FileText size={15} /> {result ? members.find(m=>m.id===result.workflow_id)?.name || '工作流结果' : event.text || '业务结果'}</h3>
+          {event.kind === 'result' && event.task_id ? <article className={styles.resultCard} aria-label="关联业务结果"><h3><FileText size={15} /> {inspected ? '已读取的运行结果' : result ? members.find(m=>m.id===result.workflow_id)?.name || '工作流结果' : event.text || '业务结果'}</h3>
             {result && <span className={styles.tag}>{taskNames[result.status] || result.status}</span>}
+            {inputFiles.length > 0 && <p>输入资料：{inputFiles.join('、')}</p>}
+            {result && createdAt && Number.isFinite(createdAt.getTime()) && <p>启动时间：<time dateTime={result.created_at}>{createdAt.toLocaleString('zh-CN', { hour12: false })}</time></p>}
+            {inspected && running && event.request_id && event.request_id === session?.request_id && <p>解释尚未完成，可以先查看已有结果。</p>}
             <ProjectTaskInput projectId={id} taskId={event.task_id} initialTask={result} onTask={next=>{setLiveResults(previous=>({...previous,[next.id]:next}));if(result?.status!==next.status)void onUpdated()}}/>
             {suggestions.map((suggestion,i)=><button key={i} onClick={()=>{updateDraft(messageRef.current.trim()?messageRef.current+'\n\n'+suggestion:suggestion);composer.current?.focus()}}>准备下一步：{suggestion}</button>)}
             <div className={styles.actions}><button onClick={() => onTask?.(event.task_id!)}>查看结果 <ArrowUpRight size={13} /></button><button onClick={() => onFeedback?.(event.item_id || result?.item_id || '', event.task_id!)}>让智能体修改</button><FeedbackButton source={{project_id:id,task_id:event.task_id,page:"run"}} category="result"/>
               {result?.feedback_task_id && <button onClick={() => onTask?.(result.feedback_task_id)}>查看修改前的结果</button>}</div>
-          </article> : <article className={event.kind === 'user' ? styles.chatUser : styles.chatAssistant}><small>{event.kind === 'user' ? '你' : '项目统筹'}</small><MarkdownDocument source={event.text} emptyLabel="" resolveLink={href => resolveProjectLink(id, href)} />
+          </article> : <article className={event.kind === 'user' ? styles.chatUser : styles.chatAssistant}><small>{event.kind === 'user' ? '你' : '项目统筹'}</small>
+            {(streaming || event.incomplete) && <small>{streaming ? '正在回复' : '回复未完成'}</small>}
+            <MarkdownDocument source={event.text} emptyLabel="" resolveLink={href => resolveProjectLink(id, href)} />
             {event.kind !== 'user' && event.text.length > 900 && <button onClick={() => setReader({ title: '统筹报告', text: event.text })}>独立阅读全文 <ArrowUpRight size={13} /></button>}
           </article>}
           {event.workflow && <article className={styles.resultCard} aria-label="已生成工作流">
@@ -170,13 +205,13 @@ export default function ProjectConversation({ id, conversationId, projectName, c
               <button onClick={()=>{setEditWorkflow(event.workflow);changeMode('workflow');composer.current?.focus()}}>继续修改此流程</button>
               <button onClick={()=>{changeMode('task');updateDraft(`请调用项目工作流「${event.workflow!.name}」（${event.workflow!.id}），使用项目空间中的资料完成任务。先查看输入要求，有不明确的信息再向我询问。`);composer.current?.focus()}}>通过智能体使用</button></div>
           </article>}
-          {event.kind === 'assistant' && event.text && <><SaveMethod projectId={id} text={event.text}/>{lastInRequest && event.request_id && <ResultFeedback base={conversationId?conversationBase:base+"/conversations/legacy"} requestId={event.request_id} source={{project_id:id,conversation_id:conversationId||"legacy",request_id:event.request_id,page:"conversation"}} excerpt={event.text}/>}</>}
+          {event.kind === 'assistant' && event.text && !streaming && !event.incomplete && <><SaveMethod projectId={id} text={event.text}/>{lastInRequest && event.request_id && <ResultFeedback base={conversationId?conversationBase:base+"/conversations/legacy"} requestId={event.request_id} source={{project_id:id,conversation_id:conversationId||"legacy",request_id:event.request_id,page:"conversation"}} excerpt={event.text}/>}</>}
           {lastInRequest && summaries[event.request_id!] && <ProjectActivity projectId={id} conversationId={conversationId} workflowNames={Object.fromEntries(members.map(m => [m.id, m.name]))} active={Boolean(running) && session?.request_id === event.request_id} requestId={event.request_id} current={summaries[event.request_id!]} onTask={onTask} onWorkflow={onWorkflow} />}
         </div>
       })}
-      {session?.current_activity && !events.some(e => e.request_id === session.request_id) && <ProjectActivity projectId={id} conversationId={conversationId} workflowNames={Object.fromEntries(members.map(m => [m.id, m.name]))} active={Boolean(running)} requestId={session.request_id} current={session.current_activity} onTask={onTask} onWorkflow={onWorkflow} />}
+      {session?.current_activity && !displayedEvents.some(e => e.request_id === session.request_id) && <ProjectActivity projectId={id} conversationId={conversationId} workflowNames={Object.fromEntries(members.map(m => [m.id, m.name]))} active={Boolean(running)} requestId={session.request_id} current={session.current_activity} onTask={onTask} onWorkflow={onWorkflow} />}
     </div>
-    <ModelingPanel compact projectId={id} onTask={onTask} onContext={(context, text) => { updateModelingContext(context); if (text !== undefined && !message.trim()) updateDraft(text); composer.current?.focus() }} />
+    <ModelingPanel compact projectId={id} onTask={onTask} onContext={(context, text, nextMode) => { if (nextMode) onSent(); updateModelingContext(context); if (text !== undefined) { if (nextMode) prepareMessage(text); else if (!messageRef.current.trim()) updateDraft(text) } if (nextMode) changeMode(nextMode); composer.current?.focus() }} />
     {Boolean(error || session?.error) && <p role="alert" className={`${styles.error} ${styles.notice}`}>{error || session?.error}</p>}
     {Boolean(error || session?.error) && <FeedbackButton source={{project_id:id,conversation_id:conversationId||"legacy",page:"conversation"}} excerpt={error||session?.error} category="runtime"/>}
     {connectionError && <div role="alert" className={`${styles.error} ${styles.notice}`}>连接暂时中断，已保存的对话和结果仍保留。<button onClick={() => void refresh()}>重新连接</button><details><summary>连接详情</summary>{connectionError}</details></div>}
@@ -191,6 +226,9 @@ export default function ProjectConversation({ id, conversationId, projectName, c
       {running && !focus && <div className={styles.focus}>补充将发送到：{activeItem?.title || '当前处理的请求'}</div>}
       {focus && <div className={styles.focus}><span>关于：{focus.label}</span><button onClick={onSent}>取消关联</button></div>}
       <textarea ref={composer} aria-label="给项目统筹的消息" value={message} onChange={e => updateDraft(e.target.value)} placeholder={mode==='workflow'?'例如：把刚才的数据分析和模型预测组合成一条新工作流':'例如：调用项目里的质量预测流程，处理刚上传的数据'} />
+      {mode==='task' && !session?.provider && <p role="status">此项目尚未连接对话 AI 模型，暂时不能发送。已填写的消息会保留。{canConfigureModel ? '请先连接对话 AI 模型，再发送这条消息。' : '请联系项目负责人配置对话 AI 模型连接。'}</p>}
+      {mode==='task' && session?.provider==='api' && session.model_egress_enabled===false && <p role="status">平台尚未允许外部对话 AI 模型 API 调用；使用外部服务前请联系平台管理员启用。本机模型服务仍可使用。</p>}
+      {canConfigureModel && <ModelConnectionPanel base={base} connected={Boolean(session?.provider)} running={Boolean(running)} onSaved={refresh} />}
       {sentNotice && <small role="status">{sentNotice}</small>}
       <ConversationWorkflowCreator projectId={id} conversationId={conversationId} visible={mode==='workflow'} storageKey={draftKey} message={message} members={members} context={modelingContext} taskId={focus?.task_id} target={editWorkflow} onClearTarget={()=>setEditWorkflow(undefined)} onWorkflow={onWorkflow} onSaved={submitted=>{if(submitted && messageRef.current===submitted)updateDraft('');void refresh();void onUpdated();followBottom.current=true}} />
       {mode==='task' && <div className={styles.actions}><button className={styles.primary} disabled={busy || !['api', 'official'].includes(session?.provider || '') || !message.trim()} onClick={() => send()}>{running ? '发送补充' : '发送'}</button>

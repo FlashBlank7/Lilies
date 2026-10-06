@@ -29,9 +29,9 @@ it('shares only explicitly chosen reference names and invalidates the preview wh
   fireEvent.click(code)
   expect(vi.mocked(api).mock.calls.some(([,o])=>o?.method==='POST')).toBe(false)
   fireEvent.click(screen.getByRole('button',{name:'预览分享内容'}))
-  expect(await screen.findByText('将分享的定义')).toBeInTheDocument()
+  expect(await screen.findByText('将分享的内容')).toBeInTheDocument()
   fireEvent.click(code)
-  expect(screen.queryByText('将分享的定义')).not.toBeInTheDocument()
+  expect(screen.queryByText('将分享的内容')).not.toBeInTheDocument()
   fireEvent.click(code)
   fireEvent.click(screen.getByRole('button',{name:'分享给所选项目'}))
   expect(await screen.findByText('已分享给所选项目。原项目及已安装副本保持独立。')).toBeInTheDocument()
@@ -68,4 +68,35 @@ it('discards old reference selections and late responses when choosing a differe
   expect(body.workflow_id).toBe('w')
   expect(body.reference_names).toBeUndefined()
   expect(body.skill_revision).toBeUndefined()
+})
+
+
+it('previews purpose, inputs, outputs and dependencies while leaving code collapsed',async()=>{
+  const healthy=vi.mocked(api).getMockImplementation()!
+  vi.mocked(api).mockImplementation((path,options)=>path.endsWith('/preview')?Promise.resolve({root:'w',workflows:[
+    {id:'w',name:'Data checks',description:'Inspect and summarize the chosen table.',workflow:{nodes:[
+      {id:'start',type:'start',config:{inputs:[{name:'source_path',label:'数据表'}]}},
+      {id:'call',type:'tool',config:{tool_name:'workflow:child'}},
+      {id:'end',type:'end',config:{outputs:{profile:{},summary:{},markdown:{}}}}
+    ]}},
+    {id:'child',name:'Table profile',description:'Find missing values and duplicates.',workflow:{nodes:[
+      {id:'start',type:'start',config:{inputs:[{name:'source_path',label:'待检查表格'}]}},
+      {id:'code',type:'code',config:{code:'private_implementation_marker = 123'}},
+      {id:'end',type:'end',config:{outputs:{result:{}}}}
+    ]}}
+  ]} as never):healthy(path,options))
+  render(<SharedMethods projectId="p" onChanged={vi.fn()}/>)
+  fireEvent.click(screen.getByRole('button',{name:'分享本项目的方法或流程'}))
+  fireEvent.change(await screen.findByLabelText('要分享的内容'),{target:{value:'workflow:w'}})
+  fireEvent.click(screen.getByRole('button',{name:'预览分享内容'}))
+  const preview=await screen.findByRole('region',{name:'分享预览'})
+  expect(preview).toHaveTextContent('Inspect and summarize the chosen table.')
+  expect(preview).toHaveTextContent('输入：数据表')
+  expect(preview).toHaveTextContent('输出：数据体检结果、汇总报告结果、报告正文')
+  expect(preview).toHaveTextContent('关联依赖：Table profile（一起复制）')
+  const details=screen.getByText('高级：查看完整定义（JSON、代码与提示词）').closest('details')!
+  expect(details).not.toHaveAttribute('open')
+  expect(details.querySelector('pre')).toHaveTextContent('private_implementation_marker')
+  fireEvent.change(screen.getByLabelText('用途与输入输出'),{target:{value:'New purpose'}})
+  expect(screen.queryByRole('region',{name:'分享预览'})).not.toBeInTheDocument()
 })

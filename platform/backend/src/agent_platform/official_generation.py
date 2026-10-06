@@ -5,11 +5,30 @@ import time
 from uuid import uuid4
 
 from .connected_model import completion_events
+from .codex_app_server import CodexAuthenticationError
+
+
+_RETURN_WORKFLOW = {
+    'name': 'return_workflow',
+    'description': '提交完整工作流或已有节点的修改，二选一。不运行或保存工作流，不调用业务能力。',
+    'inputSchema': {
+        'type': 'object', 'properties': {'workflow': {
+            'type': 'object', 'properties': {
+                'nodes': {'type': 'array', 'items': {'type': 'object'}},
+                'edges': {'type': 'array', 'items': {'type': 'object'}}},
+            'required': ['nodes', 'edges']},
+            'operations': {'type': 'array', 'minItems': 1, 'items': {
+                'type': 'object', 'properties': {'op': {'type': 'string', 'enum': ['update_node']},
+                    'data': {'type': 'object', 'description': 'node_id 或 node_path、changes，可选 merge_config（默认true）'}},
+                'required': ['op', 'data']}}},
+        'oneOf': [{'required': ['workflow']}, {'required': ['operations']}]},
+}
 
 
 class OfficialGeneration:
-    def __init__(self, services, project_id):
+    def __init__(self, services, project_id, check_workflow=None):
         self.services, self.project_id = services, project_id
+        self.check_workflow = check_workflow
         self.usage_known = False
 
     async def stream(self, *, system, messages, tools, **kwargs):
@@ -23,22 +42,28 @@ class OfficialGeneration:
             await service.enqueue(self.project_id, job_id, 'generation')
         began = None
         client = None
-        text = []
+        document = None
+        document_ready = False
         usage = {}
         status, error = 'completed', ''
         try:
             await service.acquire(self.project_id, job_id)
             began = time.monotonic()
             client = service.client(self.project_id, service.root / 'generation' / job_id)
-            await client.start([], system)
+            await client.start([_RETURN_WORKFLOW], system + '\n交付方式：将完整 JSON 对象作为参数提交给 return_workflow，'
+                               '它只是本次结果的接收器，不是业务工具。通过这个接收器交付，不在正文重复输出 JSON。'
+                               '接收器可能返回静态结构修改建议，可以据此修正后重新提交；未修正也可结束并交付可编辑草稿。'
+                               '无需运行自测或等待审批；没有结构建议时提交即结束，不执行工作流或其他操作。')
 
             async def event(method, params):
-                if method == 'item/completed' and params.get('item', {}).get('type') == 'agentMessage':
-                    text.append(params['item'].get('text', ''))
                 if method == 'thread/tokenUsage/updated':
                     self.usage_known = True
                     total = (params.get('tokenUsage') or {}).get('total') or {}
                     usage.update(input_tokens=total.get('inputTokens', 0), output_tokens=total.get('outputTokens', 0))
+                    for source, target in [('cachedInputTokens', 'cache_read_input_tokens'),
+                                           ('reasoningOutputTokens', 'reasoning_tokens')]:
+                        if source in total:
+                            usage[target] = total[source]
                     service.update(job_id, tokens=total.get('totalTokens'))
                     limit = service.config().max_tokens
                     if limit is not None and (total.get('totalTokens') or 0) >= limit:
@@ -46,19 +71,57 @@ class OfficialGeneration:
                         self.services.background_tasks.add(task)
                         task.add_done_callback(self.services.background_tasks.discard)
 
-            async def reject(name, arguments):
-                raise ValueError('生成模式只返回工作流，不执行操作')
+            async def receive(name, arguments):
+                nonlocal document, document_ready
+                if name != 'return_workflow':
+                    raise ValueError('生成模式只接收工作流，不执行操作')
+                if not isinstance(arguments, dict) or ('workflow' in arguments) == ('operations' in arguments):
+                    raise ValueError('请选择 workflow 或 operations 一种交付方式')
+                if 'operations' in arguments:
+                    if not isinstance(arguments['operations'], list) or not arguments['operations']:
+                        raise ValueError('operations 必须包含节点修改')
+                    delivery = {'operations': arguments['operations']}
+                    workflow = delivery
+                else:
+                    workflow = arguments['workflow']
+                    if not isinstance(workflow, dict) or not all(isinstance(workflow.get(key), list) for key in ('nodes', 'edges')):
+                        raise ValueError('请提交 workflow 对象，其中 nodes 和 edges 必须为数组')
+                    delivery = {'workflow': workflow}
+                if document_ready:
+                    raise ValueError('本次生成已接收工作流定义')
+                # The protocol parses tool arguments. Serialize once here rather
+                # than asking the model to hand-escape an entire JSON document.
+                # Structural/capability/revision checks still run in the caller
+                # before its single save; this receiver has no project effects.
+                checked = self.check_workflow(workflow) if self.check_workflow else None
+                document = json.dumps(delivery, ensure_ascii=False)
+                document_ready = checked is None or checked.get('valid') is True
+                return {'received': True, **({'structure_check': checked} if checked is not None else {})}
 
-            prompt = json.dumps([m.model_dump(mode='json') for m in messages], ensure_ascii=False)
+            # The generation caller already supplies one complete JSON context.
+            # Re-encoding its text inside a message envelope escapes the entire
+            # catalog/graph again without adding information for the model.
+            if len(messages) == 1 and messages[0].role == 'user' and all(b.type == 'text' for b in messages[0].content):
+                prompt = '\n\n'.join(b.text or '' for b in messages[0].content)
+            else:
+                prompt = json.dumps([m.model_dump(mode='json') for m in messages], ensure_ascii=False)
             async with asyncio.timeout(service.config().max_seconds):
-                result = await client.turn(prompt, event, reject)
-            if result.get('status') != 'completed':
+                result = await client.turn(prompt, event, receive, finish_on_tool='return_workflow',
+                    tool_result_ready=lambda name, received: ('structure_check' not in received
+                                                             or received['structure_check'].get('valid') is True))
+            received_stop = (result.get('status') == 'interrupted' and result.get('result_received') is True
+                             and document is not None and document_ready)
+            if result.get('status') != 'completed' and not received_stop:
                 raise ValueError('工作流生成已中断，原草稿保持不变')
             await service.authorize(self.project_id)
-            for item in completion_events([{'type': 'text', 'text': '\n'.join(text)}], usage):
+            if document is None:
+                raise ValueError('模型未提交工作流定义，原草稿保持不变')
+            for item in completion_events([{'type': 'text', 'text': document}], usage):
                 yield item
         except BaseException as cause:
             status, error = ('interrupted' if isinstance(cause, asyncio.CancelledError) else 'error'), str(cause)[:300]
+            if isinstance(cause, CodexAuthenticationError):
+                service.set_connection('blocked', error)
             raise
         finally:
             if client:

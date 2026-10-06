@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, expect, it, vi } from 'vitest'
 import ModelConnectionPanel from '@/app/components/ModelConnectionPanel'
 import { api } from '@/lib/platform'
@@ -13,9 +13,12 @@ it('copies a project main connection into an independent vision connection witho
     : { provider: null })
   const saved = vi.fn().mockResolvedValue(undefined)
   render(<ModelConnectionPanel base="/api/v1/projects/target" connected={false} running={false} role="vision" onSaved={saved} />)
-  fireEvent.click(screen.getByRole('button', { name: '视觉模型设置' }))
-  await screen.findByText('沿用已有项目连接')
-  fireEvent.click(screen.getByRole('button', { name: '选择已有项目' }))
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: '视觉模型设置' })) })
+  const dialog = screen.getByRole('dialog', { name: '视觉模型设置' })
+  const reuse = within(dialog).getByText('沿用已有项目连接')
+  fireEvent.click(reuse)
+  expect(reuse.closest('details')).toHaveAttribute('open')
+  fireEvent.click(within(dialog).getByRole('button', { name: '选择已有项目' }))
   await screen.findByLabelText('来源项目')
   fireEvent.change(screen.getByLabelText('来源项目'), { target: { value: 'source' } })
   expect(screen.getByLabelText('来源模型用途')).toHaveValue('main')
@@ -111,4 +114,18 @@ it('separates generation configuration and supports explicit inheritance without
   fireEvent.click(screen.getByRole('button', { name: '保存模型连接' }))
   await waitFor(() => expect(saved).toHaveBeenCalledTimes(2))
   expect(mockApi.mock.calls.at(-1)).toEqual(['/api/v1/projects/p/generation-model', { method: 'DELETE' }])
+})
+
+it('explains official generation while retaining separately configurable API settings', async () => {
+  mockApi.mockResolvedValue({mode:'inherit', provider:null, generation_source:'official', model_egress_enabled:false})
+  const saved = vi.fn().mockResolvedValue(undefined)
+  render(<ModelConnectionPanel base="/api/v1/projects/p" role="generation" connected={false} running={false} onSaved={saved}/>)
+  fireEvent.click(screen.getByRole('button',{name:'工作流生成模型设置'}))
+  await screen.findByText('当前工作流生成选择了官方智能体。')
+  expect(screen.getByText(/仅影响以下 API 连接，不影响官方智能体/)).toBeInTheDocument()
+  expect(screen.queryByText(/主模型的后续变更也会用于生成/)).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button',{name:'保存模型连接'}))
+  await waitFor(()=>expect(saved).toHaveBeenCalledOnce())
+  expect(mockApi.mock.calls.at(-1)).toEqual(['/api/v1/projects/p/generation-model',{method:'DELETE'}])
+  expect(mockApi.mock.calls.some(([path])=>path.endsWith('/assistant-source'))).toBe(false)
 })

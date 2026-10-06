@@ -20,6 +20,7 @@ type Improvement = {
   workflow_changed?: boolean | null; inputs_changed?: boolean | null; status: Status; active?: boolean
   has_new_failures?: boolean; reviewed_last_seen?: string | null
   handoff?: { conversation_id: string; status: string; error: string }
+  handled_elsewhere?: boolean
 }
 type Report = { items: Improvement[]; last_scan: string | number | null; error: string; automatic_error?: string; sampled_tasks: number; truncated: boolean; sampled_interactions?: number; interactions_truncated?: boolean; window_days: number; limit: number; notes: string[] }
 type AutomationSettings = {
@@ -134,7 +135,7 @@ function HandlingProgress({ item, userId, starting, onStart }: {
       </li>)}</ol></> : <p>本会话尚未产生关联任务。</p>}
       <div className={`${base.actions} ${styles.actions}`}>
         {['connecting', 'queued', 'running'].includes(result.status) && <button disabled={stopping} onClick={() => void stop()}>{stopping ? '正在停止…' : '停止处理'}</button>}
-        {result.status === 'prepared' && <><button disabled={starting} onClick={onStart}>{starting ? '正在打开处理会话…' : '重试启动'}</button><small>重试会使用项目现有模型连接，并按项目权限处理资源。</small></>}
+        {result.status === 'prepared' && !item.handled_elsewhere && <><button disabled={starting} onClick={onStart}>{starting ? '正在打开处理会话…' : '重试启动'}</button><small>重试会使用项目现有模型连接，并按项目权限处理资源。</small></>}
         <button onClick={continueConversation}>继续沟通</button><small>打开已有会话，不会自动发送消息。</small>
       </div>
     </>}
@@ -293,9 +294,9 @@ function AdminImprovementsPage({ userId }: { userId: string }) {
         {item.status !== 'new' && <button disabled={!!busy} onClick={() => void change('/' + item.id, 'PATCH', { status: 'new' })}>重新打开</button>}
         <a href={'/api/platform' + endpoint + '/' + encodeURIComponent(item.id) + '/brief'} download={'改进任务-' + item.id + '.md'}>下载改进任务（Markdown）</a>
       </div>
-      <div className={styles.handoff}><div>{!item.handoff?.conversation_id && <p>点击启动后会使用项目现有模型连接，产生模型用量，并按项目原有权限处理和修改项目资源。</p>}<small>{item.handoff?.conversation_id ? '处理会话已保留。查看进展不会启动处理或产生模型用量。' : '重复点击会复用同一个处理会话。'}</small></div>
+      <div className={styles.handoff}><div>{item.handled_elsewhere && <p role="status">其他管理员已有处理会话，无需重复启动。对方会话内容保持私有。</p>}{!item.handoff?.conversation_id && !item.handled_elsewhere && <p>点击启动后会使用项目现有模型连接，产生模型用量，并按项目原有权限处理和修改项目资源。</p>}{(item.handoff?.conversation_id || !item.handled_elsewhere) && <small>{item.handoff?.conversation_id ? '处理会话已保留。查看进展不会启动处理或产生模型用量。' : '重复点击会复用同一个处理会话。'}</small>}</div>
         <div className={styles.handoffActions}>{item.handoff?.conversation_id && <button aria-expanded={expanded === item.id} aria-controls={'progress-' + item.id} onClick={() => setExpanded(previous => previous === item.id ? '' : item.id)}>{expanded === item.id ? '收起处理进展' : '查看处理进展'}</button>}
-          {!item.handoff?.conversation_id && <button className={base.primary} disabled={!!busy} onClick={() => void start(item)}>{busy === '/' + item.id + '/start' ? '正在打开处理会话…' : '让项目智能体处理'}</button>}
+          {!item.handoff?.conversation_id && !item.handled_elsewhere && <button className={base.primary} disabled={!!busy} onClick={() => void start(item)}>{busy === '/' + item.id + '/start' ? '正在打开处理会话…' : '让项目智能体处理'}</button>}
         </div>
       </div>
       {expanded === item.id && item.handoff?.conversation_id && <div id={'progress-' + item.id}><HandlingProgress key={item.id + ':' + item.handoff.conversation_id} item={item} userId={userId} starting={!!busy} onStart={() => void start(item)} /></div>}

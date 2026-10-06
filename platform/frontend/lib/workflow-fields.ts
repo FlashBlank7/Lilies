@@ -44,6 +44,10 @@ export function outputPaths(node: FieldNode | undefined, blocks: Block[] = []): 
   }
   const ports = blocks.find(block => block.type === node.type)?.output_ports.map(port => [port.name]) || []
   let dynamic: string[][] = []
+  if (node.type === 'human_input') {
+    const fields = node.config.fields
+    dynamic = [['output'], ...(Array.isArray(fields) ? fields.filter(field => typeof field?.name === 'string').map(field => ['output', field.name]) : [])]
+  }
   if (node.type === 'llm') dynamic = [['text'], ['structured'], ...schemaPaths(node.config.structured_output, ['structured'])]
   if (['end', 'answer'].includes(node.type)) dynamic = Object.keys(node.config.outputs || {}).map(key => [key])
   if (node.type === 'variable_assigner') dynamic = Object.keys(node.config.assignments || {}).map(key => ['output', key])

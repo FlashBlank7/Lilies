@@ -5,6 +5,56 @@ from agent_platform.project_agent_context import task_summary
 from agent_platform.project_metrics import payload_measurement
 
 
+def test_native_profile_keeps_saved_column_facts_without_requiring_raw_rows():
+    profile = {'dataset_id': 'data', 'sampled': False, 'rows': 240, 'duplicates': 0,
+               'group_column_count': 30, 'warning': 'Business labels still need confirmation',
+               'columns': [
+                   {'name': 'temperature', 'dtype': 'float64', 'min': 15, 'max': 84, 'missing': 0,
+                    'distribution': [{'label': str(i), 'count': 12} for i in range(20)]},
+                   {'name': 'target', 'dtype': 'object', 'unique': 2, 'missing': 0,
+                    'distribution': [{'label': 'good', 'count': 85}, {'label': 'review', 'count': 155}]},
+                   {'name': 'batch', 'dtype': 'object', 'unique': 30, 'missing': 0,
+                    'distribution': [{'label': 'batch-' + str(i), 'count': 8} for i in range(12)]}],
+               'preview': [{'temperature': i, 'raw_only': 'do not copy each row' * 20} for i in range(240)]}
+    task = {'id': 't', 'outputs': {'data': profile, 'test': {'rows': 48, 'metrics': {'macro_f1': .9}}}}
+    before = deepcopy(task)
+    result = task_summary(task)['outputs']
+    assert result['test'] == task['outputs']['test']
+    data = result['data']
+    assert data['rows'] == 240 and data['group_column_count'] == 30 and data['sampled'] is False
+    assert data['warning'] == profile['warning']
+    assert data['columns'][1]['distribution'] == profile['columns'][1]['distribution']
+    assert data['columns'][1]['distribution_coverage'] == {
+        'represented_rows': 240, 'non_missing_rows': 240, 'complete': True}
+    assert data['columns'][2]['unique'] == 30
+    assert data['columns'][2]['distribution_coverage']['represented_rows'] == 96
+    assert data['columns'][2]['distribution_coverage']['non_missing_rows'] == 240
+    assert data['columns'][2]['distribution_coverage']['complete'] is False
+    assert data['columns'][0]['min'] == 15 and data['columns'][0]['max'] == 84
+    assert data['columns'][0]['distribution'] == {'preview_omitted': True, 'count': 20}
+    assert data['preview'] == {'preview_omitted': True, 'count': 240}
+    assert payload_measurement(result)['bytes'] < 3000
+    assert task == before
+
+
+def test_wide_profile_and_other_column_formats_remain_bounded_and_discoverable():
+    wide = {'dataset_id': 'data', 'sampled': True, 'rows': 240,
+            'columns': [{'name': 'column-' + str(i), 'dtype': 'object', 'missing': 0} for i in range(300)]}
+    original = deepcopy(wide)
+    result = task_summary({'id': 't', 'outputs': {'data': wide}})['outputs']['data']
+    assert result['columns']['preview_omitted'] and result['columns']['count'] == 300
+    assert result['sampled'] is True and wide == original
+    for columns in ('custom field names', ['x', 'y'], {'x': 'custom'}):
+        value = {'dataset_id': 'data', 'sampled': False, 'rows': 240, 'columns': columns, 'large': 'x' * 9000}
+        result = task_summary({'id': 't', 'outputs': {'data': value}})['outputs']['data']
+        assert result['columns'] == columns
+    for extra in ({'labels': 'custom label description'}, {'time': None}):
+        value = {'dataset_id': 'data', 'sampled': False, 'rows': 240,
+                 'columns': [], 'large': 'x' * 9000, **extra}
+        result = task_summary({'id': 't', 'outputs': {'data': value}})['outputs']['data']
+        assert all(result[key] == item for key, item in extra.items())
+
+
 def test_large_table_keeps_metrics_downloads_and_late_output_fields():
     task = {'id': 'task', 'status': 'succeeded', 'outputs': {
         'features': {
@@ -110,6 +160,7 @@ def test_native_training_keeps_candidate_comparison_without_fold_row_indices():
     trials = [{'slot': i, 'model': model, 'status': 'completed',
                'metrics': {'macro_f1': score}, 'baseline': {'macro_f1': .22},
                'warnings': ['Small class'], 'fold_metrics': [{'macro_f1': score - .1}],
+               'diagnostics': [{'fold': 1, 'train_rows': 128, 'validation_rows': 64}],
                'fold_indices': list(range(3000))}
               for i, (model, score) in enumerate([('linear', .39), ('forest', .47)])]
     task = {'id': 'task', 'outputs': {'training': {
@@ -118,8 +169,10 @@ def test_native_training_keeps_candidate_comparison_without_fold_row_indices():
     original = deepcopy(task)
     summary = task_summary(task)['outputs']['training']
     assert summary['view'] == 'summary'
-    for expected, actual in zip(trials, summary['trials'], strict=True):
-        for key in ('slot', 'model', 'status', 'metrics', 'baseline', 'warnings', 'fold_metrics'):
+    assert set(summary['trial_shared']) == {'baseline', 'diagnostics'}
+    restored = [{**summary['trial_shared'], **trial} for trial in summary['trials']]
+    for expected, actual in zip(trials, restored, strict=True):
+        for key in ('slot', 'model', 'status', 'metrics', 'baseline', 'warnings', 'fold_metrics', 'diagnostics'):
             assert actual[key] == expected[key]
         assert 'fold_indices' not in actual
     assert summary['detail']['arguments']['candidate_id'] == 'candidate'

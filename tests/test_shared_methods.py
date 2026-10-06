@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 from tests.test_users import platform, signup, project  # noqa:F401
 from tests.test_projects import configured, start, settled  # noqa:F401
@@ -39,6 +41,55 @@ def test_composed_workflow_share_rewrites_children_and_runs_in_target_project(co
     assert list((settings.workspace_root/target/'results/examples').rglob('report.md'))
     assert not (settings.workspace_root/source/'results/examples').exists()
     assert client.post(dest+'/space/shared-methods/'+ident+'/install').json()==result
+
+
+def test_same_project_shared_copies_have_distinct_names_and_keep_child_references(configured):
+    client,_,_,_=configured
+    source,_,_=composition_share(client)
+    base='/api/v1/projects/'+source
+    originals={member['id']:member for member in client.get(base).json()['members']}
+    results=[]
+    for _ in range(2):
+        share=client.post(base+'/space/shared-methods',json={'workflow_id':source,
+            'name':'部门数据检查','target_project_ids':[source]}).json()
+        response=client.post(base+'/space/shared-methods/'+share['id']+'/install')
+        assert response.status_code==201,response.text
+        results.append(response.json())
+    members={member['id']:member for member in client.get(base).json()['members']}
+    assert len({member['name'] for member in members.values()})==len(members)==9
+    assert all(members[wid]==member for wid,member in originals.items())
+    for result in results:
+        assert all('部门数据检查' in members[wid]['name'] and '共享副本' in members[wid]['name'] for wid in result['mapping'].values())
+        root=client.get('/api/v1/applications/'+result['workflow_id']+'/draft').json()['snapshot']['workflow']
+        assert {node['config']['tool_name'][9:] for node in root['nodes'] if node['type']=='tool'}==set(result['mapping'].values())-{result['workflow_id']}
+
+
+def test_legacy_shared_copy_labels_do_not_rename_drafts_or_custom_names(configured,monkeypatch):
+    client,app,_,_=configured
+    source,_,_=composition_share(client)
+    base='/api/v1/projects/'+source
+    results=[]
+    for _ in range(2):
+        share=client.post(base+'/space/shared-methods',json={'workflow_id':source,
+            'name':'部门数据检查','target_project_ids':[source]}).json()
+        with monkeypatch.context() as patch:
+            patch.setattr('agent_platform.shared_methods.copy_name',lambda title,item,root,used:item['name'])
+            results.append(client.post(base+'/space/shared-methods/'+share['id']+'/install').json())
+    custom=results[0]['workflow_id']
+    from tests.test_example_project_descriptions import edit
+    edit(client,custom,'set_metadata',{'name':'员工自己的流程名'})
+    ids=[source]+[wid for result in results for wid in result['mapping'].values()]
+    before={wid:client.get('/api/v1/applications/'+wid+'/draft').json() for wid in ids}
+    members=client.get(base).json()['members']
+    labels=[member.get('display_name',member['name']) for member in members]
+    assert len(set(labels))==len(labels)==9
+    assert next(member for member in members if member['id']==custom)['name']=='员工自己的流程名'
+    assert 'display_name' not in next(member for member in members if member['id']==custom)
+    space={flow['id']:flow for flow in client.get(base+'/space').json()['workflows']}
+    assert all(space[member['id']].get('display_name')==member.get('display_name') for member in members)
+    asyncio.run(app.state.services.projects.initialize())
+    assert before=={wid:client.get('/api/v1/applications/'+wid+'/draft').json() for wid in ids}
+    assert client.get(base).json()['members']==members
 
 
 @pytest.mark.parametrize('failure',['workflow','skill','skill_after_write','member'])
@@ -158,6 +209,70 @@ def test_selected_skill_references_are_frozen_and_independently_editable(platfor
     assert client.put(dest+'/skills/'+sid,headers=a,json={'name':skill['name'],
         'content':skill['content'],'expected_revision':skill['revision'],'references':{'check.py':'print(6)'}}).status_code==200
     assert client.get(base+'/skills/method',headers=a).json()['references']==updated['references']
+
+
+def test_skill_install_uses_share_title_and_distinguishes_repeated_copies(configured):
+    client,_,_,_=configured
+    pid=client.post('/api/v1/projects',json={'name':'费用整理'}).json()['id']
+    base='/api/v1/projects/'+pid
+    source={'name':'账单与费用整理使用说明','description':'核对费用后汇总',
+            'content':'保留退款并按币种分别汇总。','references':{'check.py':'print(5)'}}
+    assert client.put(base+'/skills/original',json=source).status_code==200
+    installed=[]
+    for _ in range(2):
+        share=client.post(base+'/space/shared-methods',json={'skill_id':'original',
+            'reference_names':['check.py'],'name':'新员工费用整理方法','target_project_ids':[pid]}).json()
+        response=client.post(base+'/space/shared-methods/'+share['id']+'/install')
+        assert response.status_code==201,response.text
+        result=response.json()
+        item=client.get(base+'/skills/'+result['skill_id']).json()
+        assert item['name']==result['skill_name']
+        assert all(item[key]==source[key] for key in ('description','content','references'))
+        assert 'display_name' not in item
+        assert client.post(base+'/space/shared-methods/'+share['id']+'/install').json()==result
+        installed.append(item)
+    assert installed[0]['name']=='新员工费用整理方法'
+    assert installed[1]['name']=='新员工费用整理方法 · 共享副本'
+    assert client.get(base+'/skills/original').json()['name']==source['name']
+
+
+@pytest.mark.parametrize('changed', ['name', 'content', 'references'])
+def test_legacy_skill_share_label_is_read_only_and_preserves_employee_edits(configured, changed):
+    import json
+    from agent_platform.project_store import connect
+    client,app,_,_=configured
+    pid=client.post('/api/v1/projects',json={'name':'费用整理'}).json()['id']
+    base='/api/v1/projects/'+pid
+    source={'name':'账单与费用整理使用说明','description':'核对费用后汇总',
+            'content':'保留退款并按币种分别汇总。','references':{'check.py':'print(5)'}}
+    client.put(base+'/skills/original',json=source)
+    share=client.post(base+'/space/shared-methods',json={'skill_id':'original',
+        'reference_names':['check.py'],'name':'新员工费用整理方法','target_project_ids':[pid]}).json()
+    result=client.post(base+'/space/shared-methods/'+share['id']+'/install').json()
+    sid=result['skill_id']
+    # Reproduce persisted legacy rows: original Skill name and no naming marker.
+    result.pop('skill_name')
+    with connect(app.state.services.projects.store.db_path) as db:
+        db.execute("UPDATE project_records SET value_json=? WHERE project_id=? AND collection='skills' AND record_key=?",
+            (json.dumps(source),pid,sid))
+        db.execute('UPDATE shared_method_installs SET result=? WHERE project_id=? AND method_id=?',
+            (json.dumps(result),pid,share['id']))
+    before=asyncio.run(app.state.services.projects.store.get_record(pid,'skills',sid))
+    item=client.get(base+'/skills/'+sid).json()
+    assert item['display_name']=='新员工费用整理方法' and item['name']==source['name']
+    listed=next(item for item in client.get(base+'/skills').json() if item['id']==sid)
+    assert listed['display_name']==item['display_name']
+    assert client.post(base+'/space/shared-methods/'+share['id']+'/install').json()==result
+    assert asyncio.run(app.state.services.projects.store.get_record(pid,'skills',sid))==before
+    updated={**source,changed:{'name':'员工自己的名称','content':'员工补充的步骤',
+        'references':{'check.py':'print(9)'}}[changed],'expected_revision':1}
+    response=client.put(base+'/skills/'+sid,json=updated)
+    assert response.status_code==200,response.text
+    edited=response.json()
+    assert 'display_name' not in edited and edited[changed]==updated[changed]
+    assert client.post(base+'/space/shared-methods/'+share['id']+'/install').json()==result
+    assert client.get(base+'/skills/'+sid).json()==edited
+    assert all(client.get(base+'/skills/original').json()[key]==value for key,value in source.items())
 
 
 def test_stale_or_missing_skill_reference_cannot_be_shared(platform):

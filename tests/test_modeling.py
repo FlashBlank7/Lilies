@@ -4,6 +4,7 @@ MODEL_TEST_PYTHON=/path/to/locked/env/bin/python selects a real-library worker.
 MODEL_TEST_DOCKER=1 validates the production container transport instead.
 """
 import asyncio
+import csv
 import importlib.util
 import io
 import json
@@ -136,6 +137,59 @@ def test_dataset_readonly_versions_scope_and_idempotency(modeling):
     assert client.get(base + '/modeling/studies?after=9999').json() == []
 
 
+@pytest.mark.parametrize('table,extension,sheet', [('source', 'csv', 0), ('labels', 'xlsx', '预测清单')])
+def test_prediction_export_preserves_saved_sample_correspondence(modeling, table, extension, sheet):
+    (client, app, project, settings), service = modeling
+    original = settings.workspace_root / project['id'] / 'requirement-package/input.csv'
+    original.parent.mkdir(exist_ok=True)
+    original.write_text('x\n10\n\n20\n')
+    dataset = {'id': 'prediction-data', 'mapping': {'sheet': sheet}, 'files': {
+        'source': {'name': 'source.csv', 'original': 'requirement-package/input.csv'},
+        table: {'name': f'{table}.{extension}', 'original': f'requirement-package/{table}.{extension}'},
+    }}
+    folder = service.path(project['id'], dataset['id']) / 'run-export'
+    (folder / 'output').mkdir(parents=True)
+    artifact = folder / 'output/predictions.csv'
+    # The saved sample indices may have gaps or differ from result order. Never
+    # replace them with the preview index, or overwrite a similarly named column.
+    artifact.write_text('_sample,input_record,prediction,probability_yes\n4,keep-a,0.123456789,0.999999999\n1,keep-b,2.5,0.2\n')
+    result = {'rows': 2, 'preview': [{'_sample': 4, 'input_record': 'keep-a', 'prediction': .123456789},
+                                    {'_sample': 1, 'input_record': 'keep-b', 'prediction': 2.5}],
+              'probability_columns': {'yes': 'probability_yes'}}
+    output = service.export_prediction(project['id'], dataset, folder, result)
+    assert output['input_source'] == {'dataset_id': dataset['id'], 'path': f'requirement-package/{table}.{extension}',
+                                     'table': table, 'record_column': 'input_record_',
+                                     **({'sheet': sheet} if extension == 'xlsx' else {})}
+    assert [row['input_record_'] for row in output['preview']] == [5, 2]
+    exported = list(csv.DictReader(io.StringIO(artifact.read_text())))
+    assert exported == [{'input_record_': '5', '_sample': '4', 'input_record': 'keep-a', 'prediction': '0.123456789', 'probability_yes': '0.999999999'},
+                        {'input_record_': '2', '_sample': '1', 'input_record': 'keep-b', 'prediction': '2.5', 'probability_yes': '0.2'}]
+    assert (settings.workspace_root / project['id'] / output['project_path']).read_bytes() == artifact.read_bytes()
+    assert original.read_text() == 'x\n10\n\n20\n'
+
+
+@pytest.mark.parametrize('id_column,header,preview,expected_id', [
+    ('sample_id', 'sample_id,prediction\n000012345678901,1.25\n', {'sample_id': '000012345678901', 'prediction': 1.25}, 'sample_id'),
+    ('', 'prediction\n1.25\n', {'prediction': 1.25}, None),
+    ('prediction', 'prediction\n1.25\n', {'prediction': 1.25}, None),
+    ('', '_sample,prediction\ninvalid,1.25\n', {'_sample': 'invalid', 'prediction': 1.25}, None),
+])
+def test_prediction_export_does_not_invent_missing_source_fields(modeling, id_column, header, preview, expected_id):
+    (_, _, project, _), service = modeling
+    dataset = {'id': 'prediction-data', 'mapping': {'id_column': id_column},
+               'files': {'source': {'name': 'source.csv', 'original': 'requirement-package/predict.csv'}}}
+    folder = service.path(project['id'], dataset['id']) / 'run-export'
+    (folder / 'output').mkdir(parents=True)
+    artifact = folder / 'output/predictions.csv'; artifact.write_text(header)
+    output = service.export_prediction(project['id'], dataset, folder, {'rows': 1, 'preview': [dict(preview)]})
+    if expected_id:
+        assert output['input_source'] == {'dataset_id': dataset['id'], 'path': 'requirement-package/predict.csv', 'table': 'source', 'id_column': expected_id}
+    else:
+        assert 'input_source' not in output
+    assert output['preview'] == [preview]
+    assert artifact.read_text() == header
+
+
 def test_actual_workflow_training_prediction_download_and_repeat(real_compute):
     (client, app, project, settings), service = real_compute
     base, dataset, study, candidate = setup(client, project, settings)
@@ -187,7 +241,11 @@ def test_actual_workflow_training_prediction_download_and_repeat(real_compute):
     output = prediction['outputs']['result']
     assert output['rows'] == 2
     assert output['preview'][0]['id'] == '0101'
-    assert client.get(base + '/' + output['artifact']).status_code == 200
+    assert output['input_source'] == {'dataset_id': new['id'], 'path': new['files']['source']['original'], 'table': 'source', 'id_column': 'id'}
+    downloaded = client.get(base + '/' + output['artifact'])
+    assert downloaded.status_code == 200
+    assert list(csv.DictReader(io.StringIO(downloaded.text)))[0]['id'] == '0101'
+    assert client.get(base + '/tasks/' + prediction['id']).json()['outputs']['result']['input_source'] == output['input_source']
     assert output['artifact'] != prediction['outputs']['again']['artifact']
     draft_path = f'/api/v1/applications/{project["id"]}/draft'
     draft = client.get(draft_path).json()

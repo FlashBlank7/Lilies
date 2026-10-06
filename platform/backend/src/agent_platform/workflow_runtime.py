@@ -12,6 +12,7 @@ import stat
 import time
 from collections import defaultdict, deque
 from collections.abc import Awaitable, Callable, Collection
+from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -1546,6 +1547,18 @@ class WorkflowRuntime:
             logging.getLogger("agent_platform.alerts").warning(
                 "告警 webhook 投递失败（不影响运行）：%s", alert_error)
 
+    def _graph_inputs(self, workflow: WorkflowSpec, inputs: dict[str, Any]) -> dict[str, Any]:
+        """Resolve public defaults without changing supplied inputs or child scopes."""
+        defaults: dict[str, Any] = {}
+        for node in workflow.nodes:
+            if node.type in {'start', 'event_subscription_trigger', 'schedule_trigger'}:
+                config = self.blocks.validate_node(node)
+                defaults = (config.inputs if node.type == 'schedule_trigger' else
+                            {field.name: field.default for field in config.inputs})
+                break
+        # Internal presets and authority are supplied by the host, never a form.
+        return {**deepcopy({key: value for key, value in defaults.items() if not key.startswith('__')}), **inputs}
+
     async def _run_graph(
         self,
         snapshot: ApplicationSnapshot,
@@ -1557,6 +1570,7 @@ class WorkflowRuntime:
         prefix: str,
         top_state: WorkflowRunState | None = None,
     ) -> dict[str, dict[str, Any]]:
+        resolved_inputs = self._graph_inputs(workflow, inputs)
         node_map = {node.id: node for node in workflow.nodes}
         incoming: dict[str, list[Any]] = defaultdict(list)
         outgoing: dict[str, list[str]] = defaultdict(list)
@@ -1636,6 +1650,7 @@ class WorkflowRuntime:
                     run_id,
                     scoped_id,
                     top_state,
+                    resolved_inputs=resolved_inputs,
                 )
             except HumanInputPause:
                 raise
@@ -1697,12 +1712,15 @@ class WorkflowRuntime:
         run_id: str,
         scoped_id: str,
         state: WorkflowRunState | None,
+        *,
+        resolved_inputs: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         attempts = node.retry.max_attempts if node.retry.enabled else 1
         for attempt in range(1, attempts + 1):
             try:
                 return await self._execute_node(
-                    snapshot, node, inputs, outputs, workspace_path, run_id, scoped_id, state
+                    snapshot, node, inputs, outputs, workspace_path, run_id, scoped_id, state,
+                    resolved_inputs=resolved_inputs,
                 )
             except HumanInputPause:
                 raise
@@ -1734,6 +1752,8 @@ class WorkflowRuntime:
         run_id: str,
         scoped_id: str,
         state: WorkflowRunState | None,
+        *,
+        resolved_inputs: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """按积木类型派发到执行器。
 
@@ -1772,7 +1792,7 @@ class WorkflowRuntime:
                     snapshot=snapshot,
                     node=node,
                     config=self.blocks.validate_node(node),
-                    context={"inputs": inputs, "nodes": outputs, "run": {
+                    context={"inputs": resolved_inputs if resolved_inputs is not None else inputs, "nodes": outputs, "run": {
                         "run_id": run_id,
                         **({'project_id': state.project_context['project_id'],
                             'project_task_id': state.project_context['task_id']}
@@ -2116,7 +2136,11 @@ class WorkflowRuntime:
     @_node_executor("variable_aggregator")
     async def _exec_variable_aggregator(self, run: NodeRun) -> dict[str, Any]:
         config, context, state = run.config, run.context, run.state
-        skipped_nodes = set(state.skipped if state else [])
+        skipped_nodes = set()
+        if state:
+            # Each nested occurrence owns its branch decisions, including after resume.
+            scope = run.scoped_id[:-len(run.node.id)]
+            skipped_nodes = set(state.nested_progress.get(scope, {}).get('skipped', []) if scope else state.skipped)
         values = []
         for variable in config.variables:
             try:
@@ -5299,60 +5323,50 @@ class WorkflowRuntime:
                 # 作者双双绊倒——只报"解析不了"等于让人猜。
                 available = context.get("nodes", {}).get(node_id)
                 if isinstance(available, dict):
-                    hints = []
-                    # 提示必须用**真实输入语法**（分段数组），不能用点号显示形式：
-                    # 模型会照抄提示。此前提示写 output.by_store，模型就写成
-                    # path: ["output.by_store"]，永远解析不了（真机 881d90a6）。
+                    hint_paths = []
                     for key, item in list(available.items())[:6]:
-                        if isinstance(item, dict):
-                            hints.extend(
-                                f'["{key}", "{sub}"]' for sub in list(item.keys())[:6]
-                            )
+                        if isinstance(item, dict) and item:
+                            hint_paths.extend([key, sub] for sub in list(item)[:6])
                         else:
-                            hints.append(f'["{key}"]')
-                    if hints:
-                        detail += f"; 该节点可用路径：{hints[:12]}"
-                        # 该修哪一端，按"想要的路径是不是已有路径的近亲"来判：
-                        #  · 近亲（写法/拼写差一点）→ 十有八九是引用写错了，先改引用方；
-                        #  · 八竿子打不着 → 被引用节点确实没产出这个字段，改产出方。
-                        # 一刀切两次都翻过车：先是协调者 61 次只改引用方（真正缺的是
-                        # 产出），后是修理手 4 轮只改产出方（真正错的是引用路径写法，
-                        # 真机 881d90a6）。把判断做出来，别把两条路并列丢给模型。
-                        wanted = [str(segment) for segment in path]
-                        flat_wanted = ".".join(wanted)
-                        flat_hints = [
-                            hint.replace('["', "").replace('"]', "")
-                                .replace('", "', ".")
-                            for hint in hints
-                        ]
-                        near = difflib.get_close_matches(
-                            flat_wanted, flat_hints, n=2, cutoff=0.6
-                        )
-                        if near:
-                            detail += (
-                                f"；你写的 {path!r} 和已有的 "
-                                f"{['[\"' + n.replace('.', '\", \"') + '\"]' for n in near]!r} "
-                                "很接近——**多半是这里的引用写错了**（注意路径要按层分段，"
-                                '["output", "字段名"]，不是 ["output.字段名"]），'
-                                "先改引用方；确认无误再去看被引用节点的产出。"
-                            )
+                            hint_paths.append([key])
+                    # Code/tool outputs wrap their values in output. Check the
+                    # requested path there even when the displayed keys are
+                    # truncated; rows vs output.rows is not a spelling match.
+                    if path and "output" in available:
+                        probe = available["output"]
+                        try:
+                            for key in path:
+                                probe = probe[int(key)] if isinstance(probe, list) else probe[key]
+                        except (KeyError, IndexError, TypeError, ValueError):
+                            pass
                         else:
-                            detail += (
-                                f"；已有路径里没有和 {flat_wanted} 沾边的——"
-                                f"多半是节点 {node_id!r} 根本没产出这个字段，"
-                                "去它的 assignments/config 里补上；"
-                                "只改引用方是修不好的。"
-                            )
-                        # 指明该修哪一端：实测协调者拿到"解析不了"后 61 次去改
-                        # 引用方（模板节点），而真正缺的是被引用节点没产出该字段。
-                        # （这一段原来**连着写了两遍**，于是每条解析失败的报错
-                        #   都把同一句话说两次——真机上这是第二大的失败族。）
-                        wanted = ".".join(str(segment) for segment in path)
+                            wrapped_path = ["output", *path]
+                            if wrapped_path in hint_paths:
+                                hint_paths.remove(wrapped_path)
+                            hint_paths.insert(0, wrapped_path)
+                    # Show actual segmented paths, including escaped field names;
+                    # these suggestions never silently change reference resolution.
+                    if hint_paths:
+                        detail += "; 该节点可用路径：" + json.dumps(hint_paths[:12], ensure_ascii=False)
+                    same_field = [hint for hint in hint_paths if path and hint[-1] == path[-1]]
+                    flat_hints = {".".join(map(str, hint)): hint for hint in hint_paths}
+                    near = difflib.get_close_matches(".".join(map(str, path)), flat_hints, n=2, cutoff=0.6)
+                    if same_field:
                         detail += (
-                            f"；要么让节点 {node_id!r} 真正产出 {wanted}"
-                            f"（例如在它的 assignments/config 里补上），"
-                            "要么把这里的引用改成上面已有的路径之一——"
-                            "改引用方而不改产出方是修不好的。"
+                            "；节点已产出同名字段，可核对后将这里的引用 path 改为 "
+                            + json.dumps(same_field[:2], ensure_ascii=False)
+                            + " 中对应的分段路径；先改引用方，无需仅为这个路径错误修改产出代码。"
+                        )
+                    elif near:
+                        detail += (
+                            f"；你写的 {path!r} 和已有的 "
+                            + json.dumps([flat_hints[item] for item in near], ensure_ascii=False)
+                            + " 很接近——多半是这里的引用写错了；先改引用方，路径按层分段。"
+                        )
+                    else:
+                        detail += (
+                            "；当前展示路径中未找到匹配项，请先核对字段名称和节点的完整输出；"
+                            "若所需字段确实未产出，再调整该节点的配置或代码。"
                         )
                 raise WorkflowReferenceResolutionError(detail) from error
         if isinstance(value, dict):

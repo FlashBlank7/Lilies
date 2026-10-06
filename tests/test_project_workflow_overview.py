@@ -1,5 +1,5 @@
 """Business explanations stay project scoped; routes reflect actual draft edges."""
-from tests.test_projects import configured, fixture_graphs, start, settled, graph, node, edge  # noqa: F401
+from tests.test_projects import configured, fixture_graphs, start, settled, graph, node, edge, ref  # noqa: F401
 
 
 def test_requirement_comparison_persists_with_real_references_and_rejects_foreign_ones(configured):
@@ -37,13 +37,64 @@ def test_topology_preserves_call_order_and_conditional_branches_without_running(
     _, validate, allocate = fixture_graphs(client, project)
     topology = client.get(base+'/topology').json()
     main = topology['flows'][pid]
+    assert main['inputs'] == [{'name': 'request_id', 'label': '', 'type': 'string',
+                              'required': True, 'description': ''}]
+    assert main['outputs'] == ['result']
+    assert topology['flows'][validate]['outputs'] == ['request_id']
     assert [(c['node_id'], c['target']) for c in topology['calls'] if c['source'] == pid] == [('check', validate), ('allocate', allocate)]
     assert {'source': 'check', 'target': 'allocate', 'branch': None} in main['edges']
     conditional = topology['flows'][allocate]
+    assert conditional['outputs'] == ['allocated', 'owner', 'task_status', 'message']
     assert {'source': 'available', 'target': 'wait', 'branch': 'else'} in conditional['edges']
     assert next(n for n in conditional['nodes'] if n['id'] == 'available')['branches'][0]['conditions'][0]['expected'] == ''
     assert client.get(base+'/tasks').json() == []
-    graph(client, validate, [node('s', 'start'), node('e', 'end', outputs={'checked': True})], [edge('s', 'e')])
+    graph(client, validate, [node('s', 'start', inputs=[{'name': 'quantity', 'label': '数量', 'type': 'number',
+        'required': False, 'description': '本次申请数量', 'default': 123, 'example': 456}]),
+        node('e', 'end', outputs={'checked': True})], [edge('s', 'e')])
     updated = client.get(base+'/topology').json()['flows'][validate]
     assert updated['revision'] > topology['flows'][validate]['revision']
     assert [n['id'] for n in updated['nodes']] == ['s', 'e']
+    assert updated['inputs'] == [{'name': 'quantity', 'label': '数量', 'type': 'number',
+                                 'required': False, 'description': '本次申请数量'}]
+    assert updated['outputs'] == ['checked']
+
+
+def test_topology_contract_keeps_nested_and_called_workflow_definitions_separate(configured):
+    client, app, project, settings = configured
+    pid = project['id']; base = '/api/v1/projects/' + pid
+    child = client.post(base+'/members', json={'name': '内部处理'}).json()['id']
+    graph(client, child, [node('s', 'start', inputs=[{'name': 'child_input'}]),
+        node('e', 'end', outputs={'child_output': 'private child value'})], [edge('s', 'e')])
+    nested = {'nodes': [node('s', 'start', inputs=[{'name': 'item'}]),
+                       node('e', 'end', outputs={'nested_output': 'private nested value'})],
+              'edges': [edge('s', 'e')]}
+    graph(client, pid, [node('s', 'start', inputs=[{'name': 'request', 'default': 'private default'}]),
+        node('items', 'iteration', items=[], workflow=nested, output_node_id='e'),
+        node('call', 'tool', tool_name='workflow:'+child, input={'child_input': ref('$inputs', 'request')}),
+        node('choice', 'if_else', cases=[{'id': 'yes', 'conditions': [{'value': True, 'expected': True}]}]),
+        node('answer', 'answer', answer=ref('call', 'output', 'child_output')),
+        node('e', 'end', outputs={'result': ref('items', 'items'), 'answer': 'private output value'})],
+        [edge('s', 'items'), edge('items', 'call'), edge('call', 'choice'),
+         edge('choice', 'answer', 'yes'), edge('choice', 'e', 'else')])
+    topology = client.get(base+'/topology').json()
+    main = topology['flows'][pid]
+    assert main['inputs'] == [{'name': 'request', 'label': '', 'type': 'string',
+                              'required': True, 'description': ''}]
+    assert main['outputs'] == ['answer', 'result']
+    assert topology['flows'][child]['inputs'] == [{'name': 'child_input', 'label': '', 'type': 'string',
+                                                 'required': True, 'description': ''}]
+    assert topology['flows'][child]['outputs'] == ['child_output']
+    assert topology['calls'] == [{'source': pid, 'target': child, 'node_id': 'call', 'label': 'call'}]
+    assert client.get(base+'/tasks').json() == []
+
+
+def test_topology_contract_accepts_empty_drafts_and_legacy_empty_definitions(configured):
+    client, app, project, settings = configured
+    pid = project['id']; base = '/api/v1/projects/' + pid
+    empty = client.get(base+'/topology').json()['flows'][pid]
+    assert empty['inputs'] == []
+    assert empty['outputs'] == []
+    graph(client, pid, [node('s', 'start'), node('e', 'end')], [edge('s', 'e')])
+    legacy = client.get(base+'/topology').json()['flows'][pid]
+    assert legacy['inputs'] == []
+    assert legacy['outputs'] == []

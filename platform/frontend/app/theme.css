@@ -56,6 +56,10 @@ h1 { font-family:var(--ui-serif); font-weight:600; letter-spacing:-.025em; }
 .markdown-table-wrap :is(th,td) { color:var(--ui-ink); border-color:var(--ui-line); overflow-wrap:normal; word-break:normal; }
 .markdown-table-wrap th { background:var(--ui-hover); }
 .markdown-table-wrap th:first-child { min-width:130px; }
+.markdown-document .markdown-table-wrap { container-type:inline-size; isolation:isolate; }
+.markdown-document .markdown-table-wrap :is(th,td):first-child { position:sticky; left:0; z-index:1; width:1%; min-width:0; background:var(--ui-panel); box-shadow:1px 0 0 var(--ui-line); }
+.markdown-document .markdown-table-wrap th:first-child { z-index:2; background:var(--ui-hover); }
+.markdown-row-label { display:block; width:max-content; max-width:min(12rem,35cqw); white-space:normal; overflow-wrap:anywhere; }
 .markdown-document a { color:var(--ui-accent); border-bottom-color:#c9d6eb; }
 @media(prefers-reduced-motion:reduce) { *,*::before,*::after { animation-duration:.01ms!important; transition-duration:.01ms!important; scroll-behavior:auto!important; } }
 

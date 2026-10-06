@@ -5,12 +5,13 @@ import { clientId } from '@/lib/client-id'
 import { useCallback, useEffect, useState } from 'react'
 import Papa from 'papaparse'
 import { api, withFrontendToken } from '@/lib/platform'
-import ModelingPanel from './ModelingPanel'
+import { studySourceLabel } from '@/lib/modeling-labels'
+import ModelingPanel, {type ModelingContext} from './ModelingPanel'
 import {WorkflowValueField} from './WorkflowValueField'
 import styles from './workspace-tools.module.css'
 
 type Dataset = { id: string; name: string; mapping: { target: string }; created_at?: string; files?: {source?: {original: string}} }
-type Study = { id: string; name: string; status: string; best?: {candidate_id: string; slot: number; score: number} }
+type Study = { id: string; name: string; dataset_id?: string; created_at?: string; status: string; best?: {candidate_id: string; slot: number; score: number} }
 type Model = { model_ref: string; name: string; revision: number; status: string; candidate_id?: string }
 type Trial = { slot: number; status: string; model: string; metrics: Record<string, number> }
 type Candidate = { id: string; trials: Trial[] }
@@ -22,7 +23,7 @@ const datasetLabel = (data: Dataset) => {
   return [data.name, data.mapping.target ? `目标：${data.mapping.target}` : '', time, `编号 ${data.id.slice(0,8)}`].filter(Boolean).join(' · ')
 }
 
-export default function ProjectModels({ projectId, onWorkflow, onTask, onTalk }: { projectId: string; onWorkflow: (id: string) => void; onTask: (id: string) => void; onTalk: (message: string) => void }) {
+export default function ProjectModels({ projectId, onWorkflow, onTask, onTalk }: { projectId: string; onWorkflow: (id: string) => void; onTask: (id: string) => void; onTalk: (message: string, mode?: 'task' | 'workflow', context?: ModelingContext) => void }) {
   const base = `/api/v1/projects/${projectId}`
   const [datasets, setDatasets] = useState<Dataset[]>([])
   const [studies, setStudies] = useState<Study[]>([])
@@ -102,7 +103,7 @@ export default function ProjectModels({ projectId, onWorkflow, onTask, onTalk }:
     </section>
     <section className={styles.section}><h2>可调用模型</h2><p>模型名称是工作流的稳定引用。先创建工作流，再绑定训练结果也可以。</p>
       <div className={styles.row}><label>模型名称<input aria-label="模型引用名称" value={modelRef} onChange={e=>setModelRef(e.target.value)} /></label><button disabled={busy||!modelRef||models.some(m=>m.model_ref===modelRef)} onClick={()=>void act(()=>saveModel(false))}>创建待绑定模型</button><button disabled={busy||!modelRef} onClick={()=>void act(createWorkflow)}>创建预测工作流</button></div>
-      <div className={styles.row}><label>训练记录<select aria-label="绑定训练记录" value={studyId} onChange={e=>setStudyId(e.target.value)}><option value="">选择训练记录</option>{studies.map(s=><option key={s.id} value={s.id}>{s.name} · {statusNames[s.status]||s.status}</option>)}</select></label>
+      <div className={styles.row}><label>训练记录<select aria-label="绑定训练记录" value={studyId} onChange={e=>setStudyId(e.target.value)}><option value="">选择训练记录</option>{studies.map(s=><option key={s.id} value={s.id}>{[s.name, studySourceLabel(s,datasets), statusNames[s.status]||s.status].filter(Boolean).join(' · ')}</option>)}</select></label>
         <label>模型版本<select aria-label="绑定模型版本" value={trial} onChange={e=>setTrial(e.target.value)}><option value="">选择已完成的版本</option>{trials.map(t=><option key={`${t.candidate}:${t.trial.slot}`} value={`${t.candidate}:${t.trial.slot}`}>{t.trial.model} · {Object.entries(t.trial.metrics).map(([k,v])=>`${k} ${v.toPrecision(4)}`).join(' / ')}</option>)}</select></label><button disabled={busy||!trial||!modelRef} onClick={()=>void act(()=>saveModel(true))}>绑定模型版本</button></div>
       <details onToggle={event=>{if(event.currentTarget.open&&!environments.length)void api<string[]>(base+'/model-environments').then(setEnvironments).catch(e=>setError(String(e)))}}><summary>导入已有模型包</summary><p>先将模型上传到项目资料。模型包须包含预处理与预测器的 sklearn Pipeline；选择与原训练一致的本地环境，平台验证后绑定为独立版本。</p>
         <WorkflowValueField label="已有模型包" projectId={projectId} field="file_path" value={packagePath} onChange={setPackagePath} nodes={[]} nodeId="import" allowReference={false}/>
@@ -115,6 +116,6 @@ export default function ProjectModels({ projectId, onWorkflow, onTask, onTalk }:
       <p>直接预测使用所选模型，无需创建工作流；结果保存在运行记录中。</p>
       {message&&<p role="status">{message}</p>}{error&&<p role="alert">{error}</p>}
     </section>
-    <ModelingPanel projectId={projectId} onTask={onTask} onContext={(context,message)=>onTalk(message||`请分析并继续改进模型：${context.label}，研究 ${context.study_id||''}`)} />
+    <ModelingPanel projectId={projectId} onTask={onTask} onContext={(context,message,mode)=>onTalk(message||`请分析并继续改进模型：${context.label}，研究 ${context.study_id||''}`,mode,context)} />
   </>
 }

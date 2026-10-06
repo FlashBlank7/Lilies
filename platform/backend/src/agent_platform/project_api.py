@@ -1,5 +1,6 @@
 """Owner-facing project API. Native agents receive only project-bound tools."""
 import zipfile
+import re
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, Query, Request
@@ -12,6 +13,22 @@ from .project_conversation import ConversationMessage, ProgressUpdate
 from .requirement_discussion import load_discussion
 from .requirement_package import import_package
 from .model_connections import ModelConnection
+
+
+def input_file_names(inputs):
+    """Small input labels for run lists; never include arbitrary prompts or rows."""
+    names = []
+    for key, value in inputs.items():
+        if not re.search(r'(?:path|file|document|attachment)s?$', key, re.I):
+            continue
+        for path in (value if isinstance(value, list) else [value]):
+            if isinstance(path, str) and path.strip() and '\n' not in path and '://' not in path:
+                name = path.replace('\\', '/').rsplit('/', 1)[-1]
+                if name and name not in names:
+                    names.append(name[:200])
+            if len(names) == 20:
+                return names
+    return names
 
 
 class Body(BaseModel):
@@ -274,7 +291,8 @@ def project_router(services, require_token):
                     'raw_connection': manager.connections.public(manager.connections.load(project_id)) if manager.connections.load(project_id) else None}
         connection = manager.connections.load(project_id)
         return {**(manager.connections.public(connection) if connection else {'provider': None}),
-                'status': 'idle', 'events': [], 'revision': 0, 'error': ''}
+                'status': 'idle', 'events': [], 'revision': 0, 'error': '',
+                'model_egress_enabled': services.settings.model_egress_enabled}
 
     @scoped.put('/agent-session')
     async def select(project_id: str, body: SelectAgent):
@@ -283,7 +301,8 @@ def project_router(services, require_token):
     @scoped.get('/vision-model')
     async def vision_model(project_id: str):
         connection = manager.connections.load(project_id, 'vision')
-        return manager.connections.public(connection) if connection else {'provider': None, 'has_api_key': False, 'runtime_enabled': False}
+        return {**(manager.connections.public(connection) if connection else {'provider': None, 'has_api_key': False, 'runtime_enabled': False}),
+                'model_egress_enabled': services.settings.model_egress_enabled}
 
     @scoped.put('/vision-model')
     async def save_vision_model(project_id: str, body: ModelConnection):
@@ -294,7 +313,9 @@ def project_router(services, require_token):
 
     @scoped.get('/generation-model')
     async def generation_model(project_id: str):
-        return manager.connections.generation_settings(project_id)
+        return {**manager.connections.generation_settings(project_id),
+                'generation_source': 'official' if services.official_agent.selected(project_id, 'generation') else 'api',
+                'model_egress_enabled': services.settings.model_egress_enabled}
 
     @scoped.put('/generation-model')
     async def save_generation_model(project_id: str, body: ModelConnection):
@@ -367,7 +388,8 @@ def project_router(services, require_token):
                     status: Literal['', 'queued', 'running', 'waiting_input', 'interrupted', 'succeeded', 'failed'] = ''):
         result = await invoke(projects.store.tasks, project_id, purpose=purpose, item_id=item_id, before=before, limit=limit, status=status)
         if compact:
-            return [{k: v for k, v in task.items() if k not in {'inputs', 'outputs'}} for task in result]
+            return [{**{k: v for k, v in task.items() if k not in {'inputs', 'outputs'}},
+                     'input_files': input_file_names(task.get('inputs') or {})} for task in result]
         return result
 
     @scoped.post('/tasks', status_code=202)

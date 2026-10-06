@@ -15,7 +15,8 @@ export default function ProjectFileReader({ projectId, path, onClose, onTask }: 
   const url = resolveProjectLink(projectId, path)
   const valid = projectFilePathFromLink(projectId, url) === path
   const previewText = projectFileFromLink(projectId, url) === path
-  const previewImage = valid && /\.(png|jpe?g|webp)$/i.test(path)
+  // SVG stays in an image context, never injected into the application DOM.
+  const previewImage = valid && /\.(png|jpe?g|webp|svg)$/i.test(path)
   useEffect(() => {
     setText(null); setError('')
     if (!previewText) return

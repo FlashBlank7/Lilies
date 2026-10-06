@@ -75,6 +75,9 @@ class Settings(BaseSettings):
 
     max_parallel_tools: int = 4
     max_subagent_depth: int = 2
+    # Restored copies may be inspected and run manually without replaying old
+    # queues, starting timers/subscriptions or deleting historical artifacts.
+    automatic_tasks_enabled: bool = True
     scheduler_poll_seconds: float = 30.0
     project_agent_max_model_calls: int = Field(default=32, ge=1, le=200)
     project_agent_max_output_tokens: int = Field(default=8192, ge=128, le=16384)

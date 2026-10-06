@@ -13,7 +13,8 @@ from uuid import uuid4
 from pydantic import ValidationError
 
 from .build_transcript import owner_record
-from .codex_app_server import CodexAppServer, CodexError, inspect_executable, validate_codex_version
+from .agent_message_stream import AgentMessageStream, finish_saved_message
+from .codex_app_server import CodexAppServer, CodexError, CodexAuthenticationError, inspect_executable, validate_codex_version
 from .local_agent_tools import ProjectTools, tool_specs
 from .models import utc_now
 from .model_connections import ModelConnection, ModelConnections, LOCAL_PROVIDERS, AGENT_PROVIDERS
@@ -103,12 +104,13 @@ class LocalAgents:
         elif state.get('provider') == 'official':
             connection = self.connections.load(application_id)
             state.update(self.connections.public(connection) if connection else {'provider': None})
+        state['model_egress_enabled'] = self.services.settings.model_egress_enabled
         return state
 
-    def save(self, application_id: str, state: dict) -> None:
+    def save(self, application_id: str, state: dict, *, advance_revision: bool = True) -> None:
         directory = self.folder(application_id)
         directory.mkdir(parents=True, exist_ok=True, mode=0o700)
-        state["revision"] = state.get("revision", 0) + 1
+        state["revision"] = state.get("revision", 0) + int(advance_revision)
         state["updated_at"] = utc_now()
         temporary = directory / "session.tmp"
         temporary.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
@@ -158,6 +160,7 @@ class LocalAgents:
                     self.services.sandboxes.protect_inputs(workspace, ["requirement-package", "requirements"])
                 if state.get("status") in {"running", "connecting"}:
                     state.update(status="interrupted", error="应用已重启，点击继续恢复此会话")
+                    finish_saved_message(state)
                     self.save(project_id, state)
                     self.interrupt_operations(project_id, '服务已重启，等待继续')
                     if state.get('conversation_enabled') and self.services.projects.store.exists(project_id):
@@ -288,6 +291,7 @@ class LocalAgents:
                 save_discussion(workspace, discussion)
             if official:
                 await self.services.official_agent.enqueue(application_id, request_id)
+            finish_saved_message(state)
             state.update(phase=intent, status='queued' if official else 'connecting', error='', request_id=request_id)
             state.update(conversation_enabled=unified, continue_work=False, blocked_this_request=[],
                          conversation_context=conversation_context or {}, active_item_id='')
@@ -387,14 +391,16 @@ class LocalAgents:
             metadata.update(task_id=task_id, item_id=self.load(application_id).get('active_item_id', ''))
             self.event(application_id, 'tool_progress', operation['tool_name'], **metadata)
 
-    def task_result_event(self, application_id: str, task: dict, text: str, *, request_id: str | None = None) -> None:
+    def task_result_event(self, application_id: str, task: dict, text: str, *, request_id: str | None = None,
+                          result_kind: str = '') -> None:
         state = self.load(application_id)
         request_id = request_id if request_id is not None else state.get('request_id', '')
         if any(e['kind'] == 'result' and e.get('task_id') == task['id'] and e.get('request_id') == request_id
                for e in state['events']):
             return
         self.event(application_id, 'result', text, request_id=request_id, task_id=task['id'],
-                   item_id=task.get('item_id', ''), purpose=task.get('purpose', ''))
+                   item_id=task.get('item_id', ''), purpose=task.get('purpose', ''),
+                   **({'result_kind': result_kind} if result_kind else {}))
 
     async def stop_project_tests(self, application_id: str) -> None:
         for task_id in self.project_test_tasks.pop(self.key(application_id), set()):
@@ -416,10 +422,10 @@ class LocalAgents:
         status, error = "idle", ""
         is_project = self.services.projects.store.exists(application_id)
         from .project_agent_tools import WorkspaceProjectTools, PROJECT_INSTRUCTIONS, project_tool_specs
-        from .project_conversation import CONVERSATION_INSTRUCTIONS
         initial_state = self.load(application_id)
         official = initial_state.get('provider') == 'official'
         job_id = initial_state.get('request_id', '')
+        reply = AgentMessageStream(self, application_id, job_id)
         began = time.monotonic()
         from .official_agent import actor_id
         user_id = actor_id.get()
@@ -549,6 +555,9 @@ class LocalAgents:
                     self.event(application_id, 'status', '此事项连续三次遇到同一问题，已保留错误与恢复动作，先检查其他可推进事项。')
 
             async def on_event(method, params):
+                if reply.handle(method, params, thread_id=getattr(client, 'thread_id', None),
+                                turn_id=getattr(client, 'turn_id', None)):
+                    return
                 if method in {'item/started', 'item/completed'} and params.get('item', {}).get('type') == 'contextCompaction':
                     current = self.load(application_id)
                     operation_id = current.get('request_id', '') + ':context:' + params['item']['id']
@@ -565,10 +574,6 @@ class LocalAgents:
                 elif method == 'model_usage':
                     self.event(application_id, 'model_usage', '模型调用',
                         request_id=self.load(application_id).get('request_id', ''), **params)
-                elif method == "item/completed":
-                    item = params.get("item", {})
-                    if item.get("type") == "agentMessage" and item.get("text"):
-                        self.event(application_id, "assistant", item["text"])
                 elif method == "error" and params.get("error"):
                     self.event(application_id, "status", str(params["error"].get("message", "Agent 请求失败")))
 
@@ -638,6 +643,16 @@ class LocalAgents:
                     try:
                         task = await self.services.projects.store.get_task(application_id, result.get('project_task_id') or result['id'])
                         metadata['task_id'] = task['id']
+                        if (current.get('conversation_enabled') and metadata.get('request_id')
+                                and name == 'workflow_run' and arguments.get('action') == 'inspect'
+                                and arguments.get('task_id') == task['id']
+                                and task.get('purpose') != 'build_test'):
+                            # Expose the saved result as soon as it has been read;
+                            # the model may spend much longer composing its reply.
+                            # Reading never takes ownership of the task, so stopping
+                            # this explanation must not cancel an existing run.
+                            self.task_result_event(application_id, task, '已读取的运行结果',
+                                                   request_id=metadata['request_id'], result_kind='inspected')
                         if task['status'] in {'queued', 'running'} and arguments.get('wait') is False:
                             pending_workers.add(task['id'])
                             if official:
@@ -650,17 +665,26 @@ class LocalAgents:
                         pass
                 # Reading a failed task succeeded; its historical status is not
                 # another execution failure and must not pause work being debugged.
+                code_failed = (name == 'project_code' and isinstance(result, dict)
+                               and isinstance(result.get('exit_code'), int) and result['exit_code'] != 0)
                 failed = not is_read_call(name, arguments) and isinstance(result, dict) and (
-                    result.get('status') == 'failed' or result.get('passed') is False)
+                    result.get('status') == 'failed' or result.get('passed') is False or code_failed)
+                failure_reason = str(result.get('error') or '实际运行失败') if failed else ''
+                if code_failed:
+                    lines = str(result.get('stderr') or '').strip().splitlines()
+                    failure_reason = f"Python 执行失败（退出码 {result['exit_code']}）"
+                    if lines:
+                        failure_reason += '：' + lines[-1][:240]
                 measurement = payload_measurement(result)
                 metadata.update(output_bytes=measurement['bytes'], output_sha256=measurement['sha256'],
                                 read_call=is_read_call(name, arguments))
                 self.event(application_id, "tool", name, success=not failed,
                            status='failed' if failed else 'completed', ended_at=utc_now(),
-                           summary=(str(result.get('error') or '实际运行失败') if failed else '操作已完成'),
+                           summary=failure_reason if failed else '操作已完成',
                            result=json.dumps(result, ensure_ascii=False)[:20_000], **metadata)
                 if failed:
-                    await failed_action(name + ': ' + str(result.get('error') or result.get('failed_tests') or result.get('outputs') or result.get('summary'))[:4000])
+                    await failed_action(name + ': ' + str(failure_reason if code_failed else
+                        result.get('error') or result.get('failed_tests') or result.get('outputs') or result.get('summary'))[:4000])
                 elif ((name == 'workflow_draft' and (arguments.get('operation') or arguments.get('batch')))
                       or (name == 'project_file' and arguments.get('action') == 'write')
                       or (name == 'workflow_run' and arguments.get('action') in {'start', 'tests'})
@@ -690,21 +714,29 @@ class LocalAgents:
                     if current.get('context_handoff'):
                         context['recent_project_messages'] = [
                             {'role': e['kind'], 'text': e['text'][:2000]}
-                            for e in current['events'] if e['kind'] in {'user', 'assistant'}][-6:]
+                            for e in current['events'] if e['kind'] in {'user', 'assistant'} and not e.get('incomplete')][-6:]
                         reason = '原模型会话的恢复文件缺失，已建立新的模型会话。' if current.get('context_handoff_reason') == 'missing_rollout' else '工具已升级。'
                         context['instruction'] += ' ' + reason + ' 原项目消息、需求和结果均保留；从当前事项接续，不重复执行已完成的工具操作。'
+                # Put the current request after reference material; project
+                # indexes describe resources, not extra work to carry out.
+                # Replies received while loading context are the newest input.
+                for key in ('user_message', 'latest_messages'):
+                    if key in context:
+                        context[key] = context.pop(key)
                 productive = False
                 turn_key = str(uuid4())
+                turn_message = json.dumps(context, ensure_ascii=False, separators=(',', ':'))
                 self.event(application_id, 'agent_turn_started', 'Agent 回合开始', agent_turn_id=turn_key,
-                           context_bytes=payload_measurement(context)['bytes'],
+                           context_bytes=len(turn_message.encode('utf-8')),
                            context_parts={k: payload_measurement(v) for k, v in context.items()})
                 try:
                     if official:
                         turn = await self.services.official_agent.run_turn(application_id, job_id, client,
-                            json.dumps(context, ensure_ascii=False), on_event, on_tool)
+                            turn_message, on_event, on_tool)
                     else:
-                        turn = await client.turn(json.dumps(context, ensure_ascii=False), on_event, on_tool, timeout=900)
+                        turn = await client.turn(turn_message, on_event, on_tool, timeout=900)
                 finally:
+                    reply.finish()
                     self.event(application_id, 'agent_turn_ended', 'Agent 回合结束', agent_turn_id=turn_key)
                 if turn.get('status') == 'failed':
                     raise RuntimeError((turn.get('error') or {}).get('message', '模型会话执行失败'))
@@ -795,7 +827,10 @@ class LocalAgents:
             status = "interrupted"
         except Exception as cause:
             status, error = "error", str(cause)[:4000]
+            if official and isinstance(cause, CodexAuthenticationError):
+                self.services.official_agent.set_connection('blocked', error)
         finally:
+            reply.finish(close=True)
             if official:
                 service = self.services.official_agent
                 rows = service.jobs('queued') if service.shutting_down else []

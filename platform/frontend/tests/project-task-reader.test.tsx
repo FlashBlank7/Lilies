@@ -26,6 +26,25 @@ function completedTask(id: string) {
     created_at: '2026-09-28T00:00:00Z', presentation: { markdown: '保存的结果 ' + id }, inputs: {}, outputs: { quantity: 4 }, runs: [] }
 }
 
+it('refreshes history on entering or returning to the results tab without launching tasks', async () => {
+  projectReads(async id => completedTask(id))
+  const fallback = vi.mocked(api).getMockImplementation()!
+  let latest = [completedTask('first')]
+  vi.mocked(api).mockImplementation(async (path, options) => path.endsWith('/tasks?compact=true&limit=20')
+    ? latest.map(item=>({...item,input_files:[item.id+'.csv']})) as never : fallback(path,options))
+  await act(async()=>{render(<Suspense><ProjectPage params={Promise.resolve({id:'p'})}/></Suspense>)})
+  latest = [...latest,completedTask('second')]
+  fireEvent.click(screen.getByRole('tab',{name:'运行记录'}))
+  expect(await within(screen.getByRole('region',{name:'运行记录'})).findByText('输入：second.csv')).toBeVisible()
+  latest = [...latest,completedTask('third')]
+  await act(async()=>{fireEvent(document,new Event('visibilitychange'))})
+  expect(await within(screen.getByRole('region',{name:'运行记录'})).findByText('输入：third.csv')).toBeVisible()
+  latest = [...latest,completedTask('fourth')]
+  fireEvent.click(screen.getByRole('button',{name:'刷新运行记录'}))
+  expect(await within(screen.getByRole('region',{name:'运行记录'})).findByText('输入：fourth.csv')).toBeVisible()
+  expect(vi.mocked(api).mock.calls.some(([,options])=>options?.method==='POST')).toBe(false)
+})
+
 it('opens the exact linked task on first load and query changes without starting work', async () => {
   navigation.query = 'task=historical'
   projectReads(async id => completedTask(id))
@@ -76,6 +95,7 @@ it.each(['running','waiting_input'])('reopens and stops a persisted %s run, then
     if (path.includes('/tasks?purpose=customer_trial')) return [task] as never
     if (path.includes('/tasks?compact=true') || path.endsWith('/workspace/files')) return [] as never
     if (path.endsWith('/progress')) return { revision: 0, value: { goal: '', summary: '', items: [] } } as never
+    if (path.endsWith('/readiness')) return {status:'configured',issues:[],note:'运行时检查'} as never
     if (path.endsWith('/draft')) return { snapshot: { workflow: { nodes: [] } } } as never
     if (options) throw new Error(path)
     return { id: 'p', name: 'Review project', members: [{ id: 'member', name: '设计评审', revision: 1, purpose: 'business' }] } as never
@@ -101,6 +121,7 @@ it('shows actual workflows and an older waiting run without legacy progress item
     if(path.endsWith('/tasks/old/stop')){waiting={...waiting,status:'interrupted'};return waiting as never}
     if(path.endsWith('/tasks/old'))return waiting as never
     if(path.endsWith('/progress'))return {revision:0,value:{goal:'',summary:'',items:[]}} as never
+    if(path.endsWith('/readiness'))return {status:'configured',issues:[],note:'运行时检查'} as never
     if(path.endsWith('/draft'))return {snapshot:{workflow:{nodes:[]}}} as never
     if(options)throw new Error(path)
     return {id:'p',name:'已有流程的项目',members:[{id:'p',name:'主流程',purpose:'business'},{id:'member',name:'数据分析',purpose:'business'},{id:'helper',name:'旧开发工具',purpose:'development'}]} as never
@@ -116,4 +137,103 @@ it('shows actual workflows and an older waiting run without legacy progress item
   await waitFor(()=>expect(summary).toHaveTextContent('0次运行等待补充'))
   expect(screen.queryByRole('region',{name:'等待补充的运行'})).not.toBeInTheDocument()
   expect(vi.mocked(api).mock.calls.some(([path])=>path.includes('agent-session/messages'))).toBe(false)
+})
+
+it('follows a configuration link when only the current project query changes', async () => {
+  projectReads(async id => completedTask(id))
+  const params = Promise.resolve({ id: 'p' })
+  const page = await act(async () => render(<Suspense><ProjectPage params={params} /></Suspense>))
+  expect(screen.getByRole('tab', {name:'对话'})).toHaveAttribute('aria-selected','true')
+  navigation.query = 'tab=settings'
+  await act(async () => page.rerender(<Suspense><ProjectPage params={params} /></Suspense>))
+  expect(screen.getByRole('tab', {name:'设置'})).toHaveAttribute('aria-selected','true')
+  expect(screen.getByRole('button', {name:'模型设置'})).toBeInTheDocument()
+  expect(vi.mocked(api).mock.calls.every(([, options]) => !options)).toBe(true)
+})
+
+it('preserves new manual-run input summaries while refreshing compact history', async () => {
+  navigation.query = 'task=previous'
+  const previous = {...completedTask('previous'), purpose:'customer_trial', input_files:['previous.csv'], inputs:{source_path:'requirement-package/previous.csv',removed_field:'must not carry'}}
+  vi.mocked(api).mockImplementation(async (path, options) => {
+    if (path.endsWith('/tasks/previous')) return previous as never
+    if (path.endsWith('/tasks') && options?.method === 'POST') return {...completedTask('new'), inputs:JSON.parse(options.body as string).inputs,
+      input_parameters:[{name:'group_by',label:'汇总维度',value:'按月、商户和币种'},{name:'mark_duplicates',label:'标记疑似重复',value:'否'}]} as never
+    if (path.includes('/tasks?purpose=customer_trial')) return [previous] as never
+    if (path.endsWith('/conversations') || path.includes('/tasks?') || path.endsWith('/workspace/files')) return [] as never
+    if (path.endsWith('/example')) return null as never
+    if (path.endsWith('/progress')) return {revision:0,value:{goal:'',summary:'',items:[]}} as never
+    if (path.endsWith('/readiness')) return {status:'configured',issues:[],note:'运行时检查'} as never
+    if (path.endsWith('/draft')) return {snapshot:{workflow:{nodes:[{type:'start',config:{inputs:[
+      {name:'source_path',type:'string',default:'requirement-package/original.csv'},
+      {name:'files',type:'array',default:['results/prior/review.csv','requirement-package/notes.txt','requirement-package/new.csv']},
+      {name:'request',type:'string',default:'不得把完整要求展示在历史文件摘要'},
+      {name:'rows',type:'array',default:[{path:'requirement-package/row-data.csv',value:'完整行数据'}]},
+    ]}}]}}} as never
+    if (options) throw new Error(path)
+    return {id:'p',name:'项目',members:[{id:'member',name:'资料整理',revision:1,purpose:'business'}]} as never
+  })
+  await act(async () => {render(<Suspense><ProjectPage params={Promise.resolve({id:'p'})}/></Suspense>)})
+  fireEvent.click(await screen.findByRole('button',{name:'再次运行此工作流'}))
+  expect(await screen.findByRole('textbox',{name:'source_path'})).toHaveValue('requirement-package/previous.csv')
+  fireEvent.change(screen.getByRole('textbox',{name:'source_path'}),{target:{value:'requirement-package/new.csv'}})
+  fireEvent.click(screen.getByRole('button',{name:'启动工作流'}))
+  await screen.findByText('保存的结果 new')
+  await act(async()=>{fireEvent.click(screen.getByRole('tab',{name:'运行记录'}))})
+  const current = screen.getByRole('button',{name:/资料整理 · 运行完成.*输入：new.csv、review.csv、notes.txt/})
+  expect(current).toBeVisible()
+  expect(current).not.toHaveTextContent('requirement-package/')
+  expect(current).not.toHaveTextContent('完整要求')
+  expect(current).not.toHaveTextContent('row-data.csv')
+  expect(current).toHaveTextContent('汇总维度：按月、商户和币种 · 标记疑似重复：否')
+  expect(screen.getByRole('button',{name:/资料整理 · 运行完成.*输入：previous.csv/})).toBeVisible()
+  const submits=vi.mocked(api).mock.calls.filter(([,options])=>options?.method==='POST')
+  expect(submits).toHaveLength(1)
+  const body=JSON.parse(submits[0][1]!.body as string)
+  expect(body.reuse_task_id).toBeUndefined()
+  expect(body.inputs.removed_field).toBeUndefined()
+  expect(body.inputs.files).toHaveLength(3)
+  expect(vi.mocked(api).mock.calls.some(([path])=>path.endsWith('/tasks/new'))).toBe(false)
+})
+
+it('distinguishes same-file runs with saved business parameters without reading the current draft', async () => {
+  const rows = [
+    {...completedTask('category'), input_files:['expenses.csv'], input_parameters:[
+      {name:'group_by',label:'汇总维度',value:'按月、类别和币种'},
+      {name:'mark_duplicates',label:'标记疑似重复',value:'是'},
+    ]},
+    {...completedTask('merchant'), input_files:['expenses.csv'], input_parameters:[
+      {name:'group_by',label:'汇总维度',value:'按月、商户和币种'},
+      {name:'mark_duplicates',label:'标记疑似重复',value:'否'},
+    ]},
+    {...completedTask('older'), input_files:['older.csv']},
+  ]
+  vi.mocked(api).mockImplementation(async path => {
+    if (path.includes('/tasks?purpose=customer_trial')) return rows as never
+    if (path.includes('/tasks?') || path.endsWith('/conversations') || path.endsWith('/workspace/files')) return [] as never
+    if (path.includes('/tasks/')) return rows.find(row=>path.endsWith('/'+row.id)) as never
+    if (path.endsWith('/example')) return null as never
+    if (path.endsWith('/progress')) return {revision:0,value:{goal:'',summary:'',items:[]}} as never
+    if (path.endsWith('/draft')) throw new Error('Run history must not load current draft inputs')
+    return {id:'p',name:'费用归集',members:[{id:'member',name:'费用归集',purpose:'business'}]} as never
+  })
+  await act(async()=>{render(<Suspense><ProjectPage params={Promise.resolve({id:'p'})}/></Suspense>)})
+  fireEvent.click(screen.getByRole('tab',{name:'运行记录'}))
+  fireEvent.click(screen.getByRole('tab',{name:'对话'}))
+  const recent = screen.getByRole('region',{name:'最近结果'})
+  expect(within(recent).getByRole('button',{name:/费用归集.*按月、类别和币种/})).toBeVisible()
+  const recentMerchant = within(recent).getByRole('button',{name:/费用归集.*按月、商户和币种/})
+  expect(recentMerchant).toHaveTextContent('expenses.csv')
+  fireEvent.click(recentMerchant)
+  expect(await screen.findByText('保存的结果 merchant')).toBeVisible()
+  fireEvent.click(screen.getByRole('button',{name:'关闭阅读窗口'}))
+  fireEvent.click(screen.getByRole('tab',{name:'运行记录'}))
+  const category = screen.getByRole('button',{name:/费用归集 · 运行完成.*输入：expenses.csv.*汇总维度：按月、类别和币种.*标记疑似重复：是/})
+  const merchant = screen.getByRole('button',{name:/费用归集 · 运行完成.*输入：expenses.csv.*汇总维度：按月、商户和币种.*标记疑似重复：否/})
+  expect(category).toBeVisible()
+  expect(merchant).toBeVisible()
+  expect(screen.getByRole('button',{name:/费用归集 · 运行完成.*输入：older.csv/})).toBeVisible()
+  fireEvent.click(merchant)
+  expect(await screen.findByText('保存的结果 merchant')).toBeInTheDocument()
+  expect(api).toHaveBeenCalledWith('/api/v1/projects/p/tasks/merchant')
+  expect(vi.mocked(api).mock.calls.some(([path])=>path.endsWith('/draft'))).toBe(false)
 })

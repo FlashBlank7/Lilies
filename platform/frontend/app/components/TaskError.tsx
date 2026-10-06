@@ -10,7 +10,10 @@ export default function TaskError({error}:{error?:string}) {
   const reason=traceback
     ? last ? full.slice(last.index!+last[0].length).trim() || last[1] : '执行失败，请展开查看错误详情。'
     : full
-  const summary=reason.length>1000 ? reason.slice(0,1000)+'…（完整内容见错误详情）' : reason
+  const explained=/(?:^|[:：]\s*)horizon需要1至96之间的整数$/.test(reason)
+    ? '预测步数（horizon）需要填写 1 至 96 之间的整数。请在运行参数中修改“预测步数”，再重新运行。'
+    : reason
+  const summary=explained.length>1000 ? explained.slice(0,1000)+'…（完整内容见错误详情）' : explained
   return <div>
     <p role="alert" style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere'}}>{summary}</p>
     {summary!==full && <details><summary>错误详情</summary><pre style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere'}}>{full}</pre></details>}

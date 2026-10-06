@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { api } from '@/lib/platform'
 import ProjectRunPanel, { ProjectRunEvents, ProjectTaskOutput } from '@/app/components/ProjectRunPanel'
@@ -38,7 +38,7 @@ it('offers newly created files after completion without resetting edited inputs 
   fireEvent.change(screen.getByRole('textbox',{name:'note'}),{target:{value:'本次修改保留'}})
   fireEvent.click(screen.getByRole('button',{name:'启动工作流'}))
   await screen.findByText('方法已保存')
-  await waitFor(()=>expect(screen.getByRole('combobox',{name:'为 method_path 选择项目文件'})).toHaveTextContent('results/run/method.json'))
+  await waitFor(()=>expect(screen.getByRole('combobox',{name:'为 method_path 选择项目文件'})).toHaveTextContent('method.json'))
   fireEvent.change(screen.getByRole('combobox',{name:'为 method_path 选择项目文件'}),{target:{value:'results/run/method.json'}})
   expect(screen.getByRole('textbox',{name:'method_path'})).toHaveValue('results/run/method.json')
   expect(screen.getByRole('textbox',{name:'note'})).toHaveValue('本次修改保留')
@@ -72,7 +72,64 @@ it('shows workflow training, fixed-class test results and model download without
   expect(screen.getByRole('heading',{name:'训练比较'})).toBeInTheDocument()
   expect(screen.getByText('0 · 缺少此类测试样本')).toBeInTheDocument()
   expect(screen.getByText(/roc_auc: 无法计算/)).toBeInTheDocument()
+  expect(within(screen.getByRole('region',{name:'独立测试'})).getByText(/该历史结果未保存独立测试与数据集、模型的对应信息/)).toBeInTheDocument()
+  expect(screen.queryByRole('heading',{name:'本次测试使用的模型'})).not.toBeInTheDocument()
   expect(screen.getByRole('link',{name:'下载模型与训练记录 ↓'})).toHaveAttribute('href','/api/platform/api/v1/projects/p/modeling/studies/study/candidates/candidate/download')
+})
+
+it('keeps saved model and validation metrics with the selected task when models share a name',()=>{
+  const task=(id:string,dataset:string,slot:number,validation:number,test:number)=>({id,status:'succeeded',outputs:{
+    // Training output can refer to a different candidate from the tested model.
+    training:{id:'other-candidate',study_id:'other-study',trials:[{slot:0,model:'linear',status:'completed',metrics:{mae:.001}}]},
+    evaluation:{rows:12,label:'保留测试',metrics:{mae:test},evaluated_model:{study_id:id+'-study',dataset_id:id+'-data',dataset_name:dataset,candidate_id:id+'-candidate',slot,model:'linear',validation_metrics:{mae:validation}}},
+  }})
+  const {rerender}=render(<ProjectTaskOutput projectId="p" task={task('first','温度数据',0,.12,.34) as never}/> )
+  let result=within(screen.getByRole('region',{name:'独立测试'}))
+  expect(result.getByText('数据集：温度数据')).toBeInTheDocument()
+  expect(result.getByText('模型：linear · 候选内第 1 次试验')).toBeInTheDocument()
+  expect(result.getByRole('heading',{name:'同一模型的验证指标'}).nextElementSibling).toHaveTextContent('mae: 0.12000')
+  expect(result.getByText('mae: 0.34000')).toBeInTheDocument()
+  expect(result.queryByText(/0.001/)).not.toBeInTheDocument()
+
+  rerender(<ProjectTaskOutput projectId="p" task={task('second','压力数据',2,.56,.78) as never}/> )
+  result=within(screen.getByRole('region',{name:'独立测试'}))
+  expect(result.getByText('数据集：压力数据')).toBeInTheDocument()
+  expect(result.getByText('模型：linear · 候选内第 3 次试验')).toBeInTheDocument()
+  expect(result.getByRole('heading',{name:'同一模型的验证指标'}).nextElementSibling).toHaveTextContent('mae: 0.56000')
+  expect(result.getByText('mae: 0.78000')).toBeInTheDocument()
+  expect(result.queryByText(/温度数据|0.12000|0.34000|0.001/)).not.toBeInTheDocument()
+  rerender(<ProjectTaskOutput projectId="p" task={{id:'legacy',status:'succeeded',outputs:{
+    training:{id:'old-candidate',study_id:'old-study',trials:[{slot:0,model:'linear',status:'completed',metrics:{mae:.99}}]},
+    evaluation:{rows:6,label:'保留测试',metrics:{mae:.88}},
+  }} as never}/> )
+  result=within(screen.getByRole('region',{name:'独立测试'}))
+  expect(result.getByText(/该历史结果未保存独立测试与数据集、模型的对应信息/)).toBeInTheDocument()
+  expect(result.getByText('mae: 0.88000')).toBeInTheDocument()
+  expect(result.queryByText(/压力数据|linear|0.56000|0.78000|0.99000/)).not.toBeInTheDocument()
+  expect(result.queryByRole('heading',{name:'同一模型的验证指标'})).not.toBeInTheDocument()
+  expect(api).not.toHaveBeenCalled()
+})
+
+it('shows saved evaluated model without training output and preserves zero and unavailable validation metrics',()=>{
+  render(<ProjectTaskOutput projectId="p" task={{status:'succeeded',outputs:{evaluation:{rows:3,label:'保留测试',metrics:{mae:2},evaluated_model:{dataset_name:'本次资料',model:'linear',slot:0,validation_metrics:{mae:0,r2:null}}}}} as never}/> )
+  const result=within(screen.getByRole('region',{name:'独立测试'}))
+  expect(result.getByText('数据集：本次资料')).toBeInTheDocument()
+  expect(result.getByRole('heading',{name:'同一模型的验证指标'}).nextElementSibling).toHaveTextContent('mae: 0.0000 / r2: 无法计算')
+  expect(result.getByText('mae: 2.0000')).toBeInTheDocument()
+  expect(result.queryByText(/该历史结果未保存/)).not.toBeInTheDocument()
+  expect(api).not.toHaveBeenCalled()
+})
+
+it('marks unavailable snapshot fields without inventing model names or validation scores',()=>{
+  render(<ProjectTaskOutput projectId="p" task={{status:'succeeded',outputs:{evaluation:{
+    rows:3,label:'保留测试',metrics:{mae:2},
+    evaluated_model:{dataset_name:null,model:null,slot:0,validation_metrics:null},
+  }}} as never}/> )
+  const result=within(screen.getByRole('region',{name:'独立测试'}))
+  expect(result.getByText('数据集：未记录名称')).toBeInTheDocument()
+  expect(result.getByText('模型：未记录名称 · 候选内第 1 次试验')).toBeInTheDocument()
+  expect(result.getByRole('heading',{name:'同一模型的验证指标'}).nextElementSibling).toHaveTextContent('本次结果未保存验证指标。')
+  expect(result.getByText('mae: 2.0000')).toBeInTheDocument()
 })
 
 it.each(['secure', 'http'])('runs and downloads through project tasks on %s origins without an agent', async origin => {
@@ -101,7 +158,7 @@ it.each(['secure', 'http'])('runs and downloads through project tasks on %s orig
 })
 
 it('rejects missing required input before starting a task', async () => {
-  vi.mocked(api).mockImplementation(async path => path.endsWith('/draft') ? { snapshot: { workflow: { nodes: [{ type: 'start', config: { inputs: fields } }] } } } as never : [] as never)
+  vi.mocked(api).mockImplementation(async path => path.endsWith('/readiness') ? {status:'configured',issues:[],note:'运行时检查输入'} as never : path.endsWith('/draft') ? { snapshot: { workflow: { nodes: [{ type: 'start', config: { inputs: fields } }] } } } as never : [] as never)
   await act(async () => { render(<ProjectRunPanel projectId="p" members={members} initialWorkflowId="member" />) })
   fireEvent.click(screen.getByRole('button', { name: '启动工作流' }))
   await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('请填写 document'))
@@ -134,7 +191,7 @@ it.each(['', ' '])('sends cleared optional defaults (%j) so switching inputs can
 it('loads persisted step input/output and errors from the selected run', async () => {
   vi.mocked(api).mockResolvedValue({ events: [{ id: 1, type: 'node_failed', data: { node_id: 'parse', inputs: { file: 'design.pdf' }, error: '文档无法解析' } }], truncated: false })
   render(<ProjectRunEvents members={members} runs={[{ id: 'run-1', status: 'failed', application_id: 'member', draft_revision: 2 }]} />)
-  fireEvent.click(screen.getByRole('button', { name: '解析资料 · 运行失败 · 查看步骤输入输出' }))
+  fireEvent.click(screen.getByRole('button', { name: '解析资料 · 运行失败 · 查看原始执行事件' }))
   expect(await screen.findByText('node_failed')).toBeInTheDocument()
   expect(screen.getByText(/文档无法解析/)).toHaveTextContent('design.pdf')
   expect(api).toHaveBeenCalledWith('/api/v1/runs/run-1/events/list?after=0&limit=1000')
@@ -145,6 +202,7 @@ it('distinguishes threshold selection from independent test performance',()=>{
   expect(screen.getByRole('heading',{name:'自动采纳与人工复核'})).toBeInTheDocument()
   expect(screen.getByText(/这是选择依据，不是独立测试成绩/)).toBeInTheDocument()
   expect(screen.getByText(/采纳部分准确率 0.000/)).toBeInTheDocument()
+  expect(screen.queryByText(/该历史结果未保存/)).not.toBeInTheDocument()
 })
 
 it('recomputes the current draft using historical inputs and a scoped reuse task', async () => {
@@ -160,4 +218,33 @@ it('recomputes the current draft using historical inputs and a scoped reuse task
   expect(await screen.findByText(/复用 1 个已完成步骤/)).toHaveTextContent('train')
   const call=vi.mocked(api).mock.calls.find(([,options])=>options?.method==='POST')!
   expect(JSON.parse(call[1]!.body as string)).toMatchObject({reuse_task_id:'old',workflow_id:'member',inputs:{source_path:'original.csv'}})
+})
+
+it('filters declared file formats and prevents invalid saved or typed paths before launch', async () => {
+  const allowed={type:'file',accept:['.csv','.tsv','.xlsx']}
+  vi.mocked(api).mockImplementation(async (path,options)=>{
+    if(path.endsWith('/readiness'))return {status:'configured',issues:[]} as never
+    if(path.endsWith('/draft'))return {snapshot:{workflow:{nodes:[{type:'start',config:{inputs:[
+      {...allowed,name:'source_path',label:'费用表',required:true,default:'requirement-package/说明.md'},
+      {...allowed,name:'second_path',label:'追加费用表',required:false,default:''},
+    ]}}]}}} as never
+    if(path.endsWith('/workspace/files'))return ['说明.md','expenses.CSV','extra.tsv','sheet.xlsx'].map(name=>({path:'requirement-package/'+name})) as never
+    if(options?.method==='POST')return {id:'ok',status:'succeeded',outputs:{markdown:'格式已通过'}} as never
+    return [] as never
+  })
+  await act(async()=>{render(<ProjectRunPanel projectId="p" members={members} initialWorkflowId="member"/>)})
+  const selector=screen.getByRole('combobox',{name:'为 source_path 选择项目文件'})
+  expect(selector).toHaveAttribute('aria-invalid','true')
+  expect(screen.getByRole('option',{name:'说明.md（格式不支持，请重新选择）'})).toBeDisabled()
+  expect(screen.getByRole('alert')).toHaveTextContent('费用表不支持此文件格式，请选择 CSV、TSV、XLSX 文件')
+  fireEvent.click(screen.getByRole('button',{name:'启动工作流'}))
+  expect(vi.mocked(api).mock.calls.some(([,options])=>options?.method==='POST')).toBe(false)
+  fireEvent.change(selector,{target:{value:'requirement-package/expenses.CSV'}})
+  fireEvent.change(screen.getByRole('textbox',{name:'second_path'}),{target:{value:'requirement-package/说明.md'}})
+  fireEvent.click(screen.getByRole('button',{name:'启动工作流'}))
+  expect(vi.mocked(api).mock.calls.some(([,options])=>options?.method==='POST')).toBe(false)
+  fireEvent.change(screen.getByRole('textbox',{name:'second_path'}),{target:{value:''}})
+  fireEvent.click(screen.getByRole('button',{name:'启动工作流'}))
+  await screen.findByText('格式已通过')
+  expect(JSON.parse(vi.mocked(api).mock.calls.find(([,o])=>o?.method==='POST')![1]!.body as string).inputs).toEqual({source_path:'requirement-package/expenses.CSV',second_path:''})
 })

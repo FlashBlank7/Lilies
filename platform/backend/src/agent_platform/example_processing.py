@@ -6,6 +6,7 @@ dependencies of the selected execution environment, never silently substituted.
 import csv
 import difflib
 import json
+import re
 from collections import Counter, defaultdict
 from datetime import date
 from decimal import Decimal, InvalidOperation
@@ -26,8 +27,9 @@ def source(value):
     return path
 
 
-def table(value):
+def table(value, with_locations=False):
     path = source(value)
+    sheet = ''
     if path.suffix.lower() == '.xlsx':
         try:
             from openpyxl import load_workbook
@@ -35,16 +37,32 @@ def table(value):
             raise ValueError('当前执行环境缺少 openpyxl，请配置该依赖或将资料导出为 CSV') from error
         book = load_workbook(path, read_only=True, data_only=True)
         try:
+            sheet = book.active.title
             data = list(book.active.values)
         finally:
             book.close()
         fields = [str(v or '').strip() for v in data[0]] if data else []
         rows = [dict(zip(fields, [str(v) if v is not None else '' for v in row])) for row in data[1:]]
+        source_rows = list(range(2, len(rows) + 2))
     elif path.suffix.lower() in ('.csv', '.tsv'):
         with path.open(encoding='utf-8-sig', newline='') as stream:
-            reader = csv.DictReader(stream, delimiter='\t' if path.suffix.lower() == '.tsv' else ',')
-            fields = reader.fieldnames or []
-            rows = list(reader)
+            reader = csv.reader(stream, delimiter='\t' if path.suffix.lower() == '.tsv' else ',')
+            fields = next(reader, [])
+            rows, source_rows = [], []
+            previous_line = reader.line_num
+            for values in reader:
+                first_line, previous_line = previous_line + 1, reader.line_num
+                # Match DictReader's treatment of blank records and short rows,
+                # while retaining the first physical line of multiline records.
+                if not values:
+                    continue
+                row = dict(zip(fields, values))
+                if len(values) < len(fields):
+                    row.update({field: None for field in fields[len(values):]})
+                elif len(values) > len(fields):
+                    row[None] = values[len(fields):]
+                rows.append(row)
+                source_rows.append(first_line)
     else:
         raise ValueError('请选择 CSV、TSV 或 XLSX 表格')
     if not fields or len(fields) != len(set(fields)) or any(not f for f in fields):
@@ -55,6 +73,8 @@ def table(value):
         raise ValueError('表格没有数据行')
     if len(rows) > 100000:
         raise ValueError('示例最多处理 10 万行，请拆分资料')
+    if with_locations:
+        return fields, rows, {'source_file': str(path), 'sheet': sheet, 'rows': source_rows}
     return fields, rows
 
 
@@ -101,6 +121,18 @@ def decimal(value, row, field):
         raise ValueError(f'第 {row} 行的 {field} 不是有效数字：{value}') from None
 
 
+def csv_cell(value):
+    if not isinstance(value, str) or not value.lstrip().startswith(('=', '+', '-', '@')):
+        return value
+    if re.fullmatch(r'[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?', value.strip()):
+        try:
+            if Decimal(value).is_finite():
+                return value
+        except InvalidOperation:
+            pass
+    return "'" + value
+
+
 def export(result, rows=None):
     folder = Path('results/examples') / str(uuid4())
     folder.mkdir(parents=True)
@@ -115,7 +147,7 @@ def export(result, rows=None):
             writer = csv.DictWriter(stream, fieldnames=list(rows[0]))
             writer.writeheader()
             # Protect spreadsheet readers while retaining raw values in result.json.
-            writer.writerows({k: "'"+v if isinstance(v, str) and v.startswith(('=', '+', '-', '@')) else v for k,v in row.items()} for row in rows)
+            writer.writerows({k: csv_cell(v) for k,v in row.items()} for row in rows)
         files.append({'file_path': str(path), 'label': '明细 CSV'})
     return {**result, 'artifacts': files}
 
@@ -142,20 +174,31 @@ def main(inputs):
         return export({'markdown': '# 文档差异\n\n共 '+str(len(changes))+' 处变化。以下是原文差异，未推断业务影响。\n\n'+ '\n\n'.join(
             f"原文第 {c['old_start']} 处 → 新文第 {c['new_start']} 处\n\n删除／原文：{c['before']}\n\n新增／新文：{c['after']}" for c in changes),
             'changes': changes, 'sources': [inputs['source_path'],inputs['second_path']]}, changes)
-    fields, rows = table(inputs['source_path'])
+    fields, rows, locations = table(inputs['source_path'], with_locations=True)
     if mode == 'profile':
-        counts = Counter(tuple(row.get(f,'') for f in fields) for row in rows)
+        source_rows = locations['rows']
+        def issue(row, reason, fields, first_row=''):
+            return {'source_file': locations['source_file'], 'sheet': locations['sheet'],
+                    'row': row, 'first_row': first_row, 'reason': reason, 'fields': fields}
+        first_rows, duplicate_issues = {}, []
+        for row_number, row in zip(source_rows, rows):
+            fingerprint = tuple(row.get(f, '') for f in fields)
+            if fingerprint in first_rows:
+                duplicate_issues.append(issue(row_number, '完全重复', ','.join(fields), first_rows[fingerprint]))
+            else:
+                first_rows[fingerprint] = row_number
         missing = {f:sum(not str(r.get(f) or '').strip() for r in rows) for f in fields}
-        duplicates = sum(n-1 for n in counts.values())
+        duplicates = len(duplicate_issues)
         distributions = {f:dict(Counter(str(r.get(f) or '') for r in rows).most_common(10)) for f in fields}
-        issues = [{'row':i+2, 'reason':'缺失字段', 'fields':','.join(f for f in fields if not str(r.get(f) or '').strip())}
-                  for i,r in enumerate(rows) if any(not str(r.get(f) or '').strip() for f in fields)]
+        issues = [issue(row_number, '缺失字段', ','.join(f for f in fields if not str(r.get(f) or '').strip()))
+                  for row_number,r in zip(source_rows, rows) if any(not str(r.get(f) or '').strip() for f in fields)]
+        issues.extend(duplicate_issues)
         from statistics import quantiles
         for f in fields:
             values=[]
-            for i,r in enumerate(rows):
+            for row_number,r in zip(source_rows, rows):
                 if not str(r.get(f) or '').strip():continue
-                try:values.append((i+2,decimal(r[f],i+2,f)))
+                try:values.append((row_number,decimal(r[f],row_number,f)))
                 except ValueError:values=[];break
             if len(values)<4:continue
             q1,_,q3=quantiles([float(v) for _,v in values],n=4,method='inclusive')
@@ -163,8 +206,19 @@ def main(inputs):
             if spread<=0:continue
             for i,v in values:
                 if float(v)<q1-1.5*spread or float(v)>q3+1.5*spread:
-                    issues.append({'row':i,'reason':'数值超出四分位距范围（需人工判断）','fields':f})
-        return export({'markdown':f'# 数据体检\n\n{len(rows)} 行，{len(fields)} 列，完全重复 {duplicates} 行。缺失统计：{missing}。\n\n频数展示每列前 10 项；数值异常使用1.5倍四分位距提示，不代表数据错误，未自动删除。',
+                    issues.append(issue(i, '数值超出四分位距范围（需人工判断）', f))
+        row_note = ('行号为工作表行号，第一行是表头；空白数据行仍参与体检，单元格换行不增加行号。Excel 使用已保存值，不执行公式。'
+                    if locations['sheet'] else '行号为源文件中记录起始物理行，包含表头和空白行占用的行号；空白行不计为数据记录，跨行单元格按记录开始行定位。')
+        origin = locations['source_file'] + (f" · 工作表：{locations['sheet']}" if locations['sheet'] else '')
+        markdown = (f'# 数据体检\n\n来源：{origin}\n\n{len(rows)} 行，{len(fields)} 列，完全重复 {duplicates} 行。缺失统计：{missing}。'
+                    f'\n\n{row_note}\n\n完全重复指逐字段相同的额外记录，不含首次出现行；仅标记复核，未自动删除或修改原资料。')
+        if duplicate_issues:
+            markdown += '\n\n## 完全重复记录\n\n| 重复行 | 首次出现行 |\n| --- | --- |\n'
+            markdown += '\n'.join(f"| {item['row']} | {item['first_row']} |" for item in duplicate_issues[:100])
+            if duplicates > 100:
+                markdown += f'\n\n当前显示前 100 条，共 {duplicates} 条；完整位置见明细 CSV 和结构化结果 JSON。'
+        markdown += '\n\n频数展示每列前 10 项；数值异常使用1.5倍四分位距提示，不代表数据错误。'
+        return export({'markdown':markdown, 'source_file':locations['source_file'], 'sheet':locations['sheet'], 'row_numbering':row_note,
                        'rows':len(rows),'missing':missing,'duplicates':duplicates,'distributions':distributions,'issues':issues},issues)
     if mode == 'join':
         right_fields, right = table(inputs['second_path'])
@@ -180,10 +234,20 @@ def main(inputs):
         missing = sum(r['match_status']=='unmatched' for r in result)
         return export({'markdown':f'# 关联结果\n\n保留左表 {len(rows)} 行，其中 {missing} 行未匹配；未匹配记录没有被删除。', 'rows':len(result),'unmatched':missing,'preview':result[:20]},result)
     if mode == 'expenses':
+        group_by = inputs.get('group_by', '按月、类别和币种')
+        group_fields = {'按月、类别和币种': 'category', '按月、商户和币种': 'merchant'}
+        if group_by not in group_fields:
+            raise ValueError('汇总维度请选择按月、类别和币种，或按月、商户和币种')
+        group_field = group_fields[group_by]
+        mark_duplicates = inputs.get('mark_duplicates', True)
+        if not isinstance(mark_duplicates, bool):
+            raise ValueError('标记疑似重复需要是／否（布尔值）')
+        origins = [(inputs['source_path'], i+2) for i in range(len(rows))]
         if inputs.get('second_path'):
             more_fields, more = table(inputs['second_path'])
             if set(fields)!=set(more_fields):
                 raise ValueError('两份费用表的字段必须一致')
+            origins.extend((inputs['second_path'], i+2) for i in range(len(more)))
             rows += more
         required = ['date','category','amount','currency','merchant']
         if not set(required)<=set(fields):
@@ -198,16 +262,21 @@ def main(inputs):
             if any(not str(row[f] or '').strip() for f in ['category','currency','merchant']):
                 raise ValueError(f'第 {i+2} 行缺少类别、币种或商户')
             fingerprint=(row['date'],row['merchant'],amount,row['currency'])
-            duplicate=fingerprint in seen; seen.add(fingerprint)
-            totals[(month,row['category'],row['currency'])]+=amount
-            details.append({**row,'suspected_duplicate':'yes' if duplicate else 'no'})
-        summary=[{'month':m,'category':c,'currency':u,'amount':str(n)} for (m,c,u),n in sorted(totals.items())]
-        return export({'markdown':'# 费用汇总\n\n按币种分别计算；疑似重复只标记、不自动扣除。\n\n'+'\n'.join(f"- {r['month']} / {r['category']}：{r['amount']} {r['currency']}" for r in summary),
-                       'summary':summary,'suspected_duplicates':sum(r['suspected_duplicate']=='yes' for r in details),'rows':len(rows),'preview':details[:20]},details)
+            duplicate=mark_duplicates and fingerprint in seen; seen.add(fingerprint)
+            totals[(month,row[group_field],row['currency'])]+=amount
+            details.append({**row,'source_file':origins[i][0],'source_row':origins[i][1],
+                'suspected_duplicate':('yes' if duplicate else 'no') if mark_duplicates else 'not_checked'})
+        summary=[{'month':m,group_field:c,'currency':u,'amount':str(n)} for (m,c,u),n in sorted(totals.items())]
+        duplicates = [r for r in details if r['suspected_duplicate']=='yes']
+        duplicate_note = f'需要复核：{len(duplicates)} 条疑似重复费用。' if mark_duplicates else '疑似重复标记已关闭，本次未检查重复。'
+        return export({'markdown':f'# 费用汇总\n\n汇总维度：{group_by}。\n\n{duplicate_note}'+'\n\n按币种分别计算；保留全部费用与退款，疑似重复只标记、不自动扣除。\n\n'+'\n'.join(f"- {r['month']} / {r[group_field]}：{r['amount']} {r['currency']}" for r in summary),
+                       'group_by':group_by,'mark_duplicates':mark_duplicates,
+                       'summary':summary,'duplicate_records':duplicates[:100],
+                       'suspected_duplicates':len(duplicates) if mark_duplicates else None,'rows':len(rows),'preview':details[:20]},details)
     if mode == 'summary':
         group,value = inputs.get('group','device'),inputs.get('value','value')
         if group not in fields or value not in fields:
-            raise ValueError('缺少分组或数值字段：'+group+' / '+value)
+            raise ValueError('缺少分组或数值字段：'+group+' / '+value+'；可用字段：'+'、'.join(fields))
         groups=defaultdict(list)
         for i,r in enumerate(rows):
             groups[r[group] or '未填写'].append(decimal(r[value],i+2,value))

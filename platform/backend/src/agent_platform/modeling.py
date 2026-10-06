@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import asyncio
+from copy import deepcopy
+import csv
 import hashlib
 import json
 import os
@@ -14,6 +16,7 @@ from .db import connect
 from .models import utc_now
 from .modeling_models import DatasetRequest, StudyRequest, CandidateRequest, FeaturePlan, AideSearch
 from .modeling_search import choose_step
+from .modeling_summary import split_summary
 from .project_store import ProjectConflict, encode
 from .workspace_copy import copy_workspace_file
 from .training_notes import make_note, render_note
@@ -100,7 +103,8 @@ class Modeling:
                         for key in ('request', 'profile', 'preview', 'features_result'):
                             value.pop(key, None)
                         if value.get('split'):
-                            value['split'] = {k: v for k, v in value['split'].items() if k in {'missing_labels', 'evaluation_label'}}
+                            value['split'] = (split_summary(value['split'], study=value) if kind == 'study' else
+                                              {k: v for k, v in value['split'].items() if k in {'missing_labels', 'evaluation_label'}})
                         for trial in value.get('trials', []):
                             for key in ('prediction_preview', 'group_errors', 'importance', 'fold_metrics', 'feature_columns', 'effective_model', 'search', 'requested_parameters'):
                                 trial.pop(key, None)
@@ -280,7 +284,10 @@ class Modeling:
         deadline = time.monotonic() + timeout
         if on_event and self.slots.locked():
             await on_event({'kind': 'queued'})
-        await asyncio.wait_for(self.slots.acquire(), timeout)
+        try:
+            await asyncio.wait_for(self.slots.acquire(), timeout)
+        except TimeoutError as error:
+            raise TimeoutError('等待计算资源时已用尽预算') from error
         try:
             if on_event:
                 await on_event({'kind': 'compute_started'})
@@ -328,6 +335,8 @@ class Modeling:
                 if process.returncode or result is None:
                     raise RuntimeError(failure or log[-1200:] or '建模计算未返回结果')
                 return result
+            except TimeoutError as error:
+                raise TimeoutError('计算运行时已用尽预算') from error
             finally:
                 await asyncio.shield(self.remove_container(name))
                 if process and process.returncode is None:
@@ -398,8 +407,13 @@ class Modeling:
         return choose_step(study, candidates)
 
     async def candidate(self, project_id, study_id, body: CandidateRequest, *, submission=None):
+        request = body.model_dump()
+        # Reading an existing request must not wait for its running computation.
+        # Mutating a workflow submission still uses the study lock below.
+        if submission is None:
+            if previous := await self.duplicate(project_id, 'candidate', study_id, request):
+                return previous
         async with self.locks.setdefault(study_id, asyncio.Lock()):
-            request = body.model_dump()
             if previous := await self.duplicate(project_id, 'candidate', study_id, request):
                 if submission is not None:
                     saved = previous.get('submission')
@@ -489,9 +503,14 @@ class Modeling:
             folder = self.path(project_id, candidate_id)
             study_folder = self.path(project_id, study_id)
             split_path = study_folder / 'output' / 'split.json'
+            compute_phase = '准备数据划分'
             async def event(event):
                 if event['kind'] in {'queued', 'compute_started'}:
                     candidate['status'] = 'queued' if event['kind'] == 'queued' else 'running'
+                    study.update(status=candidate['status'], next_action=(
+                        f'等待计算资源，之后{compute_phase}' if event['kind'] == 'queued'
+                        else f'正在{compute_phase}'))
+                    await self.put(project_id, 'study', study)
                 elif event['kind'] == 'trial_started':
                     candidate['current'] = event
                 elif event['kind'] == 'trial':
@@ -515,8 +534,9 @@ class Modeling:
                     await self.save_training_note(project_id, study_id, candidate_id, event['slot'])
             try:
                 if not split_path.exists():
-                    study['split'] = await self.compute(project_id, dataset, {'action': 'prepare', 'evaluation': study['evaluation']}, study_folder, image=study['image'], timeout=remaining)
+                    study['split'] = await self.compute(project_id, dataset, {'action': 'prepare', 'evaluation': study['evaluation']}, study_folder, image=study['image'], on_event=event, timeout=remaining)
                     await self.put(project_id, 'study', study)
+                compute_phase = '训练模型'
                 config = {**candidate['request'], 'action': 'train', 'evaluation': study['evaluation'], 'split': '/split.json',
                           'remaining_seconds': max(1, study['budget']['seconds'] - self.elapsed(study)), 'trial_seconds': study['budget']['trial_seconds'], 'batch_size': min(slots, candidate['batch_size'])}
                 mounts = [(split_path, '/split.json')]
@@ -701,6 +721,60 @@ class Modeling:
         return self.export_prediction(project_id, dataset, folder, result)
 
     def export_prediction(self, project_id, dataset, folder, result):
+        # Existing model versions keep their pinned worker image. Describe only
+        # correspondence that worker actually wrote; never infer it from the
+        # current input file or the position of an old preview row.
+        prediction_file = folder / 'output/predictions.csv'
+        if prediction_file.is_symlink():
+            raise ValueError('预测导出文件必须位于当前项目内')
+        mapping = dataset['mapping']
+        with prediction_file.open(newline='', encoding='utf-8') as source:
+            reader = csv.DictReader(source)
+            columns = reader.fieldnames or []
+            id_column = mapping.get('id_column')
+            reserved = {'_sample', 'prediction', 'decision', *result.get('probability_columns', {}).values()}
+            if id_column not in columns or id_column in reserved:
+                id_column = None
+            record_column = None
+            # _sample is captured before feature extraction, from the parsed
+            # source/labels table. Gaps must stay gaps; it is not a file line.
+            if '_sample' in columns and mapping.get('id_column') in (None, '', '_sample'):
+                valid = True
+                count = 0
+                for row in reader:
+                    sample = row.get('_sample', '')
+                    valid = valid and sample.isascii() and sample.isdecimal()
+                    count += 1
+                if valid and count == result.get('rows'):
+                    record_column = 'input_record'
+                    while record_column in columns:
+                        record_column += '_'
+        if record_column:
+            temporary = prediction_file.with_name('predictions-source-' + str(uuid4()) + '.tmp')
+            try:
+                with prediction_file.open(newline='', encoding='utf-8') as source, temporary.open('x', newline='', encoding='utf-8') as destination:
+                    reader = csv.DictReader(source)
+                    writer = csv.DictWriter(destination, fieldnames=[record_column, *columns])
+                    writer.writeheader()
+                    preview = result.get('preview', [])
+                    for index, row in enumerate(reader):
+                        record = int(row['_sample']) + 1
+                        writer.writerow({record_column: record, **row})
+                        if index < len(preview):
+                            preview[index] = {record_column: record, **preview[index]}
+                temporary.replace(prediction_file)
+            finally:
+                temporary.unlink(missing_ok=True)
+        if record_column or id_column:
+            table = 'labels' if dataset['files'].get('labels') else 'source'
+            file = dataset['files'][table]
+            result['input_source'] = {'dataset_id': dataset['id'], 'path': file['original'], 'table': table}
+            if record_column:
+                result['input_source']['record_column'] = record_column
+            if id_column:
+                result['input_source']['id_column'] = id_column
+            if Path(file['name']).suffix.lower() == '.xlsx':
+                result['input_source']['sheet'] = mapping.get('sheet', 0)
         result['artifact'] = f'datasets/{dataset["id"]}/files/{folder.name}/output/predictions.csv'
         relative = Path('results/predictions') / dataset['id'] / folder.name / 'predictions.csv'
         workspace = self.services.projects.workspace(project_id).resolve()
@@ -764,6 +838,11 @@ class Modeling:
             candidate = await self.get(project_id, 'candidate', study['best']['candidate_id'])
             dataset = await self.get(project_id, 'dataset', study['dataset_id'])
             trial = next(t for t in candidate['trials'] if t['slot'] == study['best']['slot'])
+            evaluated_model = {
+                'study_id': study_id, 'dataset_id': dataset['id'], 'dataset_name': dataset.get('name'),
+                'candidate_id': candidate['id'], 'slot': trial['slot'], 'model': trial.get('model'),
+                'validation_metrics': deepcopy(trial.get('metrics')),
+            }
             folder = self.path(project_id, candidate['id'])
             config = {'action': 'holdout', 'features': candidate['features'], 'evaluation': study['evaluation'], 'engine': candidate['engine'],
                       'feature_columns': trial['feature_columns'], 'classes': trial['classes'], 'model': '/model', 'split': '/split.json'}
@@ -774,6 +853,7 @@ class Modeling:
             study.update(status='sealed', next_action='使用固定最佳模型预测；保留测试集已用于最终评价，不能再参与搜索')
             self.pause_clock(study); await self.put(project_id, 'study', study)
             result = await self.compute(project_id, dataset, config, self.path(project_id, study_id) / 'holdout', image=study['image'], extra_mounts=mounts)
+            result = {**result, 'evaluated_model': evaluated_model}
             study.update(test_result=result, final_run_id=run_id)
             await self.put(project_id, 'study', study)
             await self.save_training_note(project_id, study_id, candidate['id'], trial['slot'])

@@ -4,10 +4,10 @@ import base64
 import hashlib
 import json
 import ipaddress
-import shutil
 import socket
 import sqlite3
 import subprocess
+import sys
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -2176,7 +2176,7 @@ def test_generalization_runner_uses_only_openapi_material(tmp_path: Path) -> Non
     output = tmp_path / "result.json"
     spec.write_text(json.dumps(openapi_document()), encoding="utf-8")
     command = [
-        str(Path(__file__).resolve().parents[1] / ".venv/bin/python"),
+        sys.executable,
         "scripts/run_v04_12_openapi_generalization.py",
         "--name",
         "fixture",
@@ -2225,5 +2225,3 @@ def test_studio_uses_openapi_generation_as_default_and_labels_manual_legacy() ->
     assert 'data-connector-action="register-generated"' in source
     assert 'data-manual-manifest-legacy="true"' in source
     assert "专家旧路径：手工登记 manifest JSON" in source
-
-

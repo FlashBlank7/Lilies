@@ -18,7 +18,13 @@ jobs:
       fail-fast: false
       matrix:
         python-version: ["3.12", "3.14"]
-    timeout-minutes: 20
+    # 包括从空环境构建代码节点镜像；本地后端回归本身约需13分钟。
+    timeout-minutes: 40
+    env:
+      MODEL_EGRESS_ENABLED: "false"
+      OFFICIAL_AGENT_EGRESS_ENABLED: "false"
+      SANDBOX_IMAGE: agent-platform-sandbox:ci
+      MODELING_IMAGE: lilies-modeling:ci
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -28,6 +34,16 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
+      # 后端全量测试包含实际前端环境探测和 lint/tsc；独立 frontend job
+      # 的 node_modules 不会出现在此 runner，须在这里按同一锁文件安装。
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: platform/frontend/package-lock.json
+      - name: 准备前端验证环境
+        working-directory: platform/frontend
+        run: npm ci
       # 只开 F 类（pyflakes）：算了没用的变量、没引用的导入、
       # 重复定义、没有占位符的 f-string。这些是"代码在说谎"的信号，
       # 不是格式偏好——2026-08-29 靠它在产品代码里挖出 9 处，
@@ -36,8 +52,22 @@ jobs:
       # 格式类规则（E5xx 行宽之类）故意不开，那些是口味。
       - name: Ruff（只查真 bug 类）
         run: ruff check platform/backend/src --select F
+      - name: 准备代码节点计算环境
+        run: docker build --file Dockerfile.sandbox --tag "$SANDBOX_IMAGE" .
+      - name: 准备数据分析计算环境
+        run: docker build --file Dockerfile.modeling --tag "$MODELING_IMAGE" .
       - name: Pytest（全量回归）
-        run: pytest tests/ -q
+        run: |
+          # Linux挂载保留宿主所有权，容器使用创建测试目录的非root用户。
+          export SANDBOX_UID="$(id -u)" SANDBOX_GID="$(id -g)"
+          pytest tests/ -q -x --tb=short --junitxml=test-results/backend.xml
+      - name: 保存后端测试结果
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-tests-${{ matrix.python-version }}
+          path: test-results/backend.xml
+          if-no-files-found: ignore
 
   frontend:
     runs-on: ubuntu-latest
