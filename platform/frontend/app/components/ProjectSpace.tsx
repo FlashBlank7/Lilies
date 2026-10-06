@@ -2,7 +2,9 @@
 
 import {useCallback, useEffect, useRef, useState} from 'react'
 import {api} from '@/lib/platform'
+import {clientId} from '@/lib/client-id'
 import ProjectMaterials from './ProjectMaterials'
+import ReadingDialog from './ReadingDialog'
 import SharedMethods from './SharedMethods'
 import { useAccount } from './AuthBoundary'
 import { useOnboarding } from './Onboarding'
@@ -27,6 +29,21 @@ function ProjectSpaceContent({projectId,onWorkflow,onFile,onTalk,onChanged,selec
   const [name,setName]=useState('')
   const [busy,setBusy]=useState(false)
   const [error,setError]=useState('')
+  const [copySource,setCopySource]=useState<Workflow>()
+  const [copyName,setCopyName]=useState('')
+  const [copyBusy,setCopyBusy]=useState(false)
+  const [copyError,setCopyError]=useState('')
+  const [copyConflict,setCopyConflict]=useState(false)
+  const copyPending=useRef(false)
+  const copyRequest=useRef<{signature:string;key:string} | null>(null)
+  const copyInput=useRef<HTMLInputElement>(null)
+  const copyTrigger=useRef<HTMLButtonElement | null>(null)
+  const active=useRef(true)
+  useEffect(()=>{active.current=true;return()=>{active.current=false}},[])
+  useEffect(()=>{
+    if(copySource)copyInput.current?.focus()
+    else if(copyTrigger.current?.isConnected)copyTrigger.current.focus()
+  },[copySource?.id])
   const [selection,setSelection]=useState<string[]>(()=>{
     try {
       const saved:unknown=JSON.parse(sessionStorage.getItem(selectionKey)||'[]')
@@ -70,6 +87,40 @@ function ProjectSpaceContent({projectId,onWorkflow,onFile,onTalk,onChanged,selec
       setName('');await refresh();void onChanged();onWorkflow(id)
     }catch(e){setError(String(e))}finally{setBusy(false)}
   }
+  async function copyWorkflow() {
+    if(!copySource||!copyName.trim()||copyPending.current||copyConflict)return
+    const args={action:'copy',workflow_id:copySource.id,expected_revision:copySource.revision,name:copyName.trim()}
+    const signature=JSON.stringify(args)
+    if(copyRequest.current?.signature!==signature)copyRequest.current={signature,key:clientId()}
+    copyPending.current=true;setCopyBusy(true);setCopyError('')
+    try {
+      const result=await api<{workflow_id?:string;id?:string}>(base+'/agent-tools',{method:'POST',body:JSON.stringify({name:'project_workflows',arguments:{...args,request_key:copyRequest.current.key}})})
+      if(!active.current)return
+      const id=result.workflow_id||result.id
+      if(!id)throw new Error('未收到副本编号，请重试确认复制结果。')
+      copyRequest.current=null;setCopySource(undefined)
+      guide.mark('workflow',projectId)
+      await refresh()
+      if(active.current){void onChanged();onWorkflow(id)}
+    }catch(e){
+      if(!active.current)return
+      setCopyError(String(e))
+      setCopyConflict(typeof e==='object'&&e!==null&&'status' in e&&e.status===409)
+    }finally{copyPending.current=false;if(active.current)setCopyBusy(false)}
+  }
+  async function refreshCopySource() {
+    if(!copySource||copyPending.current)return
+    copyPending.current=true;setCopyBusy(true)
+    try {
+      const latest=await api<Space>(base+'/space')
+      if(!active.current)return
+      setSpace(latest)
+      const source=latest.workflows.find(w=>w.id===copySource.id)
+      if(!source)throw new Error('来源工作流已不在本项目，请关闭窗口并刷新空间。')
+      setCopySource(source);setCopyConflict(false);setCopyError('')
+    }catch(e){if(active.current)setCopyError(String(e))}
+    finally{copyPending.current=false;if(active.current)setCopyBusy(false)}
+  }
   const fileContext=selected.length?`\n本次资料：\n${selected.map(p=>'- '+p).join('\n')}`:''
   const showCatalog=catalogOpen??(guide.active||!space?.workflows.some(w=>w.allowed&&w.node_count))
   return <div aria-label="项目空间">
@@ -80,8 +131,18 @@ function ProjectSpaceContent({projectId,onWorkflow,onFile,onTalk,onChanged,selec
       <div className={styles.row}><label>工作流名称<input aria-label="加入空间的工作流名称" value={name} onChange={e=>setName(e.target.value)} maxLength={100}/></label><button disabled={busy||!name.trim()} onClick={()=>void add()}>添加空白流程</button><button disabled={busy} onClick={()=>upload.current?.click()}>导入已有工作流</button>
         <input hidden type="file" accept=".json,application/json" ref={upload} aria-label="导入工作流定义" onChange={e=>{const file=e.target.files?.[0];e.target.value='';if(file)void add(file)}}/></div>
       <small>导入工作流 JSON 定义；所需模型、连接和子流程仍使用本项目资源。</small>
-      {!space ? <p role="status">正在读取工作流…</p> : !space.workflows.length ? <p>尚无工作流，可以先添加或通过对话创建。</p> : <table className={styles.table} tabIndex={-1} data-guide="conversation"><thead><tr><th>工作流</th><th>输入与状态</th><th>操作</th></tr></thead><tbody>{space.workflows.map(w=><tr key={w.id}><td><strong>{w.display_name||w.name}</strong><p>{w.description || '打开画布补充步骤和用途。'}</p></td><td>{w.inputs.map(i=>i.description||i.name).join('、')||'无需填写输入'}<p>{!w.allowed?'项目未允许此流程中的能力':w.node_count?'可查看与调用':'空白草稿'}</p></td><td><div className={styles.row}><button data-guide-anchor={w.allowed&&w.node_count?"workflow-call":undefined} disabled={!w.allowed||!w.node_count} onClick={()=>{guide.mark('workflow',projectId,'conversation');onTalk(`请调用项目工作流「${w.display_name||w.name}」（${w.id}）。先查看输入要求，结合本次资料填写；无法确定的信息再向我询问。${fileContext}`)}}>让智能体调用</button><button data-guide-anchor={w.node_count?"workflow-view":undefined} onClick={()=>onWorkflow(w.id)}>查看与编辑</button></div></td></tr>)}</tbody></table>}
+      {!space ? <p role="status">正在读取工作流…</p> : !space.workflows.length ? <p>尚无工作流，可以先添加或通过对话创建。</p> : <table className={styles.table} tabIndex={-1} data-guide="conversation"><thead><tr><th>工作流</th><th>输入与状态</th><th>操作</th></tr></thead><tbody>{space.workflows.map(w=><tr key={w.id}><td><strong>{w.display_name||w.name}</strong><p>{w.description || '打开画布补充步骤和用途。'}</p></td><td>{w.inputs.map(i=>i.description||i.name).join('、')||'无需填写输入'}<p>{!w.allowed?'项目未允许此流程中的能力':w.node_count?'可查看与调用':'空白草稿'}</p></td><td><div className={styles.row}><button data-guide-anchor={w.allowed&&w.node_count?"workflow-call":undefined} disabled={!w.allowed||!w.node_count} onClick={()=>{guide.mark('workflow',projectId,'conversation');onTalk(`请调用项目工作流「${w.display_name||w.name}」（${w.id}）。先查看输入要求，结合本次资料填写；无法确定的信息再向我询问。${fileContext}`)}}>让智能体调用</button><button data-guide-anchor={w.node_count?"workflow-view":undefined} onClick={()=>onWorkflow(w.id)}>查看与编辑</button><button disabled={busy||copyBusy} onClick={e=>{copyTrigger.current=e.currentTarget;setCopySource(w);setCopyName(Array.from(w.display_name||w.name).slice(0,98).join('')+'副本');setCopyError('');setCopyConflict(false)}}>复制并编辑</button></div></td></tr>)}</tbody></table>}
     </section>
+    {copySource&&<ReadingDialog title="复制工作流" onClose={()=>{if(!copyPending.current)setCopySource(undefined)}}>
+      <form className={styles.section} aria-label="复制工作流" onSubmit={e=>{e.preventDefault();void copyWorkflow()}} aria-busy={copyBusy}>
+        <p>来源：{copySource.display_name||copySource.name} · 版本 {copySource.revision}</p>
+        <p id="workflow-copy-help">副本可独立修改，不影响原工作流；同项目的文件、模型和子流程仍共享。</p>
+        <div className={styles.row}><label>副本名称<input ref={copyInput} value={copyName} onChange={e=>setCopyName(e.target.value)} maxLength={100} required disabled={copyBusy} aria-describedby="workflow-copy-help"/></label></div>
+        {copyError&&<p role="alert">{copyError}</p>}
+        {copyConflict&&<p>复制发生冲突，请刷新来源版本，确认后再复制。</p>}
+        <div className={styles.row}>{copyConflict&&<button type="button" disabled={copyBusy} onClick={()=>void refreshCopySource()}>刷新来源版本</button>}<button type="submit" disabled={copyBusy||copyConflict||!copyName.trim()}>{copyBusy?'正在处理…':'创建副本并编辑'}</button><button type="button" disabled={copyBusy} onClick={()=>setCopySource(undefined)}>取消</button></div>
+      </form>
+    </ReadingDialog>}
     <section className={styles.section} tabIndex={-1} data-guide="materials"><h2>待处理文件</h2><ProjectMaterials id={projectId} onOpenFile={onFile} onChanged={()=>{void refresh();void onChanged()}} />
       {!!space?.files.length && <><h3>选择本次任务的资料</h3>{groupProjectFiles(space.files).map(group=><section key={group.label} aria-label={group.label}><h4>{group.label}（{group.files.length}）</h4>{group.files.map(f=><div key={f.path} className={styles.fileRow}><label className={styles.fileChoice}><input type="checkbox" aria-label={f.label} checked={selected.includes(f.path)} onChange={e=>selectFile(f.path,e.target.checked)}/><span>{f.name}{f.detail&&<small style={{display:'block',color:'var(--ui-muted)',marginTop:4}}>{f.detail}</small>}</span></label><details><summary>文件位置</summary><small style={{overflowWrap:'anywhere'}}>{f.path}</small></details><button aria-label={`查看 ${f.path}`} onClick={()=>onFile(f.path)}>查看</button></div>)}</section>)}<button disabled={!selected.length} onClick={()=>onTalk('请帮我分析和处理以下资料；项目中有适合的工作流时可以直接复用。'+fileContext)}>带着所选资料开始对话</button></>}
       {space?.files_truncated&&<p>文件较多，当前显示部分文件；智能体可按目录继续查找。</p>}

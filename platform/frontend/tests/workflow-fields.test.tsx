@@ -43,6 +43,39 @@ it('uses actual block outputs and variable assignments instead of template input
   expect(outputPaths({id:'t',title:'t',type:'template_transform',config:{variables:{name:'input'}}},[{type:'template_transform',output_ports:[{name:'text',value_type:'string'}]} as Block])).toEqual([['text']])
 })
 
+it('selects declared human answers without typing a path and keeps whole-output choices',()=>{
+  const human:FieldNode={id:'ask',title:'补充当前项',type:'human_input',config:{fields:[
+    {name:'actual_defects',label:'实际不良件数',type:'number'},
+    {name:'record.id',label:'记录标识',type:'future_type'},
+  ]}}
+  const changed=vi.fn()
+  function Editor(){
+    const [value,setValue]=useState(JSON.stringify({$ref:{node_id:'ask',path:['output','actual_defects']}}))
+    return <WorkflowValueField {...props} nodes={[human,nodes[2]]} edges={[{source:'ask',target:'current'}]} value={value} onChange={next=>{changed(next);setValue(next)}}/>
+  }
+  render(<Editor/>)
+  const field=screen.getByRole('combobox',{name:'测试字段的输出字段'})
+  expect(field).toHaveValue('["output","actual_defects"]')
+  expect(screen.getByRole('option',{name:'output.actual_defects'})).toBeEnabled()
+  fireEvent.change(field,{target:{value:'["output","record.id"]'}})
+  expect(JSON.parse(changed.mock.lastCall![0])).toEqual({$ref:{node_id:'ask',path:['output','record.id']}})
+  fireEvent.change(field,{target:{value:'["output"]'}})
+  expect(JSON.parse(changed.mock.lastCall![0])).toEqual({$ref:{node_id:'ask',path:['output']}})
+  fireEvent.change(field,{target:{value:'[]'}})
+  expect(JSON.parse(changed.mock.lastCall![0])).toEqual({$ref:{node_id:'ask',path:[]}})
+})
+
+it('retains saved custom human paths and tolerates missing or incomplete field declarations',()=>{
+  const human:FieldNode={id:'ask',title:'补充当前项',type:'human_input',config:{fields:[null,{}, {name:12},{name:'answer',type:'unknown'}]}}
+  const changed=vi.fn()
+  render(<WorkflowValueField {...props} nodes={[human,nodes[2]]} edges={[{source:'ask',target:'current'}]} value='{"$ref":{"node_id":"ask","path":["output","legacy"]}}' onChange={changed}/> )
+  expect(screen.getByLabelText('测试字段的输出字段')).toHaveValue('custom')
+  expect(screen.getByLabelText('测试字段的字段路径')).toHaveValue('output.legacy')
+  expect(outputPaths(human)).toEqual([['output'],['output','answer']])
+  expect(outputPaths({...human,config:{}})).toEqual([['output']])
+  expect(changed).not.toHaveBeenCalled()
+})
+
 it('switches model choices with the unsaved LLM role and ignores stale connection responses',async()=>{
   let resolveMain!:(value:unknown)=>void
   vi.mocked(api).mockImplementation(async path=>path.endsWith('/agent-session')?new Promise(resolve=>{resolveMain=resolve}):{model:'vision-model'} as never)
