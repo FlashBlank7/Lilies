@@ -51,6 +51,7 @@ function ProjectSpaceContent({projectId,onWorkflow,onFile,onTalk,onChanged,selec
     }catch{return []}
   })
   const selected=selection.filter(path=>space?.files.some(file=>file.path===path))
+  const [resultsOpen,setResultsOpen]=useState<boolean>()
   const [official,setOfficial]=useState<OfficialWorkflow[]>([])
   const [catalogOpen,setCatalogOpen]=useState<boolean>()
   const upload=useRef<HTMLInputElement>(null)
@@ -144,7 +145,14 @@ function ProjectSpaceContent({projectId,onWorkflow,onFile,onTalk,onChanged,selec
       </form>
     </ReadingDialog>}
     <section className={styles.section} tabIndex={-1} data-guide="materials"><h2>待处理文件</h2><ProjectMaterials id={projectId} onOpenFile={onFile} onChanged={()=>{void refresh();void onChanged()}} />
-      {!!space?.files.length && <><h3>选择本次任务的资料</h3>{groupProjectFiles(space.files).map(group=><section key={group.label} aria-label={group.label}><h4>{group.label}（{group.files.length}）</h4>{group.files.map(f=><div key={f.path} className={styles.fileRow}><label className={styles.fileChoice}><input type="checkbox" aria-label={f.label} checked={selected.includes(f.path)} onChange={e=>selectFile(f.path,e.target.checked)}/><span>{f.name}{f.detail&&<small style={{display:'block',color:'var(--ui-muted)',marginTop:4}}>{f.detail}</small>}</span></label><details><summary>文件位置</summary><small style={{overflowWrap:'anywhere'}}>{f.path}</small></details><button aria-label={`查看 ${f.path}`} onClick={()=>onFile(f.path)}>查看</button></div>)}</section>)}<button disabled={!selected.length} onClick={()=>onTalk('请帮我分析和处理以下资料；项目中有适合的工作流时可以直接复用。'+fileContext)}>带着所选资料开始对话</button></>}
+      {!!space?.files.length && <><h3>选择本次任务的资料</h3>{groupProjectFiles(space.files).map(group=>{
+        const count=group.files.filter(file=>selected.includes(file.path)).length
+        const rows=group.files.map(f=><div key={f.path} className={styles.fileRow}><label className={styles.fileChoice}><input type="checkbox" aria-label={f.label} checked={selected.includes(f.path)} onChange={e=>selectFile(f.path,e.target.checked)}/><span>{f.name}{f.detail&&<small style={{display:'block',color:'var(--ui-muted)',marginTop:4}}>{f.detail}</small>}</span></label><details><summary>文件位置</summary><small style={{overflowWrap:'anywhere'}}>{f.path}</small></details><button aria-label={`查看 ${f.path}`} onClick={()=>onFile(f.path)}>查看</button></div>)
+        return <section key={group.label} aria-label={group.label}>{group.label==='运行结果'
+          ? <details className={styles.resultFiles} open={resultsOpen??count>0} onToggle={event=>setResultsOpen(event.currentTarget.open)}><summary>运行结果（{group.files.length}）{count>0&&<span> · 已选 {count}</span>}</summary>{rows}</details>
+          : <><h4>{group.label}（{group.files.length}）</h4>{rows}</>}
+        </section>
+      })}<button disabled={!selected.length} onClick={()=>onTalk('请帮我分析和处理以下资料；项目中有适合的工作流时可以直接复用。'+fileContext)}>带着所选资料开始对话</button></>}
       {space?.files_truncated&&<p>文件较多，当前显示部分文件；智能体可按目录继续查找。</p>}
     </section>
     <section className={styles.section}><h2>公共工作流市场</h2><button aria-expanded={showCatalog} onClick={()=>setCatalogOpen(!showCatalog)}>{showCatalog?'收起公共流程':'浏览公共流程并加入项目'}</button>

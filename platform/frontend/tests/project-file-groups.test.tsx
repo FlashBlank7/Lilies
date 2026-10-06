@@ -44,7 +44,8 @@ it('groups project files, distinguishes repeated reports and keeps selections ac
   const talk = vi.fn(), open = vi.fn()
   const view = render(<ProjectSpace {...props} onTalk={talk} onFile={open} />)
   const raw = await screen.findByRole('region', {name: '原始资料'})
-  expect(screen.getAllByRole('heading', {level: 4}).map(item => item.textContent)).toEqual(['原始资料（1）', '说明（1）', '运行结果（2）', '其他（1）'])
+  expect(screen.getAllByRole('heading', {level: 4}).map(item => item.textContent)).toEqual(['原始资料（1）', '说明（1）', '其他（1）'])
+  fireEvent.click(screen.getByText('运行结果（2）'))
   const reports = within(screen.getByRole('region', {name: '运行结果'})).getAllByRole('checkbox')
   expect(reports[0]).toHaveAccessibleName(/report.md · 目录 examples \/ 87654321 · 更新/)
   expect(reports[1]).toHaveAccessibleName(/report.md · 目录 examples \/ 12345678 · 更新/)
@@ -106,6 +107,7 @@ it('shows the same related workflow, second and input summaries in file lists an
   }}))
   files = available
   render(<ProjectSpace {...props} />)
+  fireEvent.click(await screen.findByText('运行结果（2）'))
   const choices = await screen.findAllByRole('checkbox', {name: /samples.csv · 关联运行：样本清洗/})
   const choose = vi.fn()
   render(<ProjectFileField name="source_path" label="待处理文件" value="" files={available} disabled={false} onChange={choose} />)
@@ -124,6 +126,42 @@ it('shows the same related workflow, second and input summaries in file lists an
   }
   fireEvent.change(select, {target: {value: paths[1]}})
   expect(choose).toHaveBeenCalledWith(paths[1])
+})
+
+it('keeps a large unselected result history collapsed while leaving current materials and the conversation action available',async()=>{
+  files=[{path:source},...Array.from({length:112},(_,index)=>({path:`results/run-${index}/report.md`}))]
+  render(<ProjectSpace {...props}/>);await screen.findByRole('checkbox',{name:'input.csv'})
+  const results=screen.getByRole('region',{name:'运行结果'})
+  for(const checkbox of within(results).getAllByRole('checkbox'))expect(checkbox).not.toBeVisible()
+  const summary=screen.getByText('运行结果（112）')
+  expect(summary).toBeVisible()
+  fireEvent.click(screen.getByRole('checkbox',{name:'input.csv'}))
+  expect(screen.getByRole('button',{name:'带着所选资料开始对话'})).toBeEnabled()
+  for(const checkbox of within(results).getAllByRole('checkbox'))expect(checkbox).not.toBeVisible()
+  fireEvent.click(summary)
+  expect(within(results).getAllByRole('checkbox')).toHaveLength(112)
+  for(const checkbox of within(results).getAllByRole('checkbox'))expect(checkbox).toBeVisible()
+  expect(vi.mocked(api).mock.calls.every(([,options])=>!options?.method)).toBe(true)
+})
+
+it('keeps selected result paths when collapsed, shows the selected count and reopens them on return',async()=>{
+  const talk=vi.fn()
+  const view=render(<ProjectSpace {...props} onTalk={talk}/>);
+  const summary=await screen.findByText('运行结果（2）')
+  fireEvent.click(summary)
+  const checkbox=screen.getByRole('checkbox',{name:/report.md · 目录 examples \/ 87654321/})
+  fireEvent.click(checkbox)
+  await waitFor(()=>expect(summary).toHaveTextContent('已选 1'))
+  fireEvent.click(summary)
+  expect(checkbox).not.toBeVisible()
+  fireEvent.click(screen.getByRole('button',{name:'带着所选资料开始对话'}))
+  expect(talk).toHaveBeenCalledWith(expect.stringContaining(`- ${second}`))
+  view.unmount();render(<ProjectSpace {...props} onTalk={talk}/>)
+  const restored=await screen.findByRole('checkbox',{name:/report.md · 目录 examples \/ 87654321/})
+  expect(restored).toBeChecked()
+  expect(restored).toBeVisible()
+  expect(screen.getByText(/· 已选 1/)).toBeVisible()
+  expect(vi.mocked(api).mock.calls.every(([,options])=>!options?.method)).toBe(true)
 })
 
 it('groups both file inputs and table choices and submits the unchanged full paths', async () => {
