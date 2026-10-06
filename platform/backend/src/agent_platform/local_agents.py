@@ -665,17 +665,26 @@ class LocalAgents:
                         pass
                 # Reading a failed task succeeded; its historical status is not
                 # another execution failure and must not pause work being debugged.
+                code_failed = (name == 'project_code' and isinstance(result, dict)
+                               and isinstance(result.get('exit_code'), int) and result['exit_code'] != 0)
                 failed = not is_read_call(name, arguments) and isinstance(result, dict) and (
-                    result.get('status') == 'failed' or result.get('passed') is False)
+                    result.get('status') == 'failed' or result.get('passed') is False or code_failed)
+                failure_reason = str(result.get('error') or '实际运行失败') if failed else ''
+                if code_failed:
+                    lines = str(result.get('stderr') or '').strip().splitlines()
+                    failure_reason = f"Python 执行失败（退出码 {result['exit_code']}）"
+                    if lines:
+                        failure_reason += '：' + lines[-1][:240]
                 measurement = payload_measurement(result)
                 metadata.update(output_bytes=measurement['bytes'], output_sha256=measurement['sha256'],
                                 read_call=is_read_call(name, arguments))
                 self.event(application_id, "tool", name, success=not failed,
                            status='failed' if failed else 'completed', ended_at=utc_now(),
-                           summary=(str(result.get('error') or '实际运行失败') if failed else '操作已完成'),
+                           summary=failure_reason if failed else '操作已完成',
                            result=json.dumps(result, ensure_ascii=False)[:20_000], **metadata)
                 if failed:
-                    await failed_action(name + ': ' + str(result.get('error') or result.get('failed_tests') or result.get('outputs') or result.get('summary'))[:4000])
+                    await failed_action(name + ': ' + str(failure_reason if code_failed else
+                        result.get('error') or result.get('failed_tests') or result.get('outputs') or result.get('summary'))[:4000])
                 elif ((name == 'workflow_draft' and (arguments.get('operation') or arguments.get('batch')))
                       or (name == 'project_file' and arguments.get('action') == 'write')
                       or (name == 'workflow_run' and arguments.get('action') in {'start', 'tests'})
