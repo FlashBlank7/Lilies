@@ -295,6 +295,8 @@ class ProjectConversation:
         from .project_activity import latest_operations, project_activity
         state = self.manager.load(project_id)
         all_events = state.pop('events')
+        if kind != 'messages' or (request_id and (state.get('streaming_message') or {}).get('request_id') != request_id):
+            state.pop('streaming_message', None)
         chosen = [(index, event) for index, event in enumerate(all_events)
                   if (bool(event.get('operation_id')) if kind == 'activity' else
                       (event['kind'] in {'user', 'assistant'} or (event['kind'] == 'result' and bool(event.get('request_id')) and event.get('purpose') != 'build_test')) == (kind == 'messages'))

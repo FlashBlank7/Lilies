@@ -13,6 +13,7 @@ from uuid import uuid4
 from pydantic import ValidationError
 
 from .build_transcript import owner_record
+from .agent_message_stream import AgentMessageStream, finish_saved_message
 from .codex_app_server import CodexAppServer, CodexError, CodexAuthenticationError, inspect_executable, validate_codex_version
 from .local_agent_tools import ProjectTools, tool_specs
 from .models import utc_now
@@ -106,10 +107,10 @@ class LocalAgents:
         state['model_egress_enabled'] = self.services.settings.model_egress_enabled
         return state
 
-    def save(self, application_id: str, state: dict) -> None:
+    def save(self, application_id: str, state: dict, *, advance_revision: bool = True) -> None:
         directory = self.folder(application_id)
         directory.mkdir(parents=True, exist_ok=True, mode=0o700)
-        state["revision"] = state.get("revision", 0) + 1
+        state["revision"] = state.get("revision", 0) + int(advance_revision)
         state["updated_at"] = utc_now()
         temporary = directory / "session.tmp"
         temporary.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
@@ -159,6 +160,7 @@ class LocalAgents:
                     self.services.sandboxes.protect_inputs(workspace, ["requirement-package", "requirements"])
                 if state.get("status") in {"running", "connecting"}:
                     state.update(status="interrupted", error="应用已重启，点击继续恢复此会话")
+                    finish_saved_message(state)
                     self.save(project_id, state)
                     self.interrupt_operations(project_id, '服务已重启，等待继续')
                     if state.get('conversation_enabled') and self.services.projects.store.exists(project_id):
@@ -289,6 +291,7 @@ class LocalAgents:
                 save_discussion(workspace, discussion)
             if official:
                 await self.services.official_agent.enqueue(application_id, request_id)
+            finish_saved_message(state)
             state.update(phase=intent, status='queued' if official else 'connecting', error='', request_id=request_id)
             state.update(conversation_enabled=unified, continue_work=False, blocked_this_request=[],
                          conversation_context=conversation_context or {}, active_item_id='')
@@ -422,6 +425,7 @@ class LocalAgents:
         initial_state = self.load(application_id)
         official = initial_state.get('provider') == 'official'
         job_id = initial_state.get('request_id', '')
+        reply = AgentMessageStream(self, application_id, job_id)
         began = time.monotonic()
         from .official_agent import actor_id
         user_id = actor_id.get()
@@ -551,6 +555,9 @@ class LocalAgents:
                     self.event(application_id, 'status', '此事项连续三次遇到同一问题，已保留错误与恢复动作，先检查其他可推进事项。')
 
             async def on_event(method, params):
+                if reply.handle(method, params, thread_id=getattr(client, 'thread_id', None),
+                                turn_id=getattr(client, 'turn_id', None)):
+                    return
                 if method in {'item/started', 'item/completed'} and params.get('item', {}).get('type') == 'contextCompaction':
                     current = self.load(application_id)
                     operation_id = current.get('request_id', '') + ':context:' + params['item']['id']
@@ -567,10 +574,6 @@ class LocalAgents:
                 elif method == 'model_usage':
                     self.event(application_id, 'model_usage', '模型调用',
                         request_id=self.load(application_id).get('request_id', ''), **params)
-                elif method == "item/completed":
-                    item = params.get("item", {})
-                    if item.get("type") == "agentMessage" and item.get("text"):
-                        self.event(application_id, "assistant", item["text"])
                 elif method == "error" and params.get("error"):
                     self.event(application_id, "status", str(params["error"].get("message", "Agent 请求失败")))
 
@@ -702,7 +705,7 @@ class LocalAgents:
                     if current.get('context_handoff'):
                         context['recent_project_messages'] = [
                             {'role': e['kind'], 'text': e['text'][:2000]}
-                            for e in current['events'] if e['kind'] in {'user', 'assistant'}][-6:]
+                            for e in current['events'] if e['kind'] in {'user', 'assistant'} and not e.get('incomplete')][-6:]
                         reason = '原模型会话的恢复文件缺失，已建立新的模型会话。' if current.get('context_handoff_reason') == 'missing_rollout' else '工具已升级。'
                         context['instruction'] += ' ' + reason + ' 原项目消息、需求和结果均保留；从当前事项接续，不重复执行已完成的工具操作。'
                 # Put the current request after reference material; project
@@ -724,6 +727,7 @@ class LocalAgents:
                     else:
                         turn = await client.turn(turn_message, on_event, on_tool, timeout=900)
                 finally:
+                    reply.finish()
                     self.event(application_id, 'agent_turn_ended', 'Agent 回合结束', agent_turn_id=turn_key)
                 if turn.get('status') == 'failed':
                     raise RuntimeError((turn.get('error') or {}).get('message', '模型会话执行失败'))
@@ -817,6 +821,7 @@ class LocalAgents:
             if official and isinstance(cause, CodexAuthenticationError):
                 self.services.official_agent.set_connection('blocked', error)
         finally:
+            reply.finish(close=True)
             if official:
                 service = self.services.official_agent
                 rows = service.jobs('queued') if service.shutting_down else []
