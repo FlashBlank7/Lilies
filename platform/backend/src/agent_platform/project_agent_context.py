@@ -1,6 +1,9 @@
 """Bounded, explicit previews for the project agent; authoritative data stays intact."""
 from __future__ import annotations
 
+from copy import deepcopy
+import json
+
 from fastapi.encoders import jsonable_encoder
 
 from .project_metrics import payload_measurement
@@ -273,4 +276,26 @@ async def conversation_context(services, project_id: str, state: dict, discussio
         if link.get('dataset_id') and not studies:
             data = await services.modeling.get(project_id, 'dataset', link['dataset_id'])
             context['dataset'] = {k: data.get(k) for k in ('id', 'name', 'mapping', 'status')}
+        if len(context['modeling']) >= 2:
+            shared = {}
+            for key in ('evaluation', 'split'):
+                if all(key in entry for entry in context['modeling']):
+                    first = json.dumps(context['modeling'][0][key], sort_keys=True)
+                    if all(json.dumps(entry[key], sort_keys=True) == first for entry in context['modeling'][1:]):
+                        shared[key] = deepcopy(context['modeling'][0][key])
+            if shared:
+                compact = {
+                    'modeling': [{key: value for key, value in entry.items() if key not in shared}
+                                 for entry in context['modeling']],
+                    'modeling_shared': shared,
+                    'modeling_shared_detail': (
+                        'Each modeling entry inherits modeling_shared; its own fields take precedence. '
+                        'Shared values are identical in all listed studies.'),
+                }
+                # Count the inheritance explanation too, using the actual turn
+                # serialization. Small or dissimilar studies keep their format.
+                original = {'modeling': context['modeling']}
+                if (len(json.dumps(compact, ensure_ascii=False, separators=(',', ':')).encode('utf-8'))
+                        < len(json.dumps(original, ensure_ascii=False, separators=(',', ':')).encode('utf-8'))):
+                    context.update(compact)
     return context
