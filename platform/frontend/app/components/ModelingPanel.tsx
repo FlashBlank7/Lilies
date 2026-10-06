@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { BarChart, Bar, CartesianGrid, LineChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { Activity, ArrowUpRight, Database, Download, Upload } from 'lucide-react'
 import { api, withFrontendToken } from '@/lib/platform'
-import { studySourceLabel } from '@/lib/modeling-labels'
+import { studySourceLabel, trainingProgressLabel } from '@/lib/modeling-labels'
 import type { ModelingContext } from '@/lib/project-progress'
 import ReadingDialog from './ReadingDialog'
 import TrainingNote from './TrainingNote'
@@ -16,7 +16,7 @@ type Distribution = { label: string; count: number }[]
 type Profile = { rows: number; duplicates: number; sampled: boolean; columns: { name: string; dtype: string; missing: number; unique: number; outliers?: number; distribution?: Distribution }[]; time?: { start: string; end: string; median_interval_seconds: number; preview?: { sampled: boolean; series: string; group: string; points: {time: string; value: number}[] } }; runtime?: { seconds: number; peak_memory_bytes: number }; labels?: Profile }
 type Dataset = { id: string; name: string; status: string; files?: { source?: { original?: string } }; mapping: { target?: string; kind: string }; profile?: Profile; preview?: Profile }
 type Trial = { completed_at?: string; slot: number; status: string; model: string; metrics?: Metric; baseline?: Metric; seconds: number; error?: string; warnings?: string[]; importance?: { name: string; value: number }[]; group_errors?: { group: string; samples: number; error: number }[] }
-type Candidate = { search_decision?: { stage: string; label: string; parent_score?: number | null }; created_at?: string; id: string; status: string; hypothesis: string; parent_id?: string; feedback_task_id?: string; task_id: string; run_id: string; trials: Trial[]; error?: string; current?: { model: string; slot: number }; features_result?: { name: string; source: string; calculation: string; window_seconds?: number; condition?: string }[] }
+type Candidate = { search_decision?: { stage: string; label: string; parent_score?: number | null }; created_at?: string; id: string; status: string; hypothesis: string; parent_id?: string; feedback_task_id?: string; task_id: string; run_id: string; trials: Trial[]; error?: string; batch_size?: number; scheduled_slots?: number; current?: { model: string; slot: number; started_at?: string }; features_result?: { name: string; source: string; calculation: string; window_seconds?: number; condition?: string }[] }
 type Study = { search_strategy?: string; repair_candidate_id?: string; test_result?: { metrics: Metric; rows: number; label: string }; id: string; name: string; dataset_id: string; created_at?: string; status: string; next_action: string; error?: string; item_id?: string; budget: { seconds: number; trials: number }; trials_used: number; baseline?: Metric; best?: { candidate_id: string; slot: number; model: string; score: number }; evaluation: { metric: string; split: string; target_score?: number | null }; split?: { missing_labels?: number; evaluation_label?: string; development_samples?: number; holdout_samples?: number; folds?: number } }
 const statusNames: Record<string, string> = { registered: '已导入', ready: '准备实验', running: '正在计算', queued: '等待计算资源', completed: '本批已完成', failed: '本批失败', interrupted: '已中断，可继续', budget_exhausted: '本次预算已用完', target_reached: '验证指标达到目标', finished: '本次搜索已结束', sealed: '最终评价已完成' }
 const modelNames: Record<string, string> = { linear: '线性模型', forest: '随机森林', hist_gradient: '梯度提升', svm: '支持向量机', autogluon: 'AutoGluon' }
@@ -42,13 +42,21 @@ export default function ModelingPanel({ projectId, onContext, onTask, compact = 
   const [connected, setConnected] = useState(false)
   const [datasetDetail, setDatasetDetail] = useState<Dataset>()
   const key = 'lilies:modeling:' + projectId
+  const refreshRequests = useRef({ base, request: 0, applied: 0 })
+  if (refreshRequests.current.base !== base) refreshRequests.current = { base, request: 0, applied: 0 }
+  const refreshScope = refreshRequests.current
   const refresh = useCallback(async () => {
+    if (refreshRequests.current !== refreshScope) return
+    const request = ++refreshScope.request
+    const current = () => refreshRequests.current === refreshScope && request > refreshScope.applied
     try {
       const [s, d] = await Promise.all([api<Study[]>(base + '/modeling/studies?limit=50&summary=true'), api<Dataset[]>(base + '/datasets?limit=50&summary=true')])
+      if (!current()) return
       if (!Array.isArray(s) || !Array.isArray(d)) throw new Error('建模接口返回格式不正确，请重试连接')
+      refreshScope.applied = request
       setStudies(s); setDatasets(d); setConnected(true); setError(previous => previous.includes('PlatformApiError') || previous.includes('建模接口') ? '' : previous)
-    } catch (cause) { setError(String(cause)) }
-  }, [base])
+    } catch (cause) { if (current()) { refreshScope.applied = request; setError(String(cause)) } }
+  }, [base, refreshScope])
   useEffect(() => {
     try { const saved = JSON.parse(sessionStorage.getItem(key) || '{}'); setTab(saved.tab || '概览'); setSelected(saved.selected || ''); setDatasetId(saved.datasetId || '') } catch {}
     void refresh()
@@ -58,28 +66,42 @@ export default function ModelingPanel({ projectId, onContext, onTask, compact = 
   const datasetSummary = datasets.find(d => d.id === (datasetId || study?.dataset_id)) || datasets[0]
   const dataset = datasetDetail?.id === datasetSummary?.id ? datasetDetail : datasetSummary
   const did = datasetSummary?.id
+  const datasetRequests = useRef({ base, did, open, request: 0, applied: 0 })
+  if (datasetRequests.current.base !== base || datasetRequests.current.did !== did || datasetRequests.current.open !== open) datasetRequests.current = { base, did, open, request: 0, applied: 0 }
+  const datasetScope = datasetRequests.current
   const loadDataset = useCallback(async () => {
-    if (!did || !open) return
-    try { setDatasetDetail(await api<Dataset>(base + '/datasets/' + did)) } catch (cause) { setError(String(cause)) }
-  }, [base, did, open])
+    if (!did || !open || datasetRequests.current !== datasetScope) return
+    const request = ++datasetScope.request
+    const current = () => datasetRequests.current === datasetScope && request > datasetScope.applied
+    try {
+      const detail = await api<Dataset>(base + '/datasets/' + did)
+      if (current()) { datasetScope.applied = request; setDatasetDetail(detail) }
+    } catch (cause) { if (current()) { datasetScope.applied = request; setError(String(cause)) } }
+  }, [base, did, open, datasetScope])
   useEffect(() => { void loadDataset() }, [loadDataset])
   const sid = study?.id
   const candidateScope = base + '/' + sid
   const currentCandidateScope = useRef(candidateScope)
   currentCandidateScope.current = candidateScope
+  const candidateRequests = useRef({ scope: candidateScope, open, request: 0, applied: 0 })
+  if (candidateRequests.current.scope !== candidateScope || candidateRequests.current.open !== open) candidateRequests.current = { scope: candidateScope, open, request: 0, applied: 0 }
+  const candidateRequestScope = candidateRequests.current
   useEffect(() => {
     contextRequest.current += 1; contextPending.current = false; setPreparingContext(false)
     return () => { contextRequest.current += 1 }
   }, [candidateScope])
   const loadCandidates = useCallback(async (offset = 0) => {
-    if (!sid) return
+    if (!sid || candidateRequests.current !== candidateRequestScope) return
+    const request = offset ? 0 : ++candidateRequestScope.request
+    const current = () => candidateRequests.current === candidateRequestScope && (offset > 0 || request > candidateRequestScope.applied)
     try {
       const items = await api<Candidate[]>(base + '/modeling/studies/' + sid + '/candidates?limit=100&offset=' + offset + '&summary=' + !open)
-      if (currentCandidateScope.current !== candidateScope) return
+      if (!current()) return
+      if (!offset) candidateRequestScope.applied = request
       setCandidates(previous => offset ? [...previous, ...items.filter(item => !previous.some(p => p.id === item.id))] : [...items, ...previous.filter(p => !items.some(item => item.id === p.id))])
       setMore(items.length === 100)
-    } catch (cause) { if (currentCandidateScope.current === candidateScope) setError(String(cause)) }
-  }, [base, sid, open, candidateScope])
+    } catch (cause) { if (current()) { if (!offset) candidateRequestScope.applied = request; setError(String(cause)) } }
+  }, [base, sid, open, candidateRequestScope])
   useEffect(() => { setCandidates([]); setNote(undefined) }, [sid])
   useEffect(() => { if (!sid) return; void loadCandidates(); const timer = window.setInterval(() => void loadCandidates(), 3000); return () => window.clearInterval(timer) }, [loadCandidates, sid])
   function closeResults() {
@@ -153,7 +175,7 @@ export default function ModelingPanel({ projectId, onContext, onTask, compact = 
       {studySource && <p>{studySource}</p>}
       {evaluationSummary}
       <div className={styles.metrics}><div><small>当前最佳 · {metric.toUpperCase()}</small><strong>{num(study.best?.score)}</strong><span>{study.best ? modelNames[study.best.model] || study.best.model : '首个模型完成后显示'}</span></div><div><small>朴素参照</small><strong>{num(baseline)}</strong><span>同一评价划分</span></div><div><small>与目标的差距</small><strong>{gap == null ? target == null ? '待确认目标' : '目标 ' + num(target) : gap <= 0 ? '已达到' : num(gap)}</strong><span>{study.trials_used} 次试验已保存</span></div></div>
-      <p>{active?.current ? '正在训练：' + (modelNames[active.current.model] || active.current.model) : study.next_action}</p>
+      <p>{trainingProgressLabel(active, modelNames[active?.current?.model || ''] || active?.current?.model || '') || study.next_action}</p>
       {study.error && <p role="alert">{study.error}</p>}
       {bestTrial?.warnings?.map(w => <p key={w}>{w}</p>)}
       {repairCandidate && <button onClick={() => feedback(repairCandidate, "请读取这次实验的实际错误，提交关联的修复候选并继续；保留已有结果和评价划分。")}>修复并继续研究</button>}
@@ -171,7 +193,7 @@ export default function ModelingPanel({ projectId, onContext, onTask, compact = 
         {tab === '数据' && <><label>数据版本<select aria-label="选择数据集" value={dataset?.id || ''} onChange={e => remember(tab, selected, e.target.value)}>{datasets.map(d => <option key={d.id} value={d.id}>{d.name} · {d.id.slice(0, 6)}</option>)}</select></label>{dataset && <div className={styles.actions}><button disabled={busy} onClick={() => void action(() => api(base + '/datasets/' + dataset.id + '/profile?sampled=true', { method: 'POST' }))}>快速预览</button><button disabled={busy} onClick={() => void action(() => api(base + '/datasets/' + dataset.id + '/profile', { method: 'POST' }))}>完整分析</button><button onClick={() => { onContext({ dataset_id: dataset.id, label: dataset.name }, '请分析这份数据，确认目标、字段含义和合适的评价划分。'); setOpen(false) }}>和统筹分析</button></div>}{busy && <p role="status">正在分析，完成后显示实际统计。</p>}{profile ? <><p>{profile.sampled ? '抽样预览（最多前 1,000 行）' : '完整扫描'} · {profile.rows.toLocaleString()} 行 · {profile.columns.length} 列 · {profile.duplicates} 行重复。异常值仅提示，未自动删除。</p>{profile.time && <p>{profile.time.start} — {profile.time.end} · 采样间隔中位数 {num(profile.time.median_interval_seconds)} 秒</p>}{profile.labels && <p>标签 {profile.labels.rows} 条 · 重复 {profile.labels.duplicates} 条；标签字段在下方可选。</p>}{profile.time?.preview && <><p>时序抽样预览 · {profile.time.preview.series} · {profile.time.preview.group}（最多 120 点）</p><div className={styles.chart}><ResponsiveContainer width="100%" height={200}><LineChart data={profile.time.preview.points}><CartesianGrid stroke="#E4EAF2" /><XAxis dataKey="time" tick={false} /><YAxis domain={["auto", "auto"]} /><Tooltip /><Line isAnimationActive={false} dataKey="value" name={profile.time.preview.series} stroke="#3F639F" dot={false} /></LineChart></ResponsiveContainer></div></>}<select aria-label="查看字段分布" value={field?.name || ''} onChange={e => setColumn(e.target.value)}>{visibleColumns.map(c => <option key={c.name}>{c.name}</option>)}</select>{field?.distribution && <div className={styles.chart}><ResponsiveContainer width="100%" height={240}><BarChart data={field.distribution}><CartesianGrid vertical={false} stroke="#E4EAF2" /><XAxis dataKey="label" tick={{ fontSize: 11 }} /><YAxis width={45} /><Tooltip /><Bar dataKey="count" name="样本数" fill="#567BAD" radius={[3, 3, 0, 0]} /></BarChart></ResponsiveContainer></div>}<div className={styles.table}><table><thead><tr><th>字段</th><th>类型</th><th>缺失</th><th>不同值</th><th>异常提示</th></tr></thead><tbody>{profile.columns.map(c => <tr key={c.name}><td>{c.name}</td><td>{c.dtype}</td><td>{c.missing}</td><td>{c.unique}</td><td>{c.outliers ?? '—'}</td></tr>)}</tbody></table></div></> : <p>数据尚未分析。可以先快速预览，再完成全量统计。</p>}</>}
         {tab === '特征' && <><p>填补、编码和选择在训练折内拟合。时间范围和适用条件以下方实际记录为准；未记录的条件不代表已验证。</p>{bestTrial?.importance?.length ? <><p>模型内部权重／重要性，不能解释为因果关系。</p><div className={styles.chart}><ResponsiveContainer width="100%" height={280}><BarChart data={bestTrial.importance.slice(0, 10)} layout="vertical"><XAxis type="number" /><YAxis type="category" dataKey="name" width={140} tick={{ fontSize: 11 }} /><Tooltip /><Bar dataKey="value" name="重要性" fill="#567BAD" /></BarChart></ResponsiveContainer></div></> : <p>当前模型尚无贡献分析。</p>}<div className={styles.table}><table><thead><tr><th>特征／来源</th><th>计算方式</th><th>窗口与适用条件</th><th>调整</th></tr></thead><tbody>{(bestCandidate?.features_result || candidates[0]?.features_result || []).map(f => <tr key={f.name}><td>{f.name}<small>{f.source}</small></td><td>{f.calculation}</td><td>{f.window_seconds ? f.window_seconds + ' 秒' : '未设置时间窗口'}<small>{f.condition || '未记录可用时点条件，需结合数据来源确认'}</small></td><td><button onClick={() => feedback(bestCandidate, `请分析停用来源字段「${f.source}」的影响；在相同划分下建立新候选比较，保留原结果。`)}>建议停用</button></td></tr>)}</tbody></table></div></>}
         {tab === '实验' && note && study && <TrainingNote base={base + '/modeling/studies/' + study.id} candidateId={note.candidateId} slot={note.slot} onBack={() => setNote(undefined)} />}
-        {tab === '实验' && !note && <>{study?.search_strategy === 'aide' && <p>AIDE 选择搜索分支，项目智能体编写方案，平台计算验证分数。每次选择保存在训练笔记中。</p>}<p>固定评价：{({random: '随机划分', group: '按组隔离', time: '时间向前验证'} as Record<string, string>)[study?.evaluation.split || ''] || '尚未确定'} · {metric.toUpperCase()} · {['mae', 'rmse'].includes(metric) ? '越低越好' : '越高越好'}。失败试验保留并计入预算。</p>{curve.length > 0 && <div className={styles.chart}><ResponsiveContainer width="100%" height={220}><LineChart data={curve}><CartesianGrid stroke="#E4EAF2" /><XAxis dataKey="seconds" type="number" domain={[0, "dataMax"]} tickFormatter={value => `${Number(value).toFixed(1)}s`} name="累计训练秒" /><YAxis domain={['auto', 'auto']} /><Tooltip labelFormatter={v => `${v} 秒累计训练时间`} /><Line isAnimationActive={false} dataKey="score" name={metric.toUpperCase()} stroke="#3F639F" connectNulls={false} /></LineChart></ResponsiveContainer></div>}{candidates.length === 0 && <p>还没有实验。统筹提交方案并运行后，每次训练结果会保存在这里。</p>}{candidates.map(c => <section className={styles.experiment} key={c.id}><h4>{c.hypothesis}</h4><small>{statusNames[c.status] || c.status}{c.search_decision ? ` · AIDE：${c.search_decision.label}` : c.parent_id ? ' · 基于父候选改进' : ''}</small><div className={styles.table}><table><thead><tr><th>模型</th><th>{metric.toUpperCase()}</th><th>耗时</th><th>状态</th><th>训练笔记</th></tr></thead><tbody>{c.trials.map(t => <tr key={t.slot}><td>{modelNames[t.model] || t.model}</td><td>{num(t.metrics?.[metric])}</td><td>{t.seconds.toFixed(1)} 秒</td><td>{t.error || statusNames[t.status] || t.status}{t.warnings?.map(w => <small key={w}>{w}</small>)}</td><td><button aria-label={`查看${modelNames[t.model] || t.model}第 ${t.slot + 1} 次训练笔记`} onClick={() => setNote({ candidateId: c.id, slot: t.slot })}>查看训练笔记</button></td></tr>)}</tbody></table></div>{c.error && <p>{c.error}</p>}<div className={styles.actions}><button onClick={() => feedback(c)}>让智能体改进这次实验</button>{c.task_id && <button onClick={() => onTask?.(c.task_id)}>查看关联运行</button>}{c.feedback_task_id && <button onClick={() => onTask?.(c.feedback_task_id!)}>查看原反馈</button>}</div><details><summary>参数与完整记录</summary><pre>{JSON.stringify(c, null, 2)}</pre></details></section>)}{more && <button onClick={() => void loadCandidates(candidates.length)}>加载更早实验</button>}</>}
+        {tab === '实验' && !note && <>{study?.search_strategy === 'aide' && <p>AIDE 选择搜索分支，项目智能体编写方案，平台计算验证分数。每次选择保存在训练笔记中。</p>}<p>固定评价：{({random: '随机划分', group: '按组隔离', time: '时间向前验证'} as Record<string, string>)[study?.evaluation.split || ''] || '尚未确定'} · {metric.toUpperCase()} · {['mae', 'rmse'].includes(metric) ? '越低越好' : '越高越好'}。失败试验保留并计入预算。</p>{curve.length > 0 && <div className={styles.chart}><ResponsiveContainer width="100%" height={220}><LineChart data={curve}><CartesianGrid stroke="#E4EAF2" /><XAxis dataKey="seconds" type="number" domain={[0, "dataMax"]} tickFormatter={value => `${Number(value).toFixed(1)}s`} name="累计训练秒" /><YAxis domain={['auto', 'auto']} /><Tooltip labelFormatter={v => `${v} 秒累计训练时间`} /><Line isAnimationActive={false} dataKey="score" name={metric.toUpperCase()} stroke="#3F639F" connectNulls={false} /></LineChart></ResponsiveContainer></div>}{candidates.length === 0 && <p>还没有实验。统筹提交方案并运行后，每次训练结果会保存在这里。</p>}{candidates.map(c => <section className={styles.experiment} key={c.id}><h4>{c.hypothesis}</h4><small>{trainingProgressLabel(c, modelNames[c.current?.model || ''] || c.current?.model || '') || statusNames[c.status] || c.status}{c.search_decision ? ` · AIDE：${c.search_decision.label}` : c.parent_id ? ' · 基于父候选改进' : ''}</small><div className={styles.table}><table><thead><tr><th>模型</th><th>{metric.toUpperCase()}</th><th>耗时</th><th>状态</th><th>训练笔记</th></tr></thead><tbody>{c.trials.map(t => <tr key={t.slot}><td>{modelNames[t.model] || t.model}</td><td>{num(t.metrics?.[metric])}</td><td>{t.seconds.toFixed(1)} 秒</td><td>{t.error || statusNames[t.status] || t.status}{t.warnings?.map(w => <small key={w}>{w}</small>)}</td><td><button aria-label={`查看${modelNames[t.model] || t.model}第 ${t.slot + 1} 次训练笔记`} onClick={() => setNote({ candidateId: c.id, slot: t.slot })}>查看训练笔记</button></td></tr>)}</tbody></table></div>{c.error && <p>{c.error}</p>}<div className={styles.actions}><button onClick={() => feedback(c)}>让智能体改进这次实验</button>{c.task_id && <button onClick={() => onTask?.(c.task_id)}>查看关联运行</button>}{c.feedback_task_id && <button onClick={() => onTask?.(c.feedback_task_id!)}>查看原反馈</button>}</div><details><summary>参数与完整记录</summary><pre>{JSON.stringify(c, null, 2)}</pre></details></section>)}{more && <button onClick={() => void loadCandidates(candidates.length)}>加载更早实验</button>}</>}
       </div>
     </ReadingDialog>}
   </section>

@@ -6,6 +6,7 @@ import ModelingPanel from '@/app/components/ModelingPanel'
 vi.mock('@/lib/platform', () => ({ api: vi.fn(), withFrontendToken: (s: string) => s }))
 vi.mock('recharts', () => ({ ResponsiveContainer: ({ children }: { children: React.ReactNode }) => <div>{children}</div>, BarChart: () => <div>分布图</div>, Bar: () => null, CartesianGrid: () => null, LineChart: () => <div>改进曲线</div>, Line: () => null, Tooltip: () => null, XAxis: () => null, YAxis: () => null }))
 afterEach(cleanup)
+afterEach(() => vi.restoreAllMocks())
 const study = { id: 's', name: '温度预测', dataset_id: 'd', item_id: 'i', status: 'interrupted', next_action: '继续已保存的实验', trials_used: 2, baseline: { mae: .8 }, best: { candidate_id: 'c', slot: 0, score: .4, model: 'linear' }, budget: { seconds: 1800, trials: 30 }, evaluation: { metric: 'mae', split: 'group', target_score: .3 } }
 const candidate = { id: 'c', task_id: 't', run_id: 'r', status: 'interrupted', hypothesis: '加入窗口均值', trials: [{ slot: 0, status: 'completed', model: 'linear', metrics: { mae: .4 }, seconds: 2 }], features_result: [{ name: 'temperature__mean', source: 'temperature', calculation: 'mean', window_seconds: 60 }] }
 const dataset = { id: 'd', name: '设备数据', status: 'profiled', mapping: { target: 'y', kind: 'tabular' }, profile: { sampled: false, rows: 100, duplicates: 2, columns: [{ name: 'x', dtype: 'float64', unique: 90, missing: 3, outliers: 1, distribution: [{ label: '1–2', count: 10 }] }] } }
@@ -20,6 +21,53 @@ beforeEach(() => {
     if (path.includes('/datasets')) return [dataset] as never
     return {} as never
   })
+})
+
+it.each([
+  { started: '2026-10-06T08:00:00Z', scheduled: 3, batch: 5, elapsed: '本次已运行 2 分 5 秒', total: '本批第 2 / 3 次试验' },
+  { started: undefined, scheduled: undefined, batch: 5, elapsed: '', total: '本批第 2 / 5 次试验' },
+  { started: 'invalid', scheduled: undefined, batch: undefined, elapsed: '', total: '本批第 2 次试验' },
+  { started: '2026-10-07T08:00:00Z', scheduled: 1, batch: 5, elapsed: '', total: '本批第 2 次试验' },
+])('shows actual trial position and available start time without inventing progress ($total, $started)', async ({ started, scheduled, batch, elapsed, total }) => {
+  vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-10-06T08:02:05Z'))
+  const original = vi.mocked(api).getMockImplementation()!
+  vi.mocked(api).mockImplementation(async (path, options) => {
+    if (path.includes('/candidates')) return [{ ...candidate, status: 'running', batch_size: batch,
+      scheduled_slots: scheduled, current: { model: 'forest', slot: 1, started_at: started } }] as never
+    if (path.includes('/modeling/studies')) return [{ ...study, status: 'running', next_action: '正在训练模型' }] as never
+    return original(path, options)
+  })
+  render(<ModelingPanel projectId="p" onContext={vi.fn()} />)
+  const progress = await screen.findByText(new RegExp(total))
+  expect(progress).toHaveTextContent('正在训练：随机森林')
+  if (elapsed) expect(progress).toHaveTextContent(elapsed)
+  else expect(progress).not.toHaveTextContent('已运行')
+  expect(progress).not.toHaveTextContent(/%|预计|剩余/)
+  expect(screen.getByRole('button', { name: '停止计算' })).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: '查看结果' }))
+  fireEvent.click(screen.getByRole('tab', { name: '实验' }))
+  expect(await within(screen.getByRole('dialog')).findByText(new RegExp(total))).toHaveTextContent('正在训练：随机森林')
+})
+
+it('shows the queue stage instead of stale trial progress, and keeps the exact stop action', async () => {
+  const original = vi.mocked(api).getMockImplementation()!
+  let stopped = false
+  vi.mocked(api).mockImplementation(async (path, options) => {
+    if (path.endsWith('/tasks/t/stop')) { stopped = true; return {} as never }
+    if (path.includes('/candidates')) return [{ ...candidate, status: stopped ? 'interrupted' : 'queued',
+      batch_size: 5, current: { model: 'forest', slot: 1, started_at: '2026-10-06T08:00:00Z' } }] as never
+    if (path.includes('/modeling/studies')) return [{ ...study, status: stopped ? 'interrupted' : 'queued',
+      next_action: stopped ? '任务已中断，已完成试验保留' : '等待计算资源，之后准备数据划分' }] as never
+    return original(path, options)
+  })
+  render(<ModelingPanel projectId="p" onContext={vi.fn()} />)
+  expect(await screen.findByText('等待计算资源，之后准备数据划分')).toBeInTheDocument()
+  expect(screen.queryByText(/正在训练：|本批第|本次已运行/)).not.toBeInTheDocument()
+  fireEvent.click(await screen.findByRole('button', { name: '停止计算' }))
+  expect(await screen.findByText('任务已中断，已完成试验保留')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '继续原任务' })).toBeInTheDocument()
+  expect(vi.mocked(api).mock.calls.filter(([path]) => path.endsWith('/tasks/t/stop'))).toHaveLength(1)
+  expect(screen.queryByText(/正在训练：|本批第|本次已运行/)).not.toBeInTheDocument()
 })
 
 it('uploads the selected file and retains its data tab and conversation context after remount', async () => {
