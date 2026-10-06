@@ -171,34 +171,57 @@ class OfficialAgent:
 
     async def transport(self):
         async with self.control_lock:
-            if self.control is None or (self.control.process is not None and self.control.process.returncode is not None):
-                config = self.config()
-                info = await inspect_executable(config.executable)
-                validate_codex_version(info['version'])
-                if config.version and config.version != info['version']:
-                    raise ValueError('服务器 Codex 版本已变化，请管理员重新连接并验证')
-                self.control = self.client_factory(info['path'], self.root / 'account',
-                    auth_file=self.auth_file, subscription_only=True)
-                try:
-                    await self.control.connect()
-                except BaseException:
-                    await self.control.close()
-                    self.control = None
-                    raise
-            return self.control
+            return await self._transport()
 
-    async def inspect(self):
-        try:
-            return await self._inspect()
-        except (ValueError, CodexAuthenticationError) as error:
-            self.set_connection('blocked', str(error))
-            raise
-        except Exception:
-            self.set_connection('unknown', '连接检查未完成，请管理员检查连接')
-            raise
+    async def _transport(self):
+        # Callers hold control_lock through the metadata request or login change.
+        if self.control is None or (self.control.process is not None and self.control.process.returncode is not None):
+            config = self.config()
+            info = await inspect_executable(config.executable)
+            validate_codex_version(info['version'])
+            if config.version and config.version != info['version']:
+                raise ValueError('服务器 Codex 版本已变化，请管理员重新连接并验证')
+            self.control = self.client_factory(info['path'], self.root / 'account',
+                auth_file=self.auth_file, subscription_only=True)
+            try:
+                await self.control.connect()
+            except BaseException:
+                await self._close_control()
+                raise
+        return self.control
+
+    async def _close_control(self):
+        # Caller holds control_lock; project task clients are separate.
+        if self.control:
+            await self.control.close()
+            self.control = None
+
+    async def check_connection(self):
+        control = self.control
+        # acquire() uses this same lock order. A check cannot stop a running job.
+        async with self.dispatch_lock:
+            return await self.inspect(reconnect_control=control)
+
+    async def inspect(self, *, reconnect_control=None):
+        async with self.control_lock:
+            try:
+                snapshot = await self._inspect()
+                if (reconnect_control is not None and self.control is reconnect_control
+                        and not snapshot['account'] and self.login is None and not self.active_jobs()):
+                    # Only an explicit admin check may replace the observed stale
+                    # control, once. Concurrent checks must not replace it again.
+                    await self._close_control()
+                    snapshot = await self._inspect()
+                return snapshot
+            except (ValueError, CodexAuthenticationError) as error:
+                self.set_connection('blocked', str(error))
+                raise
+            except Exception:
+                self.set_connection('unknown', '连接检查未完成，请管理员检查连接')
+                raise
 
     async def _inspect(self):
-        client = await self.transport()
+        client = await self._transport()
         account = (await client.request('account/read', {'refreshToken': False})).get('account')
         self.rate_limits = {}
         self.last_error = ''
@@ -222,6 +245,8 @@ class OfficialAgent:
             raise
         except Exception:
             self.last_error = '暂时无法取得账号额度，新请求等待额度恢复'
+        else:
+            self.login = None  # Clear a pending login only after authenticated metadata checks succeed.
         config = self.config()
         match = next((m for m in models if m.get('model') == config.model), None)
         options = [e['reasoningEffort'] for e in (match or {}).get('supportedReasoningEfforts', [])]
@@ -248,34 +273,35 @@ class OfficialAgent:
         return ''
 
     async def connect_account(self, mode):
-        if self.active_jobs():
-            raise ValueError('请先停止活动及排队任务，再更换账号')
-        self.set_connection('unknown', '账号正在重新连接，尚未检查完成')
-        for key in list(self.services.local_agents.clients):
-            if getattr(self.services.local_agents.clients[key], 'subscription_only', False):
-                await self.services.local_agents.clients.pop(key).close()
-        if self.control:
-            await self.control.close()
-            self.control = None
-        info = await inspect_executable(self.config().executable)
-        validate_codex_version(info['version'])
-        config = self.config().model_copy(update={'executable': info['path'], 'version': info['version']})
-        self.save_config(config)
-        if mode == 'existing':
-            source = Path(os.environ.get('CODEX_HOME', str(Path.home() / '.codex'))) / 'auth.json'
-            if not source.is_file():
-                raise ValueError('服务器没有已登录账号，请使用登录入口')
-            self.auth_file.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-            # Copy only login material, never personal config, skills or history.
-            temporary = self.auth_file.with_suffix('.tmp')
-            with open(temporary, 'w', opener=lambda p, flags: os.open(p, flags, 0o600)) as out:
-                out.write(source.read_text())
-            temporary.replace(self.auth_file)
-            self.login = None
+        async with self.dispatch_lock:
+            async with self.control_lock:
+                if self.active_jobs():
+                    raise ValueError('请先停止活动及排队任务，再更换账号')
+                self.set_connection('unknown', '账号正在重新连接，尚未检查完成')
+                for key in list(self.services.local_agents.clients):
+                    if getattr(self.services.local_agents.clients[key], 'subscription_only', False):
+                        await self.services.local_agents.clients.pop(key).close()
+                await self._close_control()
+                info = await inspect_executable(self.config().executable)
+                validate_codex_version(info['version'])
+                config = self.config().model_copy(update={'executable': info['path'], 'version': info['version']})
+                self.save_config(config)
+                if mode == 'existing':
+                    source = Path(os.environ.get('CODEX_HOME', str(Path.home() / '.codex'))) / 'auth.json'
+                    if not source.is_file():
+                        raise ValueError('服务器没有已登录账号，请使用登录入口')
+                    self.auth_file.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+                    # Copy only login material, never personal config, skills or history.
+                    temporary = self.auth_file.with_suffix('.tmp')
+                    with open(temporary, 'w', opener=lambda p, flags: os.open(p, flags, 0o600)) as out:
+                        out.write(source.read_text())
+                    temporary.replace(self.auth_file)
+                    self.login = None
+                else:
+                    client = await self._transport()
+                    self.login = await client.request('account/login/start', {'type': 'chatgptDeviceCode' if mode == 'device' else 'chatgpt'})
+                    return {'login': self.login}
             return await self.inspect()
-        client = await self.transport()
-        self.login = await client.request('account/login/start', {'type': 'chatgptDeviceCode' if mode == 'device' else 'chatgpt'})
-        return {'login': self.login}
 
     def jobs(self, status=None):
         with connect(self.db) as db:
@@ -447,9 +473,8 @@ class OfficialAgent:
             task.cancel()
         if pending:
             await asyncio.gather(*pending, return_exceptions=True)
-        if self.control:
-            await self.control.close()
-            self.control = None
+        async with self.control_lock:
+            await self._close_control()
 
 
 def official_router(services):
@@ -466,7 +491,7 @@ def official_router(services):
     async def status(refresh: bool = False):
         result = {'config': service.config().model_dump(), 'jobs': service.jobs(), **service.connection()}
         if refresh:
-            result.update(await invoke(service.inspect))
+            result.update(await invoke(service.check_connection))
         return result
 
     @router.put('/admin/official-agent')
@@ -479,9 +504,8 @@ def official_router(services):
         # Only a successful connection can pin/change the verified version.
         body.version = previous.version
         if changed:
-            if service.control:
-                await service.control.close()
-                service.control = None
+            async with service.control_lock:
+                await service._close_control()
             for key in list(services.local_agents.clients):
                 client = services.local_agents.clients[key]
                 if getattr(client, 'subscription_only', False):
@@ -495,13 +519,15 @@ def official_router(services):
 
     @router.post('/admin/official-agent/disconnect')
     async def disconnect():
-        if service.active_jobs():
-            raise HTTPException(409, '请先停止活动及排队任务')
-        service.save_config(service.config().model_copy(update={'enabled': False}))
-        client = await service.transport()
-        await client.request('account/logout', {})
-        service.login = None
-        await service.close()
+        async with service.dispatch_lock:
+            if service.active_jobs():
+                raise HTTPException(409, '请先停止活动及排队任务')
+            service.save_config(service.config().model_copy(update={'enabled': False}))
+            async with service.control_lock:
+                client = await service._transport()
+                await client.request('account/logout', {})
+                service.login = None
+            await service.close()
         return {'ok': True}
 
     @router.post('/admin/official-agent/jobs/{job_id}/stop')

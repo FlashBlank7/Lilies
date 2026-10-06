@@ -2,6 +2,7 @@
 import asyncio
 import json
 import time
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
@@ -71,6 +72,252 @@ def official(platform, monkeypatch):
     return client, app, service
 
 
+@pytest.fixture
+def resident_control(official, monkeypatch):
+    from agent_platform.official_agent import OfficialAgent
+    client, _, service = official
+    controls = []
+    state = {'account': {'type': 'chatgpt'}}
+
+    class Control:
+        def __init__(self, executable, runtime_dir, **options):
+            self.account = state['account'] if controls else None
+            self.process = SimpleNamespace(returncode=None)
+            self.options = options
+            self.calls = []
+            self.closed = False
+            controls.append(self)
+
+        async def connect(self):
+            pass
+
+        async def request(self, method, params):
+            self.calls.append(method)
+            if method == 'account/read':
+                return {'account': self.account}
+            if method == 'model/list':
+                return {'data': [{'model': 'gpt-5.6-luna', 'supportedReasoningEfforts': [{'reasoningEffort': 'max'}]}]}
+            if method == 'account/rateLimits/read':
+                return {'rateLimits': {'primary': {'usedPercent': 0}}}
+            raise AssertionError('Connection checks must not start login, threads or turns')
+
+        async def close(self):
+            self.closed = True
+            self.process.returncode = 0
+
+    async def executable(_):
+        return {'path': '/test/codex', 'version': 'codex-cli 0.154.0'}
+
+    def factory(executable, runtime_dir, **options):
+        if runtime_dir == service.root / 'account':
+            return Control(executable, runtime_dir, **options)
+        return FakeAgent(executable, runtime_dir, **options)
+
+    service.control = Control('/test/codex', service.root / 'account')
+    service.client_factory = factory
+    monkeypatch.setattr('agent_platform.official_agent.inspect_executable', executable)
+    monkeypatch.setattr(service, 'inspect', OfficialAgent.inspect.__get__(service))
+    return client, service, controls, state
+
+
+def test_admin_refresh_replaces_a_live_control_with_an_empty_account(resident_control):
+    client, service, controls, _ = resident_control
+    response = client.get('/api/v1/admin/official-agent?refresh=true', headers=ADMIN)
+    response.raise_for_status()
+    assert response.json()['connection_status'] == 'checked'
+    assert len(controls) == 2 and controls[0].closed
+    assert service.control is controls[1] and not controls[1].closed
+    assert controls[1].options['auth_file'] == service.auth_file
+    assert not service.auth_file.exists()  # Checks never copy personal credentials.
+    assert controls[0].calls == ['account/read']
+    assert controls[1].calls == ['account/read', 'model/list', 'account/rateLimits/read']
+
+
+@pytest.mark.parametrize('account', [None, {}, {'type': 'apiKey'}])
+def test_admin_refresh_does_not_loop_when_replacement_has_no_subscription(resident_control, account):
+    client, service, controls, state = resident_control
+    state['account'] = account
+    response = client.get('/api/v1/admin/official-agent?refresh=true', headers=ADMIN)
+    response.raise_for_status()
+    assert response.json()['connection_status'] == 'blocked'
+    assert len(controls) == 2 and controls[0].closed and not controls[1].closed
+    assert controls[1].calls == ['account/read']
+    assert not service.auth_file.exists()
+
+
+@pytest.mark.parametrize('status', ['queued', 'running', 'waiting'])
+def test_admin_refresh_preserves_control_while_jobs_are_active(resident_control, status):
+    from agent_platform.project_store import connect
+    client, service, controls, _ = resident_control
+    with connect(service.db) as db:
+        db.execute('INSERT INTO official_agent_jobs(id,project_id,conversation_id,user_id,kind,status,created) '
+                   'VALUES(?,?,?,?,?,?,?)', ('active', 'project', 'conversation', 'user', 'chat', status, time.time()))
+    response = client.get('/api/v1/admin/official-agent?refresh=true', headers=ADMIN)
+    response.raise_for_status()
+    assert response.json()['connection_status'] == 'blocked'
+    assert len(controls) == 1 and not controls[0].closed
+    assert service.job('active')['status'] == status
+
+
+@pytest.mark.parametrize('login', [
+    {'loginId': 'browser-login', 'authUrl': 'https://login.invalid'},
+    {'verificationUrl': 'https://login.invalid', 'userCode': 'test-device-code'},
+])
+def test_admin_refresh_preserves_pending_login_until_subscription_is_verified(resident_control, login):
+    client, service, controls, _ = resident_control
+    service.login = login
+    response = client.get('/api/v1/admin/official-agent?refresh=true', headers=ADMIN)
+    response.raise_for_status()
+    assert response.json()['login'] == login and service.login == login
+    assert len(controls) == 1 and not controls[0].closed
+    controls[0].account = {'type': 'chatgpt'}
+    response = client.get('/api/v1/admin/official-agent?refresh=true', headers=ADMIN)
+    response.raise_for_status()
+    assert response.json()['connection_status'] == 'checked'
+    assert service.login is None and response.json()['login'] is None
+    assert len(controls) == 1 and not controls[0].closed
+
+
+@pytest.mark.parametrize('method', ['model/list', 'account/rateLimits/read'])
+def test_failed_metadata_check_keeps_pending_login_protected(resident_control, method):
+    from agent_platform.codex_app_server import CodexAuthenticationError
+    client, service, controls, _ = resident_control
+    login = service.login = {'loginId': 'pending', 'authUrl': 'https://login.invalid'}
+    controls[0].account = {'type': 'chatgpt'}
+    request = controls[0].request
+
+    async def expired(name, params):
+        if name == method:
+            raise CodexAuthenticationError('登录尚未完成')
+        return await request(name, params)
+
+    controls[0].request = expired
+    response = client.get('/api/v1/admin/official-agent?refresh=true', headers=ADMIN)
+    assert response.status_code == 422
+    assert service.login == login
+    controls[0].account = None
+    response = client.get('/api/v1/admin/official-agent?refresh=true', headers=ADMIN)
+    response.raise_for_status()
+    assert response.json()['login'] == login
+    assert len(controls) == 1 and not controls[0].closed
+
+
+def test_employee_checks_never_replace_the_resident_control(resident_control):
+    client, service, controls, _ = resident_control
+    _, headers = signup(client, '连接失效员工')
+    pid = project(client, headers)
+    enable(client, pid)
+    path = chat(client, pid, headers)
+    for _ in range(2):
+        client.post(path + '/messages', headers=headers, json={'message': '整理会议'}).raise_for_status()
+        failed = wait(client, path, headers)
+        assert failed['status'] == 'error' and failed['connection_status'] == 'blocked', failed.get('error')
+    assert len(controls) == 1 and not controls[0].closed
+    assert controls[0].calls == ['account/read']  # Later employee requests see the saved failure.
+    assert not FakeAgent.turns
+    response = client.get('/api/v1/admin/official-agent', headers=ADMIN)
+    response.raise_for_status()
+    assert len(controls) == 1 and not controls[0].closed
+
+
+@pytest.mark.parametrize('account', [None, {'type': 'chatgpt'}])
+def test_concurrent_admin_checks_replace_the_observed_control_only_once(resident_control, account):
+    client, service, controls, state = resident_control
+    state['account'] = account
+
+    async def check_concurrently():
+        entered = asyncio.Event()
+        release = asyncio.Event()
+        second_started = asyncio.Event()
+        request = controls[0].request
+
+        async def held_request(method, params):
+            entered.set()
+            await release.wait()
+            return await request(method, params)
+
+        async def second_check():
+            second_started.set()
+            return await service.check_connection()
+
+        controls[0].request = held_request
+        first = asyncio.create_task(service.check_connection())
+        await asyncio.wait_for(entered.wait(), 2)
+        second = asyncio.create_task(second_check())
+        await asyncio.wait_for(second_started.wait(), 2)
+        assert not controls[0].closed
+        release.set()
+        return await asyncio.wait_for(asyncio.gather(first, second), 2)
+
+    results = client.portal.call(check_concurrently)
+    assert [result['connection_status'] for result in results] == ['checked' if account else 'blocked'] * 2
+    assert len(controls) == 2 and controls[0].closed and not controls[1].closed
+
+
+def test_admin_refresh_waits_for_login_start_without_closing_its_control(resident_control):
+    client, service, controls, state = resident_control
+    state['account'] = None
+    login = {'loginId': 'pending', 'authUrl': 'https://login.invalid'}
+
+    async def login_and_check():
+        entered = asyncio.Event()
+        release = asyncio.Event()
+        checking = asyncio.Event()
+        factory = service.client_factory
+
+        def login_factory(*args, **options):
+            control = factory(*args, **options)
+            request = control.request
+
+            async def login_request(method, params):
+                if method == 'account/login/start':
+                    entered.set()
+                    await release.wait()
+                    return login
+                return await request(method, params)
+
+            control.request = login_request
+            return control
+
+        async def check():
+            checking.set()
+            return await service.check_connection()
+
+        service.client_factory = login_factory
+        started = asyncio.create_task(service.connect_account('browser'))
+        await asyncio.wait_for(entered.wait(), 2)
+        checked = asyncio.create_task(check())
+        await asyncio.wait_for(checking.wait(), 2)
+        assert len(controls) == 2 and not controls[1].closed
+        release.set()
+        return await asyncio.wait_for(asyncio.gather(started, checked), 2)
+
+    started, checked = client.portal.call(login_and_check)
+    assert started['login'] == checked['login'] == service.login == login
+    assert len(controls) == 2 and not controls[1].closed
+    assert not service.auth_file.exists()
+
+
+def test_disconnect_still_logs_out_and_closes_the_control(resident_control):
+    client, service, controls, _ = resident_control
+    request = controls[0].request
+    logged_out = []
+
+    async def logout(method, params):
+        if method == 'account/logout':
+            logged_out.append(True)
+            return {}
+        return await request(method, params)
+
+    controls[0].request = logout
+    response = client.post('/api/v1/admin/official-agent/disconnect', headers=ADMIN)
+    response.raise_for_status()
+    assert response.json() == {'ok': True}
+    assert logged_out == [True]
+    assert service.control is None and controls[0].closed
+    assert not service.config().enabled
+
+
 def enable(client, pid):
     base = '/api/v1/projects/' + pid
     assert client.put(base+'/capabilities',headers=ADMIN,json={'agent_modules_enabled':True}).status_code == 200
@@ -99,7 +346,7 @@ def test_invalid_subscription_ends_wait_and_persists_repair_status(official, mon
     async def transport():
         return Control()
 
-    monkeypatch.setattr(service, 'transport', transport)
+    monkeypatch.setattr(service, '_transport', transport)
     monkeypatch.setattr(service, 'inspect', OfficialAgent.inspect.__get__(service))
     path = chat(client, pid, headers)
     client.post(path+'/messages', headers=headers, json={'message': '整理会议'}).raise_for_status()
@@ -741,7 +988,7 @@ def test_explicit_auth_error_is_terminal_not_quota_wait(official, monkeypatch, m
             return {'data':[{'model':'gpt-5.6-luna','supportedReasoningEfforts':[{'reasoningEffort':'max'}]}]}
     async def transport():
         return Control()
-    monkeypatch.setattr(service, 'transport', transport)
+    monkeypatch.setattr(service, '_transport', transport)
     monkeypatch.setattr(service, 'inspect', OfficialAgent.inspect.__get__(service))
     path = chat(client, pid, headers)
     response = client.post(path+'/workflow-generation', headers=headers, json={'instruction':'创建空白工作流'})
