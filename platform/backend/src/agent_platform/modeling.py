@@ -284,7 +284,10 @@ class Modeling:
         deadline = time.monotonic() + timeout
         if on_event and self.slots.locked():
             await on_event({'kind': 'queued'})
-        await asyncio.wait_for(self.slots.acquire(), timeout)
+        try:
+            await asyncio.wait_for(self.slots.acquire(), timeout)
+        except TimeoutError as error:
+            raise TimeoutError('等待计算资源时已用尽预算') from error
         try:
             if on_event:
                 await on_event({'kind': 'compute_started'})
@@ -332,6 +335,8 @@ class Modeling:
                 if process.returncode or result is None:
                     raise RuntimeError(failure or log[-1200:] or '建模计算未返回结果')
                 return result
+            except TimeoutError as error:
+                raise TimeoutError('计算运行时已用尽预算') from error
             finally:
                 await asyncio.shield(self.remove_container(name))
                 if process and process.returncode is None:

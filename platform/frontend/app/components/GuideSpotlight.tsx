@@ -15,7 +15,7 @@ export default function GuideSpotlight({selectors,paused,children,onSkip}:{selec
   const [viewport,setViewport]=useState({width:0,height:0}),[panelHeight,setPanelHeight]=useState(260)
   const signature=selectors.join(',')
   useEffect(()=>{
-    let frame=0,previous:HTMLElement|null=null,reserved:HTMLDialogElement|null=null
+    let frame=0,previous:HTMLElement|null=null,reserved:HTMLDialogElement|null=null,previousTop:number|null=null
     const measure=()=>{
       frame=0
       const dialog=Array.from(document.querySelectorAll<HTMLDialogElement>('dialog[open]')).filter(visible).at(-1)
@@ -27,16 +27,26 @@ export default function GuideSpotlight({selectors,paused,children,onSkip}:{selec
       const candidates=selectors.flatMap(selector=>Array.from(document.querySelectorAll<HTMLElement>(selector)))
       const next=paused?null:dialog||candidates.find(visible)||null
       target.current=next
+      const before=next?.getBoundingClientRect()
+      const documentTop=before?before.top+window.scrollY:null
+      const moved=previousTop!==null&&documentTop!==null&&Math.abs(documentTop-previousTop)>1
       if(next!==previous){
         previous?.classList.remove(styles.highlight)
         next?.classList.add(styles.highlight)
-        if(next&&!dialog)next.scrollIntoView({block:'center',behavior:'instant'})
-        previous=next
       }
+      // Loading content above the same target can move it out of view after
+      // the first reveal. Ordinary page scrolling keeps its document position.
+      if(next&&!dialog&&before&&(next!==previous||(moved&&(before.bottom<=8||before.top>=window.innerHeight-8))))
+        next.scrollIntoView({block:before.height>window.innerHeight-24?'start':'center',behavior:'instant'})
+      previous=next
+      previousTop=next?next.getBoundingClientRect().top+window.scrollY:null
       const width=window.innerWidth,height=window.innerHeight
       setViewport(old=>old.width===width&&old.height===height?old:{width,height})
       const box=next?.getBoundingClientRect()
-      const value=box?{top:Math.max(8,box.top-6),left:Math.max(8,box.left-6),width:Math.max(0,Math.min(width-8,box.right+6)-Math.max(8,box.left-6)),height:Math.max(0,Math.min(height-8,box.bottom+6)-Math.max(8,box.top-6))}:null
+      // Position against the visible intersection. An offscreen target must
+      // not push the fixed guide outside the viewport and hide its skip button.
+      const intersects=box&&box.bottom>8&&box.top<height-8&&box.right>8&&box.left<width-8
+      const value=intersects?{top:Math.max(8,box.top-6),left:Math.max(8,box.left-6),width:Math.max(0,Math.min(width-8,box.right+6)-Math.max(8,box.left-6)),height:Math.max(0,Math.min(height-8,box.bottom+6)-Math.max(8,box.top-6))}:null
       setRect(old=>JSON.stringify(old)===JSON.stringify(value)?old:value)
       const heightOfPanel=panel.current?.getBoundingClientRect().height
       if(heightOfPanel)setPanelHeight(heightOfPanel)
@@ -83,6 +93,8 @@ export default function GuideSpotlight({selectors,paused,children,onSkip}:{selec
       } else {maxHeight=Math.min(maxHeight,height*.32);top=height-Math.min(panelHeight,maxHeight)-12}
     }
   }
+  top=Math.max(12,Math.min(top,height-Math.min(panelHeight,maxHeight)-12))
+  left=Math.max(12,Math.min(left,width-cardWidth-12))
   const shield=(style:React.CSSProperties,key:string)=><div key={key} className={styles.shield} style={style} aria-hidden="true" data-guide-shield="" />
   return createPortal(<div data-guide-overlay="">
     {rect?<>{shield({top:0,left:0,width:'100%',height:rect.top},'top')}{shield({top:rect.top,left:0,width:rect.left,height:rect.height},'left')}{shield({top:rect.top,left:rect.left+rect.width,right:0,height:rect.height},'right')}{shield({top:rect.top+rect.height,left:0,right:0,bottom:0},'bottom')}<div className={styles.ring} aria-hidden="true" style={rect}/></>:shield({inset:0},'all')}
