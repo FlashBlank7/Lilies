@@ -1,4 +1,4 @@
-import {cleanup,fireEvent,render,screen,waitFor} from '@testing-library/react'
+import {cleanup,fireEvent,render,screen,waitFor,within} from '@testing-library/react'
 import {afterEach,expect,it,vi} from 'vitest'
 import {api} from '@/lib/platform'
 import WorkflowComposer from '@/app/components/WorkflowComposer'
@@ -74,6 +74,43 @@ it.each(['direct','wrapped'])('shows %s prediction values while deduplicating th
  const task:ProjectTask={id:'t',request_key:'r',purpose:'business',item_id:'',feedback_task_id:'',message:'',error:'',created_at:'',updated_at:'',status:'succeeded',mode:'prediction',outputs:shape==='direct'?result:{result,csv_download:result.artifact},presentation:{}}
  render(<ProjectTaskOutput projectId="p" task={task}/>);
  expect(screen.getByRole('cell',{name:'303.139'})).toBeInTheDocument();expect(screen.getByRole('cell',{name:'306.102'})).toBeInTheDocument();expect(screen.getAllByRole('link')).toHaveLength(1)
+ expect(screen.getByText('此结果未保存输入对应说明。')).toBeInTheDocument()
+ expect(screen.getAllByRole('columnheader').map(cell=>cell.textContent)).toEqual(['预测值'])
+ expect(screen.getAllByRole('cell')).toHaveLength(2)
+ expect(screen.queryByText(/输入记录序号从 1 起/)).not.toBeInTheDocument()
+})
+
+it.each(['direct','wrapped'])('shows saved input correspondence before probability columns for %s predictions',(shape)=>{
+ const probabilities=Object.fromEntries(Array.from({length:10},(_,i)=>[`probability_${i}`,i/10]))
+ const result={artifact:'datasets/d/files/run/output/predictions.csv',input_source:{dataset_id:'d',path:'requirement-package/new.xlsx',table:shape==='direct'?'source':'labels',sheet:shape==='direct'?0:'待预测样本',record_column:'input_record_',id_column:'sample_id'},preview:[
+  {...probabilities,prediction:303.1389,input_record:'原有业务字段',input_record_:9876543,sample_id:1234567890123},
+  {...probabilities,prediction:306.1019,input_record:'另一业务字段',input_record_:9876544,sample_id:'0000123456789012345'},
+ ]}
+ const task:ProjectTask={id:'t',request_key:'r',purpose:'business',item_id:'',feedback_task_id:'',message:'',error:'',created_at:'',updated_at:'',status:'succeeded',mode:'prediction',outputs:shape==='direct'?result:{result,csv_download:result.artifact},presentation:{}}
+ render(<ProjectTaskOutput projectId="p" task={task}/> )
+ const sourceTable=shape==='direct'?'输入数据表':'待预测样本表'
+ expect(screen.getByText(new RegExp(`输入来源（${sourceTable}）：`))).toHaveTextContent(`requirement-package/new.xlsx · 数据集：d · 工作表：${result.input_source.sheet}`)
+ expect(screen.getByText(`输入记录序号从 1 起，表示${sourceTable}中的数据记录顺序，不是 CSV 或 Excel 的物理行号。`)).toBeInTheDocument()
+ expect(screen.getByText('下载 CSV 包含相同的输入对应列。')).toBeInTheDocument()
+ expect(screen.getByText(/_sample 是从 0 起的同一记录编号/)).toBeInTheDocument()
+ expect(screen.queryByRole('columnheader',{name:'_sample'})).not.toBeInTheDocument()
+ expect(screen.getAllByRole('columnheader').slice(0,3).map(cell=>cell.textContent)).toEqual(['输入记录序号','输入 ID（sample_id）','预测值'])
+ const rows=screen.getAllByRole('row')
+ expect(within(rows[1]).getAllByRole('cell').slice(0,3).map(cell=>cell.textContent)).toEqual(['9876543','1234567890123','303.139'])
+ expect(within(rows[2]).getAllByRole('cell').slice(0,3).map(cell=>cell.textContent)).toEqual(['9876544','0000123456789012345','306.102'])
+ expect(screen.getAllByRole('link')).toHaveLength(1)
+ expect(screen.getByRole('link',{name:'下载预测结果 CSV ↓'})).toHaveAttribute('href','/api/platform/api/v1/projects/p/datasets/d/files/run/output/predictions.csv')
+})
+
+it('shows saved input IDs without inventing record numbers when only IDs are available',()=>{
+ const result={artifact:'datasets/d/files/run/output/predictions.csv',input_source:{dataset_id:'d',path:'requirement-package/new.csv',table:'source',id_column:'sample_id'},preview:[{prediction:303.1389},{prediction:306.1019,sample_id:1234567890123}]}
+ const task:ProjectTask={id:'t',request_key:'r',purpose:'business',item_id:'',feedback_task_id:'',message:'',error:'',created_at:'',updated_at:'',status:'succeeded',mode:'prediction',outputs:result,presentation:{}}
+ render(<ProjectTaskOutput projectId="p" task={task}/> )
+ expect(screen.getAllByRole('columnheader').map(cell=>cell.textContent)).toEqual(['输入 ID（sample_id）','预测值'])
+ expect(screen.getByRole('cell',{name:'1234567890123'})).toBeInTheDocument()
+ expect(screen.queryByRole('columnheader',{name:'输入记录序号'})).not.toBeInTheDocument()
+ expect(screen.queryByText(/输入记录序号从 1 起/)).not.toBeInTheDocument()
+ expect(screen.queryByText('此结果未保存输入对应说明。')).not.toBeInTheDocument()
 })
 
 it('applies the visible canvas revision and sends selection or nested scope in one request',async()=>{

@@ -295,7 +295,7 @@ class ConnectorActionConfig(BaseModel):
 
 class IterationConfig(BaseModel):
     items: Any
-    workflow: WorkflowSpec
+    workflow: WorkflowSpec = Field(description='完整子流程，包含一个开始节点和至少一个 end/answer 结束节点，并通过连线接入执行路径；output_node_id 指定收集哪个节点的结果，不能替代结束节点。')
     variables: dict[str, Any] = Field(default_factory=dict, max_length=100)
     item_name: str = "item"
     output_node_id: str
@@ -305,7 +305,7 @@ class IterationConfig(BaseModel):
 
 
 class LoopConfig(BaseModel):
-    workflow: WorkflowSpec
+    workflow: WorkflowSpec = Field(description='完整子流程，包含一个开始节点和至少一个 end/answer 结束节点，并通过连线接入执行路径；output_node_id 指定收集哪个节点的结果，不能替代结束节点。')
     variables: dict[str, Any] = Field(default_factory=dict)
     initial_state: Any = None
     state_input_name: str = Field(default="loop_state", pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -361,7 +361,7 @@ def validate_human_values(config: HumanInputConfig, values: dict) -> dict:
 
 
 class EndConfig(BaseModel):
-    outputs: dict[str, Any] = Field(default_factory=dict)
+    outputs: dict[str, Any] = Field(default_factory=dict, description='工作流输出字段，可使用变量引用。任务页正文使用 markdown 字符串；下载文件使用 artifacts 数组，每项含 file_path（results/ 或 solution/ 下的项目相对路径）和 label。其他业务字段可按需保留。')
 
 
 class AnswerConfig(BaseModel):

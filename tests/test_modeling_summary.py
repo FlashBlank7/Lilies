@@ -4,7 +4,7 @@ from copy import deepcopy
 
 import pytest
 
-from agent_platform.modeling_summary import study_summary
+from agent_platform.modeling_summary import study_summary, note_summary
 from tests.test_modeling import modeling, setup  # noqa: F401
 from tests.test_projects import configured  # noqa: F401
 
@@ -23,6 +23,29 @@ def test_study_summary_only_counts_saved_arrays(split, counts):
     before = deepcopy(study)
     assert study_summary(study)['split'] == {**metadata, **counts}
     assert study == before
+
+
+@pytest.mark.parametrize('result,expected_label', [
+    (None, '保留测试集已封存（此摘要没有已保存的测试结果）'),
+    ({'metrics': {'mae': .12}, 'rows': 12}, '保留测试已完成并保存结果，未参与模型搜索'),
+])
+def test_sealed_study_and_trial_note_show_saved_evaluation_state_without_rewriting_split(result, expected_label):
+    split = {'development': list(range(48)), 'holdout': list(range(48, 60)), 'folds': [],
+             'evaluation_label': '保留测试集（尚未使用）'}
+    study = {'id': 's', 'status': 'sealed', 'evaluation': {'metric': 'mae'},
+             'split': deepcopy(split), 'test_result': deepcopy(result)}
+    before = deepcopy(study)
+    summary = study_summary(study)
+    assert summary['split']['evaluation_label'] == expected_label
+    assert summary['split']['holdout_samples'] == 12
+    assert summary['test_result'] == result
+    assert study == before
+    note = {'study_id': 's', 'candidate_id': 'c', 'slot': 0, 'trial': {},
+            'dataset': {'id': 'd'}, 'features': {}, 'split': deepcopy(split),
+            'study_status': 'sealed', 'test_result': deepcopy(result)}
+    original = deepcopy(note)
+    assert note_summary(note)['split']['evaluation_label'] == expected_label
+    assert note == original
 
 
 def test_http_study_summary_counts_saved_split_without_changing_detail(modeling, monkeypatch):
@@ -66,4 +89,17 @@ def test_http_study_summary_counts_saved_split_without_changing_detail(modeling,
     assert saved['evaluation'] == study['evaluation']
     assert not {'samples', 'development', 'holdout'} & saved['split'].keys()
     assert client.get(detail_url).json() == before
+    assert client.get(base + '/tasks').json() == []
+
+    study.update(status='sealed', test_result={'metrics': {'mae': .12}, 'rows': 12})
+    asyncio.run(service.put(project['id'], 'study', study))
+    current = next(value for value in client.get(base + '/modeling/studies?summary=true').json()
+                   if value['id'] == study['id'])
+    context = asyncio.run(conversation_context(
+        app.state.services, project['id'], {'phase': 'working'},
+        {'status': 'draft', 'revision': 0, 'document': ''}, '解释已有训练结果'))
+    contextual = next(value for value in context['modeling'] if value['id'] == study['id'])
+    assert current['split'] == contextual['split'] == study_summary(study)['split']
+    assert current['split']['evaluation_label'] == '保留测试已完成并保存结果，未参与模型搜索'
+    assert client.get(detail_url).json()['split'] == split
     assert client.get(base + '/tasks').json() == []

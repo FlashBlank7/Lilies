@@ -56,8 +56,14 @@ def dataset_summary(value):
     return result
 
 
-def split_summary(value):
+def split_summary(value, *, study=None):
     result = pick(value, ('missing_labels', 'evaluation_label'))
+    # The split artifact records its creation-time label. Display the current
+    # evaluation state without rewriting that immutable training artifact.
+    if study and study.get('test_result'):
+        result['evaluation_label'] = '保留测试已完成并保存结果，未参与模型搜索'
+    elif study and study.get('status') == 'sealed':
+        result['evaluation_label'] = '保留测试集已封存（此摘要没有已保存的测试结果）'
     for source, target in (('development', 'development_samples'), ('holdout', 'holdout_samples'), ('folds', 'folds')):
         if isinstance(value.get(source), list):
             result[target] = len(value[source])
@@ -75,7 +81,7 @@ def study_summary(value):
                                   'trials': max(0, budget.get('trials', 0) - value.get('trials_used', 0))}
     result['metric_direction'] = 'minimize' if value['evaluation']['metric'] in {'mae', 'rmse'} else 'maximize'
     if value.get('split'):
-        result['split'] = split_summary(value['split'])
+        result['split'] = split_summary(value['split'], study=value)
     result.update(view='summary', detail=detail('read_study', study_id=value['id']))
     return result
 
@@ -108,10 +114,8 @@ def note_summary(value):
     result['dataset'] = pick(value['dataset'], ('id', 'name', 'mapping'))
     result['features'] = deepcopy(value['features'])
     split = value.get('split')
-    result['split'] = None if split is None else {
-        **pick(split, ('missing_labels', 'evaluation_label')),
-        'development_samples': len(split.get('development', [])), 'holdout_samples': len(split.get('holdout', [])),
-        'folds': len(split.get('folds', []))}
+    result['split'] = None if split is None else split_summary(split, study={
+        'status': value.get('study_status'), 'test_result': value.get('test_result')})
     result['comparison_trials'] = len(value.get('comparison', []))
     result.update(view='summary', detail=detail('training_note', study_id=value['study_id'],
                                                candidate_id=value['candidate_id'], slot=value['slot']))

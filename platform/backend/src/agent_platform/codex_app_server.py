@@ -16,6 +16,8 @@ const raw = await tools.workflow_draft({});
 const value = typeof raw === "string" ? JSON.parse(raw) : raw;
 之后使用 value 中的字段；直接展示结果可用 text(raw)。在同次可编程调用中处理返回值，
 无需仅为探测返回类型再次调用工具；仍可按任务需要读取最新或更详细的数据。
+并行取得多个结果后，逐项 text(raw) 即可；不要对已有 JSON 字符串再次 JSON.stringify。
+确需组合结果时先分别解析，再对组合对象序列化一次，避免重复转义整段内容。
 """
 
 
@@ -92,6 +94,10 @@ class CodexAppServer:
         self.on_event: Callable[[str, dict], Awaitable[None]] | None = None
         self.on_tool: Callable[[str, dict], Awaitable[Any]] | None = None
         self.last_activity = 0.0
+        self.finish_on_tool: str | None = None
+        self.tool_result_ready: Callable[[str, Any], bool] | None = None
+        self.result_received = False
+        self.stop_requested = False
 
     async def connect(self) -> None:
         """Initialize transport without creating a thread or spending model tokens."""
@@ -244,7 +250,13 @@ class CodexAppServer:
                     if self.on_event:
                         await self.on_event(method, params)
                     if method == "turn/completed" and self.finished and not self.finished.done():
-                        self.finished.set_result(params["turn"])
+                        turn = params['turn']
+                        if self.finish_on_tool and self.turn_id is not None and turn.get('id') != self.turn_id:
+                            continue
+                        if (self.finish_on_tool and self.result_received and not self.stop_requested
+                                and turn.get('status') == 'interrupted'):
+                            turn = {**turn, 'result_received': True}
+                        self.finished.set_result(turn)
         except (ValueError, OSError, RuntimeError) as cause:
             error = CodexError(f"Codex 协议连接失败：{cause}")
         finally:
@@ -262,8 +274,28 @@ class CodexAppServer:
             params = message["params"]
             if params.get("threadId") != self.thread_id:
                 raise ValueError("工具请求不属于当前项目会话")
+            if self.finish_on_tool:
+                if params.get('turnId') != self.turn_id:
+                    raise ValueError('工具请求不属于当前生成轮次')
+                if self.result_received or self.stop_requested or not self.finished or self.finished.done():
+                    return
             result = await self.on_tool(params["tool"], params["arguments"])
-            response = {"success": True, "contentItems": [{"type": "inputText", "text": json.dumps(result, ensure_ascii=False)}]}
+            if (params['tool'] == self.finish_on_tool
+                    and (self.tool_result_ready is None or self.tool_result_ready(params['tool'], result))):
+                # This graph-only receiver has no business effects. Withhold
+                # its reply so code mode cannot start a confirmation sample.
+                # Only a native turn/completed event confirms the stop; an
+                # interrupt ACK, EOF or user cancellation is not completion.
+                if self.stop_requested or not self.finished or self.finished.done():
+                    return
+                self.result_received = True
+                try:
+                    await self.request('turn/interrupt', {'threadId': self.thread_id, 'turnId': self.turn_id}, timeout=5)
+                except Exception as error:
+                    if not self.finished.done():
+                        self.finished.set_exception(error)
+                return
+            response = {"success": True, "contentItems": [{"type": "inputText", "text": json.dumps(result, ensure_ascii=False, separators=(',', ':'))}]}
         except Exception as error:
             response = {"success": False, "contentItems": [{"type": "inputText", "text": str(error)}]}
         try:
@@ -273,7 +305,9 @@ class CodexAppServer:
         finally:
             self.last_activity = asyncio.get_running_loop().time()
 
-    async def turn(self, message: str, on_event, on_tool, *, timeout: float = 900) -> dict:
+    async def turn(self, message: str, on_event, on_tool, *, timeout: float = 900,
+                   finish_on_tool: str | None = None,
+                   tool_result_ready: Callable[[str, Any], bool] | None = None) -> dict:
         """Wait for completion, timing out only when the agent stops responding.
 
         Project tools have their own execution limits. A pending host tool or
@@ -283,6 +317,9 @@ class CodexAppServer:
         if not self.allow_model_calls:
             raise CodexError('模型出口已关闭；请管理员在获准环境中启用后再运行')
         self.on_event, self.on_tool = on_event, on_tool
+        self.finish_on_tool = finish_on_tool
+        self.tool_result_ready = tool_result_ready
+        self.result_received = self.stop_requested = False
         loop = asyncio.get_running_loop()
         self.finished = loop.create_future()
         self.last_activity = loop.time()
@@ -303,7 +340,10 @@ class CodexAppServer:
                 # asyncio.wait leaves the completion future intact between
                 # idle checks, unlike wait_for which cancels it on timeout.
                 await asyncio.wait({self.finished}, timeout=remaining)
-            return self.finished.result()
+            result = self.finished.result()
+            if self.stop_requested and result.get('result_received'):
+                result = {key: value for key, value in result.items() if key != 'result_received'}
+            return result
         finally:
             self.turn_id = None
             if not self.finished.done():
@@ -317,6 +357,7 @@ class CodexAppServer:
 
     async def interrupt(self) -> None:
         if self.turn_id and self.thread_id:
+            self.stop_requested = True
             await self.request('turn/interrupt', {'threadId': self.thread_id, 'turnId': self.turn_id}, timeout=5)
 
     async def close(self) -> None:

@@ -131,6 +131,41 @@ it('keeps loop occurrences separate, opens failures and waiting input, and disti
   expect(screen.getAllByText('读取费用表')).toHaveLength(2)
 })
 
+it('explains interrupted steps during a confirmed human-input pause without changing their recorded statuses',async()=>{
+  vi.mocked(api).mockResolvedValue({...page,status:'paused',steps:[
+    {...step,id:'each[0].human',title:'确认费用类别',type:'human_input',status:'waiting',output_preview:null},
+    {...step,id:'each[1].read',status:'interrupted',output_preview:null},
+    {...step,id:'end',title:'汇总报告',status:'pending',output_preview:null},
+    {...step,id:'bad',title:'异常处理',status:'failed',error:'缺少金额',output_preview:null},
+  ],total:4})
+  render(<ProjectRunSteps projectId="p" runs={[{...run,status:'paused'}]}/> )
+  expect(await screen.findByText('正在等待补充信息；部分并行步骤会在继续后重新执行。“已中断”不一定表示整个流程失败。')).toBeVisible()
+  expect(screen.getByText('已中断').closest('li')).toHaveAttribute('data-status','interrupted')
+  expect(screen.getByText('尚未执行').closest('li')).toHaveAttribute('data-status','pending')
+  expect(screen.getByText('等待补充')).toBeVisible()
+  expect(screen.getByText('失败')).toBeVisible()
+  expect(screen.getByRole('alert')).toHaveTextContent('缺少金额')
+})
+
+it.each([
+  ['cancelled','human_input','waiting','interrupted'],
+  ['interrupted','human_input','waiting','interrupted'],
+  ['failed','human_input','waiting','interrupted'],
+  ['running','human_input','waiting','interrupted'],
+  ['paused','iteration','waiting','interrupted'],
+  ['paused','human_input','pending','interrupted'],
+  ['paused','human_input','waiting','pending'],
+])('does not explain interruption as an input pause for run %s, %s/%s and step %s',async(status,type,humanStatus,otherStatus)=>{
+  vi.mocked(api).mockResolvedValue({...page,status,steps:[
+    {...step,id:'human',title:'确认费用类别',type,status:humanStatus,output_preview:null},
+    {...step,id:'each[1].read',status:otherStatus,output_preview:null},
+  ],total:2})
+  render(<ProjectRunSteps projectId="p" runs={[{...run,status}]}/> )
+  await screen.findByText('确认费用类别')
+  expect(screen.queryByText(/部分并行步骤会在继续后重新执行/)).not.toBeInTheDocument()
+  if(otherStatus==='interrupted')expect(screen.getByText('已中断')).toBeVisible()
+})
+
 it('does not accept a late response from the previously selected run',async()=>{
   let resolve!:(v:unknown)=>void
   vi.mocked(api).mockImplementation(async path=>path.includes('/r/steps')?await new Promise(r=>{resolve=r}):{...page,run_id:'new',name:'新运行',steps:[{...step,title:'新资料'}]} as never)

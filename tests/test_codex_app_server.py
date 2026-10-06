@@ -166,13 +166,16 @@ async def test_dynamic_tool_result_instructions_follow_the_transport(tmp_path, m
     assert instructions.count('JSON.parse(raw)') == 1
     assert 'typeof raw === "string"' in instructions
     assert '仍可按任务需要读取最新或更详细的数据' in instructions
-    # The declared parsing matches the existing wire response, including Unicode
-    # and nested objects. Neither the tool schema nor response format changes.
+    # Compact JSON must preserve Unicode, whitespace inside customer text and
+    # the types of nested values across the real tool-response boundary.
     responses = []
+    expected = {'revision': 3, 'snapshot': {'workflow': {'nodes': [], 'name': '学习流程'}},
+                'text': ' 第一行  \n\t第二行 : , "quoted" ',
+                'values': [None, True, False, 2, -1.5, {}, []]}
 
     async def on_tool(name, arguments):
         assert name == 'workflow_draft' and arguments == {}
-        return {'revision': 3, 'snapshot': {'workflow': {'nodes': [], 'name': '学习流程'}}}
+        return expected
 
     async def send(message):
         responses.append(message)
@@ -186,8 +189,116 @@ async def test_dynamic_tool_result_instructions_follow_the_transport(tmp_path, m
     item, = result['contentItems']
     assert item['type'] == 'inputText'
     decoded = json.loads(item['text'])
-    assert decoded['snapshot']['workflow'] == {'nodes': [], 'name': '学习流程'}
-    assert decoded['revision'] == 3
+    assert decoded == expected
+    assert [type(value) for value in decoded['values']] == [type(value) for value in expected['values']]
+    assert '学习流程' in item['text']
+    assert len(item['text'].encode()) < len(json.dumps(expected, ensure_ascii=False).encode())
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('scenario', ['known_usage', 'unknown_usage', 'late_usage', 'invalid',
+                                      'missing', 'user_stop', 'ack_only', 'disconnect', 'native_error',
+                                      'corrected', 'uncorrected'])
+async def test_generation_receiver_stops_before_tool_reply_and_requires_native_completion(tmp_path, scenario):
+    executable = tmp_path / 'codex'
+    executable.write_text(f'#!{sys.executable}\nscenario={scenario!r}\n' + '''
+import json, sys
+from pathlib import Path
+log = Path(__file__).with_suffix('.requests.jsonl')
+def emit(value):
+    print(json.dumps(value), flush=True)
+def usage():
+    emit({'method':'thread/tokenUsage/updated','params':{'tokenUsage':{'total':{
+        'inputTokens':100,'outputTokens':20,'totalTokens':120}}}})
+def complete(status):
+    emit({'method':'turn/completed','params':{'turn':{'id':'u1','status':status}}})
+for line in sys.stdin:
+    message=json.loads(line); method=message.get('method')
+    with log.open('a') as out:
+        out.write(json.dumps(message)+'\\n')
+    if method=='initialize':
+        emit({'id':message['id'],'result':{}})
+    elif method=='thread/start':
+        emit({'id':message['id'],'result':{'thread':{'id':'t1'}}})
+    elif method=='turn/start':
+        emit({'id':message['id'],'result':{'turn':{'id':'u1'}}})
+        if scenario=='known_usage': usage()
+        if scenario=='missing':
+            complete('completed')
+        else:
+            emit({'id':'receiver','method':'item/tool/call','params':{
+                'threadId':'t1','turnId':'u1','tool':'return_workflow',
+                'arguments':{'workflow':{'nodes':[], 'edges':[]}}}})
+    elif message.get('id')=='receiver':
+        # A successful tool reply would let code mode sample a confirmation.
+        if scenario in ('corrected','uncorrected'):
+            assert message['result']['success'] is True
+            assert json.loads(message['result']['contentItems'][0]['text'])['structure_check']['valid'] is False
+            if scenario=='corrected':
+                emit({'id':'receiver2','method':'item/tool/call','params':{
+                    'threadId':'t1','turnId':'u1','tool':'return_workflow',
+                    'arguments':{'workflow':{'nodes':[], 'edges':[]}}}})
+            else: complete('completed')
+        else:
+            assert scenario=='invalid' and message['result']['success'] is False
+            complete('completed')
+    elif message.get('id')=='receiver2':
+        raise AssertionError('Corrected graph must not trigger a confirmation sample')
+    elif method=='turn/interrupt':
+        emit({'id':message['id'],'result':{}})
+        if scenario=='disconnect': sys.exit(0)
+        if scenario=='late_usage': usage()
+        if scenario!='ack_only': complete('failed' if scenario=='native_error' else 'interrupted')
+''')
+    executable.chmod(0o700)
+    client = CodexAppServer(str(executable), tmp_path / 'runtime')
+    called, usages = [], []
+    receiving = asyncio.Event()
+
+    async def event(method, params):
+        if method == 'thread/tokenUsage/updated':
+            usages.append(params['tokenUsage']['total'])
+
+    async def receive(name, arguments):
+        called.append((name, arguments))
+        receiving.set()
+        if scenario == 'invalid':
+            raise ValueError('Incomplete workflow')
+        if scenario == 'user_stop':
+            await asyncio.Event().wait()
+        if scenario in {'corrected', 'uncorrected'}:
+            return {'received': True, 'structure_check': {'valid': len(called) > 1, 'errors': ['missing end']}}
+        return {'received': True}
+
+    try:
+        await client.start([], 'generation only')
+        turn = asyncio.create_task(client.turn('generate', event, receive, finish_on_tool='return_workflow',
+            tool_result_ready=lambda name, result: result.get('structure_check', {}).get('valid', True)))
+        if scenario == 'user_stop':
+            await asyncio.wait_for(receiving.wait(), 2)
+            await client.interrupt()
+        if scenario == 'ack_only':
+            await asyncio.wait_for(receiving.wait(), 2)
+            with pytest.raises(TimeoutError):
+                await asyncio.wait_for(turn, .4)
+        elif scenario == 'disconnect':
+            with pytest.raises(CodexError):
+                await asyncio.wait_for(turn, 2)
+        else:
+            result = await asyncio.wait_for(turn, 2)
+            assert result.get('result_received', False) == (scenario in {'known_usage', 'unknown_usage', 'late_usage', 'corrected'})
+            assert result['status'] == ('completed' if scenario in {'missing', 'invalid', 'uncorrected'} else
+                                        'failed' if scenario == 'native_error' else 'interrupted')
+        assert len(called) == (0 if scenario == 'missing' else 2 if scenario == 'corrected' else 1)
+        assert usages == ([{'inputTokens': 100, 'outputTokens': 20, 'totalTokens': 120}]
+                          if scenario in {'known_usage', 'late_usage'} else [])
+    finally:
+        await client.close()
+    requests = [json.loads(line) for line in executable.with_suffix('.requests.jsonl').read_text().splitlines()]
+    assert sum(message.get('method') == 'turn/start' for message in requests) == 1
+    assert [message['id'] for message in requests if message.get('id') == 'receiver'] == (
+        ['receiver'] if scenario in {'invalid', 'corrected', 'uncorrected'} else [])
+    assert not any(message.get('id') == 'receiver2' for message in requests)
 
 
 @pytest.mark.asyncio

@@ -22,8 +22,9 @@ _RETURN_WORKFLOW = {
 
 
 class OfficialGeneration:
-    def __init__(self, services, project_id):
+    def __init__(self, services, project_id, check_workflow=None):
         self.services, self.project_id = services, project_id
+        self.check_workflow = check_workflow
         self.usage_known = False
 
     async def stream(self, *, system, messages, tools, **kwargs):
@@ -38,6 +39,7 @@ class OfficialGeneration:
         began = None
         client = None
         document = None
+        document_ready = False
         usage = {}
         status, error = 'completed', ''
         try:
@@ -46,7 +48,8 @@ class OfficialGeneration:
             client = service.client(self.project_id, service.root / 'generation' / job_id)
             await client.start([_RETURN_WORKFLOW], system + '\n交付方式：将完整 JSON 对象作为参数提交给 return_workflow，'
                                '它只是本次结果的接收器，不是业务工具。通过这个接收器交付，不在正文重复输出 JSON。'
-                               '提交成功后简短结束，不执行工作流或其他操作。')
+                               '接收器可能返回静态结构修改建议，可以据此修正后重新提交；未修正也可结束并交付可编辑草稿。'
+                               '无需运行自测或等待审批；没有结构建议时提交即结束，不执行工作流或其他操作。')
 
             async def event(method, params):
                 if method == 'thread/tokenUsage/updated':
@@ -65,18 +68,22 @@ class OfficialGeneration:
                         task.add_done_callback(self.services.background_tasks.discard)
 
             async def receive(name, arguments):
-                nonlocal document
+                nonlocal document, document_ready
                 if name != 'return_workflow':
                     raise ValueError('生成模式只接收工作流，不执行操作')
                 workflow = arguments.get('workflow') if isinstance(arguments, dict) else None
                 if not isinstance(workflow, dict) or not all(isinstance(workflow.get(key), list) for key in ('nodes', 'edges')):
                     raise ValueError('请提交 workflow 对象，其中 nodes 和 edges 必须为数组')
+                if document_ready:
+                    raise ValueError('本次生成已接收工作流定义')
                 # The protocol parses tool arguments. Serialize once here rather
                 # than asking the model to hand-escape an entire JSON document.
                 # Structural/capability/revision checks still run in the caller
                 # before its single save; this receiver has no project effects.
+                checked = self.check_workflow(workflow) if self.check_workflow else None
                 document = json.dumps({'workflow': workflow}, ensure_ascii=False)
-                return {'received': True}
+                document_ready = checked is None or checked.get('valid') is True
+                return {'received': True, **({'structure_check': checked} if checked is not None else {})}
 
             # The generation caller already supplies one complete JSON context.
             # Re-encoding its text inside a message envelope escapes the entire
@@ -86,8 +93,12 @@ class OfficialGeneration:
             else:
                 prompt = json.dumps([m.model_dump(mode='json') for m in messages], ensure_ascii=False)
             async with asyncio.timeout(service.config().max_seconds):
-                result = await client.turn(prompt, event, receive)
-            if result.get('status') != 'completed':
+                result = await client.turn(prompt, event, receive, finish_on_tool='return_workflow',
+                    tool_result_ready=lambda name, received: ('structure_check' not in received
+                                                             or received['structure_check'].get('valid') is True))
+            received_stop = (result.get('status') == 'interrupted' and result.get('result_received') is True
+                             and document is not None and document_ready)
+            if result.get('status') != 'completed' and not received_stop:
                 raise ValueError('工作流生成已中断，原草稿保持不变')
             await service.authorize(self.project_id)
             if document is None:

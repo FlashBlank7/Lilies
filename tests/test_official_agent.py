@@ -43,7 +43,7 @@ class FakeAgent:
                 {'id':'end','type':'end','title':'输出','config':{'outputs':{'ok':True}},'position':{'x':200,'y':0}}
             ], 'edges':[{'id':'edge','source':'start','target':'end'}]}})
             assert [tool['name'] for tool in self.tools] == ['return_workflow']
-            assert await on_tool('return_workflow', json.loads(text)) == {'received': True}
+            assert (await on_tool('return_workflow', json.loads(text)))['received'] is True
             text = '已提交。'
         await on_event('thread/tokenUsage/updated', {'tokenUsage': {'total': {'totalTokens': 100, 'inputTokens':80,'outputTokens':20}}})
         await on_event('item/completed', {'item': {'type': 'agentMessage', 'text': text}})

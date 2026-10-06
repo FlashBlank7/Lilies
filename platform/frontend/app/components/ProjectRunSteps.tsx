@@ -91,6 +91,7 @@ function Run({projectId,run}:{projectId:string;run:NonNullable<ProjectTask['runs
     {error&&<p role="status">{error} <button onClick={()=>setRetry(value=>value+1)}>重新读取步骤</button></p>}
     {!page&&!error&&<p role="status">正在读取处理步骤…</p>}
     {page&&<><p className={styles.muted}>共 {page.total} 个步骤记录。标题、输入和产物来自本次运行；“在当前画布定位”打开可编辑的当前草稿，可能与本次记录不同。</p>
+      {page.status==='paused'&&page.steps.some(step=>step.type==='human_input'&&step.status==='waiting')&&page.steps.some(step=>step.status==='interrupted')&&<p className={styles.muted}>正在等待补充信息；部分并行步骤会在继续后重新执行。“已中断”不一定表示整个流程失败。</p>}
       {page.error&&!page.steps.some(step=>step.error)&&<TaskError error={page.error}/>}
       {page.steps.length?<ol className={styles.steps}>{page.steps.map((step,i)=><Step key={run.id+step.id} step={step} projectId={projectId} applicationId={page.application_id} index={offset+i}/>)}</ol>:<p>尚无步骤记录。</p>}
       {(offset>0 || page.next_offset!=null)&&<nav className={styles.actions} aria-label="步骤分页"><button disabled={offset===0} onClick={()=>setOffset(Math.max(0,offset-100))}>前100步</button><span>第 {offset+1}–{offset+page.steps.length} 步</span><button disabled={page.next_offset==null} onClick={()=>setOffset(page.next_offset!)}>后100步</button></nav>}

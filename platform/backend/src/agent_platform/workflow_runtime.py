@@ -12,6 +12,7 @@ import stat
 import time
 from collections import defaultdict, deque
 from collections.abc import Awaitable, Callable, Collection
+from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -1546,6 +1547,18 @@ class WorkflowRuntime:
             logging.getLogger("agent_platform.alerts").warning(
                 "告警 webhook 投递失败（不影响运行）：%s", alert_error)
 
+    def _graph_inputs(self, workflow: WorkflowSpec, inputs: dict[str, Any]) -> dict[str, Any]:
+        """Resolve public defaults without changing supplied inputs or child scopes."""
+        defaults: dict[str, Any] = {}
+        for node in workflow.nodes:
+            if node.type in {'start', 'event_subscription_trigger', 'schedule_trigger'}:
+                config = self.blocks.validate_node(node)
+                defaults = (config.inputs if node.type == 'schedule_trigger' else
+                            {field.name: field.default for field in config.inputs})
+                break
+        # Internal presets and authority are supplied by the host, never a form.
+        return {**deepcopy({key: value for key, value in defaults.items() if not key.startswith('__')}), **inputs}
+
     async def _run_graph(
         self,
         snapshot: ApplicationSnapshot,
@@ -1557,6 +1570,7 @@ class WorkflowRuntime:
         prefix: str,
         top_state: WorkflowRunState | None = None,
     ) -> dict[str, dict[str, Any]]:
+        resolved_inputs = self._graph_inputs(workflow, inputs)
         node_map = {node.id: node for node in workflow.nodes}
         incoming: dict[str, list[Any]] = defaultdict(list)
         outgoing: dict[str, list[str]] = defaultdict(list)
@@ -1636,6 +1650,7 @@ class WorkflowRuntime:
                     run_id,
                     scoped_id,
                     top_state,
+                    resolved_inputs=resolved_inputs,
                 )
             except HumanInputPause:
                 raise
@@ -1697,12 +1712,15 @@ class WorkflowRuntime:
         run_id: str,
         scoped_id: str,
         state: WorkflowRunState | None,
+        *,
+        resolved_inputs: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         attempts = node.retry.max_attempts if node.retry.enabled else 1
         for attempt in range(1, attempts + 1):
             try:
                 return await self._execute_node(
-                    snapshot, node, inputs, outputs, workspace_path, run_id, scoped_id, state
+                    snapshot, node, inputs, outputs, workspace_path, run_id, scoped_id, state,
+                    resolved_inputs=resolved_inputs,
                 )
             except HumanInputPause:
                 raise
@@ -1734,6 +1752,8 @@ class WorkflowRuntime:
         run_id: str,
         scoped_id: str,
         state: WorkflowRunState | None,
+        *,
+        resolved_inputs: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """按积木类型派发到执行器。
 
@@ -1772,7 +1792,7 @@ class WorkflowRuntime:
                     snapshot=snapshot,
                     node=node,
                     config=self.blocks.validate_node(node),
-                    context={"inputs": inputs, "nodes": outputs, "run": {
+                    context={"inputs": resolved_inputs if resolved_inputs is not None else inputs, "nodes": outputs, "run": {
                         "run_id": run_id,
                         **({'project_id': state.project_context['project_id'],
                             'project_task_id': state.project_context['task_id']}
@@ -2116,7 +2136,11 @@ class WorkflowRuntime:
     @_node_executor("variable_aggregator")
     async def _exec_variable_aggregator(self, run: NodeRun) -> dict[str, Any]:
         config, context, state = run.config, run.context, run.state
-        skipped_nodes = set(state.skipped if state else [])
+        skipped_nodes = set()
+        if state:
+            # Each nested occurrence owns its branch decisions, including after resume.
+            scope = run.scoped_id[:-len(run.node.id)]
+            skipped_nodes = set(state.nested_progress.get(scope, {}).get('skipped', []) if scope else state.skipped)
         values = []
         for variable in config.variables:
             try:

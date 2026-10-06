@@ -205,8 +205,10 @@ async def conversation_context(services, project_id: str, state: dict, discussio
         'progress': progress_summary(progress, item_id), 'workflows': workflows,
         'workflow_detail': workflow_detail,
         'conversation_context': link, 'continue_work': state.get('continue_work', False),
-        'instruction': 'Use the current item and revision summaries. Read relevant node/file details only when needed. '
-                       'Keep existing customer answers and human edits. Solve the requested task using project tools. '
+        'instruction': 'This context describes available resources, not additional tasks. '
+                       'The user_message defines the current task and permitted source scope. '
+                       'Use saved results directly when explaining them; omitted unrelated details need not be filled in. '
+                       'Keep existing customer answers and human edits. '
                        'Workflow generation only saves a draft; execute it when requested. Full data remains available via tools.'}
     from .local_agent_tools import ProjectTools, ProjectFile
     import asyncio
@@ -253,7 +255,7 @@ async def conversation_context(services, project_id: str, state: dict, discussio
         from .modeling_summary import split_summary
         context['modeling'] = [{
             **{k: s.get(k) for k in ('id', 'dataset_id', 'name', 'status', 'best', 'baseline', 'trials_used', 'budget', 'next_action', 'error', 'repair_candidate_id', 'failure_streak', 'search_strategy', 'evaluation')},
-            **({'split': split_summary(s['split'])} if isinstance(s.get('split'), dict) else {}),
+            **({'split': split_summary(s['split'], study=s)} if isinstance(s.get('split'), dict) else {}),
         } for s in studies]
         if link.get('dataset_id') and not studies:
             data = await services.modeling.get(project_id, 'dataset', link['dataset_id'])

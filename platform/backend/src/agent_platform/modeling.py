@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import csv
 import hashlib
 import json
 import os
@@ -101,7 +102,7 @@ class Modeling:
                         for key in ('request', 'profile', 'preview', 'features_result'):
                             value.pop(key, None)
                         if value.get('split'):
-                            value['split'] = (split_summary(value['split']) if kind == 'study' else
+                            value['split'] = (split_summary(value['split'], study=value) if kind == 'study' else
                                               {k: v for k, v in value['split'].items() if k in {'missing_labels', 'evaluation_label'}})
                         for trial in value.get('trials', []):
                             for key in ('prediction_preview', 'group_errors', 'importance', 'fold_metrics', 'feature_columns', 'effective_model', 'search', 'requested_parameters'):
@@ -708,6 +709,60 @@ class Modeling:
         return self.export_prediction(project_id, dataset, folder, result)
 
     def export_prediction(self, project_id, dataset, folder, result):
+        # Existing model versions keep their pinned worker image. Describe only
+        # correspondence that worker actually wrote; never infer it from the
+        # current input file or the position of an old preview row.
+        prediction_file = folder / 'output/predictions.csv'
+        if prediction_file.is_symlink():
+            raise ValueError('预测导出文件必须位于当前项目内')
+        mapping = dataset['mapping']
+        with prediction_file.open(newline='', encoding='utf-8') as source:
+            reader = csv.DictReader(source)
+            columns = reader.fieldnames or []
+            id_column = mapping.get('id_column')
+            reserved = {'_sample', 'prediction', 'decision', *result.get('probability_columns', {}).values()}
+            if id_column not in columns or id_column in reserved:
+                id_column = None
+            record_column = None
+            # _sample is captured before feature extraction, from the parsed
+            # source/labels table. Gaps must stay gaps; it is not a file line.
+            if '_sample' in columns and mapping.get('id_column') in (None, '', '_sample'):
+                valid = True
+                count = 0
+                for row in reader:
+                    sample = row.get('_sample', '')
+                    valid = valid and sample.isascii() and sample.isdecimal()
+                    count += 1
+                if valid and count == result.get('rows'):
+                    record_column = 'input_record'
+                    while record_column in columns:
+                        record_column += '_'
+        if record_column:
+            temporary = prediction_file.with_name('predictions-source-' + str(uuid4()) + '.tmp')
+            try:
+                with prediction_file.open(newline='', encoding='utf-8') as source, temporary.open('x', newline='', encoding='utf-8') as destination:
+                    reader = csv.DictReader(source)
+                    writer = csv.DictWriter(destination, fieldnames=[record_column, *columns])
+                    writer.writeheader()
+                    preview = result.get('preview', [])
+                    for index, row in enumerate(reader):
+                        record = int(row['_sample']) + 1
+                        writer.writerow({record_column: record, **row})
+                        if index < len(preview):
+                            preview[index] = {record_column: record, **preview[index]}
+                temporary.replace(prediction_file)
+            finally:
+                temporary.unlink(missing_ok=True)
+        if record_column or id_column:
+            table = 'labels' if dataset['files'].get('labels') else 'source'
+            file = dataset['files'][table]
+            result['input_source'] = {'dataset_id': dataset['id'], 'path': file['original'], 'table': table}
+            if record_column:
+                result['input_source']['record_column'] = record_column
+            if id_column:
+                result['input_source']['id_column'] = id_column
+            if Path(file['name']).suffix.lower() == '.xlsx':
+                result['input_source']['sheet'] = mapping.get('sheet', 0)
         result['artifact'] = f'datasets/{dataset["id"]}/files/{folder.name}/output/predictions.csv'
         relative = Path('results/predictions') / dataset['id'] / folder.name / 'predictions.csv'
         workspace = self.services.projects.workspace(project_id).resolve()

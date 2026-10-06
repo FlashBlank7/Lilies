@@ -81,9 +81,22 @@ export function ProjectTaskOutput({ projectId, task, onTask, canConfigureModel=f
       <p>固定阈值的独立测试：采纳 {acceptance.test.accepted} 条，复核 {acceptance.test.review} 条；采纳部分准确率 {acceptance.test.accuracy==null?'无法计算':acceptance.test.accuracy.toFixed(3)}，覆盖率 {acceptance.test.coverage.toFixed(3)}。</p>
       <p>自动采纳指采用模型的分类建议，不等同于产品放行；具体工艺规则仍需另行配置。</p>
     </section>}
-    {predictions.map((result,i)=>{const rows=Array.isArray(result.preview)?result.preview.slice(0,20) as Record<string,unknown>[]:[];const columns=rows.length?Object.keys(rows[0]).slice(0,8):[]
+    {predictions.map((result,i)=>{
+      const rows=Array.isArray(result.preview)?result.preview.slice(0,20) as Record<string,unknown>[]:[]
+      const source=result.input_source && typeof result.input_source==='object' && !Array.isArray(result.input_source)?result.input_source as Record<string,unknown>:undefined
+      const recordColumn=typeof source?.record_column==='string'?source.record_column:''
+      const idColumn=typeof source?.id_column==='string'?source.id_column:''
+      const availableColumns=[...new Set(rows.flatMap(row=>Object.keys(row)))]
+      const columns=[...new Set([recordColumn,idColumn,'prediction',...availableColumns])].filter(key=>key && availableColumns.includes(key) && !(recordColumn && key==='_sample')).slice(0,8)
+      const sourceTable=source?.table==='labels'?'待预测样本表':'输入数据表'
       return <section key={i}><h3>预测结果</h3><p>结果已保存，本次使用的模型版本固定在运行记录中。</p><p>预测值是模型的判断；分类概率表示模型给出的倾向，不等于业务放行承诺。需要采纳或复核规则时，使用项目中的模型与规则流程；只改规则可复用已有预测，无需重训。</p>
-        {!!rows.length&&<div style={{overflowX:'auto'}}><table><thead><tr>{columns.map(key=><th key={key}>{key==='prediction'?'预测值':key}</th>)}</tr></thead><tbody>{rows.map((row,j)=><tr key={j}>{columns.map(key=><td key={key}>{typeof row[key]==='number'?Number(row[key]).toPrecision(6):String(row[key]??'')}</td>)}</tr>)}</tbody></table><p>显示前 {rows.length} 行，完整结果见下载文件。</p></div>}
+        {source?<>
+          <p>输入来源（{sourceTable}）：{String(source.path||'')} · 数据集：{String(source.dataset_id||'')}{(typeof source.sheet==='string'||typeof source.sheet==='number')&&<> · 工作表：{String(source.sheet)}</>}</p>
+          {recordColumn&&<p>输入记录序号从 1 起，表示{sourceTable}中的数据记录顺序，不是 CSV 或 Excel 的物理行号。</p>}
+          {(recordColumn||idColumn)&&<p>下载 CSV 包含相同的输入对应列。</p>}
+          {recordColumn&&<p>CSV 中的 _sample 是从 0 起的同一记录编号；核对原资料时使用“输入记录序号”即可。</p>}
+        </>:<p>此结果未保存输入对应说明。</p>}
+        {!!rows.length&&<div role="region" aria-label="预测结果表，可横向滚动" tabIndex={0} style={{overflowX:'auto'}}><table className={styles.predictionTable} data-has-source={!!(recordColumn||idColumn)}><thead><tr>{columns.map(key=><th key={key}>{key===recordColumn?'输入记录序号':key===idColumn?`输入 ID（${key}）`:key==='prediction'?'预测值':key}</th>)}</tr></thead><tbody>{rows.map((row,j)=><tr key={j}>{columns.map(key=><td key={key}>{key===recordColumn||key===idColumn?String(row[key]??''):typeof row[key]==='number'?Number(row[key]).toPrecision(6):String(row[key]??'')}</td>)}</tr>)}</tbody></table><p>显示前 {rows.length} 行，完整结果见下载文件。</p></div>}
         <a download href={withFrontendToken(`/api/platform/api/v1/projects/${projectId}/${result.artifact}`)}>下载预测结果 CSV ↓</a></section>})}
     {artifacts.map((entry: unknown, i: number) => {
       if (!entry || typeof entry !== 'object') return null
