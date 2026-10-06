@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { api } from '@/lib/platform'
 import ModelingPanel from '@/app/components/ModelingPanel'
@@ -158,12 +158,17 @@ it('retains a requested candidate page that arrives after a newer first-page pol
   await act(async () => { render(<ModelingPanel projectId="p" onContext={vi.fn()} />) })
   await act(async () => { fireEvent.click(screen.getByRole('button', { name: '查看结果' })) })
   fireEvent.click(screen.getByRole('tab', { name: '实验' }))
-  fireEvent.click(screen.getByRole('button', { name: '加载更早实验' }))
+  const experiments = within(screen.getByRole('tabpanel'))
+  expect(experiments.getAllByText(/^候选 \d+$/, { selector: 'h4' })).toHaveLength(100)
+  // Match the visible controls directly, without computing accessible names
+  // for every button and heading in all 100 experimental records repeatedly.
+  fireEvent.click(experiments.getByText('加载更早实验', { selector: 'button' }))
+  expect(api).toHaveBeenCalledWith('/api/v1/projects/p/modeling/studies/study/candidates?limit=100&offset=100&summary=false')
   polling = true
   await act(async () => { await vi.advanceTimersByTimeAsync(3000) })
-  expect(screen.getByRole('heading', { name: '已更新的候选' })).toBeInTheDocument()
+  expect(experiments.getByText('已更新的候选', { selector: 'h4' })).toBeVisible()
   await act(async () => { page.resolve([firstPage[0], { ...firstPage[0], id: 'historical', hypothesis: '更早的候选' }]) })
-  expect(screen.getByRole('heading', { name: '已更新的候选' })).toBeInTheDocument()
-  expect(screen.getByRole('heading', { name: '更早的候选' })).toBeInTheDocument()
-  expect(screen.queryByRole('heading', { name: '候选 0' })).not.toBeInTheDocument()
+  expect(experiments.getByText('已更新的候选', { selector: 'h4' })).toBeVisible()
+  expect(experiments.getByText('更早的候选', { selector: 'h4' })).toBeVisible()
+  expect(experiments.queryByText('候选 0', { selector: 'h4' })).not.toBeInTheDocument()
 })

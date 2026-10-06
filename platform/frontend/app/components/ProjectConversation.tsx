@@ -211,7 +211,7 @@ export default function ProjectConversation({ id, conversationId, projectName, c
       })}
       {session?.current_activity && !displayedEvents.some(e => e.request_id === session.request_id) && <ProjectActivity projectId={id} conversationId={conversationId} workflowNames={Object.fromEntries(members.map(m => [m.id, m.name]))} active={Boolean(running)} requestId={session.request_id} current={session.current_activity} onTask={onTask} onWorkflow={onWorkflow} />}
     </div>
-    <ModelingPanel compact projectId={id} onTask={onTask} onContext={(context, text, nextMode) => { updateModelingContext(context); if (text !== undefined) { if (nextMode) prepareMessage(text); else if (!messageRef.current.trim()) updateDraft(text) } if (nextMode) changeMode(nextMode); composer.current?.focus() }} />
+    <ModelingPanel compact projectId={id} onTask={onTask} onContext={(context, text, nextMode) => { if (nextMode) onSent(); updateModelingContext(context); if (text !== undefined) { if (nextMode) prepareMessage(text); else if (!messageRef.current.trim()) updateDraft(text) } if (nextMode) changeMode(nextMode); composer.current?.focus() }} />
     {Boolean(error || session?.error) && <p role="alert" className={`${styles.error} ${styles.notice}`}>{error || session?.error}</p>}
     {Boolean(error || session?.error) && <FeedbackButton source={{project_id:id,conversation_id:conversationId||"legacy",page:"conversation"}} excerpt={error||session?.error} category="runtime"/>}
     {connectionError && <div role="alert" className={`${styles.error} ${styles.notice}`}>连接暂时中断，已保存的对话和结果仍保留。<button onClick={() => void refresh()}>重新连接</button><details><summary>连接详情</summary>{connectionError}</details></div>}
