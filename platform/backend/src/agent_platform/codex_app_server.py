@@ -150,6 +150,24 @@ class CodexAppServer:
             "capabilities": {"experimentalApi": True},
         })
         await self._send({"method": "initialized"})
+        # The CLI installs its bundled skills even in a fresh private home.
+        # Empty environments/selectedCapabilityRoots disable native tools, but
+        # do not remove that unrelated skill catalog from the model's context.
+        # Project skills remain available through Lilies' project_skills tool.
+        # Use supported thread config overrides; never change the user's home.
+        try:
+            skills = await self.request("skills/list", {
+                "cwds": [str(cwd.resolve())], "forceReload": True,
+            })
+        except BaseException:
+            await self.close()
+            raise
+        config["skills.config"] = [
+            {"path": path, "enabled": False}
+            for path in sorted({skill["path"]
+                for group in skills.get("data", []) for skill in group.get("skills", [])
+                if skill.get("path")})
+        ]
 
     async def start(self, tools: list[dict], instructions: str, thread_id: str | None = None) -> str:
         await self.connect()

@@ -9,6 +9,75 @@ from agent_platform.codex_app_server import CodexAppServer, CodexError, validate
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize('resume', [False, True])
+async def test_native_skills_disabled_without_hiding_project_skills(tmp_path, monkeypatch, resume):
+    personal = tmp_path / 'personal'
+    personal.mkdir()
+    (personal / 'auth.json').write_text('local-login')
+    config = personal / 'config.toml'
+    config.write_text('[skills]\nmax_context_tokens = 8000\n')
+    monkeypatch.setenv('CODEX_HOME', str(personal))
+    executable = tmp_path / 'codex'
+    executable.write_text(f'#!{sys.executable}\n' + '''
+import json, os, sys
+from pathlib import Path
+home = Path(os.environ['CODEX_HOME'])
+native = [str(home / 'skills/.system' / name / 'SKILL.md')
+          for name in ['imagegen', 'new-bundled-skill']]
+def emit(value):
+    print(json.dumps(value), flush=True)
+for line in sys.stdin:
+    message = json.loads(line)
+    method = message.get('method')
+    if method == 'initialize':
+        emit({'id': message['id'], 'result': {}})
+    elif method == 'skills/list':
+        assert message['params'] == {'cwds': [str(home.parent / 'empty-workspace')], 'forceReload': True}
+        emit({'id': message['id'], 'result': {'data': [{'skills': [
+            {'path': path, 'enabled': True} for path in native] + [{'path': native[0]}]}]}})
+    elif method in ('thread/start', 'thread/resume'):
+        params = message['params']
+        assert params['config']['skills.config'] == [{'path': path, 'enabled': False} for path in native]
+        if method == 'thread/start':
+            assert params['dynamicTools'][0]['name'] == 'project_skills'
+        else:
+            assert params['threadId'] == 'project-thread' and params['excludeTurns']
+        emit({'id': message['id'], 'result': {'thread': {'id': 'project-thread'}}})
+    elif method == 'turn/start':
+        emit({'id': message['id'], 'result': {'turn': {'id': 'turn'}}})
+        emit({'id': 'skill-read', 'method': 'item/tool/call', 'params': {
+            'threadId': 'project-thread', 'tool': 'project_skills',
+            'arguments': {'action': 'read', 'name': 'quality-analysis'}}})
+    elif message.get('id') == 'skill-read':
+        assert message['result']['success']
+        value = json.loads(message['result']['contentItems'][0]['text'])
+        assert value == {'body': 'Use the project quality workflow.'}
+        emit({'method': 'turn/completed', 'params': {'turn': {'id': 'turn', 'status': 'completed'}}})
+''')
+    executable.chmod(0o700)
+    client = CodexAppServer(str(executable), tmp_path / 'runtime')
+    calls = []
+
+    async def tool(name, arguments):
+        calls.append((name, arguments))
+        return {'body': 'Use the project quality workflow.'}
+
+    async def event(method, params):
+        pass
+
+    try:
+        await client.start([{'type': 'function', 'name': 'project_skills',
+                            'description': 'Read project skills', 'inputSchema': {'type': 'object'}}],
+                           'Project tools only', 'project-thread' if resume else None)
+        assert (await client.turn('Read the quality skill', event, tool, timeout=10))['status'] == 'completed'
+        assert calls == [('project_skills', {'action': 'read', 'name': 'quality-analysis'})]
+        assert config.read_text() == '[skills]\nmax_context_tokens = 8000\n'
+        assert not (tmp_path / 'runtime/codex-home/config.toml').exists()
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
 async def test_deferred_project_tools_are_namespaced_and_remain_callable(tmp_path):
     from agent_platform.project_agent_tools import project_tool_specs
     executable = tmp_path / 'codex'
@@ -22,6 +91,8 @@ for line in sys.stdin:
     method = message.get('method')
     if method == 'initialize':
         emit({'id':message['id'],'result':{}})
+    elif method == 'skills/list':
+        emit({'id':message['id'],'result':{'data':[]}})
     elif method == 'thread/start':
         tools = message['params']['dynamicTools']
         Path(__file__).with_suffix('.tools.json').write_text(json.dumps(tools))
@@ -92,6 +163,8 @@ for line in sys.stdin:
     if method=='initialize':
         assert message['params']['capabilities']['experimentalApi']
         emit({'id':message['id'],'result':{}})
+    elif method=='skills/list':
+        emit({'id':message['id'],'result':{'data':[]}})
     elif method=='thread/start':
         p=message['params']
         assert p['environments']==[] and p['selectedCapabilityRoots']==[]
@@ -218,6 +291,8 @@ for line in sys.stdin:
         out.write(json.dumps(message)+'\\n')
     if method=='initialize':
         emit({'id':message['id'],'result':{}})
+    elif method=='skills/list':
+        emit({'id':message['id'],'result':{'data':[]}})
     elif method=='thread/start':
         emit({'id':message['id'],'result':{'thread':{'id':'t1'}}})
     elif method=='turn/start':
@@ -313,6 +388,8 @@ for line in sys.stdin:
     method = message.get('method')
     if method == 'initialize':
         emit({'id': message['id'], 'result': {}})
+    elif method == 'skills/list':
+        emit({'id':message['id'],'result':{'data':[]}})
     elif method == 'thread/resume':
         p = message['params']
         assert p['threadId'] == 'long-existing-thread'
@@ -363,6 +440,8 @@ for line in sys.stdin:
     message = json.loads(line)
     if message.get('method') == 'initialize':
         print(json.dumps({'id': message['id'], 'result': {}}), flush=True)
+    elif message.get('method') == 'skills/list':
+        print(json.dumps({'id': message['id'], 'result': {'data': []}}), flush=True)
     elif message.get('method') == 'thread/resume':
         p = message['params']
         assert p['threadId'] == 'restored-thread' and p['excludeTurns']
@@ -415,6 +494,8 @@ for line in sys.stdin:
     method=message.get('method')
     if method=='initialize':
         emit({'id':message['id'],'result':{}})
+    elif method=='skills/list':
+        emit({'id':message['id'],'result':{'data':[]}})
     elif method=='thread/start':
         emit({'id':message['id'],'result':{'thread':{'id':'t1'}}})
     elif method=='turn/start':
@@ -475,6 +556,7 @@ assert (Path(os.environ['CODEX_HOME'])/'auth.json').read_text() == 'service-auth
 for line in sys.stdin:
     msg=json.loads(line); method=msg.get('method')
     if method=='initialize':result={}
+    elif method=='skills/list':result={'data':[]}
     elif method=='account/read':result={'account':account}
     elif method=='thread/start':
         assert account == {'type':'chatgpt'}, 'Invalid login must not create a thread'

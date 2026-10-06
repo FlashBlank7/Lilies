@@ -38,6 +38,5 @@
 .text { white-space:pre-wrap; }
 .technical { grid-column:1/-1; font-size:13px; }
 .technical summary { cursor:pointer; color:#365478; }
-.previews table { display:block; max-width:100%; overflow-x:auto; }
 .values { margin:4px 0; padding-left:18px; }
 @media(max-width:650px) { .run {padding:10px;} .previews {grid-template-columns:1fr;} .step {gap:8px;} }

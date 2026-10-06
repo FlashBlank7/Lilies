@@ -539,6 +539,52 @@ class ApplicationService:
             errors.append(f"{location}: Python {diagnostic['error_type']} "
                 f"(line {diagnostic['line']}, column {diagnostic['column']}): {diagnostic['message']}")
 
+        # These executors have fixed outer result keys, regardless of user code
+        # or bindings. Inspect only that known boundary, never infer user fields
+        # or run code. Incomplete drafts remain saveable with this feedback.
+        wrapped_outputs = {
+            'code': {'output', 'logs'}, 'variable_assigner': {'output'},
+            'variable_aggregator': {'output'},
+        }
+
+        def output_references(workflow: WorkflowSpec, scope: tuple[str, ...] = ()) -> None:
+            nodes = {node.id: node for node in workflow.nodes}
+
+            def inspect(value: Any, location: str) -> None:
+                if isinstance(value, dict):
+                    reference = value.get('$ref')
+                    if isinstance(reference, dict) and set(value).issubset({'$ref', 'optional'}):
+                        source_id = reference.get('node_id')
+                        source = nodes.get(source_id) if isinstance(source_id, str) else None
+                        path = reference.get('path') or []
+                        allowed = wrapped_outputs.get(source.type) if source else None
+                        first = (next((part for part in path[0].split('.') if part), '')
+                                 if isinstance(path, list) and path and isinstance(path[0], str) else None)
+                        if allowed and first is not None and first not in allowed:
+                            errors.append(f'{location}: 引用 {source.id} 的路径 {path!r} 缺少输出层；'
+                                f'{source.type} 顶层字段为 {sorted(allowed)!r}。'
+                                f'读取业务值请用 {["output", *path]!r}；'
+                                '读取整个业务结果用 ["output"]，空路径 [] 表示含输出包装的整个节点结果。')
+                    for key, item in value.items():
+                        inspect(item, f'{location}.{key}')
+                elif isinstance(value, list):
+                    for index, item in enumerate(value):
+                        inspect(item, f'{location}[{index}]')
+
+            for node in workflow.nodes:
+                nested = node.type in {'iteration', 'loop'}
+                for key, value in node.config.items():
+                    if nested and key == 'workflow':
+                        try:
+                            child = WorkflowSpec.model_validate(value)
+                        except ValueError:
+                            continue  # Already described by block validation.
+                        output_references(child, (*scope, node.id))
+                    else:
+                        inspect(value, '/'.join((*scope, node.id)) + f'.config.{key}')
+
+        output_references(snapshot.workflow)
+
         def self_references(payload: Any, owner: str) -> list[list[str]]:
             found: list[list[str]] = []
             if isinstance(payload, dict):
