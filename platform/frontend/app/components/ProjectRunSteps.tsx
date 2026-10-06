@@ -17,6 +17,7 @@ export type RunStep = {
 }
 type StepPage = {run_id:string;application_id:string;name:string;status:string;steps:RunStep[];total:number;next_offset?:number|null;error?:string;draft_revision?:number|null}
 const statuses:Record<string,string> = {pending:'尚未执行',running:'正在处理',completed:'已完成',reused:'复用已有结果',skipped:'此分支未执行',waiting:'等待补充',failed:'失败',interrupted:'已中断',warning:'完成，需留意异常'}
+const attentionStatuses = ['failed','waiting','running','warning','interrupted']
 const labels:Record<string,string> = {source_path:'资料文件',second_path:'第二份资料',output:'处理结果',outputs:'输出',result:'结果',logs:'执行说明',markdown:'报告正文',rows:'记录数',columns:'字段',preview:'数据预览',artifacts:'结果文件',file_path:'文件',path:'路径',summary:'汇总',message:'说明',items:'条目',count:'数量',error:'错误',value:'数值',inputs:'输入',group_by:'汇总维度',mark_duplicates:'标记疑似重复',suspected_duplicates:'疑似重复数',duplicate_records:'重复记录',missing:'缺失',operation:'处理方式',horizon:'预测步数',omitted_items:'未展示条目数',omitted_fields:'未展示字段'}
 const operations:Record<string,string> = {expenses:'费用整理',profile:'数据体检',summary:'数据汇总',join:'多表关联'}
 Object.assign(labels,{prepared:'已核对的输入',snapshot_path:'本次输入快照',sources:'资料来源',stock:'物料表',demand:'需求表',stock_path:'物料表',demand_path:'需求表',stock_sheet:'物料工作表',demand_sheet:'需求工作表',config:'本次处理条件',unit:'长度单位',kerf:'单次切缝宽度',kerf_mode:'切缝计数方式',end_allowance:'每根物料共预留长度',max_pieces:'每根最多产出段数',max_types:'每根最多需求种类',search_limit:'最多检查组合分支',length_mode:'需求长度方式',allocation_mode:'范围内长度分配方式',length_precision:'范围长度最多小数位',stocks:'每根物料的处理结果',stock_id:'物料标识',material:'物料类型',candidates:'候选组合数',reason:'无候选原因',patterns_path:'需求数量与分配长度文件',label:'文件说明'})
@@ -45,16 +46,63 @@ function Preview({value,projectId,depth=0}:{value:unknown;projectId:string;depth
   return <dl className={styles.fields}>{entries.slice(0,12).map(([key,item])=><div key={key}><dt>{labels[key]||key}</dt><dd>{key==='markdown'&&typeof item==='string'?<MarkdownDocument source={item} resolveLink={href=>resolveProjectLink(projectId,href)} emptyLabel=""/>:<Preview value={key==='operation'&&typeof item==='string'?(operations[item]||item):item} projectId={projectId} depth={depth+1}/>}</dd></div>)}{entries.length>12&&<div><dt>更多内容</dt><dd>另有 {entries.length-12} 个字段，见原始输入输出。</dd></div>}</dl>
 }
 
-function Step({step,projectId,applicationId,index}:{step:RunStep;projectId:string;applicationId:string;index:number}) {
+type StepEntry = {kind:'step';step:RunStep;index:number}
+type RoundEntry = {kind:'round';key:string;label:string;children:StepGroupEntry[];steps:RunStep[]}
+type StepGroupEntry = StepEntry|RoundEntry
+
+function groupSteps(steps:RunStep[],offset:number):StepGroupEntry[] {
+  const entries:StepGroupEntry[]=[],groups=new Map<string,RoundEntry>()
+  const savedSteps=new Map(steps.map(step=>[JSON.stringify([step.id,step.node_path]),step]))
+  steps.forEach((step,index)=>{
+    const path=Array.isArray(step.node_path)?step.node_path:[]
+    const occurrences:{key:string;containerId:string;ordinal:number}[]=[]
+    let prefix=''
+    // Match each literal node id against the saved path. A title/scope alone
+    // cannot identify a round, and splitting ids on dots loses valid node ids.
+    for(const nodeId of path.slice(0,-1)) {
+      const containerId=prefix+nodeId
+      if(!step.id.startsWith(containerId))break
+      const match=step.id.slice(containerId.length).match(/^\[(\d+)\]\./)
+      if(!match)break
+      const ordinal=Number(match[1])+1
+      if(!Number.isSafeInteger(ordinal))break
+      prefix=containerId+match[0]
+      occurrences.push({key:JSON.stringify([path.slice(0,occurrences.length+1),prefix]),containerId,ordinal})
+    }
+    const verified=occurrences.length===path.length-1&&step.id===prefix+path.at(-1)
+    const scopeParts=(step.scope||'').split(' / ')
+    let children=entries
+    if(verified)occurrences.forEach((occurrence,depth)=>{
+      let group=groups.get(occurrence.key)
+      if(!group) {
+        const container=savedSteps.get(JSON.stringify([occurrence.containerId,path.slice(0,depth+1)]))
+        const suffix=` · 第 ${occurrence.ordinal} 轮`
+        const scope=scopeParts.length===occurrences.length?scopeParts[depth]:''
+        const title=container?.title||(scope?.endsWith(suffix)?scope.slice(0,-suffix.length):'')
+        const label=title?`${title} · 第 ${occurrence.ordinal} ${container?.type==='iteration'?'项':'轮'}`
+          :depth===occurrences.length-1&&step.scope?step.scope:`循环 · 第 ${occurrence.ordinal} 轮`
+        group={kind:'round',key:occurrence.key,label,children:[],steps:[]}
+        groups.set(occurrence.key,group)
+        children.push(group)
+      }
+      group.steps.push(step)
+      children=group.children
+    })
+    children.push({kind:'step',step,index:offset+index})
+  })
+  return entries
+}
+
+function Step({step,projectId,applicationId,index,grouped=false}:{step:RunStep;projectId:string;applicationId:string;index:number;grouped?:boolean}) {
   const [expanded,setExpanded]=useState<boolean|null>(null)
-  const needsAttention=['failed','waiting','warning','running'].includes(step.status)
-  const show=expanded??needsAttention
+  const needsAttention=attentionStatuses.includes(step.status)
+  const show=expanded??(needsAttention&&!['iteration','loop'].includes(step.type))
   const path=Array.isArray(step.node_path)?step.node_path:[]
   return <li className={styles.step} data-status={step.status}>
     <div className={styles.number} aria-hidden="true">{index+1}</div>
     <div className={styles.content}>
       <div className={styles.heading}><strong>{step.title||step.id}</strong><span className={styles.badge}>{statuses[step.status]||step.status}</span>{step.duration_ms!=null&&<small>用时 {(step.duration_ms/1000).toLocaleString(undefined,{maximumFractionDigits:2})} 秒</small>}</div>
-      {step.scope&&<small>{step.scope}</small>}
+      {step.scope&&!grouped&&<small>{step.scope}</small>}
       {step.description&&<p>{step.description}</p>}
       {step.error&&<TaskError error={step.error}/>}
       <div className={styles.actions}><button aria-expanded={show} onClick={()=>setExpanded(!show)}>{show?'收起本步输入与产物':'查看本步输入与产物'}</button>{path.length>0&&applicationId&&<Link href={`/applications/${encodeURIComponent(applicationId)}?tab=edit&node_path=${encodeURIComponent(JSON.stringify(path))}`} target="_blank" rel="noreferrer">在当前画布定位 ↗</Link>}</div>
@@ -65,6 +113,31 @@ function Step({step,projectId,applicationId,index}:{step:RunStep;projectId:strin
       </div>}
     </div>
   </li>
+}
+
+function Round({group,projectId,applicationId,paged}:{group:RoundEntry;projectId:string;applicationId:string;paged:boolean}) {
+  const [expanded,setExpanded]=useState<{value:boolean;attention:string[]}|null>(null)
+  const counts=new Map<string,number>()
+  group.steps.forEach(step=>counts.set(step.status,(counts.get(step.status)||0)+1))
+  const attention=group.steps.filter(step=>attentionStatuses.includes(step.status)).map(step=>JSON.stringify([step.id,step.status]))
+  // A newly failing/waiting step becomes visible even if this round was closed
+  // before the next poll. Otherwise retain the user's open/closed preference.
+  const hasNewAttention=attention.some(item=>!expanded?.attention.includes(item))
+  const show=hasNewAttention?true:expanded?.value??attention.length>0
+  const status=attentionStatuses.find(status=>counts.has(status))
+  return <li className={styles.round} data-status={status}>
+    <button className={styles.roundToggle} aria-expanded={show} onClick={()=>setExpanded({value:!show,attention})}>
+      <span className={styles.roundTitle}><span aria-hidden="true">{show?'▾':'▸'}</span><strong>{group.label}</strong></span>
+      <span className={styles.roundSummary}><span>{paged?'本页 ':''}{group.steps.length} 个步骤</span>{[...counts].map(([status,count])=><span key={status} className={styles.badge} data-status={status}>{statuses[status]||status} {count}</span>)}<span className={styles.roundAction}>{show?'收起步骤':'展开步骤'}</span></span>
+    </button>
+    {show&&<ol className={styles.roundSteps} aria-label={`${group.label}的步骤`}><StepEntries entries={group.children} projectId={projectId} applicationId={applicationId} paged={paged} grouped/></ol>}
+  </li>
+}
+
+function StepEntries({entries,projectId,applicationId,paged,grouped=false}:{entries:StepGroupEntry[];projectId:string;applicationId:string;paged:boolean;grouped?:boolean}) {
+  return <>{entries.map(entry=>entry.kind==='round'
+    ?<Round key={entry.key} group={entry} projectId={projectId} applicationId={applicationId} paged={paged}/>
+    :<Step key={entry.step.id} step={entry.step} projectId={projectId} applicationId={applicationId} index={entry.index} grouped={grouped}/>)}</>
 }
 
 function Run({projectId,run}:{projectId:string;run:NonNullable<ProjectTask['runs']>[number]}) {
@@ -93,7 +166,7 @@ function Run({projectId,run}:{projectId:string;run:NonNullable<ProjectTask['runs
     {page&&<><p className={styles.muted}>共 {page.total} 个步骤记录。标题、输入和产物来自本次运行；“在当前画布定位”打开可编辑的当前草稿，可能与本次记录不同。</p>
       {page.status==='paused'&&page.steps.some(step=>step.type==='human_input'&&step.status==='waiting')&&page.steps.some(step=>step.status==='interrupted')&&<p className={styles.muted}>正在等待补充信息；部分并行步骤会在继续后重新执行。“已中断”不一定表示整个流程失败。</p>}
       {page.error&&!page.steps.some(step=>step.error)&&<TaskError error={page.error}/>}
-      {page.steps.length?<ol className={styles.steps}>{page.steps.map((step,i)=><Step key={run.id+step.id} step={step} projectId={projectId} applicationId={page.application_id} index={offset+i}/>)}</ol>:<p>尚无步骤记录。</p>}
+      {page.steps.length?<ol className={styles.steps}><StepEntries entries={groupSteps(page.steps,offset)} projectId={projectId} applicationId={page.application_id} paged={offset>0||page.next_offset!=null}/></ol>:<p>尚无步骤记录。</p>}
       {(offset>0 || page.next_offset!=null)&&<nav className={styles.actions} aria-label="步骤分页"><button disabled={offset===0} onClick={()=>setOffset(Math.max(0,offset-100))}>前100步</button><span>第 {offset+1}–{offset+page.steps.length} 步</span><button disabled={page.next_offset==null} onClick={()=>setOffset(page.next_offset!)}>后100步</button></nav>}
     </>}
   </section>

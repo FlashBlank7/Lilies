@@ -90,3 +90,32 @@ def test_generation_feedback_checks_selected_fragment_in_its_existing_scope(offi
     assert graph['nodes'][1]['config']['outputs']['extra'] == 42
     assert [(item['source'], item['target']) for item in graph['edges']] == [('s', 'e')]
     assert client.get(base + '/tasks', headers=headers).json() == []
+
+
+def test_official_receiver_applies_small_updates_once_and_rejects_ambiguous_delivery(official, monkeypatch):
+    client, _, _ = official
+    _, headers = signup(client, '简短修改员工')
+    pid = project(client, headers); enable(client, pid)
+    base = '/api/v1/projects/' + pid
+    original = {'nodes': [node('s', 'start'), node('e', 'end', outputs={'existing': 1})],
+                'edges': [edge('s', 'e')]}
+    draft = client.get(f'/api/v1/applications/{pid}/draft', headers=headers).json()
+    saved = client.put(base + f'/workflows/{pid}/draft', headers=headers,
+        json={'expected_revision': draft['revision'], 'workflow': original}).json()
+    operations = [{'op': 'update_node', 'data': {'node_id': 'e', 'changes': {'config': {'outputs': {'new': 2}}}}}]
+
+    async def turn(self, message, on_event, on_tool, **kwargs):
+        with pytest.raises(ValueError, match='一种交付方式'):
+            await on_tool('return_workflow', {'workflow': original, 'operations': operations})
+        receipt = await on_tool('return_workflow', {'operations': operations})
+        assert receipt['structure_check']['valid'] is True
+        assert kwargs['tool_result_ready']('return_workflow', receipt)
+        return {'status': 'interrupted', 'result_received': True}
+
+    monkeypatch.setattr(FakeAgent, 'turn', turn)
+    job = await_generation(client, base, headers, {'instruction': '增加结果字段，保留已有字段',
+        'workflow_id': pid, 'expected_revision': saved['revision'], 'node_ids': ['e']})
+    assert job['status'] == 'completed', job
+    assert job['result']['revision'] == saved['revision'] + 1
+    assert job['result']['draft']['snapshot']['workflow']['nodes'][1]['config']['outputs'] == {'existing': 1, 'new': 2}
+    assert client.get(base + '/tasks', headers=headers).json() == []

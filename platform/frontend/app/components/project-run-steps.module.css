@@ -9,9 +9,22 @@
 .heading,.actions { display:flex; align-items:center; flex-wrap:wrap; gap:10px; }
 .heading strong { font-size:15px; }
 .badge { background:#e8edf4; color:#3b526c; padding:3px 8px; border-radius:12px; font-size:12px; }
-.step[data-status=failed] .badge { background:#fee9e7; color:#993d32; }
-.step[data-status=completed] .badge,.step[data-status=reused] .badge { background:#e7f2ee; color:#286048; }
-.step[data-status=running] .badge,.step[data-status=waiting] .badge,.step[data-status=warning] .badge { background:#fff0d4; color:#76541d; }
+.step[data-status=failed] .badge,.badge[data-status=failed] { background:#fee9e7; color:#993d32; }
+.step[data-status=completed] .badge,.step[data-status=reused] .badge,.badge[data-status=completed],.badge[data-status=reused] { background:#e7f2ee; color:#286048; }
+.step[data-status=running] .badge,.step[data-status=waiting] .badge,.step[data-status=warning] .badge,.step[data-status=interrupted] .badge,.badge[data-status=running],.badge[data-status=waiting],.badge[data-status=warning],.badge[data-status=interrupted] { background:#fff0d4; color:#76541d; }
+.round { margin:12px 0; border:1px solid #cbd6e5; border-radius:10px; background:#fff; overflow:hidden; }
+.round[data-status=failed] { border-color:#dca8a2; }
+.round[data-status=running],.round[data-status=waiting],.round[data-status=warning],.round[data-status=interrupted] { border-color:#d9bd84; }
+.roundToggle { display:flex; width:100%; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; padding:13px 14px; text-align:left; color:#304963; background:#f1f5fa; border:0; cursor:pointer; }
+.roundToggle:hover { background:#eaf0f7; }
+.roundToggle:focus-visible { outline:2px solid #365d96; outline-offset:-3px; }
+.roundTitle,.roundSummary { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.roundTitle { min-width:0; overflow-wrap:anywhere; }
+.roundTitle strong { font-size:14px; }
+.roundSummary { color:#596b80; font-size:12px; }
+.roundAction { color:#365478; }
+.roundSteps { list-style:none; padding:0 14px; margin:0; }
+.roundSteps>.step:first-child { border-top:0; }
 .actions { margin:10px 0; font-size:13px; }
 .actions button { border:1px solid #cbd6e5; background:#fff; border-radius:7px; padding:6px 10px; color:#365478; cursor:pointer; }
 .actions button:disabled { cursor:default; opacity:.75; }

@@ -10,14 +10,18 @@ from .codex_app_server import CodexAuthenticationError
 
 _RETURN_WORKFLOW = {
     'name': 'return_workflow',
-    'description': '提交本次生成的工作流定义。不运行或保存工作流，不调用任何业务能力。',
+    'description': '提交完整工作流或已有节点的修改，二选一。不运行或保存工作流，不调用业务能力。',
     'inputSchema': {
         'type': 'object', 'properties': {'workflow': {
             'type': 'object', 'properties': {
                 'nodes': {'type': 'array', 'items': {'type': 'object'}},
                 'edges': {'type': 'array', 'items': {'type': 'object'}}},
-            'required': ['nodes', 'edges']}},
-        'required': ['workflow']},
+            'required': ['nodes', 'edges']},
+            'operations': {'type': 'array', 'minItems': 1, 'items': {
+                'type': 'object', 'properties': {'op': {'type': 'string', 'enum': ['update_node']},
+                    'data': {'type': 'object', 'description': 'node_id 或 node_path、changes，可选 merge_config（默认true）'}},
+                'required': ['op', 'data']}}},
+        'oneOf': [{'required': ['workflow']}, {'required': ['operations']}]},
 }
 
 
@@ -71,9 +75,18 @@ class OfficialGeneration:
                 nonlocal document, document_ready
                 if name != 'return_workflow':
                     raise ValueError('生成模式只接收工作流，不执行操作')
-                workflow = arguments.get('workflow') if isinstance(arguments, dict) else None
-                if not isinstance(workflow, dict) or not all(isinstance(workflow.get(key), list) for key in ('nodes', 'edges')):
-                    raise ValueError('请提交 workflow 对象，其中 nodes 和 edges 必须为数组')
+                if not isinstance(arguments, dict) or ('workflow' in arguments) == ('operations' in arguments):
+                    raise ValueError('请选择 workflow 或 operations 一种交付方式')
+                if 'operations' in arguments:
+                    if not isinstance(arguments['operations'], list) or not arguments['operations']:
+                        raise ValueError('operations 必须包含节点修改')
+                    delivery = {'operations': arguments['operations']}
+                    workflow = delivery
+                else:
+                    workflow = arguments['workflow']
+                    if not isinstance(workflow, dict) or not all(isinstance(workflow.get(key), list) for key in ('nodes', 'edges')):
+                        raise ValueError('请提交 workflow 对象，其中 nodes 和 edges 必须为数组')
+                    delivery = {'workflow': workflow}
                 if document_ready:
                     raise ValueError('本次生成已接收工作流定义')
                 # The protocol parses tool arguments. Serialize once here rather
@@ -81,7 +94,7 @@ class OfficialGeneration:
                 # Structural/capability/revision checks still run in the caller
                 # before its single save; this receiver has no project effects.
                 checked = self.check_workflow(workflow) if self.check_workflow else None
-                document = json.dumps({'workflow': workflow}, ensure_ascii=False)
+                document = json.dumps(delivery, ensure_ascii=False)
                 document_ready = checked is None or checked.get('valid') is True
                 return {'received': True, **({'structure_check': checked} if checked is not None else {})}
 

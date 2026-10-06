@@ -164,6 +164,58 @@ def merge_generated_workflow(original, generated, path, node_ids):
     return WorkflowSpec.model_validate(result)
 
 
+def apply_generated_updates(services, original, operations, path, node_ids, selected_files=()):
+    """Apply small edits to a copy, retaining code and layout not returned by AI."""
+    from .workflow_models import NodeSpec
+    if original is None:
+        raise ValueError('新建流程请返回完整 workflow；operations 用于修改已有流程')
+    if not isinstance(operations, list) or not 1 <= len(operations) <= 500:
+        raise ValueError('operations 必须包含1至500个节点修改')
+    result = deepcopy(original)
+    target = scoped_workflow(result, path)
+    for operation in operations:
+        if not isinstance(operation, dict) or set(operation) != {'op', 'data'} or operation['op'] != 'update_node':
+            raise ValueError('operations 支持 update_node；增加或删除节点请返回完整 workflow')
+        data = operation['data']
+        if not isinstance(data, dict) or set(data) - {'node_id', 'node_path', 'changes', 'merge_config'}:
+            raise ValueError('节点修改需要 node_id 或 node_path、changes，可选 merge_config')
+        if ('node_id' in data) == ('node_path' in data):
+            raise ValueError('node_id 与 node_path 必须选择一个')
+        route = data.get('node_path', [data.get('node_id')])
+        if not isinstance(route, list) or not 1 <= len(route) <= 20 or not all(isinstance(x, str) and x for x in route):
+            raise ValueError('node_path 必须是从当前编辑范围开始的节点路径')
+        if node_ids and route[0] not in node_ids:
+            raise ValueError('生成结果修改了选区外的节点；请扩大选区')
+        parent = scoped_workflow(target, route[:-1])
+        node = next((n for n in parent['nodes'] if n['id'] == route[-1]), None)
+        if node is None:
+            raise ValueError('未找到要修改的节点：' + '/'.join(route))
+        changes = data.get('changes')
+        if not isinstance(changes, dict) or not changes:
+            raise ValueError('changes 必须包含要修改的节点字段')
+        if 'id' in changes and changes['id'] != node['id']:
+            raise ValueError('节点改名请修改 title；变更节点 id 请返回完整 workflow')
+        merge_config = data.get('merge_config', True)
+        if not isinstance(merge_config, bool):
+            raise ValueError('merge_config 必须为布尔值')
+        changes = deepcopy(changes)
+        if 'config' in changes and selected_files:
+            from .generation_file_bindings import bind_selected_files
+            supplied = {'id': node['id'], 'type': changes.get('type', node['type']), 'config': changes['config']}
+            changes['config'] = bind_selected_files({'nodes': [supplied]}, selected_files)['nodes'][0]['config']
+        if 'config' in changes and merge_config:
+            if not isinstance(changes['config'], dict):
+                raise ValueError('config 必须为对象')
+            changes['config'] = services.applications._deep_merge(node.get('config', {}), changes['config'])
+        updated = NodeSpec.model_validate({**node, **changes})
+        services.blocks.validate_node(updated)
+        # Only the addressed node is serialized, leaving neighboring nested
+        # definitions byte-for-byte equivalent as objects in the saved graph.
+        node.clear()
+        node.update(updated.model_dump(mode='json'))
+    return WorkflowSpec.model_validate(result)
+
+
 class SaveWorkflow(BaseModel):
     model_config = ConfigDict(extra='forbid')
     expected_revision: int = Field(ge=0)
@@ -219,6 +271,11 @@ async def generate_workflow(services, project_id, body, *, conversation_context=
 
     def resolve_generated(generated):
         from .generation_file_bindings import bind_selected_files
+        if isinstance(generated, dict) and 'operations' in generated:
+            if set(generated) != {'operations'}:
+                raise ValueError('请选择 workflow 或 operations 一种交付方式')
+            return apply_generated_updates(services, original, generated['operations'], body.workflow_path, body.node_ids,
+                                           (conversation_context or {}).get('selected_files', []))
         if isinstance(generated, dict) and conversation_context:
             generated = bind_selected_files(generated, conversation_context.get('selected_files', []))
         if original is not None:
@@ -267,6 +324,10 @@ async def generate_workflow(services, project_id, body, *, conversation_context=
     services.local_agents.event(project_id, 'workflow_generation_started', '开始生成工作流', request_id=request_id)
     response = await collect_model_stream(provider.stream(model='project',
         system='生成一个可编辑工作流，交付 JSON 对象 {"workflow":{"nodes":[],"edges":[]}}。'
+               '修改已有节点时优先只交付 {"operations":[{"op":"update_node","data":{"node_id":"当前范围内的节点id","changes":{"config":{"要修改的字段":"新值"}}}}]}，不用重写未改代码。'
+               'workflow 与 operations 只能选择一种；增加/删除节点时仍可返回完整 workflow。'
+               'operations 的 changes 使用节点字段（title、description、config等）；config 默认递归合并对象、整体替换数组，未提供的字段保留。'
+               '删除config字段时用 merge_config=false 并提供完整config；定位嵌套节点可用 node_path 数组替代 node_id，路径相对本次 workflow_path，选区外不可修改。'
                '使用给定积木 schema；每个节点具有 id/type/title/config/position:{x,y}，边具有 id/source/target。'
                'config_schema 的 #/$defs 引用优先使用该 schema 内的定义，否则使用上下文顶层共享 $defs。'
                '完整图及循环子流程包含一个开始节点和至少一个连入路径的 end/answer；选区编辑返回的片段不要求包含这些节点。'
@@ -301,6 +362,8 @@ async def generate_workflow(services, project_id, body, *, conversation_context=
     payload = json.loads(text)
     if not isinstance(payload, dict):
         raise ValueError('生成结果必须是工作流对象，请重试或调整描述')
+    if 'workflow' in payload and 'operations' in payload:
+        raise ValueError('请选择 workflow 或 operations 一种交付方式')
     workflow = resolve_generated(payload.get('workflow', payload))
     blocks.validate_workflow(workflow)
     errors = services.blocks.validate_draft(workflow)

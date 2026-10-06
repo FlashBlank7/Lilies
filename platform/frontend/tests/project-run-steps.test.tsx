@@ -128,7 +128,164 @@ it('keeps loop occurrences separate, opens failures and waiting input, and disti
   expect(screen.getByRole('alert')).toHaveTextContent('缺少费用字段：金额')
   expect(within(screen.getByRole('region',{name:'确认费用类别的输入'})).getByText('差旅是否含税？')).toBeInTheDocument()
   expect(screen.getByText('此分支未执行')).toBeInTheDocument()
+  expect(screen.getByRole('button',{name:/逐批处理 · 第 1 轮/})).toHaveAttribute('aria-expanded','false')
+  expect(screen.getByRole('button',{name:/逐批处理 · 第 2 轮/})).toHaveAttribute('aria-expanded','true')
+  fireEvent.click(screen.getByRole('button',{name:/逐批处理 · 第 1 轮/}))
   expect(screen.getAllByText('读取费用表')).toHaveLength(2)
+})
+
+it('groups three saved iteration items and opens only the matching inputs, outputs and canvas location',async()=>{
+  const container={...step,id:'each',node_path:['each'],title:'逐批检查',type:'iteration'}
+  const items=Array.from({length:3},(_,index)=>[
+    {...step,id:`each[${index}].start`,node_path:['each','start'],title:'本项输入',type:'start',scope:`逐批检查 · 第 ${index+1} 轮`,input_preview:{item:`批次${index+1}`},output_preview:{item:`批次${index+1}`}},
+    {...step,id:`each[${index}].read`,node_path:['each','read'],scope:`逐批检查 · 第 ${index+1} 轮`,input_preview:{item:`批次${index+1}`},output_preview:{summary:`第${index+1}项的结果`}},
+  ]).flat()
+  vi.mocked(api).mockResolvedValue({...page,steps:[container,...items],total:7})
+  render(<ProjectRunSteps projectId="p" runs={[run]}/> )
+  for(let index=1;index<=3;index++)expect(await screen.findByRole('button',{name:new RegExp(`逐批检查 · 第 ${index} 项`)})).toHaveAttribute('aria-expanded','false')
+  const second=screen.getByRole('button',{name:/逐批检查 · 第 2 项/})
+  expect(second).toHaveTextContent('2 个步骤')
+  expect(second).toHaveTextContent('已完成 2')
+  fireEvent.click(second)
+  const group=screen.getByRole('list',{name:'逐批检查 · 第 2 项的步骤'})
+  expect(within(group).getAllByRole('listitem')).toHaveLength(2)
+  expect(within(group).getAllByRole('listitem')[0].querySelector('[aria-hidden="true"]')).toHaveTextContent('4')
+  fireEvent.click(within(group).getAllByRole('button',{name:'查看本步输入与产物'})[1])
+  expect(within(group).getByRole('region',{name:'读取费用表的输入'})).toHaveTextContent('批次2')
+  expect(within(group).getByRole('region',{name:'读取费用表的产物'})).toHaveTextContent('第2项的结果')
+  expect(screen.queryByText('批次1')).not.toBeInTheDocument()
+  expect(screen.queryByText('批次3')).not.toBeInTheDocument()
+  const href=within(group).getAllByRole('link',{name:'在当前画布定位 ↗'})[1].getAttribute('href')!
+  expect(JSON.parse(new URL(href,'http://localhost').searchParams.get('node_path')!)).toEqual(['each','read'])
+})
+
+it('keeps nested and same-named sibling rounds separate and exposes the entire waiting ancestor chain',async()=>{
+  const outer={...step,id:'outer',node_path:['outer'],title:'按清单检查',type:'iteration'}
+  const records=[outer,...[0,1].flatMap(index=>[
+    {...step,id:`outer[${index}].inner`,node_path:['outer','inner'],title:'重复核对',type:'loop',scope:`按清单检查 · 第 ${index+1} 轮`},
+    {...step,id:`outer[${index}].inner[1].read`,node_path:['outer','inner','read'],title:'核对字段',scope:`按清单检查 · 第 ${index+1} 轮 / 重复核对 · 第 2 轮`,status:index===1?'waiting':'completed',input_preview:{item:index===1?'第二清单输入':'第一清单输入'},output_preview:null},
+  ]),
+    {...step,id:'sibling',node_path:['sibling'],title:'重复核对',type:'loop'},
+    {...step,id:'sibling[1].read',node_path:['sibling','read'],title:'兄弟步骤',scope:'重复核对 · 第 2 轮',status:'failed',error:'兄弟循环异常'},
+  ]
+  vi.mocked(api).mockResolvedValue({...page,steps:records,total:records.length})
+  render(<ProjectRunSteps projectId="p" runs={[run]}/> )
+  expect(await screen.findByRole('button',{name:/按清单检查 · 第 1 项/})).toHaveAttribute('aria-expanded','false')
+  expect(screen.getByRole('button',{name:/按清单检查 · 第 2 项/})).toHaveAttribute('aria-expanded','true')
+  const second=screen.getByRole('list',{name:'按清单检查 · 第 2 项的步骤'})
+  expect(within(second).getByRole('button',{name:/重复核对 · 第 2 轮/})).toHaveAttribute('aria-expanded','true')
+  expect(within(second).getByRole('region',{name:'核对字段的输入'})).toHaveTextContent('第二清单输入')
+  expect(screen.queryByText('第一清单输入')).not.toBeInTheDocument()
+  expect(screen.getAllByRole('button',{name:/重复核对 · 第 2 轮/})).toHaveLength(2)
+  expect(screen.getByRole('alert')).toHaveTextContent('兄弟循环异常')
+  fireEvent.click(screen.getByRole('button',{name:/按清单检查 · 第 1 项/}))
+  const first=screen.getByRole('list',{name:'按清单检查 · 第 1 项的步骤'})
+  fireEvent.click(within(first).getByRole('button',{name:/重复核对 · 第 2 轮/}))
+  fireEvent.click(within(within(first).getByRole('list',{name:'重复核对 · 第 2 轮的步骤'})).getByRole('button',{name:'查看本步输入与产物'}))
+  expect(within(first).getByRole('region',{name:'核对字段的输入'})).toHaveTextContent('第一清单输入')
+})
+
+it('matches literal node ids and keeps unverified paths visible without grouping by their scope',async()=>{
+  vi.mocked(api).mockResolvedValue({...page,steps:[
+    {...step,id:'each.part[7]',node_path:['each.part[7]'],title:'批次 / 检查 · 第 2 轮',type:'iteration'},
+    {...step,id:'each.part[7][0].leaf[2]',node_path:['each.part[7]','leaf[2]'],title:'正确步骤',scope:'批次 / 检查 · 第 2 轮 · 第 1 轮',status:'running'},
+    {...step,id:'wrong[0].read',node_path:['other','read'],title:'路径不匹配',scope:'批次 / 检查 · 第 2 轮 · 第 1 轮'},
+    {...step,id:'read',node_path:[],title:'没有路径',scope:'批次 / 检查 · 第 2 轮 · 第 1 轮'},
+  ],total:4})
+  render(<ProjectRunSteps projectId="p" runs={[run]}/> )
+  expect(await screen.findByRole('button',{name:/批次 \/ 检查 · 第 2 轮 · 第 1 项/})).toHaveAttribute('aria-expanded','true')
+  const group=screen.getByRole('list',{name:'批次 / 检查 · 第 2 轮 · 第 1 项的步骤'})
+  expect(group).toHaveTextContent('正确步骤')
+  expect(group).not.toHaveTextContent('路径不匹配')
+  expect(group).not.toHaveTextContent('没有路径')
+  expect(screen.getByText('路径不匹配')).toBeVisible()
+  expect(screen.getByText('没有路径')).toBeVisible()
+})
+
+it('keeps groups at page boundaries readable without a parent row or a whole-round success claim',async()=>{
+  vi.mocked(api).mockImplementation(async path=>({...page,total:103,next_offset:path.includes('offset=100')?null:100,steps:path.includes('offset=100')?[
+    {...step,id:'each[1].read',node_path:['each','read'],title:'第二页处理',scope:'逐批检查 · 第 2 轮'},
+    {...step,id:'each[1].end',node_path:['each','end'],title:'第二页产物',scope:'逐批检查 · 第 2 轮',status:'waiting'},
+    {...step,id:'each[2].read',node_path:['each','read'],title:'下一项处理',scope:'逐批检查 · 第 3 轮'},
+  ]:[{...step,id:'each[1].start',node_path:['each','start'],title:'第一页输入',scope:'逐批检查 · 第 2 轮'}]}))
+  render(<ProjectRunSteps projectId="p" runs={[run]}/> )
+  expect(await screen.findByRole('button',{name:/逐批检查 · 第 2 轮/})).toHaveTextContent('本页 1 个步骤')
+  fireEvent.click(screen.getByRole('button',{name:'后100步'}))
+  await screen.findByText('第二页产物')
+  const group=screen.getByRole('button',{name:/逐批检查 · 第 2 轮/})
+  expect(group).toHaveTextContent('本页 2 个步骤')
+  expect(group).toHaveTextContent('已完成 1')
+  expect(group).toHaveTextContent('等待补充 1')
+  expect(screen.queryByText('第一页输入')).not.toBeInTheDocument()
+  const rows=within(screen.getByRole('list',{name:'逐批检查 · 第 2 轮的步骤'})).getAllByRole('listitem')
+  expect(rows[0].querySelector('[aria-hidden="true"]')).toHaveTextContent('101')
+  expect(rows[1].querySelector('[aria-hidden="true"]')).toHaveTextContent('102')
+  fireEvent.click(screen.getByRole('button',{name:'前100步'}))
+  await waitFor(()=>expect(screen.getByRole('button',{name:/逐批检查 · 第 2 轮/})).toHaveTextContent('本页 1 个步骤'))
+  fireEvent.click(screen.getByRole('button',{name:/逐批检查 · 第 2 轮/}))
+  expect(screen.getByText('第一页输入')).toBeVisible()
+  expect(api).toHaveBeenCalledWith('/api/v1/runs/r/steps?offset=100&limit=100')
+})
+
+it('reopens a collapsed round when polling records a new failure and preserves unchanged choices',async()=>{
+  vi.useFakeTimers()
+  const active={...step,id:'each[0].read',node_path:['each','read'],scope:'逐批检查 · 第 1 轮',status:'running'}
+  vi.mocked(api).mockResolvedValueOnce({...page,status:'running',steps:[active]})
+    .mockResolvedValueOnce({...page,status:'running',steps:[active]})
+    .mockResolvedValueOnce({...page,status:'failed',steps:[{...active,status:'failed',error:'新错误'}]})
+  await act(async()=>{render(<ProjectRunSteps projectId="p" runs={[{...run,status:'running'}]}/> )})
+  const round=()=>screen.getByRole('button',{name:/逐批检查 · 第 1 轮/})
+  expect(round()).toHaveAttribute('aria-expanded','true')
+  fireEvent.click(round())
+  await act(async()=>{await vi.advanceTimersByTimeAsync(2000)})
+  expect(round()).toHaveAttribute('aria-expanded','false')
+  expect(screen.queryByText('读取费用表')).not.toBeInTheDocument()
+  await act(async()=>{await vi.advanceTimersByTimeAsync(2000)})
+  expect(round()).toHaveAttribute('aria-expanded','true')
+  expect(screen.getByRole('alert')).toHaveTextContent('新错误')
+  expect(screen.getByText('失败').closest('li')).toHaveAttribute('data-status','failed')
+})
+
+it('keeps a manually collapsed round closed when polling only completes an active step',async()=>{
+  vi.useFakeTimers()
+  const active={...step,id:'each[0].read',node_path:['each','read'],scope:'逐批检查 · 第 1 轮',status:'running'}
+  const waiting={...active,id:'each[0].ask',node_path:['each','ask'],title:'核对输入',status:'waiting'}
+  vi.mocked(api).mockResolvedValueOnce({...page,status:'running',steps:[active,waiting]})
+    .mockResolvedValueOnce({...page,status:'running',steps:[{...active,status:'completed'},waiting]})
+    .mockResolvedValue({...page,status:'succeeded',steps:[{...active,status:'completed'},{...waiting,status:'completed'}]})
+  await act(async()=>{render(<ProjectRunSteps projectId="p" runs={[{...run,status:'running'}]}/> )})
+  const round=()=>screen.getByRole('button',{name:/逐批检查 · 第 1 轮/})
+  fireEvent.click(round())
+  await act(async()=>{await vi.advanceTimersByTimeAsync(2000)})
+  expect(round()).toHaveAttribute('aria-expanded','false')
+  expect(round()).toHaveTextContent('已完成 1')
+  expect(round()).toHaveTextContent('等待补充 1')
+  await act(async()=>{await vi.advanceTimersByTimeAsync(2000)})
+  expect(round()).toHaveAttribute('aria-expanded','false')
+  expect(round()).toHaveTextContent('已完成 2')
+})
+
+it.each(['iteration','loop'].flatMap(type=>['interrupted','waiting','running','failed','warning'].map(status=>[type,status])))('keeps %s container previews collapsed at %s while its waiting item and errors stay visible',async(type,status)=>{
+  vi.mocked(api).mockResolvedValue({...page,status:'paused',steps:[
+    {...step,id:'each',node_path:['each'],title:'逐批检查',type,status,input_preview:{items:['容器原始参数']},output_preview:{summary:'容器保存结果'},error:status==='failed'?'本轮处理失败':null},
+    {...step,id:'each[1].human',node_path:['each','human'],title:'补齐本项数量',type:'human_input',status:'waiting',scope:'逐批检查 · 第 2 轮',input_preview:{question:'请填写本项数量'},output_preview:null},
+    {...step,id:'bad',node_path:['bad'],title:'核对字段',status:'failed',error:'缺少金额',input_preview:{source_path:'requirement-package/a/expenses.csv'},output_preview:null},
+  ],total:3})
+  render(<ProjectRunSteps projectId="p" runs={[{...run,status:'paused'}]}/> )
+  const container=(await screen.findByText('逐批检查')).closest('li')!
+  expect(container).toHaveAttribute('data-status',status)
+  expect(within(container).getByRole('button',{name:'查看本步输入与产物'})).toHaveAttribute('aria-expanded','false')
+  expect(screen.queryByRole('region',{name:'逐批检查的输入'})).not.toBeInTheDocument()
+  expect(screen.queryByRole('region',{name:'逐批检查的产物'})).not.toBeInTheDocument()
+  expect(within(container).getByRole('link',{name:'在当前画布定位 ↗'})).toBeVisible()
+  if(status==='failed')expect(within(container).getByRole('alert')).toHaveTextContent('本轮处理失败')
+  expect(screen.getByRole('button',{name:/逐批检查 · 第 2 (项|轮)/})).toHaveAttribute('aria-expanded','true')
+  expect(screen.getByRole('region',{name:'补齐本项数量的输入'})).toHaveTextContent('请填写本项数量')
+  expect(screen.getByRole('region',{name:'核对字段的输入'})).toBeVisible()
+  expect(within(screen.getByText('核对字段').closest('li')!).getByRole('alert')).toHaveTextContent('缺少金额')
+  fireEvent.click(within(container).getByRole('button',{name:'查看本步输入与产物'}))
+  expect(screen.getByRole('region',{name:'逐批检查的输入'})).toHaveTextContent('容器原始参数')
+  expect(screen.getByRole('region',{name:'逐批检查的产物'})).toHaveTextContent('容器保存结果')
 })
 
 it('explains interrupted steps during a confirmed human-input pause without changing their recorded statuses',async()=>{
