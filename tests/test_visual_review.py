@@ -1,4 +1,3 @@
-import asyncio
 import csv
 import json
 from pathlib import Path
@@ -92,7 +91,8 @@ def test_platform_two_waiting_steps_stop_resume_frozen_images_and_export_without
         assert response['status']=='waiting_input'
         assert response['runs'][0]['waiting_input']['node_id']!=first['node_id']
         return response
-    asyncio.run(answer())
+    # Keep resumed tasks on the same loop as the API and its shutdown hooks.
+    client.portal.call(answer)
     task=wait_task(client,base,task,seconds=40)
     assert task['status']=='waiting_input' and task['runs'][0]['waiting_input']['node_id']!=first['node_id']
     assert (settings.workspace_root/pid/image).read_bytes()==frozen

@@ -1,5 +1,4 @@
 """Newcomer guidance uses real calculations and resumable forms; models are doubles."""
-import asyncio
 import json
 from pathlib import Path
 
@@ -137,7 +136,8 @@ def test_workflow_analyze_pause_unknown_continue_and_download(configured,monkeyp
             result=await tools.call('workflow_run',{'action':'respond','task_id':task['id'],'run_id':run['id'],
                 'node_id':'ask','inputs':{'understanding':'暂不清楚，先给已有分析'}})
             return result
-        result=asyncio.run(answer())
+        # The tool resumes a background run owned by the application's loop.
+        result=client.portal.call(answer)
         assert result['id']==task['id'] and result['status']=='succeeded'
         assert result['runs'][0]['waiting_input'] is None
         task=settled(client,base,task)
