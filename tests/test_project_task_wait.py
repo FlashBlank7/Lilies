@@ -35,6 +35,22 @@ def inspect(client, base, task, **arguments):
     return response.json()
 
 
+def release_worker(client, worker, release):
+    async def finish():
+        release.set()
+        # Wait for the worker we just released, without competing with its
+        # final persistence through hundreds of HTTP/database reads.
+        done, _ = await asyncio.wait({worker}, timeout=3)
+        if worker not in done:
+            stacks = [f'{task.get_name()}: ' + ' -> '.join(
+                f'{frame.f_code.co_name}:{frame.f_lineno}' for frame in task.get_stack())
+                for task in asyncio.all_tasks() if not task.done()]
+            pytest.fail('Released worker did not finish; active tasks: ' + '; '.join(stacks))
+        await worker
+
+    client.portal.call(finish)
+
+
 @pytest.mark.parametrize('fail', [False, True])
 def test_inspect_wait_returns_existing_task_terminal_state(configured, monkeypatch, fail):
     client, app, base, task, release = held_workflow(configured, monkeypatch, fail=fail)
@@ -68,9 +84,10 @@ def test_inspect_timeout_keeps_original_worker_running(configured, monkeypatch):
     assert app.state.services.projects.active[task['id']] is worker
     assert not worker.done() and not worker.cancelled()
     assert len(client.get(base + '/tasks').json()) == 1
-    client.portal.call(release.set)
-    done = settled(client, base, task)
+    release_worker(client, worker, release)
+    done = client.get(base + '/tasks/' + task['id']).json()
     assert done['status'] == 'succeeded' and done['outputs'] == {'ready': True}
+    assert len(done['runs']) == 1
 
 
 def test_inspect_default_returns_immediately_without_task_side_effects(configured, monkeypatch):
@@ -79,8 +96,9 @@ def test_inspect_default_returns_immediately_without_task_side_effects(configure
     assert result['id'] == task['id'] and result['status'] == 'running'
     assert not release.is_set() and not app.state.services.projects.active[task['id']].done()
     assert len(client.get(base + '/tasks').json()) == 1
-    client.portal.call(release.set)
-    assert settled(client, base, task)['status'] == 'succeeded'
+    release_worker(client, app.state.services.projects.active[task['id']], release)
+    done = client.get(base + '/tasks/' + task['id']).json()
+    assert done['status'] == 'succeeded' and done['outputs'] == {'ready': True}
 
 
 def test_diagnostic_wait_observes_actual_failure_without_restart(configured, monkeypatch):
