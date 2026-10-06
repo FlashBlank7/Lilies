@@ -1,6 +1,9 @@
 # Lilies 后端（FastAPI + SQLite）
+FROM docker:28.5.2-cli@sha256:625d9431a9f54c5a2bc90f24f0e1c3d55b1349fd857dd85035f98c2c9acbdd4d AS docker_cli
 FROM python:3.13-slim
 
+# 代码和建模容器由宿主Docker执行；挂载socket之外还需要客户端命令。
+COPY --from=docker_cli /usr/local/bin/docker /usr/local/bin/docker
 WORKDIR /app
 COPY pyproject.toml README.md ./
 COPY platform/backend ./platform/backend

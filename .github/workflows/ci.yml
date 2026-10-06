@@ -24,6 +24,7 @@ jobs:
       MODEL_EGRESS_ENABLED: "false"
       OFFICIAL_AGENT_EGRESS_ENABLED: "false"
       SANDBOX_IMAGE: agent-platform-sandbox:ci
+      MODELING_IMAGE: lilies-modeling:ci
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -43,6 +44,8 @@ jobs:
         run: ruff check platform/backend/src --select F
       - name: 准备代码节点计算环境
         run: docker build --file Dockerfile.sandbox --tag "$SANDBOX_IMAGE" .
+      - name: 准备数据分析计算环境
+        run: docker build --file Dockerfile.modeling --tag "$MODELING_IMAGE" .
       - name: Pytest（全量回归）
         run: |
           # Linux挂载保留宿主所有权，容器使用创建测试目录的非root用户。
