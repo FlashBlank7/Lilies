@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+from copy import deepcopy
 import csv
 import hashlib
 import json
@@ -826,6 +827,11 @@ class Modeling:
             candidate = await self.get(project_id, 'candidate', study['best']['candidate_id'])
             dataset = await self.get(project_id, 'dataset', study['dataset_id'])
             trial = next(t for t in candidate['trials'] if t['slot'] == study['best']['slot'])
+            evaluated_model = {
+                'study_id': study_id, 'dataset_id': dataset['id'], 'dataset_name': dataset.get('name'),
+                'candidate_id': candidate['id'], 'slot': trial['slot'], 'model': trial.get('model'),
+                'validation_metrics': deepcopy(trial.get('metrics')),
+            }
             folder = self.path(project_id, candidate['id'])
             config = {'action': 'holdout', 'features': candidate['features'], 'evaluation': study['evaluation'], 'engine': candidate['engine'],
                       'feature_columns': trial['feature_columns'], 'classes': trial['classes'], 'model': '/model', 'split': '/split.json'}
@@ -836,6 +842,7 @@ class Modeling:
             study.update(status='sealed', next_action='使用固定最佳模型预测；保留测试集已用于最终评价，不能再参与搜索')
             self.pause_clock(study); await self.put(project_id, 'study', study)
             result = await self.compute(project_id, dataset, config, self.path(project_id, study_id) / 'holdout', image=study['image'], extra_mounts=mounts)
+            result = {**result, 'evaluated_model': evaluated_model}
             study.update(test_result=result, final_run_id=run_id)
             await self.put(project_id, 'study', study)
             await self.save_training_note(project_id, study_id, candidate['id'], trial['slot'])

@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { api } from '@/lib/platform'
 import ProjectRunPanel, { ProjectRunEvents, ProjectTaskOutput } from '@/app/components/ProjectRunPanel'
@@ -72,7 +72,64 @@ it('shows workflow training, fixed-class test results and model download without
   expect(screen.getByRole('heading',{name:'训练比较'})).toBeInTheDocument()
   expect(screen.getByText('0 · 缺少此类测试样本')).toBeInTheDocument()
   expect(screen.getByText(/roc_auc: 无法计算/)).toBeInTheDocument()
+  expect(within(screen.getByRole('region',{name:'独立测试'})).getByText(/该历史结果未保存独立测试与数据集、模型的对应信息/)).toBeInTheDocument()
+  expect(screen.queryByRole('heading',{name:'本次测试使用的模型'})).not.toBeInTheDocument()
   expect(screen.getByRole('link',{name:'下载模型与训练记录 ↓'})).toHaveAttribute('href','/api/platform/api/v1/projects/p/modeling/studies/study/candidates/candidate/download')
+})
+
+it('keeps saved model and validation metrics with the selected task when models share a name',()=>{
+  const task=(id:string,dataset:string,slot:number,validation:number,test:number)=>({id,status:'succeeded',outputs:{
+    // Training output can refer to a different candidate from the tested model.
+    training:{id:'other-candidate',study_id:'other-study',trials:[{slot:0,model:'linear',status:'completed',metrics:{mae:.001}}]},
+    evaluation:{rows:12,label:'保留测试',metrics:{mae:test},evaluated_model:{study_id:id+'-study',dataset_id:id+'-data',dataset_name:dataset,candidate_id:id+'-candidate',slot,model:'linear',validation_metrics:{mae:validation}}},
+  }})
+  const {rerender}=render(<ProjectTaskOutput projectId="p" task={task('first','温度数据',0,.12,.34) as never}/> )
+  let result=within(screen.getByRole('region',{name:'独立测试'}))
+  expect(result.getByText('数据集：温度数据')).toBeInTheDocument()
+  expect(result.getByText('模型：linear · 候选内第 1 次试验')).toBeInTheDocument()
+  expect(result.getByRole('heading',{name:'同一模型的验证指标'}).nextElementSibling).toHaveTextContent('mae: 0.12000')
+  expect(result.getByText('mae: 0.34000')).toBeInTheDocument()
+  expect(result.queryByText(/0.001/)).not.toBeInTheDocument()
+
+  rerender(<ProjectTaskOutput projectId="p" task={task('second','压力数据',2,.56,.78) as never}/> )
+  result=within(screen.getByRole('region',{name:'独立测试'}))
+  expect(result.getByText('数据集：压力数据')).toBeInTheDocument()
+  expect(result.getByText('模型：linear · 候选内第 3 次试验')).toBeInTheDocument()
+  expect(result.getByRole('heading',{name:'同一模型的验证指标'}).nextElementSibling).toHaveTextContent('mae: 0.56000')
+  expect(result.getByText('mae: 0.78000')).toBeInTheDocument()
+  expect(result.queryByText(/温度数据|0.12000|0.34000|0.001/)).not.toBeInTheDocument()
+  rerender(<ProjectTaskOutput projectId="p" task={{id:'legacy',status:'succeeded',outputs:{
+    training:{id:'old-candidate',study_id:'old-study',trials:[{slot:0,model:'linear',status:'completed',metrics:{mae:.99}}]},
+    evaluation:{rows:6,label:'保留测试',metrics:{mae:.88}},
+  }} as never}/> )
+  result=within(screen.getByRole('region',{name:'独立测试'}))
+  expect(result.getByText(/该历史结果未保存独立测试与数据集、模型的对应信息/)).toBeInTheDocument()
+  expect(result.getByText('mae: 0.88000')).toBeInTheDocument()
+  expect(result.queryByText(/压力数据|linear|0.56000|0.78000|0.99000/)).not.toBeInTheDocument()
+  expect(result.queryByRole('heading',{name:'同一模型的验证指标'})).not.toBeInTheDocument()
+  expect(api).not.toHaveBeenCalled()
+})
+
+it('shows saved evaluated model without training output and preserves zero and unavailable validation metrics',()=>{
+  render(<ProjectTaskOutput projectId="p" task={{status:'succeeded',outputs:{evaluation:{rows:3,label:'保留测试',metrics:{mae:2},evaluated_model:{dataset_name:'本次资料',model:'linear',slot:0,validation_metrics:{mae:0,r2:null}}}}} as never}/> )
+  const result=within(screen.getByRole('region',{name:'独立测试'}))
+  expect(result.getByText('数据集：本次资料')).toBeInTheDocument()
+  expect(result.getByRole('heading',{name:'同一模型的验证指标'}).nextElementSibling).toHaveTextContent('mae: 0.0000 / r2: 无法计算')
+  expect(result.getByText('mae: 2.0000')).toBeInTheDocument()
+  expect(result.queryByText(/该历史结果未保存/)).not.toBeInTheDocument()
+  expect(api).not.toHaveBeenCalled()
+})
+
+it('marks unavailable snapshot fields without inventing model names or validation scores',()=>{
+  render(<ProjectTaskOutput projectId="p" task={{status:'succeeded',outputs:{evaluation:{
+    rows:3,label:'保留测试',metrics:{mae:2},
+    evaluated_model:{dataset_name:null,model:null,slot:0,validation_metrics:null},
+  }}} as never}/> )
+  const result=within(screen.getByRole('region',{name:'独立测试'}))
+  expect(result.getByText('数据集：未记录名称')).toBeInTheDocument()
+  expect(result.getByText('模型：未记录名称 · 候选内第 1 次试验')).toBeInTheDocument()
+  expect(result.getByRole('heading',{name:'同一模型的验证指标'}).nextElementSibling).toHaveTextContent('本次结果未保存验证指标。')
+  expect(result.getByText('mae: 2.0000')).toBeInTheDocument()
 })
 
 it.each(['secure', 'http'])('runs and downloads through project tasks on %s origins without an agent', async origin => {
@@ -145,6 +202,7 @@ it('distinguishes threshold selection from independent test performance',()=>{
   expect(screen.getByRole('heading',{name:'自动采纳与人工复核'})).toBeInTheDocument()
   expect(screen.getByText(/这是选择依据，不是独立测试成绩/)).toBeInTheDocument()
   expect(screen.getByText(/采纳部分准确率 0.000/)).toBeInTheDocument()
+  expect(screen.queryByText(/该历史结果未保存/)).not.toBeInTheDocument()
 })
 
 it('recomputes the current draft using historical inputs and a scoped reuse task', async () => {

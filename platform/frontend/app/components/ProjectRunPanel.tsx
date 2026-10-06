@@ -27,6 +27,7 @@ import styles from '@/app/projects/projects.module.css'
 type Field = { name: string; label?: string; type: string; required?: boolean; default?: unknown; description?: string; options?: string[]; columns?: InputColumn[]; accept?: string[]; column_source?: string }
 type Draft = { snapshot: { workflow: { nodes: { type: string; config: { inputs?: Field[] } }[] } } }
 type FileEntry = { path: string }
+type EvaluatedModel = { dataset_name?: string | null; model?: string | null; slot?: number | null; validation_metrics?: Record<string, number | null> | null }
 
 export function ProjectRunEvents({ runs, members }: { runs: ProjectTask['runs']; members: ProjectMember[] }) {
   const [events, setEvents] = useState<{ id: number; type: string; data: unknown }[]>([])
@@ -53,6 +54,8 @@ export function ProjectTaskOutput({ projectId, task, onTask, canConfigureModel=f
   const training = results.find(result => Array.isArray(result.trials) && typeof result.study_id === 'string')
   const trials = training?.trials as {slot:number;model:string;status:string;metrics?:Record<string,number>;baseline?:Record<string,number>;error?:string}[] | undefined
   const evaluation = results.find(result => typeof result.rows === 'number' && result.metrics && typeof result.label === 'string')
+  const evaluatedModel = evaluation?.evaluated_model && typeof evaluation.evaluated_model === 'object' && !Array.isArray(evaluation.evaluated_model) ? evaluation.evaluated_model as EvaluatedModel : undefined
+  const validationMetrics = evaluatedModel?.validation_metrics && typeof evaluatedModel.validation_metrics === 'object' && !Array.isArray(evaluatedModel.validation_metrics) ? evaluatedModel.validation_metrics : undefined
   const classification = evaluation?.classification as {classes:{label:string;samples:number;precision:number;recall:number;f1:number}[];note:string} | undefined
   const acceptance = evaluation?.acceptance as {selection:{status:string;threshold:number|null;target_accuracy:number;validation:{accuracy:number;coverage:number;accepted:number}|null};test:{accepted:number;review:number;accuracy:number|null;coverage:number}} | undefined
   const expenses = results.find(result => typeof result.suspected_duplicates === 'number')
@@ -72,7 +75,16 @@ export function ProjectTaskOutput({ projectId, task, onTask, canConfigureModel=f
     {knowledgeResults.map((result, i) => <KnowledgeResults key={i} result={result} answer={knowledgeAnswer ? output.markdown as string : undefined} question={typeof output.question === 'string' ? output.question : undefined} />)}
     {!!trials?.length && <section><h3>训练比较</h3><p>先比较模型与简单基线在同一划分下的表现，再看下方独立测试。计算完成只表示训练成功；若效果接近简单基线，应先检查标签、特征和样本覆盖。</p><details><summary>怎么看这些指标？</summary><p>accuracy 是预测正确的比例；macro_f1 平等考虑每个类别，避免多数类掩盖少数类。roc_auc 衡量类别区分能力，不是某个阈值下的准确率。这些值通常越高越好。MAE、RMSE 是数值预测误差，越小越好；R² 越接近 1 越好，也可能为负。</p></details><table><thead><tr><th>模型</th><th>验证指标</th><th>简单基线</th><th>结果</th></tr></thead><tbody>{trials.map(t=><tr key={t.slot}><td>{t.model}</td><td>{Object.entries(t.metrics||{}).map(([k,v])=>`${k}: ${v == null ? '无法计算' : Number(v).toPrecision(5)}`).join(' / ')}</td><td>{Object.entries(t.baseline||{}).map(([k,v])=>`${k}: ${v == null ? '无法计算' : Number(v).toPrecision(5)}`).join(' / ')}</td><td>{t.error|| (t.status==='completed'?'已完成':t.status)}</td></tr>)}</tbody></table></section>}
     {training && typeof training.study_id==='string' && typeof training.id==='string' && <p><a download href={withFrontendToken(`/api/platform/api/v1/projects/${projectId}/modeling/studies/${encodeURIComponent(training.study_id)}/candidates/${encodeURIComponent(training.id)}/download`)}>下载模型与训练记录 ↓</a></p>}
-    {evaluation && <section><h3>独立测试</h3><p>{String(evaluation.rows)} 条样本 · {String(evaluation.label)}</p><p>{Object.entries(evaluation.metrics as Record<string,number|null>).map(([k,v])=>`${k}: ${v == null ? '无法计算' : Number(v).toPrecision(5)}`).join(' / ')}</p>
+    {evaluation && <section aria-label="独立测试"><h3>独立测试</h3>
+      {evaluatedModel ? <>
+        <h4>本次测试使用的模型</h4>
+        <p>数据集：{evaluatedModel.dataset_name || '未记录名称'}</p>
+        <p>模型：{evaluatedModel.model || '未记录名称'}{typeof evaluatedModel.slot === 'number' && <> · 候选内第 {evaluatedModel.slot + 1} 次试验</>}</p>
+        <p>对应信息与验证指标均以本次测试时的记录为准。</p>
+        <h4>同一模型的验证指标</h4>
+        <p>{Object.entries(validationMetrics || {}).map(([k,v])=>`${k}: ${v == null ? '无法计算' : Number(v).toPrecision(5)}`).join(' / ') || '本次结果未保存验证指标。'}</p>
+      </> : training && <p>该历史结果未保存独立测试与数据集、模型的对应信息，无法确认上方哪次训练用于本次测试。</p>}
+      <h4>独立测试指标</h4><p>{String(evaluation.rows)} 条样本 · {String(evaluation.label)}</p><p>{Object.entries(evaluation.metrics as Record<string,number|null>).map(([k,v])=>`${k}: ${v == null ? '无法计算' : Number(v).toPrecision(5)}`).join(' / ')}</p>
       {classification && <><p>精确率说明判为这一类的结果有多少正确；召回率说明实际属于这一类的样本找回了多少。少数类样本很少时，单次分数不稳定，应保留人工复核并补充样本。</p><p>{classification.note}</p><table><thead><tr><th>类别</th><th>样本数</th><th>精确率</th><th>召回率</th><th>F1</th></tr></thead><tbody>{classification.classes.map(row=><tr key={row.label}><td>{row.label}</td><td>{row.samples}{row.samples===0?' · 缺少此类测试样本':''}</td><td>{row.precision.toFixed(3)}</td><td>{row.recall.toFixed(3)}</td><td>{row.f1.toFixed(3)}</td></tr>)}</tbody></table></>}
     </section>}
     {acceptance && <section><h3>自动采纳与人工复核</h3>
