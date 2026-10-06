@@ -39,6 +39,42 @@ it.each([true,false])('opens the run step in its nested current canvas without c
   }finally{window.history.replaceState(null,'','/')}
 })
 
+it('opens the prediction resource form from readiness and saves only the model the employee explicitly selects',async()=>{
+  window.history.replaceState(null,'','/?tab=edit&node_path='+encodeURIComponent(JSON.stringify(['predict'])))
+  let draft={application_id:'w',revision:1,content_hash:'one',validation_report:{},snapshot:{name:'批量预测',description:'',requirement:'',mode:'workflow',tests:[],agents:{},workflow:{
+    nodes:[{id:'predict',title:'模型预测',type:'model_predict',position:{x:0,y:0},config:{model_ref:'',dataset_id:'dataset-to-predict'}}],edges:[],
+  }}}
+  vi.mocked(api).mockImplementation(async(path,options)=>{
+    if(path.endsWith('/draft')&&options?.method==='POST'){
+      const {data}=JSON.parse(options.body as string)
+      draft={...draft,revision:2,snapshot:{...draft.snapshot,workflow:{...draft.snapshot.workflow,nodes:[{...draft.snapshot.workflow.nodes[0],config:data.changes.config}]}}}
+      return draft as never
+    }
+    if(path.endsWith('/draft'))return draft as never
+    if(path.startsWith('/api/v1/blocks?'))return [{type:'model_predict',title:'模型预测',category:'model',input_ports:[],output_ports:[],config_schema:{},editor:{fields:[{path:'model_ref',label:'调用模型',label_zh:'调用模型',control:'reference_or_text'}]}}] as never
+    if(path.endsWith('/project'))return {project_id:'p'} as never
+    if(path==='/api/v1/projects/p')return {id:'p',name:'测试项目',members:[]} as never
+    if(path.endsWith('/models'))return [{model_ref:'prediction',name:'已训练预测模型',status:'ready'}] as never
+    if(path==='/health')return {status:'ok'} as never
+    return [] as never
+  })
+  try{
+    const {container}=await act(async()=>render(<Suspense><Studio params={Promise.resolve({id:'w'})}/></Suspense>))
+    await screen.findByRole('option',{name:'已训练预测模型'})
+    const selector=screen.getByRole('combobox',{name:'调用模型'})
+    expect(selector).toHaveValue('')
+    expect(vi.mocked(api).mock.calls.some(([,options])=>options?.method)).toBe(false)
+    fireEvent.change(selector,{target:{value:'prediction'}})
+    expect(vi.mocked(api).mock.calls.some(([,options])=>options?.method)).toBe(false)
+    fireEvent.click(container.querySelector('[data-config-editor-action="save"]')!)
+    await waitFor(()=>expect(draft.revision).toBe(2))
+    const writes=vi.mocked(api).mock.calls.filter(([,options])=>options?.method)
+    expect(writes).toHaveLength(1)
+    expect(writes[0][0]).toBe('/api/v1/applications/w/draft')
+    expect(JSON.parse(writes[0][1]!.body as string)).toMatchObject({op:'update_node',data:{node_id:'predict',changes:{config:{model_ref:'prediction',dataset_id:'dataset-to-predict'}}}})
+  }finally{window.history.replaceState(null,'','/')}
+})
+
 it('saves model choices from Chinese form labels using the original schema values', async () => {
   const config = { evaluation: { problem: 'regression', metric: 'mae' }, candidate: { engine: 'sklearn', models: ['linear', 'forest'] } }
   const draft = { application_id: 'p', revision: 1, content_hash: 'one', validation_report: {},

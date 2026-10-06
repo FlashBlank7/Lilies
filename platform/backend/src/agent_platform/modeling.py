@@ -400,8 +400,13 @@ class Modeling:
         return choose_step(study, candidates)
 
     async def candidate(self, project_id, study_id, body: CandidateRequest, *, submission=None):
+        request = body.model_dump()
+        # Reading an existing request must not wait for its running computation.
+        # Mutating a workflow submission still uses the study lock below.
+        if submission is None:
+            if previous := await self.duplicate(project_id, 'candidate', study_id, request):
+                return previous
         async with self.locks.setdefault(study_id, asyncio.Lock()):
-            request = body.model_dump()
             if previous := await self.duplicate(project_id, 'candidate', study_id, request):
                 if submission is not None:
                     saved = previous.get('submission')

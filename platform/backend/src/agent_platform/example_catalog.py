@@ -162,9 +162,10 @@ def catalog():
         names=[source_name,'new-data.csv']+(['labels.csv'] if process else [])
         files={k:data[k] for k in names}
         files.update({k.replace('.csv','-2.csv'):alternate[k] for k in names})
-        add(key,name,'机器学习','合成工业数据；演示正确的数据划分、训练与复用，不代表客户现场效果。',
+        add(key,name,'机器学习','合成工业数据；演示正确的数据划分、训练与复用，不代表客户现场效果。'+
+            ('同批记录往往相似，若分散到训练与验证或测试中会让分数偏高，因此按整批隔离。' if key=='group-training' else ''),
             '请查看项目使用说明，用已有流程'+('训练并绑定模型，再对新数据预测。' if key in ('prediction','rules') else '分析示例数据并训练，解释独立测试结果。'),
-            '改用 -2.csv 重新运行；过程表和标签表必须成套更换。对比新旧结果，不根据测试集反复调参。',files,flows,['CPU / Docker 训练环境'],
+            '改用 -2.csv 重新运行。'+('过程表和标签表必须成套更换。' if process else '')+'对比新旧结果，不根据测试集反复调参。',files,flows,['CPU / Docker 训练环境'],
             ['查看字段字典：target 为合成标签，batch / furnace 为分组标识；示例不代表生产精度。','运行“数据分析与训练”，检查数据、特征、基线及独立测试。',
              '如需预测，在模型页面把完成的候选绑定到 example-model，再运行预测流程；0.8 仅是演示阈值，不代表可靠业务标准。' if key in ('prediction','rules') else '检查划分字段及预测时可用特征，再更换资料重跑。',
              '规则重算需选择前次产生的 prediction-input.json，只修改阈值，不重训。' if key=='rules' else '在运行记录与模型页面查看指标和下载产物。'])

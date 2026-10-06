@@ -72,8 +72,10 @@ async def start_training(services, project_id, study_id, candidate):
     import asyncio
     projects = services.projects
     await projects.store.get(project_id)
+    # A new candidate may wait for this study's active computation. Other
+    # project tasks must remain free to start or resume during that wait.
+    value = await services.modeling.candidate(project_id, study_id, candidate)
     async with projects.locks.setdefault(project_id, asyncio.Lock()):
-        value = await services.modeling.candidate(project_id, study_id, candidate)
         task, created = await projects.store.create_task(str(uuid4()), project_id, 'training/' + value['id'],
             'training', '', {'study_id': study_id, 'candidate_id': value['id']}, '', {},
             purpose='business', feedback_task_id=value.get('feedback_task_id', ''))

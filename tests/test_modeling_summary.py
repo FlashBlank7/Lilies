@@ -56,3 +56,14 @@ def test_http_study_summary_counts_saved_split_without_changing_detail(modeling,
     assert client.get(detail_url).json() == before
     assert client.get(base + '/modeling/studies').json() == [before]
     assert client.get(base + '/tasks').json() == []
+
+    from agent_platform.project_agent_context import conversation_context
+    context = asyncio.run(conversation_context(
+        app.state.services, project['id'], {'phase': 'working'},
+        {'status': 'draft', 'revision': 0, 'document': ''}, '解释已有训练结果'))
+    saved = next(value for value in context['modeling'] if value['id'] == study['id'])
+    assert saved['split'] == summary['split']
+    assert saved['evaluation'] == study['evaluation']
+    assert not {'samples', 'development', 'holdout'} & saved['split'].keys()
+    assert client.get(detail_url).json() == before
+    assert client.get(base + '/tasks').json() == []

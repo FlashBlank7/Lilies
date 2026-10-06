@@ -57,7 +57,7 @@ async def readiness(services, workflow, project_id=None, seen=None, related=None
                     '请管理员启动 Docker，并检查部署镜像 '+image+'；代码环境参照 Dockerfile.sandbox 或 Dockerfile.documents，训练环境参照 Dockerfile.modeling。')
         if kind == 'model_predict':
             from .project_resources import model_resources
-            ref = config.get('model_ref')
+            ref = config.get('model_ref', '')
             resources = await model_resources(services, project_id) if project_id else []
             if isinstance(ref, str) and not any(r['model_ref'] == ref and r['status'] == 'ready' for r in resources):
                 missing('resource:'+ref, '预测模型尚未绑定可用版本：'+ref, 'models', title)

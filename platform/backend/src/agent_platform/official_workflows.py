@@ -21,14 +21,14 @@ def graph(nodes):
 
 
 def training(problem, process=False):
-    inputs = [{'name': 'source_path', 'type': 'string', 'required': True, 'description': '项目中已上传的 CSV、TSV 或 XLSX'},
-              {'name': 'target', 'type': 'string', 'required': True, 'description': '需要预测的标签列名称'},
-              {'name': 'group_column', 'type': 'string', 'default': '', 'description': '批次／炉次字段；使用分组划分时填写'}]
+    inputs = [{'name': 'source_path', 'label': '数据表', 'type': 'string', 'required': True, 'description': '项目中已上传的 CSV、TSV 或 XLSX'},
+              {'name': 'target', 'label': '预测目标列', 'type': 'string', 'required': True, 'description': '需要预测的标签列名称'},
+              {'name': 'group_column', 'label': '批次或炉次列', 'type': 'string', 'default': '', 'description': '批次／炉次字段；使用分组划分时填写'}]
     mapping = {'target': ref('$inputs', 'target'), 'group_column': ref('$inputs', 'group_column')}
     if process:
-        inputs += [{'name': name, 'type': 'string', 'required': True, 'description': description} for name, description in [
-            ('labels_path', '每行一个预测时点和标签的样本表'), ('id_column', '设备／炉次标识列'),
-            ('time_column', '过程测量时间列'), ('prediction_time_column', '标签表中的预测时点列')]]
+        inputs += [{'name': name, 'label': label, 'type': 'string', 'required': True, 'description': description} for name, label, description in [
+            ('labels_path', '标签表', '每行一个预测时点和标签的样本表'), ('id_column', '设备或炉次标识列', '设备／炉次标识列'),
+            ('time_column', '过程测量时间列', '过程测量时间列'), ('prediction_time_column', '预测时点列', '标签表中的预测时点列')]]
         mapping.update(kind='timeseries', **{name: ref('$inputs', name) for name in ('id_column', 'time_column', 'prediction_time_column')})
     return graph([
         node('start', 'start', '选择数据和预测目标', inputs=inputs),
@@ -113,17 +113,17 @@ REPLAY_INPUT_CODE = '''def main(inputs):
 
 def replay_rules():
     return graph([node('start','start','选择已有预测与新规则',inputs=[
-        {'name':'source_path','type':'string','required':True,'description':'前次模型与规则流程生成的规则重算输入 JSON'},
-        {'name':'threshold','type':'number','required':False,'description':'新业务阈值；留空沿用模型保存的阈值'}]),
+        {'name':'source_path','label':'规则重算输入文件','type':'string','required':True,'description':'前次模型与规则流程生成的规则重算输入 JSON'},
+        {'name':'threshold','label':'采纳阈值','type':'number','required':False,'description':'新业务阈值；留空沿用模型保存的阈值'}]),
         node('load','code','读取固定预测结果',code=REPLAY_INPUT_CODE,inputs={'source_path':ref('start','source_path')}),
         node('rules','code','只重算规则与报告',code=RULE_CODE,inputs={'prediction':ref('load','output'),'threshold':ref('start','threshold')}),
         node('end','end','新规则结果',outputs={'result':ref('rules','output'),'markdown':ref('rules','output','markdown')})])
 
 
 def prediction(rules=False):
-    inputs = [{'name': 'source_path', 'type': 'string', 'required': True, 'description': '字段语义须与训练一致的无标签数据'}]
+    inputs = [{'name': 'source_path', 'label': '数据表', 'type': 'string', 'required': True, 'description': '字段语义须与训练一致的无标签数据'}]
     if rules:
-        inputs.append({'name': 'threshold', 'type': 'number', 'required': False, 'description': '手动指定业务阈值；留空使用模型保存的验证阈值，无可用阈值时全部复核'})
+        inputs.append({'name': 'threshold', 'label': '采纳阈值', 'type': 'number', 'required': False, 'description': '手动指定业务阈值；留空使用模型保存的验证阈值，无可用阈值时全部复核'})
     nodes = [node('start', 'start', '选择新数据', inputs=inputs),
              node('predict', 'model_predict', '使用固定模型版本批量预测', source_path=ref('$inputs', 'source_path'), model_ref='')]
     if rules:

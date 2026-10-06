@@ -3,6 +3,7 @@ import {afterEach,beforeEach,expect,it,vi} from 'vitest'
 import ProjectConversation from '@/app/components/ProjectConversation'
 import ProjectRunPanel, {ProjectTaskOutput} from '@/app/components/ProjectRunPanel'
 import ModelConnectionPanel from '@/app/components/ModelConnectionPanel'
+import WorkflowReadiness from '@/app/components/WorkflowReadiness'
 import {api} from '@/lib/platform'
 
 vi.mock('@/lib/platform',()=>({api:vi.fn(),withFrontendToken:(v:string)=>v}))
@@ -12,6 +13,40 @@ vi.mock('@/app/components/ModelingPanel',()=>({default:()=>null}))
 vi.mock('@/app/components/ConversationWorkflowCreator',()=>({default:()=>null}))
 beforeEach(()=>{vi.mocked(api).mockReset();sessionStorage.clear()})
 afterEach(cleanup)
+
+it('routes blank model references to their exact prediction node while named unbound resources retain the binding page',async()=>{
+ const graph={nodes:[
+  {id:'predict',title:'批量预测',type:'model_predict',config:{model_ref:''}},
+  {id:'omitted',title:'缺省预测',type:'model_predict',config:{}},
+  {id:'bound',title:'已选择的预测',type:'model_predict',config:{model_ref:'existing'}},
+  {id:'each',title:'逐份处理',type:'iteration',config:{workflow:{nodes:[{id:'predict',title:'逐份预测',type:'model_predict',config:{model_ref:''}}],edges:[]}}},
+ ],edges:[]}
+ vi.mocked(api).mockResolvedValue({snapshot:{workflow:graph}} as never)
+ render(<WorkflowReadiness projectId="p" workflowId="w" value={{status:'needs_setup',revision:1,note:'实际运行时仍检查',issues:[
+  {code:'resource:',message:'尚未选择模型',setup:'models',node:'批量预测'},
+  {code:'resource:existing',message:'已命名模型尚未绑定',setup:'models',node:'另一预测'},
+ ]}}/> )
+ expect(await screen.findByRole('link',{name:'选择预测模型 · 批量预测'})).toHaveAttribute('href','/applications/w?tab=edit&node_path='+encodeURIComponent(JSON.stringify(['predict'])))
+ expect(screen.getByRole('link',{name:'选择预测模型 · 逐份预测'})).toHaveAttribute('href','/applications/w?tab=edit&node_path='+encodeURIComponent(JSON.stringify(['each','predict'])))
+ expect(screen.getByRole('link',{name:'选择预测模型 · 缺省预测'})).toHaveAttribute('href','/applications/w?tab=edit&node_path='+encodeURIComponent(JSON.stringify(['omitted'])))
+ expect(screen.getAllByRole('link',{name:/选择预测模型 ·/})).toHaveLength(3)
+ expect(screen.getByRole('link',{name:'配置预测模型'})).toHaveAttribute('href','/projects/p?tab=models')
+ expect(screen.getByText(/在预测积木的“调用模型”中选择已有模型，再保存配置/)).toBeVisible()
+ expect(graph.nodes[0].config.model_ref).toBe('')
+ expect(vi.mocked(api).mock.calls).toEqual([['/api/v1/applications/w/draft']])
+})
+
+it('keeps the failed result while opening the prediction selector for that workflow',async()=>{
+ vi.mocked(api).mockImplementation(async path=>{
+  if(path.endsWith('/readiness'))return {status:'needs_setup',revision:1,note:'资源检查',issues:[{code:'resource:',setup:'models',message:'尚未选择预测模型'}]} as never
+  if(path.endsWith('/draft'))return {snapshot:{workflow:{nodes:[{id:'predict',title:'模型预测',type:'model_predict',config:{model_ref:''}}],edges:[]}}} as never
+  throw Error(path)
+ })
+ render(<ProjectTaskOutput projectId="p" task={{id:'failed',workflow_id:'w',status:'failed',error:'模型未选择',outputs:{}} as never}/> )
+ expect(await screen.findByRole('link',{name:'选择预测模型 · 模型预测'})).toHaveAttribute('href','/applications/w?tab=edit&node_path='+encodeURIComponent(JSON.stringify(['predict'])))
+ expect(screen.getByRole('alert')).toHaveTextContent('模型未选择')
+ expect(vi.mocked(api).mock.calls.some(([,options])=>options?.method)).toBe(false)
+})
 
 it('explains a disabled send and lets the owner configure a model without losing the message or sending it',async()=>{
  let configured=false
@@ -24,7 +59,7 @@ it('explains a disabled send and lets the owner configure a model without losing
   return {provider:configured?'api':null,status:'idle',revision:configured?2:1,events:[],error:'',has_more:false,requirements:{}} as never
  })
  render(<ProjectConversation id="p" conversationId="chat" items={[]} onUpdated={vi.fn()} onSent={vi.fn()}/> )
- await screen.findByText(/此项目尚未连接模型，暂时不能发送/)
+ await screen.findByText(/此项目尚未连接对话 AI 模型，暂时不能发送/)
  fireEvent.change(screen.getByLabelText('给项目统筹的消息'),{target:{value:'请整理本次会议，不要丢失这条请求'}})
  expect(screen.getByRole('button',{name:'发送'})).toBeDisabled()
  fireEvent.click(screen.getByRole('button',{name:'连接模型'}))
@@ -41,8 +76,22 @@ it('explains a disabled send and lets the owner configure a model without losing
 it('tells collaborators whom to contact instead of offering a configuration they cannot save',async()=>{
  vi.mocked(api).mockResolvedValue({provider:null,status:'idle',revision:1,events:[],requirements:{}} as never)
  render(<ProjectConversation id="p" items={[]} canConfigureModel={false} onUpdated={vi.fn()} onSent={vi.fn()}/> )
- expect(await screen.findByText(/请联系项目负责人配置模型连接/)).toBeVisible()
+ expect(await screen.findByText(/请联系项目负责人配置对话 AI 模型连接/)).toBeVisible()
  expect(screen.queryByRole('button',{name:'连接模型'})).not.toBeInTheDocument()
+})
+
+it('does not infer workflow generation connectivity from a missing dialogue AI connection',async()=>{
+ vi.mocked(api).mockResolvedValue({provider:null,status:'idle',revision:1,events:[],requirements:{}} as never)
+ render(<ProjectConversation id="p" items={[]} canConfigureModel={false} onUpdated={vi.fn()} onSent={vi.fn()}/> )
+ expect(await screen.findByText(/尚未连接对话 AI 模型/)).toBeVisible()
+ fireEvent.change(screen.getByLabelText('给项目统筹的消息'),{target:{value:'使用已有预测模型创建工作流'}})
+ fireEvent.click(screen.getByRole('button',{name:'创建工作流'}))
+ expect(screen.queryByText(/尚未连接对话 AI 模型/)).not.toBeInTheDocument()
+ expect(screen.getByLabelText('给项目统筹的消息')).toHaveValue('使用已有预测模型创建工作流')
+ fireEvent.click(screen.getByRole('button',{name:'完成任务'}))
+ expect(screen.getByText(/尚未连接对话 AI 模型/)).toBeVisible()
+ expect(screen.getByRole('button',{name:'发送'})).toBeDisabled()
+ expect(vi.mocked(api).mock.calls.some(([,options])=>options?.method)).toBe(false)
 })
 
 it('shows the deployment restriction separately while still allowing a connection to be saved',async()=>{

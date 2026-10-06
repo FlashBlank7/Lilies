@@ -133,8 +133,8 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
   }, [base, reader, task?.id, task?.mode, task?.status, task?.presentation?.markdown]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { try { const saved = sessionStorage.getItem('lilies:project:' + id + ':focus'); if (saved) setFocus({ ...JSON.parse(saved), message: undefined }) } catch {} }, [id])
   const clearFocus = useCallback(() => { setFocus(undefined); try { sessionStorage.removeItem('lilies:project:' + id + ':focus') } catch {} }, [id])
-  function talk(item?: ProgressItem, message = '', taskId = '', questionId = '') {
-    const next = { nonce: Date.now(), label: item?.title || '业务结果', item_id: item?.id, task_id: taskId, question_id: questionId, message: message || undefined }
+  function talk(item?: ProgressItem, message = '', taskId = '', questionId = '', mode?: 'task' | 'workflow', modeling?: ConversationFocus['modeling']) {
+    const next = { nonce: Date.now(), label: item?.title || '业务结果', item_id: item?.id, task_id: taskId, question_id: questionId, message: message || undefined, mode, modeling }
     setFocus(next); try { sessionStorage.setItem('lilies:project:' + id + ':focus', JSON.stringify(next)) } catch {}; setTab('overview'); setReader(false); setProgressOpen(false)
   }
   async function showTask(taskId: string) {
@@ -194,7 +194,7 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
     {taskLoading && <p role="status">正在读取运行结果…</p>}
     {taskLinkError && <p role="alert" className={styles.error}>{taskLinkError}</p>}
     {tab==='space' && <ProjectSpace projectId={id} onWorkflow={workflow=>{void refresh();void showFlow(undefined,workflow)}} onFile={showFile} onChanged={refresh} onTalk={(message,mode='task')=>{setFocus({nonce:Date.now(),label:'项目空间',message,mode});setTab('overview');setReader(false)}} />}
-    {tab === 'models' && <ProjectModels projectId={id} onWorkflow={workflow => { void refresh(); void showFlow(undefined, workflow); setEditingFlow(true) }} onTask={taskId => { void refresh(); void showTask(taskId) }} onTalk={message => talk(undefined, message)} />}
+    {tab === 'models' && <ProjectModels projectId={id} onWorkflow={workflow => { void refresh(); void showFlow(undefined, workflow); setEditingFlow(true) }} onTask={taskId => { void refresh(); void showTask(taskId) }} onTalk={(message,mode,context) => talk(undefined, message, '', '', mode, context)} />}
     <div hidden={tab !== 'flow'}><WorkflowComposer projectId={id} workflowId={workflowId} onChanged={workflow => { void refresh(); void showFlow(undefined, workflow); setEditingFlow(true) }} /></div>
     {tab === 'run' && project && <ProjectRunPanel key={runWorkflowId + (reuseTask?.id || "")} reuseTask={reuseTask} reuseCompletedSteps={reuseCompletedSteps} projectId={id} canConfigureModel={project.access_role !== 'collaborator'} members={project.members} initialWorkflowId={runWorkflowId} onTask={updateManualTask} />}
     <div hidden={tab !== 'overview'} className={styles.projectHome}>

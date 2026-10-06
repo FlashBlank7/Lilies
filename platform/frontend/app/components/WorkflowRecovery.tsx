@@ -15,7 +15,7 @@ export default function WorkflowRecovery({projectId,workflowId,canConfigureModel
   },[projectId,workflowId])
   useEffect(()=>{void refresh()},[refresh])
   return <section aria-label="修复运行配置">
-    <WorkflowReadiness value={value} projectId={projectId} canConfigureModel={canConfigureModel} onRecheck={async()=>{await refresh();setChanged(true);onChanged?.()}}/>
+    <WorkflowReadiness value={value} projectId={projectId} workflowId={workflowId} canConfigureModel={canConfigureModel} onRecheck={async()=>{await refresh();setChanged(true);onChanged?.()}}/>
     {changed&&<p role="status">配置已保存。请确认运行准备后重新运行；原失败记录保留，不会自动重试。</p>}
     {error&&<p role="status">{error}</p>}
     <button onClick={()=>void refresh()}>重新检查当前配置</button>

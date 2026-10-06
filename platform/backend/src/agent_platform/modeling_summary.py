@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import json
 import time
 
 
@@ -14,13 +15,36 @@ def detail(action, **ids):
 
 
 def profile_summary(value):
-    result = pick(value, ('sampled', 'rows', 'duplicates', 'runtime', 'id_column_count', 'group_column_count'))
-    result['columns'] = [pick(c, ('name', 'dtype', 'missing', 'unique', 'min', 'max', 'mean', 'outliers'))
-                         for c in value.get('columns', [])]
+    result = pick(value, ('dataset_id', 'sampled', 'rows', 'duplicates', 'runtime', 'id_column_count', 'group_column_count'))
+    result['columns'] = []
+    for column in value.get('columns', []):
+        compact = pick(column, ('name', 'dtype', 'missing', 'unique', 'min', 'max', 'mean', 'outliers'))
+        distribution = column.get('distribution')
+        if isinstance(distribution, list) and all(isinstance(row, dict) and 'label' in row and 'count' in row for row in distribution):
+            # Keep small saved frequency tables, especially target classes.
+            # They are observations, not a claim that all values are listed.
+            if len(distribution) <= 12 and len(json.dumps(distribution)) <= 1500:
+                compact['distribution'] = deepcopy(distribution)
+            else:
+                compact['distribution'] = {'preview_omitted': True, 'count': len(distribution)}
+            rows, missing = value.get('rows'), column.get('missing')
+            if (type(rows) is int and type(missing) is int
+                    and all(type(row['count']) is int and row['count'] >= 0 for row in distribution)):
+                represented = sum(row['count'] for row in distribution)
+                compact['distribution_coverage'] = {
+                    'represented_rows': represented, 'non_missing_rows': rows - missing,
+                    'complete': represented == rows - missing,
+                }
+                if represented < rows - missing:
+                    compact['distribution_coverage']['note'] = '部分频次；未列出的类别或批次数量未知，不能推断所有分组大小相同。'
+        result['columns'].append(compact)
     if 'time' in value:
         result['time'] = pick(value['time'], ('start', 'end', 'invalid', 'median_interval_seconds'))
     if 'labels' in value:
         result['labels'] = profile_summary(value['labels'])
+    if isinstance(value.get('preview'), list):
+        result['preview'] = {'preview_omitted': True, 'count': len(value['preview'])}
+    result['distribution_scope'] = 'Saved frequency tables or histogram bins; these may show only leading values, not every distinct value.'
     result['view'] = 'summary'
     return result
 

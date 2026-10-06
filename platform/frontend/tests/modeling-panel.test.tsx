@@ -100,6 +100,19 @@ it('keeps compact conversation controls small while preserving results, notes an
   expect(await screen.findByText('本次使用按组隔离，保留全部验证样本。')).toBeInTheDocument()
 })
 
+it.each([true,false])('prepares prediction creation from the selected result without running it (candidate details loaded=%s)',async detailsLoaded=>{
+  if(!detailsLoaded){
+    const original=vi.mocked(api).getMockImplementation()!
+    vi.mocked(api).mockImplementation(async(path,options)=>path.includes('/candidates')?[] as never:original(path,options))
+  }
+  const onContext=vi.fn()
+  render(<ModelingPanel projectId="p" onContext={onContext}/> )
+  fireEvent.click(await screen.findByRole('button',{name:'查看结果'}))
+  fireEvent.click(await screen.findByRole('button',{name:'创建预测工作流'}))
+  expect(onContext).toHaveBeenCalledWith(expect.objectContaining({study_id:'s',candidate_id:'c',dataset_id:'d'}),expect.stringContaining('生成可复用的预测工作流'),'workflow')
+  expect(vi.mocked(api).mock.calls.some(([,options])=>options?.method)).toBe(false)
+})
+
 it('keeps failed trials readable and retries a failed note request without claiming a model exists', async () => {
   const original = vi.mocked(api).getMockImplementation()!
   let failed = false

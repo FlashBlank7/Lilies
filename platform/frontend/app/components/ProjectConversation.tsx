@@ -90,7 +90,7 @@ export default function ProjectConversation({ id, conversationId, projectName, c
   }, [conversationBase, onUpdated])
   useEffect(() => { try { const saved = sessionStorage.getItem(draftKey); if (saved) {setMessage(saved);messageRef.current=saved} const context = sessionStorage.getItem(draftKey + ':modeling'); if (context) setModelingContext(JSON.parse(context)); if(sessionStorage.getItem(draftKey+':mode')==='workflow')setMode('workflow') } catch {} }, [draftKey])
   useEffect(() => { void refresh(); const timer = window.setInterval(() => void refresh(), 1500); return () => window.clearInterval(timer) }, [refresh])
-  useEffect(() => { if (focus) { if (focus.message !== undefined) { const previous = messageRef.current; updateDraft(focus.label === '项目空间' && previous.trim() && !previous.includes(focus.message) ? previous + '\n\n' + focus.message : focus.label === '项目空间' && previous.includes(focus.message) ? previous : focus.message); } changeMode(focus.mode || 'task'); composer.current?.focus() } }, [focus])
+  useEffect(() => { if (focus) { if (focus.message !== undefined) prepareMessage(focus.message); if (focus.modeling) updateModelingContext(focus.modeling); changeMode(focus.mode || 'task'); composer.current?.focus() } }, [focus])
   useEffect(() => {
     const el = historyElement.current
     if (!el || !events.length) return
@@ -101,6 +101,7 @@ export default function ProjectConversation({ id, conversationId, projectName, c
     if (followBottom.current) el.scrollTop = el.scrollHeight
   }, [events.length, draftKey])
   function updateDraft(text: string) { setMessage(text); messageRef.current=text; try { sessionStorage.setItem(draftKey, text) } catch {} }
+  function prepareMessage(text: string) { const previous = messageRef.current; updateDraft(previous.includes(text) ? previous : previous.trim() ? previous + '\n\n' + text : text) }
   function changeMode(value: 'task'|'workflow') {setMode(value);try{sessionStorage.setItem(draftKey+':mode',value)}catch{}}
   function updateModelingContext(value: ModelingContext | null) { setModelingContext(value); try { if (value) sessionStorage.setItem(draftKey + ':modeling', JSON.stringify(value)); else sessionStorage.removeItem(draftKey + ':modeling') } catch {} }
   async function act(action: () => Promise<unknown>) {
@@ -177,7 +178,7 @@ export default function ProjectConversation({ id, conversationId, projectName, c
       })}
       {session?.current_activity && !events.some(e => e.request_id === session.request_id) && <ProjectActivity projectId={id} conversationId={conversationId} workflowNames={Object.fromEntries(members.map(m => [m.id, m.name]))} active={Boolean(running)} requestId={session.request_id} current={session.current_activity} onTask={onTask} onWorkflow={onWorkflow} />}
     </div>
-    <ModelingPanel compact projectId={id} onTask={onTask} onContext={(context, text) => { updateModelingContext(context); if (text !== undefined && !message.trim()) updateDraft(text); composer.current?.focus() }} />
+    <ModelingPanel compact projectId={id} onTask={onTask} onContext={(context, text, nextMode) => { updateModelingContext(context); if (text !== undefined) { if (nextMode) prepareMessage(text); else if (!messageRef.current.trim()) updateDraft(text) } if (nextMode) changeMode(nextMode); composer.current?.focus() }} />
     {Boolean(error || session?.error) && <p role="alert" className={`${styles.error} ${styles.notice}`}>{error || session?.error}</p>}
     {Boolean(error || session?.error) && <FeedbackButton source={{project_id:id,conversation_id:conversationId||"legacy",page:"conversation"}} excerpt={error||session?.error} category="runtime"/>}
     {connectionError && <div role="alert" className={`${styles.error} ${styles.notice}`}>连接暂时中断，已保存的对话和结果仍保留。<button onClick={() => void refresh()}>重新连接</button><details><summary>连接详情</summary>{connectionError}</details></div>}
@@ -192,8 +193,8 @@ export default function ProjectConversation({ id, conversationId, projectName, c
       {running && !focus && <div className={styles.focus}>补充将发送到：{activeItem?.title || '当前处理的请求'}</div>}
       {focus && <div className={styles.focus}><span>关于：{focus.label}</span><button onClick={onSent}>取消关联</button></div>}
       <textarea ref={composer} aria-label="给项目统筹的消息" value={message} onChange={e => updateDraft(e.target.value)} placeholder={mode==='workflow'?'例如：把刚才的数据分析和模型预测组合成一条新工作流':'例如：调用项目里的质量预测流程，处理刚上传的数据'} />
-      {!session?.provider && <p role="status">此项目尚未连接模型，暂时不能发送。已填写的消息会保留。{canConfigureModel ? '请先连接模型，再发送这条消息。' : '请联系项目负责人配置模型连接。'}</p>}
-      {session?.provider==='api' && session.model_egress_enabled===false && <p role="status">平台尚未允许外部模型 API 调用；使用外部服务前请联系平台管理员启用。本机模型服务仍可使用。</p>}
+      {mode==='task' && !session?.provider && <p role="status">此项目尚未连接对话 AI 模型，暂时不能发送。已填写的消息会保留。{canConfigureModel ? '请先连接对话 AI 模型，再发送这条消息。' : '请联系项目负责人配置对话 AI 模型连接。'}</p>}
+      {mode==='task' && session?.provider==='api' && session.model_egress_enabled===false && <p role="status">平台尚未允许外部对话 AI 模型 API 调用；使用外部服务前请联系平台管理员启用。本机模型服务仍可使用。</p>}
       {canConfigureModel && <ModelConnectionPanel base={base} connected={Boolean(session?.provider)} running={Boolean(running)} onSaved={refresh} />}
       {sentNotice && <small role="status">{sentNotice}</small>}
       <ConversationWorkflowCreator projectId={id} conversationId={conversationId} visible={mode==='workflow'} storageKey={draftKey} message={message} members={members} context={modelingContext} taskId={focus?.task_id} target={editWorkflow} onClearTarget={()=>setEditWorkflow(undefined)} onWorkflow={onWorkflow} onSaved={submitted=>{if(submitted && messageRef.current===submitted)updateDraft('');void refresh();void onUpdated();followBottom.current=true}} />

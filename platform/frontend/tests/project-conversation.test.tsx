@@ -44,15 +44,23 @@ it('attaches an uploaded dataset without replacing the customer’s unsent reque
   await setup()
   const original = vi.mocked(api).getMockImplementation()!
   const uploaded = { id: 'uploaded', name: 'input.csv', status: 'registered', mapping: { kind: 'tabular' } }
+  let finishUpload!: (value: typeof uploaded) => void
+  const pendingUpload = new Promise<typeof uploaded>(resolve => { finishUpload = resolve })
   vi.mocked(api).mockImplementation(async (path, options) => {
-    if (path.endsWith('/datasets/upload') || path.endsWith('/datasets/uploaded')) return uploaded as never
+    if (path.endsWith('/datasets/upload')) return pendingUpload as never
+    if (path.endsWith('/datasets/uploaded')) return uploaded as never
     if (path.includes('/datasets')) return [uploaded] as never
     if (path.includes('/modeling/studies')) return [] as never
     return original(path, options)
   })
   fireEvent.change(screen.getByLabelText('给项目统筹的消息'), { target: { value: '用已有模型预测这份文件，不重新训练' } })
   fireEvent.change(screen.getByLabelText('上传建模数据'), { target: { files: [new File(['x\n4\n'], 'input.csv')] } })
-  await screen.findByRole('combobox', { name: '选择数据集' })
+  expect(screen.getByLabelText('上传建模数据')).toBeDisabled()
+  expect(screen.getByLabelText('给项目统筹的消息')).toHaveValue('用已有模型预测这份文件，不重新训练')
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  await act(async () => { finishUpload(uploaded); await pendingUpload })
+  const dialog = screen.getByRole('dialog', { name: '数据分析' })
+  expect(within(dialog).getByRole('combobox', { name: '选择数据集' })).toHaveValue('uploaded')
   fireEvent.click(screen.getByRole('button', { name: '关闭阅读窗口' }))
   expect(screen.getByLabelText('给项目统筹的消息')).toHaveValue('用已有模型预测这份文件，不重新训练')
   fireEvent.click(screen.getByRole('button', { name: '发送' }))
@@ -313,6 +321,44 @@ it('appends an example question without replacing an unsent draft or sending a m
   fireEvent.click(screen.getByRole('button',{name:'准备这条消息'}))
   expect((screen.getByLabelText('给项目统筹的消息') as HTMLTextAreaElement).value.split('整理这份会议记录')).toHaveLength(2)
   expect(vi.mocked(api).mock.calls.some(([path,options])=>path.endsWith('/messages')&&options?.method==='POST')).toBe(false)
+})
+
+it.each([false,true])('hands the selected training result to a prepared workflow draft (existing conversation=%s)',async existing=>{
+  const study={id:'study-selected',name:'本次训练结果',dataset_id:'data-selected',status:'finished',best:{candidate_id:'candidate-selected',slot:0,model:'linear',score:.2},budget:{seconds:60,trials:1},evaluation:{metric:'mae',split:'random'},trials_used:1}
+  const candidate={id:'candidate-selected',task_id:'training-task',status:'completed',hypothesis:'使用已有模型',trials:[{slot:0,status:'completed',model:'linear',metrics:{mae:.2},seconds:1}]}
+  let rows=existing?[{id:'chat',title:'我的会话',status:'idle'}]:[]
+  vi.mocked(api).mockImplementation(async(path,options)=>{
+    if(path.endsWith('/conversations')){
+      if(options?.method==='POST'){const row={id:'new',title:'新会话',status:'idle'};rows=[row];return row as never}
+      return rows as never
+    }
+    if(path.includes('/conversations/'))return {...session,events:[]} as never
+    if(path.includes('/candidates'))return [candidate] as never
+    if(path.includes('/modeling/studies'))return [study] as never
+    if(path.includes('/datasets'))return [{id:'data-selected',name:'本次数据',status:'profiled',mapping:{target:'y',kind:'tabular'}}] as never
+    if(path.endsWith('/models')||path.endsWith('/model-environments'))return [] as never
+    if(path.endsWith('/progress'))return progress as never
+    if(path.endsWith('/example'))return null as never
+    if(path.includes('/tasks'))return [] as never
+    if(path.endsWith('/space'))return {files:[]} as never
+    if(path.endsWith('/workspace/files'))return [] as never
+    return project as never
+  })
+  await act(async()=>{render(<Suspense><ProjectPage params={Promise.resolve({id:'p'})}/></Suspense>)})
+  if(existing)fireEvent.change(await screen.findByLabelText('给项目统筹的消息'),{target:{value:'已有草稿，请保留'}})
+  else await screen.findByText('新建会话，开始分析资料、训练模型或搭建工作流。')
+  expect(vi.mocked(api).mock.calls.some(([,options])=>options?.method)).toBe(false)
+  fireEvent.click(screen.getByRole('tab',{name:'模型'}))
+  fireEvent.click(await screen.findByRole('button',{name:'查看结果'}))
+  fireEvent.click(within(screen.getByRole('dialog')).getByRole('button',{name:'创建预测工作流'}))
+  const message=await screen.findByLabelText('给项目统筹的消息')
+  await waitFor(()=>expect(message).toHaveValue((existing?'已有草稿，请保留\n\n':'')+'请用当前最佳模型生成可复用的预测工作流，并说明无标签输入格式。'))
+  expect(screen.getByRole('button',{name:'创建工作流'})).toHaveAttribute('aria-pressed','true')
+  expect(screen.getByRole('button',{name:'生成新工作流'})).toBeEnabled()
+  expect(screen.getByText('关于建模：本次训练结果')).toBeVisible()
+  const contextKey=Array.from({length:sessionStorage.length},(_,index)=>sessionStorage.key(index)!).find(key=>key.endsWith(':draft:modeling'))!
+  expect(JSON.parse(sessionStorage.getItem(contextKey)!)).toMatchObject({study_id:'study-selected',candidate_id:'candidate-selected',dataset_id:'data-selected',task_id:'training-task'})
+  expect(vi.mocked(api).mock.calls.filter(([,options])=>options?.method).map(([path])=>path)).toEqual(existing?[]:['/api/v1/projects/p/conversations'])
 })
 
 it('prepares a workflow next step without sending it or replacing the current draft', async () => {

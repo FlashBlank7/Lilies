@@ -36,6 +36,21 @@ def result_preview(value):
     if size <= 1000:
         return value
 
+    # Native data-analysis results already contain the statistics an employee
+    # needs. Generic table truncation hid even column names and class counts,
+    # causing the agent to reread entire CSV files to reconstruct them.
+    if (isinstance(value, dict) and isinstance(value.get('dataset_id'), str)
+            and isinstance(value.get('sampled'), bool) and isinstance(value.get('rows'), int)
+            and isinstance(value.get('columns'), list)
+            and all(isinstance(c, dict) and 'name' in c and 'dtype' in c for c in value['columns'])):
+        from .modeling_summary import profile_summary
+        try:
+            profile = {**value, **profile_summary(value)}
+        except (TypeError, KeyError, AttributeError):
+            profile = None  # Custom workflow outputs may reuse these field names.
+        if profile is not None and payload_measurement(profile)['bytes'] <= 8000:
+            return profile
+
     # A native training candidate contains large fold indices and run metadata.
     # Its existing modeling summary retains metrics/baselines for each trial;
     # treating the entire trials list as a table hides the comparison itself.
@@ -137,7 +152,8 @@ def task_summary(task: dict) -> dict:
     if task.get('status') == 'failed':
         result['diagnostic_with'] = {'tool': 'workflow_run', 'arguments': {
             'action': 'inspect', 'task_id': task.get('id', ''), 'view': 'diagnostic'}}
-    result['detail'] = ('Read summary first. workflow_run(action="inspect", task_id="' + task.get('id', '') +
+    result['detail'] = ('Saved values without preview_omitted markers remain exact; outputs_truncated does not mean every branch is incomplete. '
+                        'workflow_run(action="inspect", task_id="' + task.get('id', '') +
                         '", output_path=["output_key"]) reads an exact output branch without traces; '
                         'view="full" includes all inputs, outputs and member runs for diagnosis. '
                         'output_aliases identifies identical report copies; their original output paths remain readable.')
@@ -234,7 +250,11 @@ async def conversation_context(services, project_id: str, state: dict, discussio
             context['recent_results'].append(recent)
     if getattr(services, 'modeling', None):
         studies = await services.modeling.list(project_id, 'study', limit=5)
-        context['modeling'] = [{k: s.get(k) for k in ('id', 'dataset_id', 'name', 'status', 'best', 'baseline', 'trials_used', 'budget', 'next_action', 'error', 'repair_candidate_id', 'failure_streak', 'search_strategy')} for s in studies]
+        from .modeling_summary import split_summary
+        context['modeling'] = [{
+            **{k: s.get(k) for k in ('id', 'dataset_id', 'name', 'status', 'best', 'baseline', 'trials_used', 'budget', 'next_action', 'error', 'repair_candidate_id', 'failure_streak', 'search_strategy', 'evaluation')},
+            **({'split': split_summary(s['split'])} if isinstance(s.get('split'), dict) else {}),
+        } for s in studies]
         if link.get('dataset_id') and not studies:
             data = await services.modeling.get(project_id, 'dataset', link['dataset_id'])
             context['dataset'] = {k: data.get(k) for k in ('id', 'name', 'mapping', 'status')}

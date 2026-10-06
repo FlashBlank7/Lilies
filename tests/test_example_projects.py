@@ -137,6 +137,27 @@ def test_examples_explain_missing_resources_before_running_and_refresh_configura
     assert client.get(base+'/tasks').json() == []
 
 
+@pytest.mark.parametrize('omitted', [False, True])
+def test_prediction_draft_without_model_saves_and_explains_missing_selection(configured, monkeypatch, omitted):
+    from agent_platform import workflow_readiness
+    from agent_platform.official_workflows import prediction
+    from tests.test_projects import graph
+    client, _, project, _ = configured
+    async def available(*args):
+        return True
+    monkeypatch.setattr(workflow_readiness, 'environment_ready', available)
+    workflow = prediction()
+    if omitted:
+        workflow['nodes'][1]['config'].pop('model_ref')
+    graph(client, project['id'], workflow['nodes'], workflow['edges'])
+    base = '/api/v1/projects/' + project['id']
+    check = client.get(base + '/space/workflows/' + project['id'] + '/readiness')
+    assert check.status_code == 200, check.text
+    assert check.json()['status'] == 'needs_setup'
+    assert [issue['code'] for issue in check.json()['issues']] == ['resource:']
+    assert client.get(base + '/tasks').json() == []
+
+
 def test_expense_duplicates_outside_preview_include_original_file_and_row(sample_files):
     header = 'date,category,amount,currency,merchant\n'
     first = sample_files('first.csv', header+''.join(f'2026-09-01,交通,{i},CNY,示例{i}\n' for i in range(25)))

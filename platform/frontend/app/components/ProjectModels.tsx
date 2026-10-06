@@ -6,7 +6,7 @@ import { useCallback, useEffect, useState } from 'react'
 import Papa from 'papaparse'
 import { api, withFrontendToken } from '@/lib/platform'
 import { studySourceLabel } from '@/lib/modeling-labels'
-import ModelingPanel from './ModelingPanel'
+import ModelingPanel, {type ModelingContext} from './ModelingPanel'
 import {WorkflowValueField} from './WorkflowValueField'
 import styles from './workspace-tools.module.css'
 
@@ -23,7 +23,7 @@ const datasetLabel = (data: Dataset) => {
   return [data.name, data.mapping.target ? `目标：${data.mapping.target}` : '', time, `编号 ${data.id.slice(0,8)}`].filter(Boolean).join(' · ')
 }
 
-export default function ProjectModels({ projectId, onWorkflow, onTask, onTalk }: { projectId: string; onWorkflow: (id: string) => void; onTask: (id: string) => void; onTalk: (message: string) => void }) {
+export default function ProjectModels({ projectId, onWorkflow, onTask, onTalk }: { projectId: string; onWorkflow: (id: string) => void; onTask: (id: string) => void; onTalk: (message: string, mode?: 'task' | 'workflow', context?: ModelingContext) => void }) {
   const base = `/api/v1/projects/${projectId}`
   const [datasets, setDatasets] = useState<Dataset[]>([])
   const [studies, setStudies] = useState<Study[]>([])
@@ -116,6 +116,6 @@ export default function ProjectModels({ projectId, onWorkflow, onTask, onTalk }:
       <p>直接预测使用所选模型，无需创建工作流；结果保存在运行记录中。</p>
       {message&&<p role="status">{message}</p>}{error&&<p role="alert">{error}</p>}
     </section>
-    <ModelingPanel projectId={projectId} onTask={onTask} onContext={(context,message)=>onTalk(message||`请分析并继续改进模型：${context.label}，研究 ${context.study_id||''}`)} />
+    <ModelingPanel projectId={projectId} onTask={onTask} onContext={(context,message,mode)=>onTalk(message||`请分析并继续改进模型：${context.label}，研究 ${context.study_id||''}`,mode,context)} />
   </>
 }
