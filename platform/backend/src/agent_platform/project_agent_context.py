@@ -27,6 +27,21 @@ def preview(value, *, depth=0):
     return value
 
 
+def training_result_preview(value):
+    """Recognize saved candidates in both workflow and independent task outputs."""
+    if (isinstance(value, dict) and isinstance(value.get('id'), str) and isinstance(value.get('study_id'), str)
+            and isinstance(value.get('engine'), str) and value['engine'] in {'sklearn', 'optuna', 'autogluon'}
+            and isinstance(value.get('trials'), list) and all(isinstance(t, dict) for t in value['trials'])):
+        from .modeling_summary import candidate_summary
+        try:
+            candidate = candidate_summary(value)
+        except (TypeError, KeyError):
+            return None  # Custom workflow outputs may reuse these field names.
+        if payload_measurement(candidate)['bytes'] <= 8000:
+            return candidate
+    return None
+
+
 def result_preview(value):
     """Keep small results exact; describe bulky branches instead of copying rows.
 
@@ -57,16 +72,9 @@ def result_preview(value):
     # A native training candidate contains large fold indices and run metadata.
     # Its existing modeling summary retains metrics/baselines for each trial;
     # treating the entire trials list as a table hides the comparison itself.
-    if (isinstance(value, dict) and isinstance(value.get('id'), str) and isinstance(value.get('study_id'), str)
-            and isinstance(value.get('engine'), str) and value['engine'] in {'sklearn', 'autogluon'}
-            and isinstance(value.get('trials'), list) and all(isinstance(t, dict) for t in value['trials'])):
-        from .modeling_summary import candidate_summary
-        try:
-            candidate = candidate_summary(value)
-        except (TypeError, KeyError):
-            candidate = None  # Other workflows may use these same field names.
-        if candidate is not None and payload_measurement(candidate)['bytes'] <= 8000:
-            return candidate
+    candidate = training_result_preview(value)
+    if candidate is not None:
+        return candidate
 
     def omitted(item, size):
         description = {'preview_omitted': True, 'bytes': size}
@@ -142,8 +150,11 @@ def task_summary(task: dict) -> dict:
         outputs['result'] = {key: value for key, value in nested.items() if key != 'markdown'}
         result['output_aliases'] = [{'path': ['result', 'markdown'], 'same_as': ['markdown']}]
     result['outputs_truncated'] = payload_measurement(outputs)['bytes'] > 8000
-    result['outputs'] = ({key: result_preview(value) for key, value in outputs.items()}
-                         if result['outputs_truncated'] else outputs)
+    result['outputs'] = outputs
+    if result['outputs_truncated']:
+        candidate = training_result_preview(outputs)
+        result['outputs'] = (candidate if candidate is not None else
+                             {key: result_preview(value) for key, value in outputs.items()})
     inputs = task.get('inputs', {})
     result['inputs_truncated'] = payload_measurement(inputs)['bytes'] > 8000
     result['inputs'] = preview(inputs) if result['inputs_truncated'] else inputs

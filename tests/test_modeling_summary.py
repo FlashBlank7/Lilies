@@ -71,17 +71,20 @@ def test_candidate_shares_only_present_identical_trial_values(case, shared_keys)
         assert candidate == before
 
 
-def test_shared_trials_reach_modeling_and_workflow_tools_without_changing_http_or_full_results(modeling, monkeypatch):
+@pytest.mark.parametrize('engine', ['sklearn', 'optuna', 'autogluon'])
+@pytest.mark.parametrize('nested', [True, False], ids=['workflow-output', 'independent-training'])
+def test_shared_trials_reach_modeling_and_workflow_tools_without_changing_http_or_full_results(modeling, monkeypatch, engine, nested):
     (client, app, project, settings), service = modeling
     from tests.test_project_tool_help import prepare
     prepare(modeling[0])
     base, _, study, candidate = setup(client, project, settings)
-    candidate.update(status='completed', engine='sklearn', trials=saved_trials())
+    candidate.update(status='completed', engine=engine, trials=saved_trials())
     asyncio.run(service.put(project['id'], 'candidate', candidate))
     store = app.state.services.projects.store
     asyncio.run(store.create_task('saved-task', project['id'], 'saved-result', 'workflow',
                                  project['id'], {}, '', {}))
-    asyncio.run(store.update_task('saved-task', status='succeeded', outputs={'training': candidate}))
+    outputs = {'training': candidate} if nested else candidate
+    asyncio.run(store.update_task('saved-task', status='succeeded', outputs=outputs))
 
     async def unexpected_compute(*args, **kwargs):
         raise AssertionError('Inspecting a saved summary must not start computation')
@@ -102,13 +105,14 @@ def test_shared_trials_reach_modeling_and_workflow_tools_without_changing_http_o
     direct = tool('project_modeling', **candidate_args)
     inspected = tool('workflow_run', action='inspect', task_id='saved-task')
     assert inspected['outputs_truncated'] is True
-    assert inspected['outputs']['training'] == direct
+    assert (inspected['outputs']['training'] if nested else inspected['outputs']) == direct
     assert set(direct['trial_shared']) == {'baseline', 'diagnostics', 'task_id', 'run_id'}
     restored = [{**direct['trial_shared'], **trial} for trial in direct['trials']]
     assert restored == [trial_summary(trial) for trial in candidate['trials']]
     assert tool('project_modeling', **candidate_args, view='full') == before_http
     assert tool('workflow_run', action='inspect', task_id='saved-task', view='full')['outputs'] == before_task['outputs']
-    assert tool('workflow_run', action='inspect', task_id='saved-task', output_path=['training'])['output'] == candidate
+    path = ['training'] if nested else ['trials']
+    assert tool('workflow_run', action='inspect', task_id='saved-task', output_path=path)['output'] == (candidate if nested else candidate['trials'])
     assert client.get(candidate_url).json() == before_http
     assert client.get(candidates_url + '?summary=true').json() == before_http_summary
     assert client.get(base + '/tasks/saved-task').json() == before_task

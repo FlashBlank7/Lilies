@@ -437,7 +437,8 @@ class WorkspaceProjectTools(ProjectTools):
             if args.action == 'train':
                 self.require_build()
                 from .project_resources import start_training
-                return await self.run_build_task(start_training(self.services, self.application_id, args.study_id, args.candidate), args.wait)
+                task = await self.run_build_task(start_training(self.services, self.application_id, args.study_id, args.candidate), args.wait)
+                return task if args.view == 'full' else task_summary(task)
             modeling = self.projects.services.modeling
             if args.action in {'register_dataset', 'revise_dataset', 'export_dataset', 'create_study', 'submit_candidate', 'submit_and_run', 'budget'}:
                 self.require_build()
