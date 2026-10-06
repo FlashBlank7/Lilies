@@ -11,6 +11,7 @@ import WorkflowInputTable, {type InputColumn} from './WorkflowInputTable'
 import KnowledgeResults, {isKnowledgeSearchResult} from './KnowledgeResults'
 import FeatureResults from './FeatureResults'
 import TrainingComparison, { type TrainingTrial } from './TrainingComparison'
+import TrainingTaskProgress from './TrainingTaskProgress'
 import WorkflowReadiness, {type Readiness} from './WorkflowReadiness'
 import WorkflowRecovery from './WorkflowRecovery'
 import ProjectFileField from './ProjectFileField'
@@ -57,6 +58,10 @@ export function ProjectTaskOutput({ projectId, task, onTask, canConfigureModel=f
   const knowledgeAnswer = knowledgeResults.length === 1 && typeof output.markdown === 'string' && isKnowledgeSearchResult((output.knowledge || {}) as Record<string, unknown>)
   const training = results.find(result => Array.isArray(result.trials) && typeof result.study_id === 'string')
   const trials = training?.trials as TrainingTrial[] | undefined
+  const trainingRecovery = task.mode === 'training' && ['interrupted', 'failed'].includes(task.status)
+  const trainingInputs = task.inputs as { study_id?: unknown; candidate_id?: unknown } | undefined
+  const studyId = typeof trainingInputs?.study_id === 'string' ? trainingInputs.study_id : ''
+  const candidateId = typeof trainingInputs?.candidate_id === 'string' ? trainingInputs.candidate_id : ''
   const evaluation = results.find(result => typeof result.rows === 'number' && result.metrics && typeof result.label === 'string')
   const evaluatedModel = evaluation?.evaluated_model && typeof evaluation.evaluated_model === 'object' && !Array.isArray(evaluation.evaluated_model) ? evaluation.evaluated_model as EvaluatedModel : undefined
   const validationMetrics = evaluatedModel?.validation_metrics && typeof evaluatedModel.validation_metrics === 'object' && !Array.isArray(evaluatedModel.validation_metrics) ? evaluatedModel.validation_metrics : undefined
@@ -79,7 +84,9 @@ export function ProjectTaskOutput({ projectId, task, onTask, canConfigureModel=f
     {task.id && ['waiting_input','running','queued'].includes(task.status) && <ProjectTaskInput projectId={projectId} taskId={task.id} initialTask={task} onTask={onTask}/>}
     {results.filter(result => result.stage === 'before_fold_preprocessing').map((result, i) => <FeatureResults key={i} result={result as unknown as Parameters<typeof FeatureResults>[0]['result']} />)}
     {task.runs?.filter(run => run.reuse?.source_run_id).map(run => <p key={run.id}>使用当前配置创建了新运行，复用 {run.reuse!.nodes.length} 个已完成步骤{run.reuse!.nodes.length ? `（${(run.reuse!.titles || run.reuse!.nodes).join('、')}）` : ''}。其他步骤重新执行，原运行保持不变。</p>)}
-    {!knowledgeAnswer && <MarkdownDocument source={markdown} resolveLink={href => resolveProjectLink(projectId, href)} emptyLabel={['queued', 'running'].includes(task.status) ? '正在运行，结果会自动显示。' : '本次运行的输出见下方详情。'} />}
+    {!knowledgeAnswer && (markdown || !trainingRecovery) && <MarkdownDocument source={markdown} resolveLink={href => resolveProjectLink(projectId, href)} emptyLabel={['queued', 'running'].includes(task.status) ? '正在运行，结果会自动显示。' : '本次运行的输出见下方详情。'} />}
+    {trainingRecovery && !training && <TrainingTaskProgress key={`${projectId}:${task.id}:${studyId}:${candidateId}`} projectId={projectId} taskId={task.id} studyId={studyId} candidateId={candidateId} />}
+    {trainingRecovery && <p>继续原运行会保留现有参数、已完成及已失败的试验记录，只重新执行尚未保存结果的试验；已经失败的试验不会自动重试。需要调整参数或重新尝试失败试验时，可选择“让智能体修改”，保留原记录后建立新方案。</p>}
     {knowledgeResults.map((result, i) => <KnowledgeResults key={i} result={result} answer={knowledgeAnswer ? output.markdown as string : undefined} question={typeof output.question === 'string' ? output.question : undefined} />)}
     {!!trials?.length && <TrainingComparison key={`${task.id}:${training?.study_id}:${training?.id}`} trials={trials}/>}
     {training && typeof training.study_id==='string' && typeof training.id==='string' && <p><a download href={withFrontendToken(`/api/platform/api/v1/projects/${projectId}/modeling/studies/${encodeURIComponent(training.study_id)}/candidates/${encodeURIComponent(training.id)}/download`)}>下载模型与训练记录 ↓</a></p>}

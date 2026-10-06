@@ -50,7 +50,7 @@ export default function TrainingComparison({ trials }: { trials: TrainingTrial[]
   const info = infoFor(metric)
   return <section aria-label="训练比较" className={styles.comparison}>
     <h3>训练比较</h3>
-    <p>基线是用简单规则预测的参考方法；每行比较模型和基线在相同数据划分下的结果。下方另列独立测试成绩。</p>
+    <p>基线是用简单规则预测的参考方法；每行比较模型和基线在相同数据划分下的结果。</p>
     {choices.length ? <>
       <label className={styles.selector}>比较指标<select value={metric} onChange={event => setSelected(event.target.value)}>
         {choices.map(key => <option key={key} value={key}>{infoFor(key)?.label || key}</option>)}
