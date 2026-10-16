@@ -33,7 +33,7 @@ if mode in ('failed', 'missing'):
 if mode == 'invalid':
     print('not JSON')
 elif action == 'run':
-    print(json.dumps({'worker': 'print("worker")', 'requirements': 'pandas==2.3.3', 'python': '3.13', 'machine': 'test'}))
+    print(json.dumps({'worker': 'print("worker")', 'support_files': {'modeling_preprocessing.py': '# fitted transforms'}, 'requirements': 'pandas==2.3.3', 'python': '3.13', 'machine': 'test'}))
 elif action == 'image':
     print('sha256:test-image')
 ''')
@@ -72,6 +72,8 @@ async def test_snapshot_records_environment_and_reuses_it(service, docker_cli):
     assert metadata['image'] == 'sha256:test-image'
     assert metadata['worker_sha256'] == hashlib.sha256(worker.encode()).hexdigest()
     assert (folder / 'requirements.lock').read_text() == 'pandas==2.3.3'
+    support = (folder / 'modeling_preprocessing.py').read_bytes()
+    assert metadata['support_files_sha256']['modeling_preprocessing.py'] == hashlib.sha256(support).hexdigest()
     assert not service.containers
     calls = list(cli.calls)
     assert await service.snapshot_environment('sha256:test-image') == folder

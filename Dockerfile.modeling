@@ -6,6 +6,7 @@ COPY requirements-modeling.txt /opt/modeling/requirements.txt
 COPY requirements-modeling.lock /opt/modeling/requirements.lock
 RUN pip install --no-cache-dir --only-binary=:all: -r /opt/modeling/requirements.lock && pip check
 COPY platform/backend/src/agent_platform/modeling_worker.py /opt/modeling/worker.py
+COPY platform/backend/src/agent_platform/modeling_preprocessing.py /opt/modeling/modeling_preprocessing.py
 ENV OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 MPLBACKEND=Agg PYTHONUNBUFFERED=1
 ENV NUMBA_CACHE_DIR=/tmp/numba-cache
 WORKDIR /job

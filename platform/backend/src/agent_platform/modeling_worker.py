@@ -508,10 +508,99 @@ def export_features(config):
     return result
 
 
+def preprocessing_module():
+    # Keep the pickle module name identical in the package, CPU image and zip.
+    name = 'modeling_preprocessing'
+    if name not in sys.modules:
+        path = Path(__file__).with_name(name + '.py')
+        spec = importlib.util.spec_from_file_location(name, path)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[name] = module
+        spec.loader.exec_module(module)
+    return sys.modules[name]
+
+
+def preprocessing_settings(config):
+    requested = config.get('features', {}).get('preprocessing') or {}
+    native = config.get('engine') == 'autogluon'
+    missing = requested.get('numeric_missing', 'auto')
+    scaling = requested.get('scaling', 'auto')
+    result = {'numeric_missing': ('native' if native else 'median') if missing == 'auto' else missing,
+              'fill_value': requested.get('fill_value', 0),
+              'scaling': ('none' if native else 'standard') if scaling == 'auto' else scaling,
+              'outliers': requested.get('outliers', 'none'), 'outlier_columns': requested.get('outlier_columns', []),
+              'iqr_factor': requested.get('iqr_factor', 1.5)}
+    if result['numeric_missing'] not in {'native', 'median', 'mean', 'constant', 'error'} or result['scaling'] not in {'none', 'standard', 'robust'} or result['outliers'] not in {'none', 'iqr_clip'}:
+        raise ValueError('不支持的训练预处理选项')
+    return result
+
+
+def numeric_pipeline(config):
+    from sklearn.pipeline import Pipeline
+    from sklearn.preprocessing import StandardScaler, RobustScaler
+    from sklearn.impute import SimpleImputer
+    settings = preprocessing_settings(config)
+    missing = settings['numeric_missing']
+    if missing == 'error':
+        fill = preprocessing_module().RequireCompleteNumeric()
+    elif missing == 'native':
+        fill = 'passthrough'
+    else:
+        fill = SimpleImputer(strategy=missing, fill_value=settings['fill_value'], keep_empty_features=True)
+    scale = {'none': 'passthrough', 'standard': StandardScaler(), 'robust': RobustScaler()}[settings['scaling']]
+    return Pipeline([('fill', fill), ('scale', scale)])
+
+
+def outlier_steps(config):
+    settings = preprocessing_settings(config)
+    if settings['outliers'] == 'none':
+        return []
+    return [('outliers', preprocessing_module().IQRClipper(columns=settings['outlier_columns'], factor=settings['iqr_factor']))]
+
+
+def autogluon_preprocessor(config):
+    from sklearn.compose import ColumnTransformer, make_column_selector
+    from sklearn.pipeline import Pipeline
+    settings = preprocessing_settings(config)
+    if settings['numeric_missing'] == 'native' and settings['scaling'] == 'none' and settings['outliers'] == 'none':
+        return None
+    prep = ColumnTransformer([('numeric', numeric_pipeline(config), make_column_selector(dtype_include='number'))],
+                             remainder='passthrough', verbose_feature_names_out=False).set_output(transform='pandas')
+    return Pipeline([*outlier_steps(config), ('preprocess', prep)])
+
+
+def autogluon_prediction_input(config, x):
+    import joblib
+    path = Path(config['model']) / 'preprocessing.joblib'
+    if path.is_file():
+        return joblib.load(path).transform(x)
+    if autogluon_preprocessor(config) is not None:
+        raise ValueError('模型缺少已拟合的预处理文件 preprocessing.joblib；请使用完整模型包，不能在预测数据上重新拟合')
+    return x
+
+
+def fitted_preprocessing(fitted, rows):
+    if fitted is None:
+        return {'rows': rows, 'managed_by': 'autogluon'}
+    prep = fitted.named_steps['preprocess']
+    columns = next(list(columns) for name, _, columns in prep.transformers_ if name == 'numeric')
+    numeric = prep.named_transformers_['numeric']
+    clipper = fitted.named_steps.get('outliers')
+    result = {'rows': rows, 'numeric_columns': columns, 'outlier_bounds': clipper.bounds_ if clipper else {}}
+    for label, step, attributes in [('fill_values', 'fill', ('statistics_',)),
+                                    ('center', 'scale', ('mean_', 'center_')), ('scale', 'scale', ('scale_',))]:
+        for attribute in attributes:
+            values = getattr(numeric.named_steps[step], attribute, None)
+            if values is not None:
+                result[label] = dict(zip(columns, values.tolist()))
+                break
+    return clean(result)
+
+
 def pipeline(x, config, model):
     from sklearn.compose import ColumnTransformer
     from sklearn.pipeline import Pipeline
-    from sklearn.preprocessing import OneHotEncoder, StandardScaler
+    from sklearn.preprocessing import OneHotEncoder
     from sklearn.impute import SimpleImputer
     from sklearn.feature_selection import SelectKBest, f_regression, f_classif
     steps = []
@@ -521,10 +610,11 @@ def pipeline(x, config, model):
         sys.modules['project_transformer'] = module
         spec.loader.exec_module(module)
         steps.append(('project_features', module.build_transformer()))
+    steps.extend(outlier_steps(config))
     # Dtype selectors run at fit time, including after a project transformer.
     from sklearn.compose import make_column_selector
     prep = ColumnTransformer([
-        ('numeric', Pipeline([('fill', SimpleImputer(strategy='median', keep_empty_features=True)), ('scale', StandardScaler())]), make_column_selector(dtype_include='number')),
+        ('numeric', numeric_pipeline(config), make_column_selector(dtype_include='number')),
         ('categorical', Pipeline([('fill', SimpleImputer(strategy='most_frequent', keep_empty_features=True)), ('encode', OneHotEncoder(handle_unknown='ignore', sparse_output=False))]), make_column_selector(dtype_exclude='number')),
     ], sparse_threshold=0)
     steps.append(('preprocess', prep))
@@ -726,6 +816,7 @@ def evaluate(config, x, frame, split, model_name, folder, trial=None):
     predictions, truth, rows, probabilities = [], [], [], []
     fold_scores = []
     diagnostics = []
+    preprocessing_folds = []
     baseline_predictions, baseline_probabilities = [], []
     classes = np.sort(y.iloc[split['development']].unique()) if rule['problem'] == 'classification' else None
     if config['engine'] == 'autogluon':
@@ -737,11 +828,14 @@ def evaluate(config, x, frame, split, model_name, folder, trial=None):
     for index, (train, valid) in enumerate(split['folds']):
         if config['engine'] == 'autogluon':
             from autogluon.tabular import TabularPredictor
+            preprocessing = autogluon_preprocessor(config)
+            train_x = preprocessing.fit_transform(x.iloc[train], y.iloc[train]) if preprocessing is not None else x.iloc[train]
+            valid_x = preprocessing.transform(x.iloc[valid]) if preprocessing is not None else x.iloc[valid]
             # Outer validation is never passed to fit; AG tunes only on training.
             fitted = TabularPredictor(**ag_options, path=str(folder / f'ag-fold-{index}'))
-            fitted.fit(x.iloc[train].assign(**{target: y.iloc[train].to_numpy()}), hyperparameters=ag_parameters, presets='medium_quality', time_limit=max(2, config['trial_seconds'] / (len(split['folds']) + 1)), num_cpus=4, num_gpus=0, memory_limit=3, num_bag_folds=0, num_stack_levels=0)
-            pred = fitted.predict(x.iloc[valid]).to_numpy()
-            proba = fitted.predict_proba(x.iloc[valid]).reindex(columns=classes, fill_value=0).to_numpy() if classes is not None else None
+            fitted.fit(train_x.assign(**{target: y.iloc[train].to_numpy()}), hyperparameters=ag_parameters, presets='medium_quality', time_limit=max(2, config['trial_seconds'] / (len(split['folds']) + 1)), num_cpus=4, num_gpus=0, memory_limit=3, num_bag_folds=0, num_stack_levels=0)
+            pred = fitted.predict(valid_x).to_numpy()
+            proba = fitted.predict_proba(valid_x).reindex(columns=classes, fill_value=0).to_numpy() if classes is not None else None
         else:
             fitted = pipeline(x, config, estimator(model_name, config, trial))
             fitted.fit(x.iloc[train], y.iloc[train])
@@ -749,6 +843,8 @@ def evaluate(config, x, frame, split, model_name, folder, trial=None):
             proba = None
             if classes is not None:
                 proba = pd.DataFrame(fitted.predict_proba(x.iloc[valid]), columns=fitted.classes_).reindex(columns=classes, fill_value=0).to_numpy()
+            preprocessing = fitted
+        preprocessing_folds.append({'fold': index + 1, **fitted_preprocessing(preprocessing, len(train))})
         fold_scores.append(scores(y.iloc[valid], pred, rule['problem'], proba, classes))
         diagnostics.append(prediction_diagnostics(y.iloc[valid], pred, index + 1, len(train), rule['problem']))
         dummy = DummyRegressor(strategy='median' if rule['metric'] == 'mae' else 'mean') if classes is None else DummyClassifier(strategy='prior')
@@ -791,8 +887,12 @@ def evaluate(config, x, frame, split, model_name, folder, trial=None):
     importance = []
     if config['engine'] == 'autogluon':
         from autogluon.tabular import TabularPredictor
+        preprocessing = autogluon_preprocessor(config)
+        development_x = preprocessing.fit_transform(x.iloc[development], y.iloc[development]) if preprocessing is not None else x.iloc[development]
         model = TabularPredictor(**ag_options, path=str(folder / 'autogluon'))
-        model.fit(x.iloc[development].assign(**{target: y.iloc[development].to_numpy()}), hyperparameters=ag_parameters, presets='medium_quality', time_limit=max(2, config['trial_seconds'] / (len(split['folds']) + 1)), num_cpus=4, num_gpus=0, memory_limit=3, num_bag_folds=0, num_stack_levels=0)
+        model.fit(development_x.assign(**{target: y.iloc[development].to_numpy()}), hyperparameters=ag_parameters, presets='medium_quality', time_limit=max(2, config['trial_seconds'] / (len(split['folds']) + 1)), num_cpus=4, num_gpus=0, memory_limit=3, num_bag_folds=0, num_stack_levels=0)
+        if preprocessing is not None:
+            joblib.dump(preprocessing, folder / 'preprocessing.joblib')
         info = json.loads(json.dumps(model.info(), default=str))
         save(folder / 'autogluon-models.json', info)
         selected = model.model_best
@@ -801,6 +901,7 @@ def evaluate(config, x, frame, split, model_name, folder, trial=None):
     else:
         model = pipeline(x, config, estimator(model_name, config, trial))
         model.fit(x.iloc[development], y.iloc[development])
+        preprocessing = model
         final = model.named_steps['model']
         effective = {'class': type(final).__module__ + '.' + type(final).__name__, 'parameters': final.get_params()}
         values = getattr(final, 'feature_importances_', None)
@@ -814,6 +915,8 @@ def evaluate(config, x, frame, split, model_name, folder, trial=None):
             pass
         joblib.dump(model, folder / 'model.joblib.tmp')
         os.replace(folder / 'model.joblib.tmp', folder / 'model.joblib')
+    preprocessing_result = {'settings': preprocessing_settings(config), 'development': fitted_preprocessing(preprocessing, len(development))}
+    save(folder / 'preprocessing.json', {**preprocessing_result, 'folds': preprocessing_folds})
     constant_folds = [d['fold'] for d in diagnostics if d['constant_prediction']]
     warnings = [f'第 {"、".join(map(str, constant_folds))} 折对不同实测值给出了相同预测；请检查样本量、特征和参数。此提示不代表算法方向无效。'] if constant_folds else []
     classification = None
@@ -822,6 +925,7 @@ def evaluate(config, x, frame, split, model_name, folder, trial=None):
         warnings.extend(class_warnings)
     return {'metrics': metric, 'baseline': baseline, 'fold_metrics': fold_scores, 'diagnostics': diagnostics, 'warnings': warnings, 'group_errors': sorted(group_errors, key=lambda r: r['error'], reverse=True)[:50],
             'classification': classification,
+            'preprocessing': preprocessing_result,
             'acceptance': acceptance, 'effective_model': effective, 'importance': importance, 'validation_rows': len(rows), 'prediction_preview': out.head(30).to_dict('records'), 'feature_columns': list(x.columns), 'classes': classes.tolist() if classes is not None else None}
 
 
@@ -929,9 +1033,12 @@ def predict(config):
     if config.get('transformer'):
         spec = importlib.util.spec_from_file_location('project_transformer', config['transformer'])
         module = importlib.util.module_from_spec(spec); sys.modules['project_transformer'] = module; spec.loader.exec_module(module)
+    if Path(__file__).with_name('modeling_preprocessing.py').exists():
+        preprocessing_module()
     if config['engine'] == 'autogluon':
         from autogluon.tabular import TabularPredictor
         model = TabularPredictor.load(str(Path(config['model']) / 'autogluon'))
+        x = autogluon_prediction_input(config, x)
     else:
         model = joblib.load(Path(config['model']) / 'model.joblib')
     predictions = model.predict(x)
@@ -969,9 +1076,12 @@ def holdout(config):
     if config.get('transformer'):
         spec = importlib.util.spec_from_file_location('project_transformer', config['transformer'])
         module = importlib.util.module_from_spec(spec); sys.modules['project_transformer'] = module; spec.loader.exec_module(module)
+    if Path(__file__).with_name('modeling_preprocessing.py').exists():
+        preprocessing_module()
     if config['engine'] == 'autogluon':
         from autogluon.tabular import TabularPredictor
         model = TabularPredictor.load(str(Path(config['model']) / 'autogluon'))
+        x = autogluon_prediction_input(config, x)
     else:
         model = joblib.load(Path(config['model']) / 'model.joblib')
     y = frame[config['mapping']['target']].iloc[indices]
@@ -1004,6 +1114,8 @@ def inspect_model(config):
     import warnings
     from sklearn.exceptions import InconsistentVersionWarning
     from sklearn.pipeline import Pipeline
+    if Path(__file__).with_name('modeling_preprocessing.py').exists():
+        preprocessing_module()
     with warnings.catch_warnings():
         warnings.simplefilter('error', InconsistentVersionWarning)
         model = joblib.load(config['model'])

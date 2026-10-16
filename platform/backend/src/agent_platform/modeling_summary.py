@@ -60,6 +60,9 @@ def trial_summary(value):
         result['classification'] = pick(classification, ('classes', 'folds', 'note'))
         if classification.get('baseline'):
             result['classification']['baseline'] = pick(classification['baseline'], ('classes',))
+    if value.get('preprocessing'):
+        result['preprocessing'] = pick(value['preprocessing'], ('settings',))
+        result['preprocessing']['development'] = pick(value['preprocessing'].get('development', {}), ('rows', 'managed_by', 'numeric_columns'))
     return result
 
 

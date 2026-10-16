@@ -69,6 +69,8 @@ def test_empty_modeling_drafts_save_without_runtime_resources(configured, monkey
     config = deepcopy(app.state.services.blocks.get(kind).default_config)
     if kind == 'data_analysis':
         config['analysis'] = {'operation': 'spearman', 'columns': []}
+    if kind == 'feature_extract':
+        config['features'] = {'preprocessing': {'numeric_missing': 'mean', 'outliers': 'iqr_clip', 'outlier_columns': []}}
     graph(client, project['id'], [node('start', 'start'), node('step', kind, **config), node('end', 'end')],
           [edge('start', 'step'), edge('step', 'end')])
     saved = client.get('/api/v1/applications/' + project['id'] + '/draft').json()

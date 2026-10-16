@@ -31,6 +31,7 @@ def modeling(configured, monkeypatch):
         async def snapshot_environment(image):
             folder = settings.data_dir / 'test-environment'; folder.mkdir(exist_ok=True)
             (folder / 'worker.py').write_text(Path(modeling_worker.__file__).read_text())
+            (folder / 'modeling_preprocessing.py').write_text(Path(modeling_worker.__file__).with_name('modeling_preprocessing.py').read_text())
             (folder / 'requirements.lock').write_text('Real worker dependencies installed in MODEL_TEST_PYTHON')
             (folder / 'environment.json').write_text(json.dumps({'image': image}))
             return folder
@@ -277,6 +278,7 @@ def test_old_candidate_request_remains_idempotent_after_optional_search_fields(m
     async def legacy_request():
         candidate['request'].pop('search_space')
         candidate['request'].pop('autogluon_hyperparameters')
+        candidate['request']['features'].pop('preprocessing')
         await service.put(project['id'], 'candidate', candidate)
     asyncio.run(legacy_request())
     reply = client.post(base + '/modeling/studies/' + study['id'] + '/candidates', json=candidate['request'])

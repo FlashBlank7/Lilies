@@ -97,12 +97,14 @@ def register_modeling_routes(router, services, invoke):
             try:
                 with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED) as z:
                     write_bundle(z, note)
-                    for name in ('result.json', 'validation-predictions.csv', 'trial-input.json', 'attempt.json', 'trial.log', 'autogluon-models.json'):
+                    for name in ('result.json', 'validation-predictions.csv', 'preprocessing.json', 'trial-input.json', 'attempt.json', 'trial.log', 'autogluon-models.json'):
                         path = trial_folder / name
                         if path.is_file() and not path.is_symlink():
                             z.write(path, name)
                     for name in ('worker.py', 'requirements.lock', 'environment.json'):
                         z.write(environment / name, name)
+                    if (environment / 'modeling_preprocessing.py').is_file():
+                        z.write(environment / 'modeling_preprocessing.py', 'modeling_preprocessing.py')
                     if (folder / 'transformer.py').is_file():
                         z.write(folder / 'transformer.py', 'transformer.py')
                     if note['test_result']:
@@ -146,6 +148,8 @@ def register_modeling_routes(router, services, invoke):
                 z.writestr('configuration.json', json.dumps({'study': study, 'candidate': candidate, 'selected_trial_slot': best['slot']}, ensure_ascii=False, indent=2))
                 for name in ('worker.py', 'requirements.lock', 'environment.json'):
                     z.write(environment / name, name)
+                if (environment / 'modeling_preprocessing.py').is_file():
+                    z.write(environment / 'modeling_preprocessing.py', 'modeling_preprocessing.py')
                 prediction = {'action': 'predict', 'mapping': dataset['mapping'], 'features': candidate['features'],
                     'engine': candidate['engine'], 'feature_columns': best['feature_columns'], 'classes': best.get('classes'), 'source': 'input/input.csv',
                     'labels': 'input/labels.csv' if dataset['mapping']['kind'] == 'timeseries' else '', 'model': 'model', 'output': 'output'}
@@ -158,7 +162,8 @@ def register_modeling_routes(router, services, invoke):
                     '本机保留原镜像时运行：\n\n```sh\nmkdir -p input output\ndocker run --rm --network none --cpus 4 --memory 4g '
                     '-v "$PWD:/bundle:ro" -v "$PWD/output:/bundle/output:rw" -w /bundle ' + candidate['image'] + ' /bundle/predict.example.json\n```\n\n'
                     '结果写入 output/predictions.csv。其他机器可按 environment.json 的 Python 版本建立独立环境，安装 requirements.lock，'
-                    '然后在解压目录执行 `python worker.py predict.example.json`。包内没有原始训练数据；configuration.json 保存实验记录，model/ 保存模型及验证预测。只加载自己信任的模型文件。\n')
+                    '然后在解压目录执行 `python worker.py predict.example.json`。如包内有 modeling_preprocessing.py，应与 worker.py 一同保留；'
+                    '预处理按模型中已拟合的值执行，不在新样本上重新估计。包内没有原始训练数据；configuration.json 保存实验记录，model/ 保存模型及验证预测。只加载自己信任的模型文件。\n')
             temp.replace(archive)
             return FileResponse(archive, media_type='application/zip', filename='prediction-model.zip')
         return await invoke(bundle)

@@ -113,7 +113,7 @@ def render_note(note):
              '字段映射、数据版本与文件散列：\n\n```json\n' + pretty(note['dataset']) + '\n```',
              '评价规则：\n\n```json\n' + pretty(rule) + '\n```',
              '## 特征与预处理', '训练规则：需要拟合的预处理仅在训练折内拟合；成功模型最终在开发数据上重拟合。',
-             '```json\n' + pretty({'plan': note['features'], 'columns': t.get('feature_columns'), 'descriptions': note['feature_descriptions'], 'code_sha256': note['code_sha256']}) + '\n```',
+             '```json\n' + pretty({'plan': note['features'], 'fitted_preprocessing': t.get('preprocessing'), 'columns': t.get('feature_columns'), 'descriptions': note['feature_descriptions'], 'code_sha256': note['code_sha256']}) + '\n```',
              '## 实际模型与超参数', '实际模型参数来自本次拟合对象；搜索值与完整参数分别保存。' if t['status'] == 'completed' else '训练未成功，未产出可用模型。保留传入参数、搜索值和失败原因。',
              '```json\n' + pretty({'effective_model': t.get('effective_model'), 'requested_parameters': note['requested_parameters'], 'search_space': note.get('search_space'), 'autogluon_hyperparameters': note.get('autogluon_hyperparameters'), 'searched_parameters': t.get('parameters'), 'search': t.get('search')}) + '\n```',
              '## 预测检查', '\n\n'.join(t.get('warnings', [])) or ('各折未发现对不同实测值始终给出相同预测。' if 'diagnostics' in t else '本次没有保存逐折预测检查。'),

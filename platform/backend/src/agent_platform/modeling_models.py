@@ -96,6 +96,15 @@ class NumericPreparation(NumericRules):
     columns: list[str] = Field(default_factory=list, max_length=500)
 
 
+class TrainingPreprocessing(Contract):
+    numeric_missing: Literal['auto', 'median', 'mean', 'constant', 'error'] = 'auto'
+    fill_value: float = 0
+    scaling: Literal['auto', 'none', 'standard', 'robust'] = 'auto'
+    outliers: Literal['none', 'iqr_clip'] = 'none'
+    outlier_columns: list[str] = Field(default_factory=list, max_length=500)
+    iqr_factor: float = Field(default=1.5, gt=0, le=100)
+
+
 class FeaturePlan(Contract):
     columns: list[str] = Field(default_factory=list, max_length=500)
     exclude: list[str] = Field(default_factory=list, max_length=500)
@@ -103,6 +112,7 @@ class FeaturePlan(Contract):
     window_seconds: int | None = Field(default=None, ge=1)
     select_k: int | None = Field(default=None, ge=1, le=500)
     numeric: NumericPreparation = Field(default_factory=NumericPreparation)
+    preprocessing: TrainingPreprocessing = Field(default_factory=TrainingPreprocessing)
     transformer_path: str = Field(default='', description='Optional current-project Python module defining build_transformer(); returns a sklearn transformer fitted inside each training fold.')
 
 
@@ -409,6 +419,10 @@ def register_modeling_blocks(registry):
                 if path == 'analysis.handling':
                     item['option_labels'] = {'flag': '只标记，保留全部数据', 'drop': '删除异常值所在行', 'clip': '将异常值截到边界'}
         if kind == 'feature_extract':
+            definition.manual_summary += (' features.preprocessing 配置训练数值缺失填补、缩放及 IQR 截断；这里只传递方案，不拟合。'
+                'numeric_missing=auto 保留引擎默认：sklearn/Optuna 使用中位数，AutoGluon 使用原生处理；也可选 median、mean、constant、error。'
+                'scaling=auto 时 sklearn/Optuna 标准化、AutoGluon 不额外缩放；可选 none、standard、robust。'
+                'outliers=iqr_clip 需要 outlier_columns，边界仅从当前训练折估计；预测复用已保存边界，不删除样本。')
             definition.editor['fields'] = [field('dataset_id', '上游数据集', 'reference_or_text'),
                 field('features.columns', '使用字段（每行一个，留空使用全部）', 'string_list'),
                 field('features.exclude', '排除字段（每行一个）', 'string_list'),
@@ -417,6 +431,15 @@ def register_modeling_blocks(registry):
                 field('features.window_seconds', '过程窗口长度（秒）', 'number'),
                 field('features.timeseries', '时序特征集', 'enum', options=['minimal', 'extended'], default_value='minimal'),
                 field('features.select_k', '折内筛选特征数（留空不筛选）', 'number', minimum=1, maximum=500),
+                field('features.preprocessing.numeric_missing', '训练：数值缺失值处理', 'enum', options=['auto', 'median', 'mean', 'constant', 'error'], default_value='auto',
+                      option_labels={'auto': '跟随训练引擎', 'median': '训练样本中位数', 'mean': '训练样本均值', 'constant': '指定固定值', 'error': '遇到缺失即停止'}),
+                field('features.preprocessing.fill_value', '训练：缺失填补固定值', 'number', default_value=0, visible_when={'features.preprocessing.numeric_missing': ['constant']}),
+                field('features.preprocessing.scaling', '训练：数值缩放', 'enum', options=['auto', 'none', 'standard', 'robust'], default_value='auto',
+                      option_labels={'auto': '跟随训练引擎', 'none': '不缩放', 'standard': '均值与标准差', 'robust': '中位数与四分位距'}),
+                field('features.preprocessing.outliers', '训练：异常值处理', 'enum', options=['none', 'iqr_clip'], default_value='none',
+                      option_labels={'none': '保留原值', 'iqr_clip': '按训练样本 IQR 边界截断'}),
+                field('features.preprocessing.outlier_columns', '训练：截断字段（每行一个，必须为数值）', 'string_list', visible_when={'features.preprocessing.outliers': ['iqr_clip']}),
+                field('features.preprocessing.iqr_factor', '训练：IQR 倍数', 'number', default_value=1.5, minimum=.01, maximum=100, visible_when={'features.preprocessing.outliers': ['iqr_clip']}),
                 field('features.transformer_path', '高级特征转换代码（可选）', 'reference_or_text')]
         if kind == 'model_train':
             definition.editor['fields'] = [field('dataset_id', '上游数据集', 'reference_or_text'),

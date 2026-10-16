@@ -13,7 +13,7 @@ from uuid import uuid4
 
 from .db import connect
 from .models import utc_now
-from .modeling_models import DatasetRequest, StudyRequest, CandidateRequest, FeaturePlan, AideSearch, DataAnalysisPlan
+from .modeling_models import DatasetRequest, StudyRequest, CandidateRequest, FeaturePlan, TrainingPreprocessing, AideSearch, DataAnalysisPlan
 from .modeling_search import choose_step
 from .project_store import ProjectConflict, encode
 from .workspace_copy import copy_workspace_file
@@ -189,6 +189,7 @@ class Modeling:
             if kind == 'candidate':
                 saved_request.setdefault('search_space', {})
                 saved_request.setdefault('autogluon_hyperparameters', None)
+                saved_request['features'] = FeaturePlan.model_validate(saved_request.get('features') or {}).model_dump()
             if kind == 'study':
                 saved_request.setdefault('search_strategy', 'codex')
                 saved_request.setdefault('aide', AideSearch().model_dump())
@@ -256,7 +257,7 @@ class Modeling:
         folder = self.root / '_environments' / image.replace(':', '-')
         if (folder / 'worker.py').exists():
             return folder
-        script = "import json,pathlib,importlib.metadata,platform; print(json.dumps({'worker':pathlib.Path('/opt/modeling/worker.py').read_text(),'requirements':'\\n'.join(sorted(d.metadata['Name']+'=='+d.version for d in importlib.metadata.distributions())),'python':platform.python_version(),'machine':platform.machine()}))"
+        script = "import json,pathlib,importlib.metadata,platform; root=pathlib.Path('/opt/modeling'); print(json.dumps({'worker':(root/'worker.py').read_text(),'support_files':{name:(root/name).read_text() for name in ['modeling_preprocessing.py'] if (root/name).is_file()},'requirements':'\\n'.join(sorted(d.metadata['Name']+'=='+d.version for d in importlib.metadata.distributions())),'python':platform.python_version(),'machine':platform.machine()}))"
         name = 'lilies-modeling-environment-' + str(uuid4())
         self.containers.add(name)
         process = None
@@ -279,13 +280,20 @@ class Modeling:
             metadata = json.loads(output)
             worker = metadata.pop('worker')
             requirements = metadata.pop('requirements')
+            support = metadata.pop('support_files', {})
             if not isinstance(worker, str) or not worker.strip() or not isinstance(requirements, str):
                 raise ValueError('缺少 worker 或依赖信息')
+            if not isinstance(support, dict) or set(support) - {'modeling_preprocessing.py'} or any(not isinstance(value, str) or not value.strip() for value in support.values()):
+                raise ValueError('预处理代码不完整')
         except (ValueError, TypeError, KeyError, AttributeError) as error:
             raise RuntimeError(f'建模环境 {image} 返回的代码或依赖信息不完整；请维护方检查建模镜像') from error
         folder.mkdir(parents=True, exist_ok=True)
         (folder / 'requirements.lock').write_text(requirements)
+        for name, content in support.items():
+            (folder / name).write_text(content)
         metadata.update(image=image, worker_sha256=hashlib.sha256(worker.encode()).hexdigest())
+        if support:
+            metadata['support_files_sha256'] = {name: hashlib.sha256(content.encode()).hexdigest() for name, content in support.items()}
         (folder / 'environment.json').write_text(encode(metadata))
         (folder / 'worker.py').write_text(worker)
         return folder
@@ -516,6 +524,10 @@ class Modeling:
                 await self.services.projects.store.get_task(project_id, body.feedback_task_id)
             if body.engine == 'autogluon' and (body.features.transformer_path or body.features.select_k):
                 raise ValueError('AutoGluon 对照当前接受相同原始特征方案；不支持自定义拟合转换或 select_k')
+            if body.features.preprocessing != TrainingPreprocessing():
+                environment = await self.snapshot_environment(study['image'])
+                if not (environment / 'modeling_preprocessing.py').is_file():
+                    raise ValueError('该研究固定的建模环境不支持可选训练预处理；请使用更新的建模镜像创建新研究，已有记录保留')
             dataset = await self.get(project_id, 'dataset', study['dataset_id'])
             gap = study['evaluation'].get('gap_seconds', 0)
             if dataset['mapping']['kind'] == 'timeseries' and study['evaluation']['split'] == 'time' and gap:

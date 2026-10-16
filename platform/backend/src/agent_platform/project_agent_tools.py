@@ -153,6 +153,14 @@ unknown text fails with row/column details. Do not guess what ranges or placehol
 mapping.header_row (zero-based) and skip_after_header handle title rows and extra headings.
 For reusable models, candidate.features.numeric={columns, missing_tokens, intervals} saves these same
 stateless rules for training AND prediction. Missing-value fitting still occurs inside each training fold.
+candidate.features.preprocessing controls numeric_missing=auto/median/mean/constant/error (fill_value for constant),
+scaling=auto/none/standard/robust, and outliers=none/iqr_clip with explicit outlier_columns and iqr_factor.
+auto preserves sklearn/Optuna median+standard scaling and AutoGluon's native handling. IQR clipping, filling
+and scaling fit ONLY the training fold; the final development fit is saved and reused by prediction/holdout.
+Clipping never removes rows. Do not substitute full-table outlier analysis for this fold-fitted transform.
+New options require a compatible modeling environment; an older study keeps its pinned image. Trial notes
+contain the final fitted values, and preprocessing.json contains per-fold values. Keep modeling_preprocessing.py
+with the downloaded worker and model; AutoGluon also needs its saved preprocessing.joblib when options are active.
 profile inspects data; create_study freezes dataset, evaluation and compute budget. train(study_id, candidate, wait=true)
 creates an idempotent project task without workflow_id. wait=false permits workflow editing while training runs.
 Reuse the candidate request_key for retries; changed content conflicts. workflow_run inspect reads the task;
