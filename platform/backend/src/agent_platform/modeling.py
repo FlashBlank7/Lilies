@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
 import os
 from pathlib import Path
 import shutil
@@ -17,6 +18,11 @@ from .modeling_search import choose_step
 from .project_store import ProjectConflict, encode
 from .workspace_copy import copy_workspace_file
 from .training_notes import make_note, render_note
+
+
+logger = logging.getLogger(__name__)
+ENVIRONMENT_TIMEOUT_SECONDS = 20
+CONTAINER_CLEANUP_TIMEOUT_SECONDS = 5
 
 
 class Modeling:
@@ -231,13 +237,19 @@ class Modeling:
 
     async def image(self, requested=''):
         image = requested or self.services.settings.modeling_image
-        process = await asyncio.create_subprocess_exec('docker', 'image', 'inspect', '--format', '{{.Id}}', image, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+        process = None
         try:
-            out, err = await asyncio.wait_for(process.communicate(), 20)
-        except BaseException:
-            process.kill(); await process.wait(); raise
+            process = await asyncio.create_subprocess_exec('docker', 'image', 'inspect', '--format', '{{.Id}}', image, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+            out, err = await asyncio.wait_for(process.communicate(), ENVIRONMENT_TIMEOUT_SECONDS)
+        except TimeoutError as error:
+            raise RuntimeError(f'检查建模环境 {image} 超时（{ENVIRONMENT_TIMEOUT_SECONDS:g} 秒）；请维护方检查 Docker 服务是否正常后重试') from error
+        except OSError as error:
+            raise RuntimeError(f'无法检查建模环境 {image}：无法启动 Docker 命令；请维护方检查 Docker 安装与服务。{error}') from error
+        finally:
+            if process and process.returncode is None:
+                process.kill(); await process.communicate()
         if process.returncode:
-            raise RuntimeError(f'建模环境 {image} 尚未就绪，请维护方执行 docker build -f Dockerfile.modeling -t {image} .；{err.decode()[-300:]}')
+            raise RuntimeError(f'建模环境 {image} 不可用；请维护方检查 Docker 服务与镜像是否存在。{err.decode(errors="replace")[-500:]}')
         return out.decode().strip()
 
     async def snapshot_environment(self, image):
@@ -245,27 +257,58 @@ class Modeling:
         if (folder / 'worker.py').exists():
             return folder
         script = "import json,pathlib,importlib.metadata,platform; print(json.dumps({'worker':pathlib.Path('/opt/modeling/worker.py').read_text(),'requirements':'\\n'.join(sorted(d.metadata['Name']+'=='+d.version for d in importlib.metadata.distributions())),'python':platform.python_version(),'machine':platform.machine()}))"
-        process = await asyncio.create_subprocess_exec('docker', 'run', '--rm', '--network', 'none', '--read-only', '--entrypoint', 'python', image, '-c', script,
-                                                       stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+        name = 'lilies-modeling-environment-' + str(uuid4())
+        self.containers.add(name)
+        process = None
         try:
-            output, error = await asyncio.wait_for(process.communicate(), 20)
-        except BaseException:
-            process.kill(); await process.wait(); raise
-        if process.returncode:
-            raise RuntimeError('无法固定建模环境：' + error.decode()[-500:])
-        metadata = json.loads(output)
+            process = await asyncio.create_subprocess_exec('docker', 'run', '--rm', '--name', name,
+                '--label', 'lilies.modeling.owner=' + self.owner_label, '--network', 'none', '--read-only', '--entrypoint', 'python', image, '-c', script,
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+            output, error = await asyncio.wait_for(process.communicate(), ENVIRONMENT_TIMEOUT_SECONDS)
+            if process.returncode:
+                raise RuntimeError(f'读取建模环境 {image} 失败：' + (error.decode(errors='replace')[-500:] or f'Docker 命令退出码 {process.returncode}'))
+        except TimeoutError as error:
+            raise RuntimeError(f'读取建模环境 {image} 超时（{ENVIRONMENT_TIMEOUT_SECONDS:g} 秒）；请维护方检查 Docker 服务及容器启动状态后重试') from error
+        except OSError as error:
+            raise RuntimeError(f'无法读取建模环境 {image}：无法启动 Docker 命令；请维护方检查 Docker 安装与服务。{error}') from error
+        finally:
+            if process and process.returncode is None:
+                process.kill(); await process.communicate()
+            await asyncio.shield(self.remove_container(name))
+        try:
+            metadata = json.loads(output)
+            worker = metadata.pop('worker')
+            requirements = metadata.pop('requirements')
+            if not isinstance(worker, str) or not worker.strip() or not isinstance(requirements, str):
+                raise ValueError('缺少 worker 或依赖信息')
+        except (ValueError, TypeError, KeyError, AttributeError) as error:
+            raise RuntimeError(f'建模环境 {image} 返回的代码或依赖信息不完整；请维护方检查建模镜像') from error
         folder.mkdir(parents=True, exist_ok=True)
-        (folder / 'requirements.lock').write_text(metadata.pop('requirements'))
-        worker = metadata.pop('worker')
+        (folder / 'requirements.lock').write_text(requirements)
         metadata.update(image=image, worker_sha256=hashlib.sha256(worker.encode()).hexdigest())
         (folder / 'environment.json').write_text(encode(metadata))
         (folder / 'worker.py').write_text(worker)
         return folder
 
     async def remove_container(self, name):
-        process = await asyncio.create_subprocess_exec('docker', 'rm', '-f', name, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL)
-        await process.wait()
-        self.containers.discard(name)
+        process = None
+        try:
+            process = await asyncio.create_subprocess_exec('docker', 'rm', '-f', name, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE)
+            _, error = await asyncio.wait_for(process.communicate(), CONTAINER_CLEANUP_TIMEOUT_SECONDS)
+            detail = error.decode(errors='replace')[-500:]
+            if process.returncode and 'No such container' not in detail:
+                logger.warning('无法清理建模容器 %s：%s', name, detail or f'退出码 {process.returncode}')
+                return False
+            self.containers.discard(name)
+            return True
+        except (OSError, TimeoutError) as error:
+            # Keep ownership so close()/the next startup can retry. Cleanup must
+            # not hide the computation error or wait forever on an unhealthy daemon.
+            logger.warning('无法确认建模容器 %s 已清理：%s；请维护方检查 Docker 服务', name, str(error) or '清理超时')
+            return False
+        finally:
+            if process and process.returncode is None:
+                process.kill(); await process.communicate()
 
     async def compute(self, project_id, dataset, config, folder, *, image='', on_event=None, timeout=1800, extra_mounts=None, writable_mounts=None):
         """Only this transport knows Docker; tests may use a real local worker instead."""
