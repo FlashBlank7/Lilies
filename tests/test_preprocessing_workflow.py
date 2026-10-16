@@ -17,15 +17,15 @@ def test_preprocessing_workflow_download_runs_independently(real_compute, tmp_pa
     pid = project['id']; base = '/api/v1/projects/' + pid
     package = settings.workspace_root / pid / 'requirement-package'
     package.mkdir(exist_ok=True)
-    (package / 'train.csv').write_text('x,y\n' + '\n'.join(f'{"" if i == 3 else 10000 if i == 39 else i},{2*i}' for i in range(40)))
+    (package / 'train.csv').write_text('Training measurements\nx,batch,y\nunits,group,units\n' + '\n'.join(f'{"" if i == 3 else 10000 if i == 39 else i},batch-{i // 5},{2*i}' for i in range(40)))
     (package / 'new.csv').write_text('x\n2\n""\n100000\n')
     plan = {'columns': ['x'], 'preprocessing': {'numeric_missing': 'mean', 'scaling': 'robust',
             'outliers': 'iqr_clip', 'outlier_columns': ['x'], 'iqr_factor': 1.5}}
     graph(client, pid, [node('start', 'start'),
-        node('data', 'data_analysis', source_path='requirement-package/train.csv', mapping={'target': 'y'}),
+        node('data', 'data_analysis', source_path='requirement-package/train.csv', mapping={'target': 'y', 'group_column': 'batch', 'header_row': 1, 'skip_after_header': 1}),
         node('features', 'feature_extract', dataset_id=ref('data', 'output', 'dataset_id'), features=plan),
         node('train', 'model_train', dataset_id=ref('features', 'output', 'dataset_id'), features=ref('features', 'output', 'feature_plan'),
-             evaluation={'folds': 2, 'holdout_fraction': 0}, candidate={'engine': 'sklearn', 'models': ['linear'], 'batch_size': 1}),
+             evaluation={'split': 'group', 'folds': 2, 'holdout_fraction': 0}, candidate={'engine': 'sklearn', 'models': ['linear'], 'batch_size': 1}),
         node('predict', 'model_predict', source_path='requirement-package/new.csv', study_id=ref('train', 'output', 'study_id'), candidate_id=ref('train', 'output', 'id')),
         node('end', 'end', outputs={'prediction': ref('predict', 'output'), 'training': ref('train', 'output'), 'features': ref('features', 'output')})],
         [edge('start', 'data'), edge('data', 'features'), edge('features', 'train'), edge('train', 'predict'), edge('predict', 'end')])
