@@ -9,7 +9,7 @@ import ModelingPanel from './ModelingPanel'
 import {WorkflowValueField} from './WorkflowValueField'
 import styles from './workspace-tools.module.css'
 
-type Dataset = { id: string; name: string; mapping: { target: string }; created_at?: string; files?: {source?: {original: string}} }
+type Dataset = { id: string; name: string; mapping: { target: string; group_column?: string; id_column?: string; time_column?: string; prediction_time_column?: string }; created_at?: string; files?: {source?: {original: string}} }
 type Study = { id: string; name: string; status: string; best?: {candidate_id: string; slot: number; score: number} }
 type Model = { model_ref: string; name: string; revision: number; status: string; candidate_id?: string }
 type Trial = { slot: number; status: string; model: string; metrics: Record<string, number> }
@@ -40,6 +40,9 @@ export default function ProjectModels({ projectId, onWorkflow, onTask, onTalk }:
   const [file, setFile] = useState<File>()
   const [columns, setColumns] = useState<string[]>([])
   const [target, setTarget] = useState('')
+  const [groupColumn, setGroupColumn] = useState('')
+  const [split, setSplit] = useState('random')
+  const [folds, setFolds] = useState(3)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
@@ -58,13 +61,13 @@ export default function ProjectModels({ projectId, onWorkflow, onTask, onTalk }:
   async function act(fn:()=>Promise<void>) { setBusy(true); setError(''); setMessage(''); try { await fn(); await refresh() } catch(e) { setError(String(e)) } finally { setBusy(false) } }
   async function upload() {
     if(!file) return
-    const form = new FormData(); form.append('file',file); form.append('mapping', JSON.stringify({kind:'tabular',target}))
+    const form = new FormData(); form.append('file',file); form.append('mapping', JSON.stringify({kind:'tabular',target,group_column:groupColumn}))
     const response = await fetch(withFrontendToken('/api/platform'+base+'/datasets/upload'), {method:'POST', body:form})
     const data = await response.json(); if(!response.ok) throw new Error(data.detail || '上传失败')
     setDataset(data.id); setMessage(target?'数据已导入，可以开始训练。':'预测数据已导入，可在运行表单选择。')
   }
   async function train() {
-    const study = await api<Study>(base+'/modeling/studies', {method:'POST',body:JSON.stringify({dataset_id:dataset, request_key:clientId(), name:'模型训练', evaluation:{problem,metric:problem==='regression'?'mae':'macro_f1'}, budget:{seconds:600,trials:5,trial_seconds:120}})})
+    const study = await api<Study>(base+'/modeling/studies', {method:'POST',body:JSON.stringify({dataset_id:dataset, request_key:clientId(), name:'模型训练', evaluation:{problem,metric:problem==='regression'?'mae':'macro_f1',split,folds}, budget:{seconds:600,trials:5,trial_seconds:120}})})
     setStudyId(study.id)
     const task = await api<{id:string}>(base+`/modeling/studies/${study.id}/train`, {method:'POST',body:JSON.stringify({request_key:clientId(),engine:'sklearn',models:[algorithm],batch_size:1})})
     setMessage('训练已启动。你现在也可以创建预测工作流。'); onTask(task.id)
@@ -90,14 +93,24 @@ export default function ProjectModels({ projectId, onWorkflow, onTask, onTalk }:
     const workflow={nodes:[{id:'start',type:'start',title:'选择预测数据',config:{inputs:[{name:'dataset_id',type:'string',required:true}]},position:{x:40,y:120}},{id:'predict',type:'model_predict',title:'模型预测',config:{model_ref:modelRef,dataset_id:ref('$inputs','dataset_id')},position:{x:340,y:120}},{id:'end',type:'end',title:'预测结果',config:{outputs:{result:ref('predict','output')}},position:{x:640,y:120}}],edges:[{id:'start-predict',source:'start',target:'predict'},{id:'predict-end',source:'predict',target:'end'}]}
     await api(base+`/workflows/${member.id}/draft`,{method:'PUT',body:JSON.stringify({expected_revision:draft.revision,workflow})});onWorkflow(member.id)
   }
+  const chosenData = datasets.find(d=>d.id===dataset)
+  const group = chosenData?.mapping.group_column || chosenData?.mapping.id_column
+  const predictionTime = chosenData?.mapping.prediction_time_column || chosenData?.mapping.time_column
   return <>
     <section className={styles.section}><h2>训练模型</h2><p>上传数据后独立训练。工作流可以在训练前、训练中或训练后创建。</p>
-      <div className={styles.row}><label>上传表格<input aria-label="上传训练数据" type="file" accept=".csv,.tsv" onChange={async e=>{const f=e.target.files?.[0];setFile(f);if(f){const p=Papa.parse<string[]>(await f.text(),{preview:1});setColumns(p.data[0]||[]);setTarget('')}}} /></label>
-        <label>预测目标<select aria-label="预测目标字段" value={target} onChange={e=>setTarget(e.target.value)}><option value="">无标签数据（用于预测）</option>{columns.map(c=><option key={c}>{c}</option>)}</select></label><button disabled={busy||!file} onClick={()=>void act(upload)}>导入数据</button></div>
-      <details><summary>粘贴表格数据</summary><p>也可以从表格复制 CSV 或 TSV 文本，首行是字段名。</p><label>文件名<input aria-label="表格文件名" value={csvName} onChange={e=>setCsvName(e.target.value)}/></label><textarea className={styles.editor} aria-label="表格数据" value={csv} onChange={e=>setCsv(e.target.value)}/><button disabled={!csv.trim()||busy} onClick={()=>{setFile(new File([csv],csvName||'data.csv',{type:'text/csv'}));setColumns(Papa.parse<string[]>(csv,{preview:1}).data[0]||[]);setTarget('');setMessage('表格已准备，请选择预测目标后导入数据。')}}>使用这份表格</button></details>
+      <div className={styles.row}><label>上传表格<input aria-label="上传训练数据" type="file" accept=".csv,.tsv" onChange={async e=>{const f=e.target.files?.[0];setFile(f);if(f){const p=Papa.parse<string[]>(await f.text(),{preview:1});setColumns(p.data[0]||[]);setTarget('');setGroupColumn('')}}} /></label>
+        <label>预测目标<select aria-label="预测目标字段" value={target} onChange={e=>{setTarget(e.target.value);if(e.target.value===groupColumn)setGroupColumn('')}}><option value="">无标签数据（用于预测）</option>{columns.map(c=><option key={c}>{c}</option>)}</select></label><label>样本分组字段（可选）<select aria-label="样本分组字段" value={groupColumn} onChange={e=>setGroupColumn(e.target.value)}><option value="">未指定</option>{columns.filter(c=>c!==target).map(c=><option key={c}>{c}</option>)}</select></label><button disabled={busy||!file} onClick={()=>void act(upload)}>导入数据</button></div>
+      <details><summary>粘贴表格数据</summary><p>也可以从表格复制 CSV 或 TSV 文本，首行是字段名。</p><label>文件名<input aria-label="表格文件名" value={csvName} onChange={e=>setCsvName(e.target.value)}/></label><textarea className={styles.editor} aria-label="表格数据" value={csv} onChange={e=>setCsv(e.target.value)}/><button disabled={!csv.trim()||busy} onClick={()=>{setFile(new File([csv],csvName||'data.csv',{type:'text/csv'}));setColumns(Papa.parse<string[]>(csv,{preview:1}).data[0]||[]);setTarget('');setGroupColumn('');setMessage('表格已准备，请选择预测目标后导入数据。')}}>使用这份表格</button></details>
       <div className={styles.row}><label>训练数据集<select aria-label="训练数据集" value={dataset} onChange={e=>setDataset(e.target.value)}><option value="">选择数据集</option>{datasets.filter(d=>d.mapping.target).map(d=><option key={d.id} value={d.id}>{datasetLabel(d)}</option>)}</select></label>
         <label>任务类型<select value={problem} onChange={e=>setProblem(e.target.value)}><option value="regression">数值预测</option><option value="classification">分类</option></select></label>
-        <label>算法<select value={algorithm} onChange={e=>setAlgorithm(e.target.value)}><option value="forest">随机森林</option><option value="linear">线性模型</option><option value="hist_gradient">梯度提升</option><option value="svm">支持向量机</option></select></label><button disabled={busy||!dataset} onClick={()=>void act(train)}>开始独立训练</button></div>
+        <label>算法<select value={algorithm} onChange={e=>setAlgorithm(e.target.value)}><option value="forest">随机森林</option><option value="linear">线性模型</option><option value="hist_gradient">梯度提升</option><option value="svm">支持向量机</option></select></label></div>
+      <div className={styles.row}>
+        <label>评价划分<select aria-label="评价划分" value={split} onChange={e=>setSplit(e.target.value)}><option value="random">随机划分</option><option value="group">按组隔离</option><option value="time">时间向前验证</option></select></label>
+        <label>验证折数<input aria-label="验证折数" type="number" min={2} max={5} step={1} value={folds} onChange={e=>setFolds(Number(e.target.value))}/></label>
+        <button disabled={busy||!dataset||!Number.isInteger(folds)||folds<2||folds>5||(split==='group'&&!group)||(split==='time'&&!predictionTime)} onClick={()=>void act(train)}>开始独立训练</button></div>
+      {split==='random' && <p>随机划分适用于相互独立的样本。同一设备、芯片或批次有多条记录时，请按组隔离；预测未来时，应采用时间向前验证。</p>}
+      {split==='group' && <p>{group ? `按「${group}」隔离，同组记录不会分到训练和验证两边。` : '此数据版本尚未指定分组字段。导入时选择设备、芯片或批次列，或通过对话建立包含分组设置的新数据版本。'}</p>}
+      {split==='time' && <p>{predictionTime ? `按「${predictionTime}」向前验证。请确认它代表实际预测时点；测量与标签可用时间还需符合任务要求。` : '此数据版本尚未指定预测时点。请先通过对话配置时间字段及可用时间，或使用可编辑的训练工作流。'}</p>}
       {datasets.find(d=>d.id===dataset)?.files?.source?.original && <p className={styles.questionContext}>训练数据来源：{datasets.find(d=>d.id===dataset)!.files!.source!.original}</p>}
     </section>
     <section className={styles.section}><h2>可调用模型</h2><p>模型名称是工作流的稳定引用。先创建工作流，再绑定训练结果也可以。</p>

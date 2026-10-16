@@ -8,7 +8,7 @@ import ProjectModels from '@/app/components/ProjectModels'
 import type {ProjectTask} from '@/lib/project-progress'
 vi.mock('@/lib/platform',()=>({api:vi.fn(),withFrontendToken:(p:string)=>p}))
 vi.mock('@/app/components/ModelingPanel',()=>({default:()=>null}))
-afterEach(()=>{cleanup();vi.mocked(api).mockReset()})
+afterEach(()=>{cleanup();vi.mocked(api).mockReset();vi.unstubAllGlobals()})
 it('applies one generated graph and undoes against the saved revision without starting a task',async()=>{
  const before={nodes:[],edges:[]};const onChanged=vi.fn()
  vi.mocked(api).mockImplementation(async(path)=>path.endsWith('/workflow-generation')?{workflow_id:'w',previous_workflow:before,revision:8,draft:{revision:9}} as never:{revision:7} as never)
@@ -145,4 +145,66 @@ it('distinguishes same-name datasets and submits the chosen training and predict
  await waitFor(()=>expect(onTask).toHaveBeenCalledWith('prediction-task'))
  const prediction=vi.mocked(api).mock.calls.find(([path])=>path.endsWith('/predict'))!
  expect(JSON.parse(String(prediction[1]!.body)).dataset_id).toBe('predict2')
+})
+
+it.each([
+ ['group', {group_column:'chip'}, '按「chip」隔离'],
+ ['group', {id_column:'device'}, '按「device」隔离'],
+ ['time', {prediction_time_column:'timestamp'}, '按「timestamp」向前验证'],
+])('submits the selected %s evaluation and fold count for mapped data',async(split,mapping,description)=>{
+ vi.mocked(api).mockImplementation(async(path,options)=>{
+  if(path.includes('/datasets?'))return [{id:'d',name:'samples.csv',mapping:{target:'y',...mapping}}] as never
+  if(path.endsWith('/modeling/studies')&&options?.method==='POST')return {id:'s'} as never
+  if(path.endsWith('/train'))return {id:'t'} as never
+  return [] as never
+ })
+ const onTask=vi.fn()
+ render(<ProjectModels projectId="p" onWorkflow={vi.fn()} onTask={onTask} onTalk={vi.fn()}/> )
+ await screen.findByRole('option',{name:/samples.csv/})
+ fireEvent.change(screen.getByLabelText('训练数据集'),{target:{value:'d'}})
+ fireEvent.change(screen.getByLabelText('评价划分'),{target:{value:split}})
+ expect(screen.getByText(new RegExp(String(description)))).toBeInTheDocument()
+ fireEvent.change(screen.getByLabelText('验证折数'),{target:{value:'2'}})
+ fireEvent.click(screen.getByRole('button',{name:'开始独立训练'}))
+ await waitFor(()=>expect(onTask).toHaveBeenCalledWith('t'))
+ const call=vi.mocked(api).mock.calls.find(([p,o])=>p.endsWith('/modeling/studies')&&o?.method==='POST')!
+ expect(JSON.parse(String(call[1]!.body))).toMatchObject({dataset_id:'d',evaluation:{problem:'regression',metric:'mae',split,folds:2}})
+})
+
+it('explains missing group/time settings without blocking draft creation',async()=>{
+ vi.mocked(api).mockImplementation(async path=>path.includes('/datasets?')?[{id:'d',name:'plain.csv',mapping:{target:'y'}}] as never:[] as never)
+ render(<ProjectModels projectId="p" onWorkflow={vi.fn()} onTask={vi.fn()} onTalk={vi.fn()}/> )
+ await screen.findByRole('option',{name:/plain.csv/})
+ fireEvent.change(screen.getByLabelText('训练数据集'),{target:{value:'d'}})
+ fireEvent.change(screen.getByLabelText('评价划分'),{target:{value:'group'}})
+ expect(screen.getByText(/此数据版本尚未指定分组字段/)).toBeInTheDocument()
+ expect(screen.getByRole('button',{name:'开始独立训练'})).toBeDisabled()
+ fireEvent.change(screen.getByLabelText('评价划分'),{target:{value:'time'}})
+ expect(screen.getByText(/此数据版本尚未指定预测时点/)).toBeInTheDocument()
+ expect(screen.getByRole('button',{name:'开始独立训练'})).toBeDisabled()
+ expect(screen.getByRole('button',{name:'创建预测工作流'})).toBeEnabled()
+ fireEvent.change(screen.getByLabelText('评价划分'),{target:{value:'random'}})
+ fireEvent.change(screen.getByLabelText('验证折数'),{target:{value:'6'}})
+ expect(screen.getByRole('button',{name:'开始独立训练'})).toBeDisabled()
+ fireEvent.change(screen.getByLabelText('验证折数'),{target:{value:'3'}})
+ expect(screen.getByRole('button',{name:'开始独立训练'})).toBeEnabled()
+})
+
+it('preserves a chosen grouping column when importing and clears it for a different file',async()=>{
+ vi.mocked(api).mockResolvedValue([] as never)
+ const upload=vi.fn().mockResolvedValue({ok:true,json:async()=>({id:'uploaded'})})
+ vi.stubGlobal('fetch',upload)
+ render(<ProjectModels projectId="p" onWorkflow={vi.fn()} onTask={vi.fn()} onTalk={vi.fn()}/> )
+ fireEvent.click(screen.getByText('粘贴表格数据'))
+ fireEvent.change(screen.getByLabelText('表格数据'),{target:{value:'chip,x,y\na,1,2\na,2,3\n'}})
+ fireEvent.click(screen.getByRole('button',{name:'使用这份表格'}))
+ fireEvent.change(screen.getByLabelText('预测目标字段'),{target:{value:'y'}})
+ fireEvent.change(screen.getByLabelText('样本分组字段'),{target:{value:'chip'}})
+ fireEvent.click(screen.getByRole('button',{name:'导入数据'}))
+ await screen.findByText('数据已导入，可以开始训练。')
+ const body=upload.mock.calls[0][1].body as FormData
+ expect(JSON.parse(String(body.get('mapping')))).toEqual({kind:'tabular',target:'y',group_column:'chip'})
+ fireEvent.change(screen.getByLabelText('表格数据'),{target:{value:'x,y\n1,2\n'}})
+ fireEvent.click(screen.getByRole('button',{name:'使用这份表格'}))
+ expect(screen.getByLabelText('样本分组字段')).toHaveValue('')
 })

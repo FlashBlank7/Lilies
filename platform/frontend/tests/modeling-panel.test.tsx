@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { api } from '@/lib/platform'
 import ModelingPanel from '@/app/components/ModelingPanel'
@@ -159,6 +159,48 @@ it('shows an actionable connection error rather than inventing a result', async 
   expect(await screen.findByRole('alert')).toHaveTextContent('连接失败')
   expect(screen.queryByText('当前最佳')).not.toBeInTheDocument()
   expect(screen.getByRole('button', { name: '重试连接' })).toBeInTheDocument()
+})
+
+it.each([false, true])('shows labeled groups with the correct full/preview scope (%s)', async sampled => {
+  const original = vi.mocked(api).getMockImplementation()!
+  vi.mocked(api).mockImplementation(async (path, options) => {
+    if (path.endsWith('/datasets/d')) return { ...dataset, profile: { ...dataset.profile, sampled,
+      sample_structure: { target: '压连代码', labeled_rows: 211, missing_labels: 339,
+        group_column: '芯片号', groups: 209, repeated_groups: 1, rows_in_repeated_groups: 2, missing_groups: 1 } } } as never
+    return original(path, options)
+  })
+  const onContext = vi.fn()
+  render(<ModelingPanel projectId="p" onContext={onContext} />)
+  fireEvent.click(await screen.findByRole('button', { name: '查看结果' }))
+  fireEvent.click(screen.getByRole('tab', { name: '数据' }))
+  const section = within(await screen.findByRole('region', { name: '有标签样本与分组' }))
+  expect(section.getByText('目标列「压连代码」：有标签 211 行，缺少标签 339 行。')).toBeInTheDocument()
+  expect(section.getByText(/共 209 组，其中 1 组出现多次，涉及 2 行/)).toBeInTheDocument()
+  expect(section.getByText(/请选择按组隔离/)).toBeInTheDocument()
+  expect(section.getByText(/1 条有标签记录缺少分组值/)).toBeInTheDocument()
+  expect(section.getByText(sampled ? /仅前 1,000 行预览/ : /按当前数据表统计 · 完整扫描/)).toBeInTheDocument()
+  expect(onContext).not.toHaveBeenCalled()
+  expect(vi.mocked(api).mock.calls.every(([, options]) => !options?.method)).toBe(true)
+})
+
+it('uses separate label rows for sample groups instead of measurement rows', async () => {
+  const original = vi.mocked(api).getMockImplementation()!
+  vi.mocked(api).mockImplementation(async (path, options) => {
+    if (path.endsWith('/datasets/d')) return { ...dataset, profile: { ...dataset.profile,
+      sample_structure: { target: 'measurement', labeled_rows: 100, missing_labels: 0 },
+      labels: { sampled: false, rows: 2, duplicates: 0, columns: [],
+        sample_structure: { target: '质量', labeled_rows: 2, missing_labels: 0,
+          group_column: '设备号', groups: 2, repeated_groups: 0, rows_in_repeated_groups: 0, missing_groups: 0 } } } } as never
+    return original(path, options)
+  })
+  render(<ModelingPanel projectId="p" onContext={vi.fn()} />)
+  fireEvent.click(await screen.findByRole('button', { name: '查看结果' }))
+  fireEvent.click(screen.getByRole('tab', { name: '数据' }))
+  const section = within(await screen.findByRole('region', { name: '有标签样本与分组' }))
+  expect(section.getByText(/按独立标签表统计/)).toBeInTheDocument()
+  expect(section.getByText('目标列「质量」：有标签 2 行，缺少标签 0 行。')).toBeInTheDocument()
+  expect(section.getByText(/共 2 组，其中 0 组出现多次，涉及 0 行/)).toBeInTheDocument()
+  expect(section.queryByText(/measurement|请选择按组隔离|缺少分组值/)).not.toBeInTheDocument()
 })
 
 it('does not claim offline table features were available before prediction', async () => {
