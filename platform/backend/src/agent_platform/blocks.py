@@ -2259,6 +2259,10 @@ class BlockRegistry:
                 key
                 for key in node.config.keys()
                 if key not in known
+                # Modeling nodes accept the old all-purpose shape only when
+                # its obsolete fields retain their defaults; their model
+                # validator rejects configured options from another purpose.
+                and key not in getattr(model, 'legacy_config_defaults', {})
                 # x_ 前缀是显式扩展字段惯例（往返透传）；merge_config 是
                 # 更新语义标志，由上游提升处理
                 and not str(key).startswith("x_")

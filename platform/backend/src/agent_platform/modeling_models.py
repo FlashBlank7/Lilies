@@ -1,7 +1,7 @@
 """Small, project-scoped contracts shared by the UI, agent and workflow blocks."""
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any, ClassVar, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -172,20 +172,65 @@ class DataAnalysisPlan(Contract):
 
 
 class ModelingBlock(Contract):
+    # Old drafts may contain every modeling field. Only unused default
+    # values may be discarded; a configured option must never be silently lost.
+    legacy_config_defaults: ClassVar[dict[str, Any]] = {
+        'source_path': '', 'labels_path': '', 'mapping': {}, 'evaluation': {},
+        'budget': {}, 'candidate': {}, 'model_ref': '', 'slot': None,
+        'dataset_id': '', 'study_id': '', 'candidate_id': '', 'features': {},
+        'finalize': False, 'analysis': DataAnalysisPlan().model_dump(),
+    }
+
+    @model_validator(mode='before')
+    @classmethod
+    def remove_unused_legacy_defaults(cls, value):
+        if not isinstance(value, dict):
+            return value
+        result = dict(value)
+        for key in value.keys() - cls.model_fields.keys():
+            if key not in cls.legacy_config_defaults:
+                continue
+            supplied = value[key]
+            if key == 'analysis' and isinstance(supplied, dict):
+                supplied = DataAnalysisPlan.model_validate(supplied).model_dump()
+            if supplied != cls.legacy_config_defaults[key]:
+                raise ValueError(f'此积木不使用 {key} 配置；请将其放到对应用途的积木中')
+            del result[key]
+        return result
+
+
+class DatasetBlock(ModelingBlock):
     source_path: Any = ''
     labels_path: Any = ''
     mapping: Any = Field(default_factory=dict)
+    dataset_id: Any = ''
+
+
+class DataAnalysisBlock(DatasetBlock):
+    analysis: DataAnalysisPlan = Field(default_factory=DataAnalysisPlan)
+
+
+class FeatureExtractBlock(ModelingBlock):
+    dataset_id: Any = ''
+    features: Any = Field(default_factory=dict)
+
+
+class ModelTrainBlock(ModelingBlock):
+    dataset_id: Any = ''
+    features: Any = Field(default_factory=dict)
     evaluation: Any = Field(default_factory=dict)
     budget: Any = Field(default_factory=dict)
     candidate: Any = Field(default_factory=dict)
-    model_ref: Any = ''
-    slot: Any = None
-    dataset_id: Any = ''
     study_id: Any = ''
     candidate_id: Any = ''
-    features: Any = Field(default_factory=dict)
     finalize: bool = False
-    analysis: DataAnalysisPlan = Field(default_factory=DataAnalysisPlan)
+
+
+class ModelPredictBlock(DatasetBlock):
+    model_ref: Any = ''
+    slot: Any = None
+    study_id: Any = ''
+    candidate_id: Any = ''
 
 
 class FinishStudy(Contract):
@@ -228,21 +273,61 @@ class ModelingTool(Contract):
 def register_modeling_blocks(registry):
     from .blocks import _definition
     from .workflow_models import ValueType
-    for kind, title, description in [
-        ('data_analysis', '数据分析', '选择数据概况、数值整理、Spearman 相关分析或异常值处理；返回统计结果或新的数据集。'),
-        ('feature_extract', '特征提取', '按预测时点提取时序特征或选择表格字段；需要拟合的转换留在训练折内。'),
-        ('model_train', '训练评估', '从上游数据集和表单配置训练，或继续已有候选；保存模型、预处理和真实评价。'),
-        ('model_predict', '模型预测', '选择项目文件和已绑定模型，沿用训练时的字段语义、预处理和环境预测。生成可下载 CSV；模型可稍后绑定。'),
+    manuals = {
+        'data_analysis': {
+            'summary': '通过 source_path、可选 labels_path 和 mapping 读取当前项目的 CSV/TSV/XLSX，或传入已有 dataset_id。'
+                '返回 output.dataset_id 和分析结果；清洗改变数据时输出新的数据集，原文件保留。'
+                '概况扫描支持表格和已配置样本、时间及预测时点的工艺时序；相关分析和异常值处理当前只支持单表数值列。',
+            'when_to_use': ['检查数据形态、明确整理数值、计算 Spearman 或处理异常值。'],
+            'examples': [{'description': '两个数值字段的相关分析', 'config': {'source_path': 'requirement-package/data.csv',
+                'analysis': {'operation': 'spearman', 'columns': ['pressure', 'height']}}}],
+            'anti_patterns': ['不把图片、PDF 或数据库连接直接作为表格输入。不要未经业务确认将区间值取平均。'],
+            'common_errors': ['数值操作遇到文字时，先明确占位符和区间规则；未指定规则时保留待配置。'],
+        },
+        'feature_extract': {
+            'summary': '输入 dataset_id 和 features。表格数据选择/排除字段；工艺时序按已登记的样本标识、测量时间、预测时点提取窗口特征。'
+                '输出 output.dataset_id、output.feature_plan、特征概况及文件，可分别连接训练节点的 dataset_id 和 features。'
+                '数值整理使用显式规则；缺失值填补、特征筛选和自定义转换的拟合发生在后续训练折内，此节点不训练预测模型。',
+            'when_to_use': ['整理用于训练的字段或生成按预测时点截取的时序特征。'],
+            'examples': [{'description': '明确训练字段', 'config': {'dataset_id': '当前项目数据集标识',
+                'features': {'columns': ['pressure', 'height']}}}],
+            'anti_patterns': ['不把完整数据上拟合的特征转换当成无泄漏的模型评估。'],
+            'common_errors': ['先登记或连接数据分析节点的数据集；时序数据需要时间和样本字段映射。'],
+        },
+        'model_train': {
+            'summary': '输入已有或上游 dataset_id、features、evaluation、budget 和 candidate，训练表格分类/回归模型；'
+                '工艺时序先按预测时点构造样本。数据需要明确目标列及有效标签。'
+                'features 可引用特征节点的 output.feature_plan；评价、预算和候选方案分别配置。'
+                '返回 output.id（候选标识）、output.study_id、output.trials 及实际评价。'
+                '也可用 study_id/candidate_id 继续已有候选，沿用固定数据和划分。finalize=true 只评价结束研究的保留测试集，之后不能继续搜索。',
+            'when_to_use': ['训练、比较候选模型或继续已有训练。'],
+            'examples': [{'description': '对已登记数据做分类训练', 'config': {'dataset_id': '当前项目数据集标识',
+                'evaluation': {'problem': 'classification', 'metric': 'macro_f1'},
+                'candidate': {'engine': 'sklearn', 'models': ['forest'], 'batch_size': 1}}}],
+            'anti_patterns': ['训练成功不代表精度达标。不要改变已固定研究的划分或把保留测试集用于搜索。'],
+            'common_errors': ['分类和回归指标须匹配；分组划分需指定分组列，时间划分需指定时间列。'],
+        },
+        'model_predict': {
+            'summary': '输入新数据的 source_path 或 dataset_id，以及项目 model_ref；模型可以稍后绑定。'
+                '也兼容 study_id/candidate_id 和可选 slot。新文件需包含模型训练时所需字段，普通表格预测不需要目标标签。'
+                'mapping.sheet、header_row、skip_after_header 描述新文件布局；字段语义、数值规则、已拟合预处理及运行环境沿用所选模型。'
+                '输出 output.artifact 的 CSV 下载路径、output.project_path 及 output.model_version。此节点不重新训练模型。',
+            'when_to_use': ['用已训练或已导入的模型处理新样本。'],
+            'examples': [{'description': '使用稍后绑定的项目模型', 'config': {'source_path': 'requirement-package/new-data.csv', 'model_ref': 'quality-model'}}],
+            'anti_patterns': ['不在预测节点重新配置训练特征、训练预算或评估划分。'],
+            'common_errors': ['运行时必须绑定模型并提供所需字段；缺失字段应补齐，不能悄悄换模型。'],
+        },
+    }
+    for kind, config, title, description in [
+        ('data_analysis', DataAnalysisBlock, '数据分析', '选择数据概况、数值整理、Spearman 相关分析或异常值处理；返回统计结果或新的数据集。'),
+        ('feature_extract', FeatureExtractBlock, '特征提取', '按预测时点提取时序特征或选择表格字段；需要拟合的转换留在训练折内。'),
+        ('model_train', ModelTrainBlock, '训练评估', '从上游数据集和表单配置训练，或继续已有候选；保存模型、预处理和真实评价。'),
+        ('model_predict', ModelPredictBlock, '模型预测', '选择项目文件和已绑定模型，沿用训练时的字段语义、预处理和环境预测。生成可下载 CSV；模型可稍后绑定。'),
     ]:
-        definition = _definition(kind, title, description, 'integration', ModelingBlock,
+        manual = manuals[kind]
+        definition = _definition(kind, title, description, 'integration', config,
             inputs=[('input', ValueType.any)], outputs=[('output', ValueType.object)], error_branch=True,
-            manual={'summary': description + ' 从项目任务运行。data_analysis 可用 source_path、labels_path、mapping 登记项目文件并分析，也可传 dataset_id。'
-                '所有输出位于 output。feature_extract 需要 dataset_id；model_train 可用 dataset_id、features、evaluation、budget、candidate 直接训练，无需内部编号，也兼容 study_id/candidate_id；'
-                'model_predict 使用无标签 dataset_id 和 model_ref（也兼容旧 study_id/candidate_id），返回 output.artifact 的 CSV 下载路径。资源可稍后绑定。model_train 的 finalize=true 在研究结束后评价保留测试集，随后不再允许搜索。模型、评估器及数据快照不可由节点覆盖。',
-                'when_to_use': ['表格分类回归与工艺时序建模'],
-                'examples': [{'description': title, 'config': {'dataset_id': '当前项目数据集标识'}}],
-                'anti_patterns': ['不要改变已固定的划分，不要把训练成功当成精度达标。'],
-                'common_errors': ['请选择项目文件与标签；分组划分需指定批次字段，时间划分需指定时间字段。'],
+            manual={**manual, 'summary': manual['summary'] + ' 从项目任务运行，所有结果位于 output；资源和列未配置时仍可保存草稿，运行时检查。',
                 'claude_architecture_mapping': 'Project modeling runtime',
                 'composability_constraints': ['项目身份由运行上下文绑定。']})
         definition.editor['i18n']['zh'].update(title=title, description=description)
@@ -353,4 +438,4 @@ def register_modeling_blocks(registry):
                 field('study_id', '继续已有训练记录（可选）', 'reference_or_text'),
                 field('candidate_id', '继续已有候选方案（可选）', 'reference_or_text'),
                 field('finalize', '只评价独立测试集', 'boolean')]
-        registry.register(definition, ModelingBlock)
+        registry.register(definition, config)

@@ -60,7 +60,7 @@ def real_compute(modeling, monkeypatch):
         path = folder / 'job.json'; path.write_text(json.dumps(config))
         env = {**os.environ, 'OMP_NUM_THREADS': '1', 'OPENBLAS_NUM_THREADS': '1', 'MKL_NUM_THREADS': '1'}
         async with service.slots:
-            process = await asyncio.create_subprocess_exec(executable, modeling_worker.__file__, str(path), stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, env=env, start_new_session=True)
+            process = await asyncio.create_subprocess_exec(executable, modeling_worker.__file__, str(path), stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, limit=8 * 1024 * 1024, env=env, start_new_session=True)
             service.test_pid = process.pid
             logs = asyncio.create_task(process.stderr.read())
             result = None; failure = ''
