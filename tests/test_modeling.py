@@ -33,7 +33,7 @@ def modeling(configured, monkeypatch):
             (folder / 'worker.py').write_text(Path(modeling_worker.__file__).read_text())
             (folder / 'modeling_preprocessing.py').write_text(Path(modeling_worker.__file__).with_name('modeling_preprocessing.py').read_text())
             (folder / 'requirements.lock').write_text('Real worker dependencies installed in MODEL_TEST_PYTHON')
-            (folder / 'environment.json').write_text(json.dumps({'image': image}))
+            (folder / 'environment.json').write_text(json.dumps({'image': image, 'capabilities': modeling_worker.CAPABILITIES}))
             return folder
         monkeypatch.setattr(service, 'snapshot_environment', snapshot_environment)
     yield configured, service
@@ -89,7 +89,7 @@ def real_compute(modeling, monkeypatch):
     return configured, service
 
 
-def setup(client, project, settings, batch_size=2, transformer=''):
+def setup(client, project, settings, batch_size=2, transformer='', features=None):
     pid = project['id']; base = '/api/v1/projects/' + pid
     package = settings.workspace_root / pid / 'requirement-package'; package.mkdir(exist_ok=True)
     (package / 'data.csv').write_text('id,x,category,y\n' + '\n'.join(f'{i:04d},{i/10},{"a" if i%2 else "b"},{i/5}' for i in range(60)))
@@ -100,7 +100,7 @@ def setup(client, project, settings, batch_size=2, transformer=''):
     response = client.post(base + '/modeling/studies', json=study_request)
     assert response.status_code == 201, response.text
     study = response.json()
-    response = client.post(base + '/modeling/studies/' + study['id'] + '/candidates', json={'request_key': 'first', 'batch_size': batch_size, 'models': ['linear'], 'features': {'transformer_path': transformer}})
+    response = client.post(base + '/modeling/studies/' + study['id'] + '/candidates', json={'request_key': 'first', 'batch_size': batch_size, 'models': ['linear'], 'features': {'transformer_path': transformer, **(features or {})}})
     assert response.status_code == 201, response.text
     candidate = response.json()
     graph(client, pid, [node('start', 'start', inputs=[]), node('train', 'model_train', study_id=study['id'], candidate_id=candidate['id']),
@@ -138,11 +138,12 @@ def test_dataset_readonly_versions_scope_and_idempotency(modeling):
     assert client.get(base + '/modeling/studies?after=9999').json() == []
 
 
-def test_actual_workflow_training_prediction_download_and_repeat(real_compute):
+@pytest.mark.parametrize('categorical_missing', ['auto', 'preserve'])
+def test_actual_workflow_training_prediction_download_and_repeat(real_compute, categorical_missing):
     (client, app, project, settings), service = real_compute
-    base, dataset, study, candidate = setup(client, project, settings)
+    base, dataset, study, candidate = setup(client, project, settings, features={'preprocessing': {'categorical_missing': categorical_missing}})
     graph(client, project['id'], [node('start', 'start', inputs=[]), node('analysis', 'data_analysis', dataset_id=dataset['id']),
-        node('features', 'feature_extract', dataset_id=ref('analysis', 'output', 'dataset_id'), features={}),
+        node('features', 'feature_extract', dataset_id=ref('analysis', 'output', 'dataset_id'), features=candidate['features']),
         node('train', 'model_train', dataset_id=ref('features', 'output', 'dataset_id'), features=ref('features', 'output', 'feature_plan'), study_id=study['id'], candidate_id=candidate['id']),
         node('end', 'end', outputs={'result': ref('train', 'output')})], [edge('start', 'analysis'), edge('analysis', 'features'), edge('features', 'train'), edge('train', 'end')])
     task = start(client, base, 'train', purpose='build_test')

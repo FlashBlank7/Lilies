@@ -257,7 +257,7 @@ class Modeling:
         folder = self.root / '_environments' / image.replace(':', '-')
         if (folder / 'worker.py').exists():
             return folder
-        script = "import json,pathlib,importlib.metadata,platform; root=pathlib.Path('/opt/modeling'); print(json.dumps({'worker':(root/'worker.py').read_text(),'support_files':{name:(root/name).read_text() for name in ['modeling_preprocessing.py'] if (root/name).is_file()},'requirements':'\\n'.join(sorted(d.metadata['Name']+'=='+d.version for d in importlib.metadata.distributions())),'python':platform.python_version(),'machine':platform.machine()}))"
+        script = "import json,pathlib,importlib.metadata,platform,runpy; root=pathlib.Path('/opt/modeling'); print(json.dumps({'worker':(root/'worker.py').read_text(),'capabilities':runpy.run_path(str(root/'worker.py')).get('CAPABILITIES',[]),'support_files':{name:(root/name).read_text() for name in ['modeling_preprocessing.py'] if (root/name).is_file()},'requirements':'\\n'.join(sorted(d.metadata['Name']+'=='+d.version for d in importlib.metadata.distributions())),'python':platform.python_version(),'machine':platform.machine()}))"
         name = 'lilies-modeling-environment-' + str(uuid4())
         self.containers.add(name)
         process = None
@@ -543,6 +543,10 @@ class Modeling:
                 environment = await self.snapshot_environment(study['image'])
                 if not (environment / 'modeling_preprocessing.py').is_file():
                     raise ValueError('该研究固定的建模环境不支持可选训练预处理；请使用更新的建模镜像创建新研究，已有记录保留')
+                if body.features.preprocessing.categorical_missing == 'preserve':
+                    capabilities = json.loads((environment / 'environment.json').read_text()).get('capabilities', [])
+                    if 'categorical_missing_preserve' not in capabilities:
+                        raise ValueError('该研究固定的建模环境不支持保留类别缺失；请使用更新的建模镜像创建新研究，已有记录保留')
             dataset = await self.get(project_id, 'dataset', study['dataset_id'])
             gap = study['evaluation'].get('gap_seconds', 0)
             if dataset['mapping']['kind'] == 'timeseries' and study['evaluation']['split'] == 'time' and gap:

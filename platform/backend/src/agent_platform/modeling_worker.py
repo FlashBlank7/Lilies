@@ -18,6 +18,8 @@ import sys
 import time
 import traceback
 
+CAPABILITIES = ['categorical_missing_preserve']
+
 
 def clean(value):
     if isinstance(value, dict):
@@ -545,13 +547,15 @@ def preprocessing_settings(config):
     requested = config.get('features', {}).get('preprocessing') or {}
     native = config.get('engine') == 'autogluon'
     missing = requested.get('numeric_missing', 'auto')
+    categorical = requested.get('categorical_missing', 'auto')
     scaling = requested.get('scaling', 'auto')
     result = {'numeric_missing': ('native' if native else 'median') if missing == 'auto' else missing,
+              'categorical_missing': ('native' if native else 'most_frequent') if categorical == 'auto' else categorical,
               'fill_value': requested.get('fill_value', 0),
               'scaling': ('none' if native else 'standard') if scaling == 'auto' else scaling,
               'outliers': requested.get('outliers', 'none'), 'outlier_columns': requested.get('outlier_columns', []),
               'iqr_factor': requested.get('iqr_factor', 1.5)}
-    if result['numeric_missing'] not in {'native', 'median', 'mean', 'constant', 'error'} or result['scaling'] not in {'none', 'standard', 'robust'} or result['outliers'] not in {'none', 'iqr_clip'}:
+    if result['numeric_missing'] not in {'native', 'median', 'mean', 'constant', 'error'} or result['categorical_missing'] not in {'native', 'most_frequent', 'preserve'} or result['scaling'] not in {'none', 'standard', 'robust'} or result['outliers'] not in {'none', 'iqr_clip'}:
         raise ValueError('不支持的训练预处理选项')
     return result
 
@@ -579,14 +583,26 @@ def outlier_steps(config):
     return [('outliers', preprocessing_module().IQRClipper(columns=settings['outlier_columns'], factor=settings['iqr_factor']))]
 
 
+def categorical_pipeline(config):
+    from sklearn.pipeline import Pipeline
+    from sklearn.impute import SimpleImputer
+    from sklearn.preprocessing import OneHotEncoder
+    fill = ('passthrough' if preprocessing_settings(config)['categorical_missing'] == 'preserve'
+            else SimpleImputer(strategy='most_frequent', keep_empty_features=True))
+    return Pipeline([('fill', fill), ('encode', OneHotEncoder(handle_unknown='ignore', sparse_output=False))])
+
+
 def autogluon_preprocessor(config):
     from sklearn.compose import ColumnTransformer, make_column_selector
     from sklearn.pipeline import Pipeline
     settings = preprocessing_settings(config)
-    if settings['numeric_missing'] == 'native' and settings['scaling'] == 'none' and settings['outliers'] == 'none':
+    preserve = settings['categorical_missing'] == 'preserve'
+    if settings['numeric_missing'] == 'native' and settings['scaling'] == 'none' and settings['outliers'] == 'none' and not preserve:
         return None
-    prep = ColumnTransformer([('numeric', numeric_pipeline(config), make_column_selector(dtype_include='number'))],
-                             remainder='passthrough', verbose_feature_names_out=False).set_output(transform='pandas')
+    transforms = [('numeric', numeric_pipeline(config), make_column_selector(dtype_include='number'))]
+    if preserve:
+        transforms.append(('categorical', categorical_pipeline(config), make_column_selector(dtype_exclude='number')))
+    prep = ColumnTransformer(transforms, remainder='passthrough', verbose_feature_names_out=preserve).set_output(transform='pandas')
     return Pipeline([*outlier_steps(config), ('preprocess', prep)])
 
 
@@ -622,8 +638,6 @@ def fitted_preprocessing(fitted, rows):
 def pipeline(x, config, model):
     from sklearn.compose import ColumnTransformer
     from sklearn.pipeline import Pipeline
-    from sklearn.preprocessing import OneHotEncoder
-    from sklearn.impute import SimpleImputer
     from sklearn.feature_selection import SelectKBest, f_regression, f_classif
     steps = []
     if config.get('transformer'):
@@ -637,7 +651,7 @@ def pipeline(x, config, model):
     from sklearn.compose import make_column_selector
     prep = ColumnTransformer([
         ('numeric', numeric_pipeline(config), make_column_selector(dtype_include='number')),
-        ('categorical', Pipeline([('fill', SimpleImputer(strategy='most_frequent', keep_empty_features=True)), ('encode', OneHotEncoder(handle_unknown='ignore', sparse_output=False))]), make_column_selector(dtype_exclude='number')),
+        ('categorical', categorical_pipeline(config), make_column_selector(dtype_exclude='number')),
     ], sparse_threshold=0)
     steps.append(('preprocess', prep))
     if config.get('features', {}).get('select_k'):

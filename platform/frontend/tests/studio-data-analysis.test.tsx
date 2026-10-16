@@ -25,6 +25,7 @@ it('saves nested training preprocessing options while preserving the selected fe
     if(path.endsWith('/draft')) return draft as never
     if(path.startsWith('/api/v1/blocks?application_id=')) return [{type:'feature_extract',title:'特征提取',category:'integration',input_ports:[],output_ports:[],config_schema:{},editor:{fields:[
       {path:'features.preprocessing.numeric_missing',label:'训练：数值缺失值处理',control:'enum',options:['auto','median','mean','constant','error'],default_value:'auto'},
+      {path:'features.preprocessing.categorical_missing',label:'训练：类别缺失值处理',control:'enum',options:['auto','preserve'],default_value:'auto',option_labels:{auto:'跟随引擎',preserve:'保留缺失，不填成已有类别'}},
       {path:'features.preprocessing.fill_value',label:'训练：缺失填补固定值',control:'number',default_value:0,visible_when:{'features.preprocessing.numeric_missing':['constant']}},
       {path:'features.preprocessing.scaling',label:'训练：数值缩放',control:'enum',options:['auto','none','standard','robust'],default_value:'auto'},
       {path:'features.preprocessing.outliers',label:'训练：异常值处理',control:'enum',options:['none','iqr_clip'],default_value:'none'},
@@ -41,6 +42,7 @@ it('saves nested training preprocessing options while preserving the selected fe
   expect(screen.queryByRole('spinbutton',{name:'训练：缺失填补固定值'})).not.toBeInTheDocument()
   expect(screen.queryByRole('textbox',{name:'训练：截断字段'})).not.toBeInTheDocument()
   fireEvent.change(screen.getByRole('combobox',{name:'训练：数值缺失值处理'}),{target:{value:'constant'}})
+  fireEvent.change(screen.getByRole('combobox',{name:'训练：类别缺失值处理'}),{target:{value:'preserve'}})
   fireEvent.change(screen.getByRole('spinbutton',{name:'训练：缺失填补固定值'}),{target:{value:'-9'}})
   fireEvent.change(screen.getByRole('combobox',{name:'训练：数值缩放'}),{target:{value:'robust'}})
   fireEvent.change(screen.getByRole('combobox',{name:'训练：异常值处理'}),{target:{value:'iqr_clip'}})
@@ -48,7 +50,7 @@ it('saves nested training preprocessing options while preserving the selected fe
   fireEvent.change(screen.getByRole('spinbutton',{name:'训练：IQR 倍数'}),{target:{value:'2.5'}})
   fireEvent.click(container.querySelector('[data-config-editor-action="save"]')!)
   await waitFor(()=>expect(saved).toHaveLength(1))
-  expect(saved[0]).toEqual({dataset_id:'dataset',features:{columns:['pressure'],preprocessing:{numeric_missing:'constant',fill_value:-9,scaling:'robust',outliers:'iqr_clip',outlier_columns:['pressure'],iqr_factor:2.5}}})
+  expect(saved[0]).toEqual({dataset_id:'dataset',features:{columns:['pressure'],preprocessing:{numeric_missing:'constant',categorical_missing:'preserve',fill_value:-9,scaling:'robust',outliers:'iqr_clip',outlier_columns:['pressure'],iqr_factor:2.5}}})
 })
 
 it('edits a concrete analysis operation and retains hidden settings when switching operations', async () => {

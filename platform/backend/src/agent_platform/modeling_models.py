@@ -98,6 +98,7 @@ class NumericPreparation(NumericRules):
 
 class TrainingPreprocessing(Contract):
     numeric_missing: Literal['auto', 'median', 'mean', 'constant', 'error'] = 'auto'
+    categorical_missing: Literal['auto', 'preserve'] = Field(default='auto', description='Non-numeric category columns only. preserve uses fold-fitted one-hot encoding without mode imputation; unseen values, including unseen missing, encode as all zeros. Numeric-coded columns remain numeric.')
     fill_value: float = 0
     scaling: Literal['auto', 'none', 'standard', 'robust'] = 'auto'
     outliers: Literal['none', 'iqr_clip'] = 'none'
@@ -431,6 +432,7 @@ def register_modeling_blocks(registry):
         if kind == 'feature_extract':
             definition.manual_summary += (' features.preprocessing 配置训练数值缺失填补、缩放及 IQR 截断；这里只传递方案，不拟合。'
                 'numeric_missing=auto 保留引擎默认：sklearn/Optuna 使用中位数，AutoGluon 使用原生处理；也可选 median、mean、constant、error。'
+                'categorical_missing=preserve 在各引擎中按训练折独热编码类别，保留缺失而不填成已有类别；训练未见类别编码全零。auto 保留旧行为，sklearn/Optuna 使用训练折众数，AutoGluon 使用原生处理。'
                 'scaling=auto 时 sklearn/Optuna 标准化、AutoGluon 不额外缩放；可选 none、standard、robust。'
                 'outliers=iqr_clip 需要 outlier_columns，边界仅从当前训练折估计；预测复用已保存边界，不删除样本。')
             definition.editor['fields'] = [field('dataset_id', '上游数据集', 'reference_or_text'),
@@ -444,6 +446,8 @@ def register_modeling_blocks(registry):
                 field('features.preprocessing.numeric_missing', '训练：数值缺失值处理', 'enum', options=['auto', 'median', 'mean', 'constant', 'error'], default_value='auto',
                       option_labels={'auto': '跟随训练引擎', 'median': '训练样本中位数', 'mean': '训练样本均值', 'constant': '指定固定值', 'error': '遇到缺失即停止'}),
                 field('features.preprocessing.fill_value', '训练：缺失填补固定值', 'number', default_value=0, visible_when={'features.preprocessing.numeric_missing': ['constant']}),
+                field('features.preprocessing.categorical_missing', '训练：类别缺失值处理', 'enum', options=['auto', 'preserve'], default_value='auto',
+                      option_labels={'auto': '跟随引擎（sklearn/Optuna 填最常见类别）', 'preserve': '保留缺失，不填成已有类别'}),
                 field('features.preprocessing.scaling', '训练：数值缩放', 'enum', options=['auto', 'none', 'standard', 'robust'], default_value='auto',
                       option_labels={'auto': '跟随训练引擎', 'none': '不缩放', 'standard': '均值与标准差', 'robust': '中位数与四分位距'}),
                 field('features.preprocessing.outliers', '训练：异常值处理', 'enum', options=['none', 'iqr_clip'], default_value='none',

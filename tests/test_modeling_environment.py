@@ -159,3 +159,23 @@ def test_study_api_returns_environment_timeout_and_allows_retry(configured, dock
     assert retried.status_code == 201, retried.text
     assert retried.json()['status'] == 'ready'
     assert len(client.get(base + '/modeling/studies').json()) == 1
+
+
+def test_pinned_older_environment_keeps_default_but_rejects_unsupported_category_option(configured, docker_cli):
+    client, app, project, settings = configured
+    docker_cli()
+    base = '/api/v1/projects/' + project['id']
+    source = settings.workspace_root / project['id'] / 'requirement-package/data.csv'
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_text('method,y\ncross,1\ncircle,2\n,3\n')
+    dataset = client.post(base + '/datasets', json={'source_path': 'requirement-package/data.csv', 'mapping': {'target': 'y'}})
+    assert dataset.status_code == 201
+    study = client.post(base + '/modeling/studies', json={'dataset_id': dataset.json()['id'], 'request_key': 'old-environment'})
+    assert study.status_code == 201
+    path = base + '/modeling/studies/' + study.json()['id'] + '/candidates'
+    original = client.post(path, json={'request_key': 'default'})
+    assert original.status_code == 201, original.text
+    unsupported = client.post(path, json={'request_key': 'preserve', 'features': {'preprocessing': {'categorical_missing': 'preserve'}}})
+    assert unsupported.status_code == 422
+    assert '不支持保留类别缺失' in unsupported.json()['detail']
+    assert [c['id'] for c in client.get(path).json()] == [original.json()['id']]

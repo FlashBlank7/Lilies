@@ -154,7 +154,10 @@ mapping.header_row (zero-based) and skip_after_header handle title rows and extr
 For reusable models, candidate.features.numeric={columns, missing_tokens, intervals} saves these same
 stateless rules for training AND prediction. Missing-value fitting still occurs inside each training fold.
 candidate.features.preprocessing controls numeric_missing=auto/median/mean/constant/error (fill_value for constant),
+categorical_missing=auto/preserve (preserve skips mode filling; auto uses sklearn/Optuna's training-fold mode),
 scaling=auto/none/standard/robust, and outliers=none/iqr_clip with explicit outlier_columns and iqr_factor.
+preserve uses fold-fitted one-hot encoding for categorical columns in all engines, including AutoGluon;
+missing values are not filled with a known category. Categories absent from training encode as all zeros.
 auto preserves sklearn/Optuna median+standard scaling and AutoGluon's native handling. IQR clipping, filling
 and scaling fit ONLY the training fold; the final development fit is saved and reused by prediction/holdout.
 Clipping never removes rows. Do not substitute full-table outlier analysis for this fold-fitted transform.

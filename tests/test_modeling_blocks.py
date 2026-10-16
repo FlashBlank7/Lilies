@@ -80,7 +80,7 @@ def test_empty_modeling_drafts_save_without_runtime_resources(configured, monkey
     if kind == 'data_analysis':
         config['analysis'] = {'operation': 'spearman', 'columns': []}
     if kind == 'feature_extract':
-        config['features'] = {'preprocessing': {'numeric_missing': 'mean', 'outliers': 'iqr_clip', 'outlier_columns': []}}
+        config['features'] = {'preprocessing': {'numeric_missing': 'mean', 'categorical_missing': 'preserve', 'outliers': 'iqr_clip', 'outlier_columns': []}}
     graph(client, project['id'], [node('start', 'start'), node('step', kind, **config), node('end', 'end')],
           [edge('start', 'step'), edge('step', 'end')])
     saved = client.get('/api/v1/applications/' + project['id'] + '/draft').json()

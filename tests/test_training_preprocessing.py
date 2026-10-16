@@ -11,6 +11,26 @@ from agent_platform import modeling_worker as worker
 from tests.test_modeling_worker import fixture_data
 
 
+@pytest.mark.parametrize('training_missing', [False, True])
+def test_preserved_categories_distinguish_missing_known_and_unseen_without_refitting(tmp_path, training_missing):
+    import joblib
+    x = pd.DataFrame({'method': ['cross', 'cross', 'circle'] + ([np.nan] if training_missing else [])})
+    config = {'features': {'preprocessing': {'categorical_missing': 'preserve'}}}
+    pipeline = worker.categorical_pipeline(config).fit(x)
+    probe = pd.DataFrame({'method': ['cross', 'circle', np.nan, 'unseen']})
+    encoded = pipeline.transform(probe)
+    assert not np.array_equal(encoded[0], encoded[2])
+    assert not np.array_equal(encoded[1], encoded[2])
+    assert not encoded[3].any()
+    assert encoded[2].sum() == (1 if training_missing else 0)
+    assert 'unseen' not in pipeline.named_steps['encode'].categories_[0]
+    path = tmp_path / 'categories.joblib'; joblib.dump(pipeline, path)
+    np.testing.assert_array_equal(joblib.load(path).transform(probe), encoded)
+    original = worker.categorical_pipeline({}).fit(x)
+    default_values = original.transform(probe)
+    np.testing.assert_array_equal(default_values[0], default_values[2])
+
+
 @pytest.mark.parametrize('missing,scaling,fill', [('median', 'standard', 2), ('mean', 'robust', 2.4), ('constant', 'none', -9)])
 def test_explicit_numeric_steps_fit_training_values_and_preserve_rows(tmp_path, missing, scaling, fill):
     from sklearn.linear_model import Ridge
@@ -98,7 +118,8 @@ def test_zero_iqr_diagnostic_stays_local_to_the_affected_training_fold(tmp_path,
 
 
 @pytest.mark.parametrize('engine', ['sklearn', 'optuna', 'autogluon'])
-def test_each_engine_fits_only_fold_training_rows_and_reuses_saved_preprocessing(tmp_path, engine):
+@pytest.mark.parametrize('training_missing', [False, True])
+def test_each_engine_fits_only_fold_training_rows_and_reuses_saved_preprocessing(tmp_path, engine, training_missing):
     import joblib
     if engine == 'autogluon':
         ag = pytest.importorskip('autogluon.tabular')
@@ -106,6 +127,7 @@ def test_each_engine_fits_only_fold_training_rows_and_reuses_saved_preprocessing
     raw = pd.read_csv(config['source'], dtype={'id': str})
     raw['x'] = [*range(40), *range(100, 140), *([1e8] * 20)]
     raw.loc[2, 'x'] = np.nan
+    raw['category'] = ['a', 'b'] * 20 + ['a', 'b', np.nan if training_missing else 'a', 'c'] * 10 + ['holdout-only'] * 20
     raw.to_csv(config['source'], index=False)
     split = {'samples': list(range(100)), 'development': list(range(80)), 'holdout': list(range(80, 100)),
              'folds': [[list(range(40)), list(range(40, 80))], [list(range(40, 80)), list(range(40))]]}
@@ -114,7 +136,7 @@ def test_each_engine_fits_only_fold_training_rows_and_reuses_saved_preprocessing
                   autogluon_hyperparameters={'RF': {'n_estimators': 8}} if engine == 'autogluon' else None)
     config['evaluation']['folds'] = 2
     config['features'] = {'columns': ['x', 'category'], 'preprocessing': {
-        'numeric_missing': 'mean', 'scaling': 'robust', 'outliers': 'iqr_clip', 'outlier_columns': ['x'], 'iqr_factor': 1.5}}
+        'numeric_missing': 'mean', 'categorical_missing': 'preserve', 'scaling': 'robust', 'outliers': 'iqr_clip', 'outlier_columns': ['x'], 'iqr_factor': 1.5}}
     result = worker.train(config)
     assert result['best'], result
     folder = Path(config['output']) / 'trial-0'
@@ -127,6 +149,7 @@ def test_each_engine_fits_only_fold_training_rows_and_reuses_saved_preprocessing
     else:
         assert resources['model_bytes'] == (folder / 'model.joblib').stat().st_size
     statistics = json.loads((folder / 'preprocessing.json').read_text())
+    assert statistics['settings']['categorical_missing'] == 'preserve'
     for part, indices in [(statistics['folds'][i], train) for i, (train, _) in enumerate(split['folds'])] + [(statistics['development'], split['development'])]:
         values = raw.x.iloc[indices]
         q1, q3 = values.quantile([.25, .75]); lower, upper = q1 - 1.5 * (q3-q1), q3 + 1.5 * (q3-q1)
@@ -136,7 +159,7 @@ def test_each_engine_fits_only_fold_training_rows_and_reuses_saved_preprocessing
         assert part['rows'] == len(indices)
     assert statistics['development']['outlier_bounds']['x']['upper'] < 1000
     new = tmp_path / 'new.csv'
-    new.write_text('id,batch,x,category\n001,a,20,a\n002,a,,b\n003,a,100000000,a\n')
+    new.write_text('id,batch,x,category\n001,a,20,a\n002,a,,\n003,a,100000000,unseen\n')
     predict_config = {**config, 'source': str(new), 'model': str(folder), 'feature_columns': result['best']['feature_columns']}
     worker.preprocessing_module()
     x, _, _ = worker.features(predict_config, prediction=True)
@@ -147,6 +170,15 @@ def test_each_engine_fits_only_fold_training_rows_and_reuses_saved_preprocessing
     else:
         model = joblib.load(folder / 'model.joblib')
         expected = model.predict(x)
+        fitted = model
+    categorical = fitted.named_steps['preprocess'].named_transformers_['categorical']
+    categories = categorical.named_steps['encode'].categories_[0]
+    assert 'holdout-only' not in categories and 'unseen' not in categories
+    encoded = categorical.transform(x[['category']])
+    if hasattr(encoded, 'to_numpy'):
+        encoded = encoded.to_numpy()
+    assert encoded[0].sum() == 1 and encoded[1].sum() == (1 if training_missing else 0) and not encoded[2].any()
+    assert not np.array_equal(encoded[0], encoded[1])
     before = (folder / 'preprocessing.json').read_bytes()
     prediction = worker.predict(predict_config)
     np.testing.assert_allclose([row['prediction'] for row in prediction['preview']], expected)
