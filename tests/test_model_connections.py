@@ -336,7 +336,18 @@ def test_platform_loop_builds_runs_reads_failure_and_repairs_via_model_api(confi
         body = json.loads(request.content)
         requests.append(body)
         step = len(requests)
-        result = json.loads(body['messages'][-1]['content']) if body['messages'][-1]['role'] == 'tool' else None
+        # Runtime guidance follows tool results in the OpenAI wire format.
+        # Read the actual result by role instead of assuming it is last.
+        latest_tool = next((m for m in reversed(body['messages']) if m['role'] == 'tool'), None)
+        result = json.loads(latest_tool['content']) if latest_tool else None
+        assert body['messages'][-1]['role'] == 'user'
+        budget = json.loads(body['messages'][-1]['content'].splitlines()[-1])['platform_runtime']
+        current_call = step if step <= 2 else step - 2  # The second user request starts at step 3.
+        assert budget == {'model_call_limit': 32, 'current_model_call': current_call,
+            'remaining_model_calls_after_this': 32 - current_call}
+        if step not in {1, 3}:
+            assert body['messages'][-2] == latest_tool
+            assert latest_tool['tool_call_id'] == f'call-{step - 1}'
         if step == 1:
             message = tool('requirements_submit', {'understanding': '读取记录并返回是否存在。',
                 'document': '# 测试需求\n读取 items 中的 absent 记录；不存在时返回 exists=false。'})
