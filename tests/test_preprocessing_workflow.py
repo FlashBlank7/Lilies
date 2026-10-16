@@ -17,10 +17,10 @@ def test_preprocessing_workflow_download_runs_independently(real_compute, tmp_pa
     pid = project['id']; base = '/api/v1/projects/' + pid
     package = settings.workspace_root / pid / 'requirement-package'
     package.mkdir(exist_ok=True)
-    (package / 'train.csv').write_text('Training measurements\nx,batch,y\nunits,group,units\n' + '\n'.join(f'{"" if i == 3 else 10000 if i == 39 else i},batch-{i // 5},{2*i}' for i in range(40)))
-    (package / 'new.csv').write_text('x\n2\n""\n100000\n')
-    plan = {'columns': ['x'], 'preprocessing': {'numeric_missing': 'mean', 'scaling': 'robust',
-            'outliers': 'iqr_clip', 'outlier_columns': ['x'], 'iqr_factor': 1.5}}
+    (package / 'train.csv').write_text('Training measurements\nx,pressure,batch,y\nunits,kg,group,units\n' + '\n'.join(f'{"" if i == 3 else 10000 if i == 39 else i},22,batch-{i // 5},{2*i}' for i in range(40)))
+    (package / 'new.csv').write_text('x,pressure\n2,22\n,24\n100000,18\n')
+    plan = {'columns': ['x', 'pressure'], 'preprocessing': {'numeric_missing': 'mean', 'scaling': 'robust',
+            'outliers': 'iqr_clip', 'outlier_columns': ['x', 'pressure'], 'iqr_factor': 1.5}}
     graph(client, pid, [node('start', 'start'),
         node('data', 'data_analysis', source_path='requirement-package/train.csv', mapping={'target': 'y', 'group_column': 'batch', 'header_row': 1, 'skip_after_header': 1}),
         node('features', 'feature_extract', dataset_id=ref('data', 'output', 'dataset_id'), features=plan),
@@ -35,6 +35,11 @@ def test_preprocessing_workflow_download_runs_independently(real_compute, tmp_pa
     details = trial['preprocessing']['development']
     assert details['rows'] == 40 and details['outlier_bounds']['x']['upper'] < 10000
     assert trial['preprocessing']['settings']['numeric_missing'] == 'mean'
+    messages = [w for w in trial['warnings'] if '四分位距为 0' in w]
+    assert len(messages) == 3 and all('pressure' in w for w in messages)  # Two folds and final fit.
+    short = client.post(base + '/agent-tools', json={'name': 'project_modeling', 'arguments': {
+        'action': 'candidates', 'study_id': trained['study_id'], 'candidate_id': trained['id']}}).json()
+    assert short['trials'][0]['warnings'] == trial['warnings']
     assert outputs['prediction']['rows'] == 3
     # Feature extraction remains unfitted, including the missing and extreme row.
     artifact = next(a for a in outputs['features']['artifacts'] if a['file_path'].endswith('features.csv'))
@@ -44,6 +49,7 @@ def test_preprocessing_workflow_download_runs_independently(real_compute, tmp_pa
     note = client.get(path + '/trials/0/note').json()
     assert note['note']['trial']['preprocessing'] == trial['preprocessing']
     assert 'outlier_bounds' in note['markdown']
+    assert all(message in note['markdown'] for message in messages)
     response = client.get(path + '/download')
     assert response.status_code == 200
     bundle = tmp_path / 'standalone'; bundle.mkdir()

@@ -79,6 +79,23 @@ def test_one_sided_bounds_and_all_rows_removed(tmp_path):
         worker.analyze(config)
 
 
+@pytest.mark.parametrize('handling,effect', [('flag', '标记'), ('drop', '删除所在行'), ('clip', '截成 22')])
+def test_zero_iqr_reports_the_selected_effect_without_changing_the_rule(tmp_path, handling, effect):
+    frame = pd.DataFrame({'pressure': [18., *([22.] * 8), 24., None]})
+    config = job(tmp_path, frame, operation='outliers', columns=['pressure'], handling=handling)
+    result = worker.analyze(config)
+    assert result['bounds']['pressure'] == {'lower': 22., 'upper': 22.}
+    assert result['affected_rows'] == 2
+    assert any('pressure' in message and '四分位距为 0' in message and effect in message for message in result['warnings'])
+    assert json.loads((Path(config['output']) / 'analysis.json').read_text())['warnings'] == result['warnings']
+    if handling == 'drop':
+        assert result['output_rows'] == 9
+    if handling == 'clip':
+        actual = pd.read_csv(Path(config['output']) / 'processed.csv').pressure
+        assert actual.dropna().eq(22).all() and actual.isna().sum() == 1
+    assert pd.read_csv(config['source']).pressure.iloc[0] == 18
+
+
 @pytest.mark.parametrize('column,values,message', [
     ('missing', [1, 2, 3], '不存在'), ('x', ['a', 'b', 'c'], '数值'),
     ('x', [1., float('inf'), 3.], '无穷'), ('x', [True, False, True], '数值'),

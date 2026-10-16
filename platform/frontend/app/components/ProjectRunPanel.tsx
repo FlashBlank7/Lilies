@@ -9,6 +9,7 @@ import {FeedbackButton} from './UserFeedback'
 import WorkflowInputTable, {type InputColumn} from './WorkflowInputTable'
 import KnowledgeResults, {isKnowledgeSearchResult} from './KnowledgeResults'
 import FeatureResults from './FeatureResults'
+import DataAnalysisResults, {type DataAnalysisResult} from './DataAnalysisResults'
 import ClassificationResults, { type ClassificationResult } from './ClassificationResults'
 import { WorkflowValueField } from './WorkflowValueField'
 import { useEffect, useRef, useState } from 'react'
@@ -54,6 +55,7 @@ export function ProjectTaskOutput({ projectId, task, onTask }: { projectId: stri
     <FeedbackButton source={{project_id:projectId,task_id:task.id,workflow_id:task.workflow_id||undefined,page:'run'}} excerpt={task.error||markdown} category={task.error?'runtime':'result'}/>
     {task.id && ['waiting_input','running','queued'].includes(task.status) && <ProjectTaskInput projectId={projectId} taskId={task.id} initialTask={task} onTask={onTask}/>}
     {results.filter(result => result.stage === 'before_fold_preprocessing').map((result, i) => <FeatureResults key={i} result={result as unknown as Parameters<typeof FeatureResults>[0]['result']} />)}
+    {results.filter(result => typeof result.rows==='number' && ['numeric','spearman','outliers'].includes(String(result.operation))).map((result,i)=><DataAnalysisResults key={i} result={result as DataAnalysisResult}/>)}
     {task.runs?.filter(run => run.reuse?.source_run_id).map(run => <p key={run.id}>使用当前配置创建了新运行，复用 {run.reuse!.nodes.length} 个已完成步骤{run.reuse!.nodes.length ? `（${(run.reuse!.titles || run.reuse!.nodes).join('、')}）` : ''}。其他步骤重新执行，原运行保持不变。</p>)}
     {!knowledgeAnswer && <MarkdownDocument source={markdown} resolveLink={href => resolveProjectLink(projectId, href)} emptyLabel={['queued', 'running'].includes(task.status) ? '正在运行，结果会自动显示。' : '本次运行的输出见下方详情。'} />}
     {knowledgeResults.map((result, i) => <KnowledgeResults key={i} result={result} answer={knowledgeAnswer ? output.markdown as string : undefined} question={typeof output.question === 'string' ? output.question : undefined} />)}

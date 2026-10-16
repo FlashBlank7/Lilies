@@ -19,6 +19,7 @@ class IQRClipper(TransformerMixin, BaseEstimator):
         self.feature_names_in_ = np.asarray(X.columns, dtype=object)
         self.n_features_in_ = len(X.columns)
         self.bounds_ = {}
+        self.warnings_ = []
         for column in self.columns:
             values = X[column].dropna()
             if values.empty:
@@ -26,6 +27,9 @@ class IQRClipper(TransformerMixin, BaseEstimator):
                 continue
             q1, q3 = values.quantile([.25, .75])
             width = q3 - q1
+            if width == 0:
+                self.warnings_.append(f'字段 {column} 的训练四分位距为 0（Q1 = Q3 = {q1:g}）；'
+                                      f'IQR 截断会把该列所有非缺失值（包括预测输入）变成 {q1:g}，无法保留该列的数值变化。')
             self.bounds_[column] = {'lower': float(q1 - self.factor * width),
                                     'upper': float(q3 + self.factor * width), 'valid_samples': len(values)}
         return self

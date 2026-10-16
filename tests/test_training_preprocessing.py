@@ -72,6 +72,32 @@ def test_all_missing_training_column_has_no_invented_iqr_bounds():
 
 
 @pytest.mark.parametrize('engine', ['sklearn', 'optuna', 'autogluon'])
+def test_zero_iqr_diagnostic_stays_local_to_the_affected_training_fold(tmp_path, engine):
+    config = fixture_data(tmp_path)
+    data = pd.read_csv(config['source'], dtype={'id': str})
+    data['x'] = [18., *([22.] * 38), 24., *range(100, 140), *([1e8] * 20)]
+    data.to_csv(config['source'], index=False)
+    split = {'samples': list(range(100)), 'development': list(range(80)), 'holdout': list(range(80, 100)),
+             'folds': [[list(range(40)), list(range(40, 80))], [list(range(40, 80)), list(range(40))]]}
+    path = tmp_path / 'split.json'; worker.save(path, split)
+    config.update(engine=engine, models=['linear'], batch_size=1, split=str(path),
+                  autogluon_hyperparameters={'RF': {'n_estimators': 8}} if engine == 'autogluon' else None)
+    config['evaluation']['folds'] = 2
+    config['features'] = {'columns': ['x', 'category'], 'preprocessing': {'outliers': 'iqr_clip', 'outlier_columns': ['x']}}
+    result = worker.train(config)
+    assert result['best'], result
+    statistics = json.loads((Path(config['output']) / 'trial-0/preprocessing.json').read_text())
+    assert statistics['folds'][0]['outlier_bounds']['x']['lower'] == statistics['folds'][0]['outlier_bounds']['x']['upper'] == 22
+    assert len(statistics['folds'][0]['warnings']) == 1
+    assert statistics['folds'][1]['warnings'] == statistics['development']['warnings'] == []
+    messages = [w for w in result['best']['warnings'] if '四分位距为 0' in w]
+    assert len(messages) == 1 and messages[0].startswith('第 1 折预处理')
+    clipper = worker.preprocessing_module().IQRClipper(columns=['x']).fit(data.iloc[:40][['x']])
+    assert clipper.transform(pd.DataFrame({'x': [18., 24., 1e8]})).x.tolist() == [22., 22., 22.]
+    assert clipper.warnings_ == statistics['folds'][0]['warnings']
+
+
+@pytest.mark.parametrize('engine', ['sklearn', 'optuna', 'autogluon'])
 def test_each_engine_fits_only_fold_training_rows_and_reuses_saved_preprocessing(tmp_path, engine):
     import joblib
     if engine == 'autogluon':

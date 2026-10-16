@@ -256,7 +256,7 @@ def analyze(config):
         if method == 'bounds' and plan['lower'] is None and plan['upper'] is None:
             raise ValueError('固定边界方法需要至少填写一个边界')
         flags = pd.DataFrame(False, index=frame.index, columns=columns)
-        bounds, details = {}, []
+        bounds, details, warnings = {}, [], []
         processed = frame.copy()
         for name in columns:
             series = selected[name]
@@ -267,6 +267,10 @@ def analyze(config):
                 q1, q3 = finite.quantile([.25, .75])
                 width = (q3 - q1) * plan['iqr_factor']
                 low, high = float(q1 - width), float(q3 + width)
+                if q3 == q1:
+                    effect = {'flag': '标记为异常', 'drop': '删除所在行', 'clip': f'截成 {low:g}'}[handling]
+                    warnings.append(f'字段 {name} 的四分位距为 0（Q1 = Q3 = {low:g}）；'
+                                    f'按当前 IQR 规则，其他取值都会{effect}。这不能单独证明它们是业务异常，请结合工况检查。')
             else:
                 low, high = plan['lower'], plan['upper']
             bounds[name] = {'lower': low, 'upper': high}
@@ -290,7 +294,7 @@ def analyze(config):
                       affected_cells=int(flags.to_numpy().sum()), output_rows=len(processed),
                       row_numbering='source_row 从 0 开始，指向原始表格的数据行，不包含表头',
                       preview=processed.head(12).astype(object).where(processed.head(12).notna(), None).to_dict('records'),
-                      warnings=(['IQR 边界由本次全表估计；模型评价中的自适应处理应在训练折内拟合。'] if method == 'iqr' else []))
+                      warnings=warnings + (['IQR 边界由本次全表估计；模型评价中的自适应处理应在训练折内拟合。'] if method == 'iqr' else []))
     else:
         raise ValueError('未知数据分析操作')
     save(output / 'analysis.json', result)
@@ -586,7 +590,8 @@ def fitted_preprocessing(fitted, rows):
     columns = next(list(columns) for name, _, columns in prep.transformers_ if name == 'numeric')
     numeric = prep.named_transformers_['numeric']
     clipper = fitted.named_steps.get('outliers')
-    result = {'rows': rows, 'numeric_columns': columns, 'outlier_bounds': clipper.bounds_ if clipper else {}}
+    result = {'rows': rows, 'numeric_columns': columns, 'outlier_bounds': clipper.bounds_ if clipper else {},
+              'warnings': getattr(clipper, 'warnings_', [])}
     for label, step, attributes in [('fill_values', 'fill', ('statistics_',)),
                                     ('center', 'scale', ('mean_', 'center_')), ('scale', 'scale', ('scale_',))]:
         for attribute in attributes:
@@ -919,6 +924,9 @@ def evaluate(config, x, frame, split, model_name, folder, trial=None):
     save(folder / 'preprocessing.json', {**preprocessing_result, 'folds': preprocessing_folds})
     constant_folds = [d['fold'] for d in diagnostics if d['constant_prediction']]
     warnings = [f'第 {"、".join(map(str, constant_folds))} 折对不同实测值给出了相同预测；请检查样本量、特征和参数。此提示不代表算法方向无效。'] if constant_folds else []
+    for part in preprocessing_folds:
+        warnings.extend(f'第 {part["fold"]} 折预处理：{message}' for message in part.get('warnings', []))
+    warnings.extend('最终开发集预处理：' + message for message in preprocessing_result['development'].get('warnings', []))
     classification = None
     if classes is not None:
         classification, class_warnings = validation_classification(truth, predictions, baseline_predictions, classes, y, split)
