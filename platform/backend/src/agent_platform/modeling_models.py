@@ -139,6 +139,25 @@ class CandidateRequest(Contract):
         return self
 
 
+class DataAnalysisPlan(Contract):
+    operation: Literal['profile', 'spearman', 'outliers'] = 'profile'
+    columns: list[str] = Field(default_factory=list, max_length=50)
+    missing: Literal['pairwise', 'complete', 'raise'] = 'pairwise'
+    method: Literal['iqr', 'bounds'] = 'iqr'
+    handling: Literal['flag', 'drop', 'clip'] = 'flag'
+    iqr_factor: float = Field(default=1.5, gt=0)
+    lower: float | None = None
+    upper: float | None = None
+
+    @model_validator(mode='after')
+    def valid_columns_and_bounds(self):
+        if len(self.columns) != len(set(self.columns)):
+            raise ValueError('分析列不能重复')
+        if self.lower is not None and self.upper is not None and self.lower > self.upper:
+            raise ValueError('异常值下限不能大于上限')
+        return self
+
+
 class ModelingBlock(Contract):
     source_path: Any = ''
     labels_path: Any = ''
@@ -153,6 +172,7 @@ class ModelingBlock(Contract):
     candidate_id: Any = ''
     features: Any = Field(default_factory=dict)
     finalize: bool = False
+    analysis: DataAnalysisPlan = Field(default_factory=DataAnalysisPlan)
 
 
 class FinishStudy(Contract):
@@ -160,7 +180,8 @@ class FinishStudy(Contract):
 
 
 class ModelingTool(Contract):
-    action: Literal['datasets', 'register_dataset', 'revise_dataset', 'export_dataset', 'profile', 'studies', 'create_study', 'read_study', 'next_step', 'submit_candidate', 'submit_and_run', 'train', 'candidates', 'training_note', 'budget', 'finish']
+    action: Literal['datasets', 'register_dataset', 'revise_dataset', 'export_dataset', 'profile', 'analyze', 'studies', 'create_study', 'read_study', 'next_step', 'submit_candidate', 'submit_and_run', 'train', 'candidates', 'training_note', 'budget', 'finish']
+    analysis: DataAnalysisPlan = Field(default_factory=DataAnalysisPlan)
     view: Literal['summary', 'full'] = 'summary'
     workflow_id: str = ''
     inputs: dict[str, Any] = Field(default_factory=dict, description='Additional workflow inputs. study_id and candidate_id are bound by submit_and_run; do not supply them here.')
@@ -195,7 +216,7 @@ def register_modeling_blocks(registry):
     from .blocks import _definition
     from .workflow_models import ValueType
     for kind, title, description in [
-        ('data_analysis', '数据分析', '扫描项目数据集，查看质量、标签分布和时序概况。'),
+        ('data_analysis', '数据分析', '选择数据概况、Spearman 相关分析或异常值处理；返回统计结果或新的数据集。'),
         ('feature_extract', '特征提取', '按预测时点提取时序特征或选择表格字段；需要拟合的转换留在训练折内。'),
         ('model_train', '训练评估', '从上游数据集和表单配置训练，或继续已有候选；保存模型、预处理和真实评价。'),
         ('model_predict', '模型预测', '选择项目文件和已绑定模型，沿用训练时的字段语义、预处理和环境预测。生成可下载 CSV；模型可稍后绑定。'),
@@ -236,6 +257,45 @@ def register_modeling_blocks(registry):
                 field('mapping.sheet', '工作表序号（从 0 开始）', 'number', default_value=0, minimum=0)]
             if kind == 'model_predict':
                 definition.editor['fields'] = definition.editor['fields'][:3] + [field('model_ref', '调用模型', 'reference_or_text')]
+        if kind == 'data_analysis':
+            definition.manual_summary += (' analysis.operation 默认为 profile，兼容已有概况分析。spearman 需要至少两列数值字段，'
+                '返回 pairs、correlation、sample_counts 和可下载结果；missing 可选 pairwise、complete、raise。'
+                'outliers 支持单表数值列，method=iqr 或 bounds；handling=flag（只标记）、drop（删除异常行）、clip（截到边界）。'
+                'drop/clip 返回新的 output.dataset_id，原数据不变，可接下一分析或训练节点。列通过 analysis.columns 明确选择；'
+                '异常处理保留缺失值，不接受无穷值。IQR 在本次全表上估计，仅用于探索或经业务确认的数据清洗；'
+                '模型评价中的自适应预处理必须在训练折内拟合。资源和列可先留空，运行时再检查。')
+            definition.editor['fields'] = [
+                field('analysis.operation', '分析操作', 'enum', options=['profile', 'spearman', 'outliers'], default_value='profile',
+                      option_labels={'profile': '数据概况', 'spearman': 'Spearman 相关分析', 'outliers': '异常值处理'}),
+                *definition.editor['fields'],
+                field('analysis.columns', '分析列（每行一个；相关分析至少两列）', 'string_list'),
+                field('analysis.missing', '相关分析：缺失值处理', 'enum', options=['pairwise', 'complete', 'raise'], default_value='pairwise'),
+                field('analysis.method', '异常值：识别方法', 'enum', options=['iqr', 'bounds'], default_value='iqr'),
+                field('analysis.handling', '异常值：处理方式', 'enum', options=['flag', 'drop', 'clip'], default_value='flag'),
+                field('analysis.iqr_factor', '异常值：四分位距倍数', 'number', default_value=1.5, minimum=.01),
+                field('analysis.lower', '异常值：固定下限（可留空）', 'number'),
+                field('analysis.upper', '异常值：固定上限（可留空）', 'number'),
+            ]
+            for item in definition.editor['fields']:
+                path = item['path']
+                if path == 'analysis.columns':
+                    item['visible_when'] = {'analysis.operation': ['spearman', 'outliers']}
+                elif path == 'analysis.missing':
+                    item.update(visible_when={'analysis.operation': ['spearman']}, option_labels={
+                        'pairwise': '每对变量分别删除缺失样本', 'complete': '删除任一分析列缺失的样本', 'raise': '发现缺失值即停止'})
+                elif path.startswith('analysis.') and path != 'analysis.operation':
+                    item['visible_when'] = {'analysis.operation': ['outliers']}
+                    if path == 'analysis.iqr_factor':
+                        item['visible_when']['analysis.method'] = ['iqr']
+                    if path in {'analysis.lower', 'analysis.upper'}:
+                        item['visible_when']['analysis.method'] = ['bounds']
+                elif path in {'mapping.time_unit', 'mapping.time_column',
+                              'mapping.prediction_time_column', 'mapping.available_time_column', 'mapping.label_available_time_column'}:
+                    item['visible_when'] = {'analysis.operation': ['profile']}
+                if path == 'analysis.method':
+                    item['option_labels'] = {'iqr': '四分位距（IQR）', 'bounds': '指定上下限'}
+                if path == 'analysis.handling':
+                    item['option_labels'] = {'flag': '只标记，保留全部数据', 'drop': '删除异常值所在行', 'clip': '将异常值截到边界'}
         if kind == 'feature_extract':
             definition.editor['fields'] = [field('dataset_id', '上游数据集', 'reference_or_text'),
                 field('features.columns', '使用字段（每行一个，留空使用全部）', 'string_list'),

@@ -1,4 +1,8 @@
-import type { Block } from './platform'
+import type { Block, BlockEditorField } from './platform'
+
+export function isWorkflowFieldVisible(field: BlockEditorField, values: Record<string, unknown>): boolean {
+  return Object.entries(field.visible_when || {}).every(([path, options]) => options.includes(String(values[path] ?? '')))
+}
 
 export type FieldNode = { id: string; title: string; type: string; config: Record<string, unknown> }
 export type FieldEdge = { source: string; target: string }
@@ -47,7 +51,15 @@ export function outputPaths(node: FieldNode | undefined, blocks: Block[] = []): 
   if (node.type === 'llm') dynamic = [['text'], ['structured'], ...schemaPaths(node.config.structured_output, ['structured'])]
   if (['end', 'answer'].includes(node.type)) dynamic = Object.keys(node.config.outputs || {}).map(key => [key])
   if (node.type === 'variable_assigner') dynamic = Object.keys(node.config.assignments || {}).map(key => ['output', key])
-  if (node.type === 'data_analysis') dynamic = ['dataset_id', 'rows', 'columns', 'duplicates'].map(key => ['output', key])
+  if (node.type === 'data_analysis') {
+    const operation = (node.config.analysis as { operation?: string } | undefined)?.operation || 'profile'
+    const fields = operation === 'spearman'
+      ? ['dataset_id', 'rows', 'columns', 'pairs', 'correlation', 'sample_counts', 'artifacts']
+      : operation === 'outliers'
+        ? ['dataset_id', 'source_dataset_id', 'rows', 'output_rows', 'bounds', 'affected_rows', 'affected_cells', 'artifacts']
+        : ['dataset_id', 'rows', 'columns', 'duplicates']
+    dynamic = fields.map(key => ['output', key])
+  }
   if (node.type === 'feature_extract') dynamic = ['dataset_id', 'feature_plan'].map(key => ['output', key])
   if (node.type === 'model_train') dynamic = ['id', 'study_id', 'trials', 'status'].map(key => ['output', key])
   if (node.type === 'model_predict') dynamic = ['rows', 'preview', 'artifact', 'project_path', 'model_version'].map(key => ['output', key])

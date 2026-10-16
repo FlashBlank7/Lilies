@@ -1,7 +1,7 @@
 'use client'
 
 import { containerWorkflow as containerInnerWorkflow, workflowAtPath, scopedMutation, scopedFieldNodes } from '@/lib/workflow-scope'
-import { outputPaths } from '@/lib/workflow-fields'
+import { outputPaths, isWorkflowFieldVisible } from '@/lib/workflow-fields'
 import ProjectWorkflowChecks from '@/app/components/ProjectWorkflowChecks'
 import WorkflowComposer from '@/app/components/WorkflowComposer'
 import { workflowFieldLabels, workflowModelHelp } from '@/lib/workflow-fields'
@@ -2359,6 +2359,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
             </label>}
             {configEditorMode === 'form' ? <div className="config-form" data-config-editor="schema-form">
               {selectedEditorFields.length ? selectedEditorFields.map(field => {
+                if (!isWorkflowFieldVisible(field, configFieldValues)) return null
                 const label = locale === 'zh' ? (selectedInner && field.path === 'output_node_id' ? '输出积木' : selectedInner && field.path === 'output_path' ? '输出字段路径' : selected.type === 'llm' && field.path === 'model' ? '调用模型' : field.label_zh || workflowFieldLabels[field.path] || field.label) : field.label
                 const description = locale === 'zh' ? field.description_zh || (selected.type === 'llm' ? workflowModelHelp[field.path] : field.description) : field.description
                 const value = configFieldValues[field.path]
@@ -2384,7 +2385,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
                     : ['outputs', 'input', 'variables', 'inputs', 'assignments', 'headers', 'query'].includes(field.path) && field.control === 'json' ? <WorkflowObjectFields projectId={projectContext?.id} nodes={fieldNodes} edges={fieldEdges} blocks={blocks} modelRole={String(configFieldValues.model_role || selected.config.model_role || 'main')} nodeId={selected.id} label={label} field={field.path} value={String(value ?? '{}')} onChange={update} />
                     : (field.control === 'reference_or_text' || ['model_ref', 'knowledge_ref', 'dataset_id', 'file_path'].includes(field.path) || (selected.type === 'llm' && field.path === 'model')) ? <WorkflowValueField projectId={projectContext?.id} nodes={fieldNodes} edges={fieldEdges} blocks={blocks} modelRole={String(configFieldValues.model_role || selected.config.model_role || 'main')} allowReference={field.path !== 'model'} nodeId={selected.id} label={label} field={field.path} value={String(value ?? '')} onChange={update} />
                     : field.control === 'boolean' ? <input aria-label={label} type="checkbox" checked={value === true} onChange={event => update(event.target.checked)} />
-                    : field.control === 'enum' ? <select aria-label={label} value={String(value ?? '')} onChange={event => update(event.target.value)}>{!field.required && field.default_value == null && <option value="" />}{field.options?.map(option => <option key={option} value={option}>{selected.type === 'llm' && field.path === 'model_role' ? option === 'vision' ? '视觉模型' : '主模型' : option}</option>)}</select>
+                    : field.control === 'enum' ? <select aria-label={label} value={String(value ?? '')} onChange={event => update(event.target.value)}>{!field.required && field.default_value == null && <option value="" />}{field.options?.map(option => <option key={option} value={option}>{selected.type === 'llm' && field.path === 'model_role' ? option === 'vision' ? '视觉模型' : '主模型' : locale === 'zh' ? field.option_labels?.[option] || option : option}</option>)}</select>
                       : ['textarea', 'json', 'reference_or_text', 'string_list'].includes(field.control) ? <textarea aria-label={label} className={field.control === 'json' ? 'config-json-field' : ''} spellCheck={field.control !== 'json'} value={String(value ?? '')} onChange={event => update(event.target.value)} />
                         : <input aria-label={label} type={field.control === 'number' ? 'number' : 'text'} readOnly={field.control === 'readonly'} min={field.minimum} max={field.maximum} step={field.step} value={String(value ?? '')} onChange={event => update(event.target.value)} />}
                 </div>

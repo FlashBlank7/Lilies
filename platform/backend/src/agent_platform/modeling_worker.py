@@ -104,6 +104,116 @@ def profile(config):
     return clean(result)
 
 
+def analyze(config):
+    """Explicit numeric operations on a single table, independent of training."""
+    import numpy as np
+    import pandas as pd
+    from scipy.stats import spearmanr
+
+    plan = config['analysis']
+    operation = plan['operation']
+    if operation == 'profile':
+        return profile(config)
+    if config['mapping'].get('kind', 'tabular') != 'tabular' or config.get('labels'):
+        raise ValueError('统计与异常值操作需要单张表格；请先明确整理时序或独立标签表')
+    columns = plan['columns']
+    minimum = 2 if operation == 'spearman' else 1
+    if len(columns) < minimum:
+        raise ValueError(f'请明确选择至少 {minimum} 个数值分析列')
+    frame = read_table(config['source'], config['mapping'])
+    unknown = [name for name in columns if name not in frame]
+    if unknown:
+        raise ValueError('分析列不存在：' + '、'.join(unknown))
+    invalid = [name for name in columns if not pd.api.types.is_numeric_dtype(frame[name])
+               or pd.api.types.is_bool_dtype(frame[name])]
+    if invalid:
+        raise ValueError('分析列必须为数值，不能自动转换文本或布尔列：' + '、'.join(invalid))
+    selected = frame[columns].astype(float)
+    if np.isinf(selected.to_numpy()).any():
+        raise ValueError('分析列含无穷值，请先修正数据')
+    output = Path(config['output']); output.mkdir(parents=True, exist_ok=True)
+    result = {'operation': operation, 'rows': len(frame), 'columns': columns,
+              'missing_counts': {name: int(selected[name].isna().sum()) for name in columns}}
+    if operation == 'spearman':
+        missing = plan['missing']
+        if missing == 'raise' and selected.isna().any().any():
+            raise ValueError('分析列存在缺失值；请选择成对删除或整行删除')
+        if missing == 'complete':
+            selected = selected.dropna()
+        size = len(columns)
+        matrix = [[None] * size for _ in columns]
+        counts = [[0] * size for _ in columns]
+        pairs = []
+        for i, left in enumerate(columns):
+            for j in range(i, size):
+                right = columns[j]
+                valid = selected[left].notna() & selected[right].notna()
+                x, y = selected.loc[valid, left], selected.loc[valid, right]
+                n = len(x)
+                reason, rho, p = '', None, None
+                if n < 3:
+                    reason = '有效样本少于 3'
+                elif x.nunique() < 2 or y.nunique() < 2:
+                    reason = '包含常数列'
+                elif i == j:
+                    rho = 1.0
+                else:
+                    statistic = spearmanr(x, y)
+                    rho, p = float(statistic.statistic), float(statistic.pvalue)
+                matrix[i][j] = matrix[j][i] = rho
+                counts[i][j] = counts[j][i] = n
+                if i != j:
+                    pairs.append({'left': left, 'right': right, 'rho': rho, 'p_value': p,
+                                  'samples': n, 'status': 'undefined' if reason else 'ok', 'reason': reason})
+        result.update(missing=missing, correlation=matrix, sample_counts=counts, pairs=pairs,
+                      warnings=['p 值使用渐近近似且未经多重比较校正；小样本结论需要进一步统计检验。'])
+        pd.DataFrame(pairs).to_csv(output / 'correlations.csv', index=False)
+    elif operation == 'outliers':
+        method, handling = plan['method'], plan['handling']
+        if method == 'bounds' and plan['lower'] is None and plan['upper'] is None:
+            raise ValueError('固定边界方法需要至少填写一个边界')
+        flags = pd.DataFrame(False, index=frame.index, columns=columns)
+        bounds, details = {}, []
+        processed = frame.copy()
+        for name in columns:
+            series = selected[name]
+            finite = series.dropna()
+            if finite.empty:
+                raise ValueError(f'分析列 {name} 没有有效数值')
+            if method == 'iqr':
+                q1, q3 = finite.quantile([.25, .75])
+                width = (q3 - q1) * plan['iqr_factor']
+                low, high = float(q1 - width), float(q3 + width)
+            else:
+                low, high = plan['lower'], plan['upper']
+            bounds[name] = {'lower': low, 'upper': high}
+            mask = ((series < low) if low is not None else False) | ((series > high) if high is not None else False)
+            flags[name] = mask
+            for index in frame.index[flags[name]]:
+                details.append({'source_row': int(index), 'column': name, 'value': float(series.loc[index]),
+                                'lower': low, 'upper': high})
+            if handling == 'clip':
+                processed[name] = series.clip(lower=low, upper=high)
+        affected = flags.any(axis=1)
+        if handling == 'drop':
+            processed = processed.loc[~affected]
+        if handling != 'flag':
+            if processed.empty:
+                raise ValueError('异常值处理会删除全部样本，请调整边界')
+            processed.to_csv(output / 'processed.csv', index=False)
+        pd.DataFrame(details, columns=['source_row', 'column', 'value', 'lower', 'upper']).to_csv(output / 'outliers.csv', index=False)
+        pd.DataFrame({'source_row': processed.index}).to_csv(output / 'source-rows.csv', index=False)
+        result.update(method=method, handling=handling, bounds=bounds, affected_rows=int(affected.sum()),
+                      affected_cells=int(flags.to_numpy().sum()), output_rows=len(processed),
+                      row_numbering='source_row 从 0 开始，指向原始表格的数据行，不包含表头',
+                      preview=processed.head(12).astype(object).where(processed.head(12).notna(), None).to_dict('records'),
+                      warnings=(['IQR 边界由本次全表估计；模型评价中的自适应处理应在训练折内拟合。'] if method == 'iqr' else []))
+    else:
+        raise ValueError('未知数据分析操作')
+    save(output / 'analysis.json', result)
+    return clean(result)
+
+
 def samples(config, prediction=False):
     import numpy as np
     import pandas as pd
@@ -799,6 +909,8 @@ def main():
         result = inspect_model(config)
     elif action == 'profile':
         result = profile(config)
+    elif action == 'analyze':
+        result = analyze(config)
     elif action == 'prepare':
         result = prepare(config)
         save(Path(config['output']) / 'split.json', result)

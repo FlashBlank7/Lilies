@@ -185,6 +185,8 @@ export type BlockEditorField = {
   maximum?: number
   step?: number
   options?: string[]
+  option_labels?: Record<string, string>
+  visible_when?: Record<string, string[]>
 }
 
 export type BlockEditorNotice = {

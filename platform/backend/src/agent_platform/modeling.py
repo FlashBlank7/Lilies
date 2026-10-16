@@ -12,7 +12,7 @@ from uuid import uuid4
 
 from .db import connect
 from .models import utc_now
-from .modeling_models import DatasetRequest, StudyRequest, CandidateRequest, FeaturePlan, AideSearch
+from .modeling_models import DatasetRequest, StudyRequest, CandidateRequest, FeaturePlan, AideSearch, DataAnalysisPlan
 from .modeling_search import choose_step
 from .project_store import ProjectConflict, encode
 from .workspace_copy import copy_workspace_file
@@ -348,6 +348,46 @@ class Modeling:
             await self.put(project_id, 'dataset', dataset)
             return result
 
+    async def analyze(self, project_id, dataset_id, plan: DataAnalysisPlan):
+        if plan.operation == 'profile':
+            return {'dataset_id': dataset_id, **await self.profile(project_id, dataset_id)}
+        dataset = await self.get(project_id, 'dataset', dataset_id)
+        operation_id = str(uuid4())
+        folder = self.path(project_id, dataset_id) / 'analysis' / operation_id
+        image = await self.image()
+        result = await self.compute(project_id, dataset, {'action': 'analyze', 'analysis': plan.model_dump()}, folder, image=image)
+        root = self.services.projects.workspace(project_id)
+        relative = Path('results/data-analysis') / operation_id
+        destination = root / relative
+
+        def export():
+            for path in (root, root / 'results', root / 'results/data-analysis', destination):
+                if path.is_symlink():
+                    raise ValueError('分析结果路径不能包含符号链接')
+            destination.mkdir(parents=True, exist_ok=False)
+            names = (['analysis.json', 'correlations.csv'] if plan.operation == 'spearman'
+                     else ['analysis.json', 'outliers.csv', 'source-rows.csv'])
+            if plan.operation == 'outliers' and plan.handling != 'flag':
+                names.append('processed.csv')
+            artifacts = []
+            for name in names:
+                copy_workspace_file(folder / 'output' / name, destination / name)
+                artifacts.append({'label': name, 'file_path': (relative / name).as_posix()})
+            return artifacts
+
+        artifacts = await asyncio.to_thread(export)
+        result.update(dataset_id=dataset_id, source_dataset_id=dataset_id, operation_id=operation_id,
+                      analysis=plan.model_dump(), image=image, artifacts=artifacts)
+        if plan.operation == 'outliers' and plan.handling != 'flag':
+            derived = await self.dataset(project_id, DatasetRequest(
+                name=dataset['name'] + ' · 异常值处理', source_path=(relative / 'processed.csv').as_posix(),
+                mapping=dataset['mapping']))
+            derived.update(derived_from=dataset_id, transformation={'operation_id': operation_id,
+                           'analysis': plan.model_dump(), 'image': image})
+            await self.put(project_id, 'dataset', derived)
+            result['dataset_id'] = derived['id']
+        return result
+
     @staticmethod
     def elapsed(study):
         return study.get('used_seconds', 0) + (time.time() - study['active_since'] if study.get('active_since') else 0)
@@ -628,7 +668,7 @@ class Modeling:
         if kind == 'data_analysis':
             if not args.get('dataset_id'):
                 raise ValueError('数据分析节点尚未选择项目文件或数据集')
-            return {'dataset_id': args['dataset_id'], **await self.profile(project_id, args['dataset_id'])}
+            return await self.analyze(project_id, args['dataset_id'], DataAnalysisPlan.model_validate(args.get('analysis') or {}))
         if kind == 'model_train':
             if args.get('finalize'):
                 return await self.finalize(project_id, args['study_id'], run_id)
@@ -869,6 +909,8 @@ class Modeling:
             return await self.export_dataset(project_id, args.dataset_id)
         if action == 'profile':
             return await self.profile(project_id, args.dataset_id, args.sampled)
+        if action == 'analyze':
+            return await self.analyze(project_id, args.dataset_id, args.analysis)
         if action == 'studies':
             return await self.list(project_id, 'study', offset=args.offset, limit=args.limit)
         if action == 'create_study':

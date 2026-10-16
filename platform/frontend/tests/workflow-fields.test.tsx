@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { api, type Block } from '@/lib/platform'
-import { outputPaths, upstreamNodes, type FieldNode } from '@/lib/workflow-fields'
+import { outputPaths, upstreamNodes, isWorkflowFieldVisible, type FieldNode } from '@/lib/workflow-fields'
 import { WorkflowValueField, WorkflowObjectFields, WorkflowInputFields, type WorkflowFieldProps } from '@/app/components/WorkflowValueField'
 import WorkflowImageFields from '@/app/components/WorkflowImageFields'
 import WorkflowConditionFields from '@/app/components/WorkflowConditionFields'
@@ -16,6 +16,29 @@ const nodes: FieldNode[] = [
   {id:'other',title:'另一个分支',type:'code',config:{}},
 ]
 const edges = [{source:'start',target:'model'},{source:'model',target:'current'},{source:'current',target:'later'},{source:'start',target:'other'}]
+
+it('offers operation-specific analysis results to downstream nodes', () => {
+  const analysis = { id:'stats', title:'统计', type:'data_analysis', config:{analysis:{operation:'spearman'}} }
+  expect(outputPaths(analysis)).toContainEqual(['output', 'pairs'])
+  expect(outputPaths(analysis)).not.toContainEqual(['output', 'duplicates'])
+  analysis.config.analysis.operation = 'outliers'
+  expect(outputPaths(analysis)).toContainEqual(['output', 'dataset_id'])
+  expect(outputPaths(analysis)).toContainEqual(['output', 'affected_rows'])
+  expect(outputPaths(analysis)).not.toContainEqual(['output', 'pairs'])
+  expect(outputPaths({...analysis,config:{}})).toContainEqual(['output', 'duplicates'])
+})
+
+it('shows bounds only for the selected outlier method without mutating unsaved values', () => {
+  const field = {path:'analysis.lower', label:'下限', control:'number' as const,
+    visible_when:{'analysis.operation':['outliers'], 'analysis.method':['bounds']}}
+  const values = {'analysis.operation':'spearman', 'analysis.method':'bounds', 'analysis.lower':'4'}
+  expect(isWorkflowFieldVisible(field,values)).toBe(false)
+  values['analysis.operation']='outliers'
+  expect(isWorkflowFieldVisible(field,values)).toBe(true)
+  values['analysis.method']='iqr'
+  expect(isWorkflowFieldVisible(field,values)).toBe(false)
+  expect(values['analysis.lower']).toBe('4')
+})
 const props = {nodes,edges,nodeId:'current',label:'测试字段'}
 
 it('offers transitive upstream nodes and structured fields without downstream or sibling choices', () => {
