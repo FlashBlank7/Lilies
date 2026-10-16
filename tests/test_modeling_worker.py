@@ -107,7 +107,12 @@ def test_real_search_persist_resume_and_unlabeled_prediction(tmp_path, classific
     import joblib
     from datetime import datetime
     for t in result['trials']:
-        model = joblib.load(Path(config['output']) / f'trial-{t["slot"]}/model.joblib')
+        model_path = Path(config['output']) / f'trial-{t["slot"]}/model.joblib'
+        model = joblib.load(model_path)
+        assert t['resources']['peak_rss_bytes'] > 1024 ** 2
+        assert t['resources']['model_bytes'] == model_path.stat().st_size
+        assert t['resources']['memory_scope'] == 'trial_process'
+        assert t['resources']['model_paths'] == ['model.joblib']
         assert t['effective_model']['parameters'] == model.named_steps['model'].get_params()
         assert datetime.fromisoformat(t['completed_at']) >= datetime.fromisoformat(t['started_at'])
         assert t['search']['distributions']
@@ -250,6 +255,12 @@ def test_autogluon_compares_on_same_saved_rows(tmp_path, classification):
     config.update(engine='autogluon', batch_size=1, trial_seconds=90)
     result = worker.train(config)
     assert result['best'], result
+    folder = Path(config['output']) / 'trial-0'
+    resources = result['best']['resources']
+    assert resources['peak_rss_bytes'] > 1024 ** 2
+    assert resources['model_paths'] == ['autogluon']
+    assert resources['model_bytes'] == sum(p.stat().st_size for p in (folder / 'autogluon').rglob('*') if p.is_file())
+    assert resources['model_bytes'] < sum(p.stat().st_size for p in folder.rglob('*') if p.is_file())
     predictions = pd.read_csv(Path(config['output']) / 'trial-0' / 'validation-predictions.csv')
     assert predictions['sample'].tolist() == [split['samples'][i] for _, valid in split['folds'] for i in valid]
     import json

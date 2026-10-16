@@ -20,6 +20,12 @@ def cell(value):
     return str(value if value is not None else '未记录').replace('|', '\\|').replace('\n', ' ')
 
 
+def size(value):
+    if value is None:
+        return '未记录'
+    return f'{value / 1024 ** 2:.2f} MiB' if value >= 1024 ** 2 else f'{value / 1024:.2f} KiB'
+
+
 def comparison(study, candidates):
     metric = study['evaluation']['metric']
     trials = [(c, t) for c in candidates for t in c.get('trials', [])]
@@ -32,6 +38,8 @@ def comparison(study, candidates):
         seconds += t.get('seconds', 0)
         rows.append({'sequence': len(rows) + 1, 'candidate_id': c['id'], 'slot': t['slot'], 'model': t['model'],
                      'status': t['status'], 'score': score, 'best_score': best, 'seconds': t.get('seconds'),
+                     'peak_rss_bytes': (t.get('resources') or {}).get('peak_rss_bytes'),
+                     'model_bytes': (t.get('resources') or {}).get('model_bytes'),
                      'cumulative_seconds': seconds, 'completed_at': t.get('completed_at'),
                      'parameters': t.get('parameters', {}), 'hypothesis': c.get('hypothesis', ''),
                      'task_id': t.get('task_id') or c.get('task_id'), 'run_id': t.get('run_id') or c.get('run_id')})
@@ -123,9 +131,10 @@ def render_note(note):
              '保留测试结果（仅属于被最终选定的这个模型，不参与搜索曲线）：\n\n```json\n' + pretty(note['test_result']) + '\n```' if note['test_result'] else '这个模型没有已保存的最终测试结果；上面的指标为验证结果。',
              '## 同条件模型比较与改进曲线', note['scope'],
              f"指标 {metric} {'越低越好' if metric in {'mae', 'rmse'} else '越高越好'}。curve.svg 按实际试验展示，comparison.csv 保存完整数值；没有逐 epoch 曲线时不生成。耗时累计只相加试验秒数，不含 Agent 等待。",
-             '| 序号 | 候选／试验 | 模型 | 状态 | 指标 | 历次最佳 | 秒 |\n|---|---|---|---|---:|---:|---:|\n' + '\n'.join(
-                 '| ' + ' | '.join(cell(v) for v in [r['sequence'], f"{r['candidate_id']} / {r['slot'] + 1}", r['model'], r['status'], r['score'], r['best_score'], r['seconds']]) + ' |' for r in note['comparison']),
-             '## 运行与环境', '```json\n' + pretty({'project_id': note['project_id'], 'study_id': note['study_id'], 'candidate_id': note['candidate_id'], 'slot': note['slot'], 'task_id': note['task_id'], 'run_id': note['run_id'], 'image': note['image'], 'started_at': t.get('started_at'), 'completed_at': t.get('completed_at'), 'seconds': t.get('seconds'), 'budget': note['budget']}) + '\n```',
+             '内存为每次试验主进程的峰值，包含数据、依赖、各折及最终拟合，不含其他进程，不能当作部署内存需求。模型大小为最终保存的预测目录和预处理文件，不含折模型、日志与运行环境；AutoGluon 目录含其内部保存的数据。不同计算环境的数值不宜直接比较。未记录表示旧版本或本次未取得测量值。',
+             '| 序号 | 候选／试验 | 模型 | 状态 | 指标 | 历次最佳 | 秒 | 试验内存峰值 | 模型文件大小 |\n|---|---|---|---|---:|---:|---:|---:|---:|\n' + '\n'.join(
+                 '| ' + ' | '.join(cell(v) for v in [r['sequence'], f"{r['candidate_id']} / {r['slot'] + 1}", r['model'], r['status'], r['score'], r['best_score'], r['seconds'], size(r.get('peak_rss_bytes')), size(r.get('model_bytes'))]) + ' |' for r in note['comparison']),
+             '## 运行与环境', '```json\n' + pretty({'project_id': note['project_id'], 'study_id': note['study_id'], 'candidate_id': note['candidate_id'], 'slot': note['slot'], 'task_id': note['task_id'], 'run_id': note['run_id'], 'image': note['image'], 'started_at': t.get('started_at'), 'completed_at': t.get('completed_at'), 'seconds': t.get('seconds'), 'resources': t.get('resources'), 'budget': note['budget']}) + '\n```',
              '记录包包含固定划分、可用的验证预测、参数与环境；模型下载包同时包含此笔记。源数据按数据集版本保存，记录包不重复打包源数据。',
              '## 记录缺口', '\n'.join('- ' + gap for gap in note['gaps']) if note['gaps'] else ('本次试验的参数、划分、指标与起止时间均已记录。' if t['status'] == 'completed' else '失败原因、传入参数、划分与起止时间已记录；没有生成成功指标或模型。')]
     if note.get('search_decision'):

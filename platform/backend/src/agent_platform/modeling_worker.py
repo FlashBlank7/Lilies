@@ -954,6 +954,19 @@ def evaluate(config, x, frame, split, model_name, folder, trial=None):
             'acceptance': acceptance, 'effective_model': effective, 'importance': importance, 'validation_rows': len(rows), 'prediction_preview': out.head(30).to_dict('records'), 'feature_columns': list(x.columns), 'classes': classes.tolist() if classes is not None else None}
 
 
+def trial_resources(config, folder):
+    """Measure this isolated trial process and the final saved prediction files."""
+    import resource
+    peak = int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
+    peak = peak * 1024 if sys.platform == 'linux' else peak if sys.platform == 'darwin' else None
+    names = ['autogluon', 'preprocessing.joblib'] if config['engine'] == 'autogluon' else ['model.joblib']
+    paths = [folder / name for name in names if (folder / name).exists()]
+    files = [file for path in paths for file in (path.rglob('*') if path.is_dir() else [path]) if file.is_file()]
+    return {'peak_rss_bytes': peak, 'memory_scope': 'trial_process',
+            'model_bytes': sum(file.stat().st_size for file in files) if files else None,
+            'model_paths': [path.name for path in paths], 'model_scope': 'saved_prediction_files'}
+
+
 def bounded_evaluate(config, name, folder, seconds, trial):
     """A process boundary enforces deadlines even inside a native estimator."""
     args = {**config, '_trial_model': name, '_trial_folder': str(folder)}
@@ -1162,6 +1175,7 @@ def main():
         try:
             x, frame, _ = cached_features(config)
             result = evaluate(config, x, frame, json.loads(Path(config['split']).read_text()), config['_trial_model'], folder)
+            result['resources'] = trial_resources(config, folder)
             save(folder / 'trial-output.json', {'result': result})
         except Exception as error:
             save(folder / 'trial-output.json', {'error': str(error)})

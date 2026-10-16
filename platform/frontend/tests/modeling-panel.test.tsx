@@ -87,6 +87,25 @@ it('opens the exact trial note and model download, then returns to the experimen
   expect(onContext).not.toHaveBeenCalled()
 })
 
+it('compares recorded model resources and keeps unknown measurements explicit', async () => {
+  const original = vi.mocked(api).getMockImplementation()!
+  vi.mocked(api).mockImplementation(async (path, options) => {
+    if (path.includes('/candidates')) return [{ ...candidate, trials: [
+      {...candidate.trials[0], resources: {peak_rss_bytes: 256 * 1024 ** 2, model_bytes: 8192}},
+      {...candidate.trials[0], slot: 1, model: 'forest', resources: undefined},
+    ] }] as never
+    return original(path, options)
+  })
+  render(<ModelingPanel projectId="p" onContext={vi.fn()} />)
+  fireEvent.click(await screen.findByRole('button', { name: '查看结果' }))
+  fireEvent.click(screen.getByRole('tab', { name: '实验' }))
+  expect(await screen.findByRole('columnheader', {name: '试验内存峰值'})).toBeInTheDocument()
+  expect(screen.getByText('256.00 MiB')).toBeInTheDocument()
+  expect(screen.getByText('8.00 KiB')).toBeInTheDocument()
+  expect(screen.getAllByRole('cell', {name: '未记录'})).toHaveLength(2)
+  expect(screen.getByText(/不是部署内存需求/)).toBeInTheDocument()
+})
+
 it('keeps compact conversation controls small while preserving results, notes and upload access', async () => {
   render(<ModelingPanel compact projectId="p" onContext={vi.fn()} />)
   expect(await screen.findByText('最佳 MAE 0.4')).toBeInTheDocument()

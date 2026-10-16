@@ -118,6 +118,14 @@ def test_each_engine_fits_only_fold_training_rows_and_reuses_saved_preprocessing
     result = worker.train(config)
     assert result['best'], result
     folder = Path(config['output']) / 'trial-0'
+    resources = result['best']['resources']
+    assert resources['peak_rss_bytes'] > 1024 ** 2
+    if engine == 'autogluon':
+        assert resources['model_paths'] == ['autogluon', 'preprocessing.joblib']
+        assert resources['model_bytes'] == (folder / 'preprocessing.joblib').stat().st_size + sum(
+            p.stat().st_size for p in (folder / 'autogluon').rglob('*') if p.is_file())
+    else:
+        assert resources['model_bytes'] == (folder / 'model.joblib').stat().st_size
     statistics = json.loads((folder / 'preprocessing.json').read_text())
     for part, indices in [(statistics['folds'][i], train) for i, (train, _) in enumerate(split['folds'])] + [(statistics['development'], split['development'])]:
         values = raw.x.iloc[indices]

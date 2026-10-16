@@ -168,6 +168,10 @@ def test_actual_workflow_training_prediction_download_and_repeat(real_compute):
         assert response.status_code == 200, response.text
         note = response.json()['note']
         assert note['trial']['metrics'] == trial['metrics']
+        resources = trial['resources']
+        assert resources['peak_rss_bytes'] > 1024 ** 2 and resources['memory_scope'] == 'trial_process'
+        assert note['trial']['resources'] == resources
+        assert note['comparison'][slot]['model_bytes'] == resources['model_bytes']
         assert note['trial']['effective_model']['parameters']['alpha'] == trial['parameters']['regularization']
         assert len(note['comparison']) == 2
         assert note['task_id'] == task['id']
@@ -177,6 +181,9 @@ def test_actual_workflow_training_prediction_download_and_repeat(real_compute):
         with zipfile.ZipFile(io.BytesIO(client.get(path + f'/download?slot={slot}').content)) as archive:
             assert json.loads(archive.read('configuration.json'))['selected_trial_slot'] == slot
             assert json.loads(archive.read('training-note.json'))['trial']['metrics'] == trial['metrics']
+            assert resources['model_bytes'] == archive.getinfo('model/model.joblib').file_size
+            assert json.loads(archive.read('training-note.json'))['trial']['resources'] == resources
+            assert 'peak_rss_bytes,model_bytes' in archive.read('comparison.csv').decode('utf-8-sig')
     other = client.post('/api/v1/projects', json={'name': '其他项目'}).json()['id']
     assert client.get(path.replace(project['id'], other) + '/trials/0/note').status_code == 404
     assert client.get(path + '/trials/999/note').status_code == 404

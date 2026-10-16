@@ -51,7 +51,7 @@ def study_summary(value):
 
 def trial_summary(value):
     result = pick(value, ('slot', 'model', 'status', 'metrics', 'baseline', 'seconds', 'error', 'warnings', 'diagnostics',
-                         'fold_metrics', 'task_id', 'run_id', 'started_at', 'completed_at'))
+                         'fold_metrics', 'resources', 'task_id', 'run_id', 'started_at', 'completed_at'))
     # Preserve the worst groups and explicitly label the omitted tail.
     groups = value.get('group_errors', [])
     result['group_errors'] = deepcopy(groups[:5])

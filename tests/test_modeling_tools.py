@@ -42,12 +42,15 @@ def test_summary_keeps_diagnostics_and_full_records_are_unmodified():
     trial = {'slot': 0, 'model': 'svm', 'status': 'completed', 'metrics': {'mae': .3}, 'baseline': {'mae': .5},
         'fold_metrics': [{'mae': .4}], 'diagnostics': [{'constant_prediction': True}], 'warnings': ['常数预测'],
         'group_errors': [{'group': str(i), 'error': 10-i} for i in range(10)],
-        'effective_model': {'many': list(range(1000))}, 'prediction_preview': [1]*100, 'seconds': 1}
+        'effective_model': {'many': list(range(1000))}, 'prediction_preview': [1]*100, 'seconds': 1,
+        'resources': {'peak_rss_bytes': 200000000, 'memory_scope': 'trial_process', 'model_bytes': 12345,
+                      'model_paths': ['model.joblib'], 'model_scope': 'saved_prediction_files'}}
     candidate = {'id': 'c', 'study_id': 's', 'trials': [trial], 'features': {'columns': ['x']}, 'hypothesis': '试验窗口',
         'error': '失败原因', 'task_id': 't', 'parent_id': 'old', 'parameters': {'large': 'x'*4000}}
     before = deepcopy(candidate); result = candidate_summary(candidate)
     assert result['trials'][0]['diagnostics'] == trial['diagnostics']
     assert result['trials'][0]['warnings'] == ['常数预测']
+    assert result['trials'][0]['resources'] == trial['resources']
     assert result['trials'][0]['group_errors_omitted'] == 5
     assert result['error'] == '失败原因' and result['task_id'] == 't'
     assert len(json.dumps(result)) < len(json.dumps(candidate)) / 2
