@@ -168,6 +168,23 @@ def profile(config):
     for key in ('id_column', 'group_column'):
         if mapping.get(key) in frame:
             result[key + '_count'] = int(frame[mapping[key]].nunique())
+    target = mapping.get('target')
+    if target and target in frame:
+        labeled = frame.loc[frame[target].notna()]
+        structure = {'target': target, 'labeled_rows': len(labeled),
+                     'missing_labels': int(frame[target].isna().sum())}
+        group = mapping.get('group_column') or mapping.get('id_column')
+        if group and group in labeled:
+            counts = labeled[group].value_counts()
+            repeated = counts[counts > 1]
+            structure.update(group_column=group, groups=len(counts), repeated_groups=len(repeated),
+                             rows_in_repeated_groups=int(repeated.sum()), missing_groups=int(labeled[group].isna().sum()))
+            if len(repeated):
+                scope = '当前预览' if config.get('sampled', False) else '有标签数据'
+                result['warnings'] = [f'{scope}中，{group} 有 {len(repeated)} 个重复组，涉及 {int(repeated.sum())} 行；'
+                    '随机划分可能让同一对象同时进入训练和验证。请使用 evaluation.split="group"；'
+                    '只有预测时点明确时才选择时间向前验证。']
+        result['sample_structure'] = structure
     if config.get('labels'):
         result['labels'] = profile({**config, 'source': config['labels'], 'labels': ''})
     return clean(result)

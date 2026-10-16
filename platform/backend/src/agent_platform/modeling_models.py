@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any, ClassVar, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class Contract(BaseModel):
@@ -217,7 +217,17 @@ class DatasetBlock(ModelingBlock):
 
 
 class DataAnalysisBlock(DatasetBlock):
-    analysis: DataAnalysisPlan = Field(default_factory=DataAnalysisPlan)
+    analysis: DataAnalysisPlan | dict[str, Any] = Field(default_factory=DataAnalysisPlan,
+        description='Analysis settings may contain workflow references; the resolved values are validated as DataAnalysisPlan at execution.')
+
+    @field_validator('analysis', mode='before')
+    @classmethod
+    def validate_literal_analysis(cls, value):
+        def deferred(item):
+            if isinstance(item, dict):
+                return '$ref' in item or '$formula' in item or any(deferred(v) for v in item.values())
+            return isinstance(item, list) and any(deferred(v) for v in item)
+        return value if deferred(value) else DataAnalysisPlan.model_validate(value)
 
 
 class FeatureExtractBlock(ModelingBlock):

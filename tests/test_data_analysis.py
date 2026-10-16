@@ -1,5 +1,6 @@
 """The same real operations can run as agent tools and editable workflow nodes."""
 from pathlib import Path
+import json
 
 from tests.test_modeling import modeling, real_compute, wait_task  # noqa: F401
 from tests.test_projects import configured, graph, node, edge, ref, start  # noqa: F401
@@ -15,6 +16,51 @@ def register(config):
                            'mapping': {'id_column': 'id', 'target': 'y'}})
     assert response.status_code == 201, response.text
     return base, response.json(), path
+
+
+def test_skill_analysis_workflow_saves_before_data_and_reuses_new_input(real_compute):
+    config, service = real_compute
+    client, app, project, settings = config
+    base = '/api/v1/projects/' + project['id']
+    response = client.post(base + '/agent-tools', json={'name': 'project_skills', 'arguments': {
+        'action': 'read', 'skill_id': 'modeling', 'reference': 'analysis-workflow.json'}})
+    assert response.status_code == 200, response.text
+    example = json.loads(response.json()['content'])
+    # No dataset, model or file is required to save an editable draft.
+    graph(client, project['id'], example['nodes'], example['edges'])
+    saved = client.get('/api/v1/applications/' + project['id'] + '/draft').json()
+    root = settings.workspace_root / project['id']
+    (root / 'requirement-package').mkdir(exist_ok=True)
+    for name, text, count, rho in [('requirement-package/first.csv', 'pressure,height\n1,4\n2,3\n3,2\n100,1\n', 4, -1),
+                                    ('requirement-package/second.csv', 'pressure,height\n1,1\n2,2\n3,3\n', 3, 1)]:
+        (root / name).write_text(text)
+        task = wait_task(client, base, start(client, base, name, workflow_id=project['id'], inputs={
+            'source_path': name, 'first_column': 'pressure', 'second_column': 'height'}))
+        assert task['status'] == 'succeeded', task
+        outputs = task['outputs']
+        assert outputs['数据概况']['rows'] == count
+        assert outputs['异常标记']['output_rows'] == count
+        assert outputs['相关分析']['pairs'][0]['samples'] == count
+        assert outputs['相关分析']['pairs'][0]['rho'] == rho
+        for artifact in outputs['相关分析']['artifacts'] + outputs['异常标记']['artifacts']:
+            assert (root / artifact['file_path']).is_file()
+        assert (root / name).read_text() == text
+    assert client.get('/api/v1/applications/' + project['id'] + '/draft').json() == saved
+
+
+def test_referenced_analysis_settings_are_validated_after_resolution(real_compute):
+    config, _ = real_compute
+    client, app, project, settings = config
+    base, data, _ = register(config)
+    graph(client, project['id'], [node('start', 'start', inputs=[{'name': 'analysis', 'type': 'object', 'required': True}]),
+        node('stats', 'data_analysis', dataset_id=data['id'], analysis=ref('$inputs', 'analysis')),
+        node('end', 'end', outputs={'result': ref('stats', 'output')})], [edge('start', 'stats'), edge('stats', 'end')])
+    valid = wait_task(client, base, start(client, base, 'valid-analysis', workflow_id=project['id'], inputs={
+        'analysis': {'operation': 'spearman', 'columns': ['x', 'y']}}))
+    assert valid['status'] == 'succeeded', valid
+    invalid = wait_task(client, base, start(client, base, 'invalid-analysis', workflow_id=project['id'], inputs={
+        'analysis': {'operation': 'spearman', 'columns': [42, 'y']}}))
+    assert invalid['status'] == 'failed' and 'columns.0' in invalid['error']
 
 
 def test_tool_clean_then_workflow_spearman_and_original_preserved(real_compute):

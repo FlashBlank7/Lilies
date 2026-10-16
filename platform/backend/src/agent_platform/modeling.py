@@ -460,6 +460,21 @@ class Modeling:
                 await self.get(project_id, 'study', body.parent_study_id)
             if body.item_id:
                 await self.services.projects.conversation.item(project_id, body.item_id)
+            # Reuse a completed scan to report an already-known split conflict
+            # before creating a study or starting either candidate. Unscanned and
+            # historical datasets still receive the authoritative worker check.
+            profile = dataset.get('profile') or {}
+            if dataset['files'].get('labels'):
+                profile = profile.get('labels') or {}
+            structure = profile.get('sample_structure') or {}
+            group = dataset['mapping'].get('group_column') or dataset['mapping'].get('id_column')
+            if (not profile.get('sampled', True) and body.evaluation.split == 'random'
+                    and structure.get('target') == dataset['mapping'].get('target')
+                    and structure.get('group_column') == group and structure.get('repeated_groups', 0)):
+                raise ValueError(f'有标签数据的 {group} 含 {structure["repeated_groups"]} 个重复组'
+                    f'（涉及 {structure["rows_in_repeated_groups"]} 行），不能使用随机划分。'
+                    '请改为 evaluation.split="group"；只有预测时点明确时才选择 "time"。'
+                    '尚未创建研究或启动训练，可以修改划分后重试。')
             ident = str(uuid4())
             doc = {**request, 'id': ident, 'request': request, 'status': 'ready', 'created_at': utc_now(), 'image': await self.image(),
                    'active_since': time.time(), 'used_seconds': (dataset.get('profile') or {}).get('runtime', {}).get('seconds', 0),

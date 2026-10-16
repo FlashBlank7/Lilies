@@ -273,6 +273,8 @@ PROJECT_INSTRUCTIONS = """
 用 project_skills 按需查看说明，project_workflows 发现已有工作流，inspect 查看输入输出；优先复用合适的已有能力。
 项目空间中的工作流和文件是当前场景提供的能力与资料。收到任务时根据用途选择合适的已有流程，按需读取输入定义和文件；不要因为当前正在处理某个事项而忽略其他可用流程。
 project_code 在隔离环境执行 Python；project_modeling(action="train", study_id, candidate, wait=false) 独立启动训练，无需 workflow_id。
+表格概况、数值整理、异常值和 Spearman 可直接用 project_modeling 的 analyze，画布 data_analysis 使用同一实现；项目 modeling Skill 提供可换数据的分析流程示例。
+未解释的标签代码、区间或占位符保留待确认，不猜测质量顺序，不把未知类别编码成已知类别。已明确的分析与草稿可继续；复用已读资料，用户要求的分析流程不必等全部训练结束才保存。
 训练期间可以修改工作流。project_models 列出或绑定模型版本，预测积木通过 model_ref 选择；原始 LLM 使用项目可信 API。
 workflow_draft 支持整图替换和批量操作；修改前读取 revision/content_hash 并保留人工改动。生成不会自动执行业务。
 文件、数据、模型和结果只属于当前项目。使用真实工具输出判断，不把验证指标称为生产或独立测试效果。

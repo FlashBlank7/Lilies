@@ -59,6 +59,16 @@ def test_configured_options_for_another_purpose_are_not_silently_ignored(kind, m
         registry.validate_node(NodeSpec(id='step', title=kind, type=kind, config=misplaced))
 
 
+@pytest.mark.parametrize('analysis', [
+    {'operation': 'unknown'}, {'operation': 'spearman', 'columns': [42, 'x']},
+    {'operation': 'outliers', 'lower': 10, 'upper': 0},
+])
+def test_literal_analysis_errors_remain_invalid_when_references_are_supported(analysis):
+    registry = build_block_registry()
+    with pytest.raises(ValueError):
+        registry.validate_node(NodeSpec(id='step', title='分析', type='data_analysis', config={'analysis': analysis}))
+
+
 @pytest.mark.parametrize('kind', FIELDS)
 def test_empty_modeling_drafts_save_without_runtime_resources(configured, monkeypatch, kind):
     client, app, project, settings = configured

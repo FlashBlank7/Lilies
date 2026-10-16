@@ -14,7 +14,8 @@ def detail(action, **ids):
 
 
 def profile_summary(value):
-    result = pick(value, ('sampled', 'rows', 'duplicates', 'runtime', 'id_column_count', 'group_column_count'))
+    result = pick(value, ('sampled', 'rows', 'duplicates', 'runtime', 'id_column_count', 'group_column_count',
+                         'sample_structure', 'warnings'))
     result['columns'] = [pick(c, ('name', 'dtype', 'missing', 'unique', 'min', 'max', 'mean', 'outliers'))
                          for c in value.get('columns', [])]
     if 'time' in value:
