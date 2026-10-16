@@ -140,7 +140,7 @@ def profile(config):
     for name in frame.columns:
         series = frame[name]
         info = {'name': str(name), 'dtype': str(series.dtype), 'missing': int(series.isna().sum()), 'unique': int(series.nunique())}
-        if pd.api.types.is_numeric_dtype(series):
+        if pd.api.types.is_numeric_dtype(series) and not pd.api.types.is_bool_dtype(series):
             finite = series.replace([np.inf, -np.inf], np.nan).dropna()
             if len(finite):
                 q1, q3 = finite.quantile([.25, .75])

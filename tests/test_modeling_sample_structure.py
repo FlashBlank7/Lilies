@@ -42,3 +42,40 @@ def test_independent_labels_define_sample_groups_not_measurement_rows(tmp_path):
     assert 'sample_structure' not in result
     assert result['labels']['sample_structure']['repeated_groups'] == 0
     assert profile_summary(result)['labels']['sample_structure']['labeled_rows'] == 2
+
+
+@pytest.mark.parametrize('extension', ['csv', 'xlsx'])
+def test_profile_counts_boolean_flags_without_numeric_quantiles(tmp_path, extension):
+    source = tmp_path / f'data.{extension}'
+    frame = pd.DataFrame({'flag': [True, False, True, True, False, True],
+                          'value': [1, 2, 3, 4, 5, 100]})
+    if extension == 'xlsx':
+        pytest.importorskip('openpyxl')
+        frame.to_excel(source, index=False)
+    else:
+        frame.to_csv(source, index=False)
+
+    result = worker.profile({'source': str(source), 'mapping': {}})
+
+    flag, value = result['columns']
+    assert result['rows'] == 6
+    assert flag == {'name': 'flag', 'dtype': 'bool', 'missing': 0, 'unique': 2,
+                    'distribution': [{'label': 'True', 'count': 4}, {'label': 'False', 'count': 2}]}
+    assert value['min'] == 1 and value['max'] == 100
+    assert value['mean'] == pytest.approx(115 / 6)
+    assert value['outliers'] == 1
+    assert sum(item['count'] for item in value['distribution']) == 6
+    assert result['preview'][0]['flag'] is True
+
+
+def test_profile_preserves_missing_boolean_flags(tmp_path):
+    source = tmp_path / 'data.csv'
+    pd.DataFrame({'flag': [True, None, False]}).to_csv(source, index=False)
+
+    result = worker.profile({'source': str(source), 'mapping': {}})
+
+    flag = result['columns'][0]
+    assert flag['missing'] == 1 and flag['unique'] == 2
+    assert {item['label']: item['count'] for item in flag['distribution']} == {'True': 1, 'False': 1}
+    assert 'mean' not in flag and 'outliers' not in flag
+    assert result['preview'][1]['flag'] is None
