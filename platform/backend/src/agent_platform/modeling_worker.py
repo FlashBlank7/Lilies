@@ -12,6 +12,7 @@ import json
 import math
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import time
@@ -42,12 +43,80 @@ def emit(kind, **value):
     print(json.dumps(clean({'kind': kind, **value}), ensure_ascii=False, allow_nan=False), flush=True)
 
 
-def read_table(path, mapping, preview=False):
+def read_table(path, mapping, preview=False, literal_columns=()):
     import pandas as pd
     keys = [mapping.get(k) for k in ('id_column', 'group_column') if mapping.get(k)]
-    if Path(path).suffix.lower() == '.xlsx':
-        return pd.read_excel(path, sheet_name=mapping.get('sheet', 0), dtype={k: str for k in keys}, nrows=1000 if preview else None)
-    return pd.read_csv(path, sep='\t' if Path(path).suffix.lower() == '.tsv' else ',', dtype={k: str for k in keys}, nrows=1000 if preview else None)
+    header = mapping.get('header_row', 0)
+    options = {'header': header, 'skiprows': list(range(header + 1, header + 1 + mapping.get('skip_after_header', 0))),
+               'nrows': 1000 if preview else None}
+    def read(**extra):
+        if Path(path).suffix.lower() == '.xlsx':
+            return pd.read_excel(path, sheet_name=mapping.get('sheet', 0), **options, **extra)
+        return pd.read_csv(path, sep='\t' if Path(path).suffix.lower() == '.tsv' else ',', **options, **extra)
+    frame = read(dtype={k: str for k in keys})
+    if literal_columns:
+        # Preserve tokens such as "NA" in explicitly converted columns. Other
+        # columns retain the established reader semantics, including labels.
+        raw = read(usecols=lambda name: name in literal_columns, keep_default_na=False, dtype=object)
+        for name in raw:
+            frame[name] = raw[name]
+    return frame
+
+
+def prepare_numeric(frame, columns, rules):
+    """Stateless, explicitly configured conversion shared by analysis and models."""
+    import numpy as np
+    import pandas as pd
+    unknown = [name for name in columns if name not in frame]
+    if unknown:
+        raise ValueError('数值整理列不存在：' + '、'.join(unknown))
+    if len(columns) != len(set(columns)):
+        raise ValueError('数值整理列不能重复')
+    number = r'[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?'
+    interval = re.compile(rf'^({number})\s*[-–—~～]\s*({number})$')
+    tokens = {token.strip() for token in rules.get('missing_tokens', [])}
+    policy = rules.get('intervals', 'reject')
+    if policy not in {'reject', 'midpoint', 'lower', 'upper', 'missing'}:
+        raise ValueError('未知区间值处理方式')
+    result, changes, errors = frame.copy(), [], []
+    for name in columns:
+        values = []
+        for row, original in frame[name].items():
+            text = str(original).strip()
+            kind = ''
+            value = np.nan
+            if pd.isna(original) or text == '':
+                pass
+            elif isinstance(original, (bool, np.bool_)):
+                errors.append(f'{name} 数据行 {row}：布尔值不能作为数值')
+            elif text in tokens:
+                kind = 'missing_token'
+            elif re.fullmatch(number, text):
+                value = float(text)
+                if isinstance(original, str):
+                    kind = 'numeric_text'
+            elif match := interval.fullmatch(text):
+                low, high = map(float, match.groups())
+                if not math.isfinite(low) or not math.isfinite(high) or low > high:
+                    errors.append(f'{name} 数据行 {row}：区间边界无效 {text!r}')
+                elif policy == 'reject':
+                    errors.append(f'{name} 数据行 {row}：区间值 {text!r} 需要明确处理方式')
+                else:
+                    kind = 'interval_' + policy
+                    value = {'midpoint': low / 2 + high / 2, 'lower': low, 'upper': high, 'missing': np.nan}[policy]
+            else:
+                errors.append(f'{name} 数据行 {row}：无法转换 {text!r}；请明确占位符或修正原数据')
+            if not pd.isna(value) and not math.isfinite(value):
+                errors.append(f'{name} 数据行 {row}：数值超出有限范围')
+            values.append(value)
+            if kind:
+                changes.append({'source_row': int(row), 'column': name, 'original': text,
+                                'value': None if pd.isna(value) else value, 'conversion': kind})
+        result[name] = pd.Series(values, index=frame.index, dtype=float)
+    if errors:
+        raise ValueError('数值整理失败（数据行从 0 开始）：' + '；'.join(errors[:10]) +
+                         (f'；共 {len(errors)} 处错误' if len(errors) > 10 else ''))
+    return result, changes
 
 
 def timestamps(value, mapping, errors='raise'):
@@ -120,10 +189,24 @@ def analyze(config):
     minimum = 2 if operation == 'spearman' else 1
     if len(columns) < minimum:
         raise ValueError(f'请明确选择至少 {minimum} 个数值分析列')
-    frame = read_table(config['source'], config['mapping'])
+    frame = read_table(config['source'], config['mapping'], literal_columns=columns if operation == 'numeric' else ())
     unknown = [name for name in columns if name not in frame]
     if unknown:
         raise ValueError('分析列不存在：' + '、'.join(unknown))
+    if operation == 'numeric':
+        processed, changes = prepare_numeric(frame, columns, plan.get('numeric', {}))
+        output = Path(config['output']); output.mkdir(parents=True, exist_ok=True)
+        processed.to_csv(output / 'processed.csv', index=False)
+        pd.DataFrame(changes, columns=['source_row', 'column', 'original', 'value', 'conversion']).to_csv(output / 'conversions.csv', index=False)
+        pd.DataFrame({'source_row': processed.index}).to_csv(output / 'source-rows.csv', index=False)
+        result = clean({'operation': operation, 'rows': len(frame), 'output_rows': len(processed), 'columns': columns,
+            'converted_cells': len(changes), 'affected_rows': len({item['source_row'] for item in changes}),
+            'missing_counts': {name: int(processed[name].isna().sum()) for name in columns},
+            'preview': processed.head(12).astype(object).where(processed.head(12).notna(), None).to_dict('records'),
+            'row_numbering': 'source_row 从 0 开始，指向按表头设置读取后的数据行',
+            'warnings': ['区间值按所选规则转换；规则应依据数据含义确定。'] if any(c['conversion'].startswith('interval_') for c in changes) else []})
+        save(output / 'analysis.json', result)
+        return result
     invalid = [name for name in columns if not pd.api.types.is_numeric_dtype(frame[name])
                or pd.api.types.is_bool_dtype(frame[name])]
     if invalid:
@@ -218,7 +301,8 @@ def samples(config, prediction=False):
     import numpy as np
     import pandas as pd
     mapping = config['mapping']
-    frame = read_table(config.get('labels') or config['source'], mapping)
+    numeric_columns = config.get('features', {}).get('numeric', {}).get('columns', []) if mapping.get('kind', 'tabular') == 'tabular' else []
+    frame = read_table(config.get('labels') or config['source'], mapping, literal_columns=numeric_columns)
     frame['_sample'] = np.arange(len(frame))
     target = mapping.get('target')
     missing = 0
@@ -327,6 +411,8 @@ def features(config, prediction=False):
     metadata = {mapping.get(k) for k in ('target', 'id_column', 'group_column', 'time_column', 'prediction_time_column', 'available_time_column', 'label_available_time_column')}
     descriptions = []
     if mapping['kind'] == 'timeseries':
+        if plan.get('numeric', {}).get('columns'):
+            raise ValueError('训练数值整理当前适用于表格特征；请先整理时序测量表')
         from tsfresh import extract_features
         from tsfresh.feature_extraction import MinimalFCParameters
         if not config.get('labels'):
@@ -368,8 +454,14 @@ def features(config, prediction=False):
         if set(columns) & metadata:
             raise ValueError('标签、标识及时间元数据不能作为普通特征')
         x = frame[[c for c in columns if c not in plan.get('exclude', [])]].copy()
+        numeric = plan.get('numeric', {})
+        if numeric.get('columns'):
+            x, _ = prepare_numeric(x, numeric['columns'], numeric)
         x = x.replace([np.inf, -np.inf], np.nan)
         descriptions = [{'name': c, 'source': c, 'calculation': '原始字段；缺失填补及编码仅在训练折拟合'} for c in x]
+        for item in descriptions:
+            if item['name'] in numeric.get('columns', []):
+                item.update(calculation='按固定规则整理数值；缺失填补及编码仅在训练折拟合', numeric_rules=numeric)
     if not len(x.columns):
         raise ValueError('没有可用特征')
     return x, frame, descriptions

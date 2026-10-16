@@ -153,6 +153,36 @@ def test_preprocessing_fits_only_training_rows(tmp_path):
     assert abs(fill.statistics_[0]) < 2
 
 
+def test_numeric_rules_precede_fold_fitting_and_survive_saved_prediction(tmp_path):
+    import joblib
+    from sklearn.linear_model import Ridge
+    config = fixture_data(tmp_path)
+    raw = pd.read_csv(config['source'], dtype={'id': str})
+    raw['x'] = [str(i) if i % 5 else '/' for i in range(len(raw))]
+    raw.loc[1, 'x'] = '0-2'
+    raw.loc[80:, 'x'] = '99999'
+    raw.to_csv(config['source'], index=False)
+    config.update(engine='sklearn', models=['linear'], batch_size=1)
+    config['features'] = {'columns': ['x'], 'numeric': {'columns': ['x'], 'missing_tokens': ['/'], 'intervals': 'midpoint'}}
+    x, frame, _ = worker.features(config)
+    assert x.x.iloc[1] == 1 and pd.isna(x.x.iloc[0])
+    model = worker.pipeline(x, config, Ridge()).fit(x.iloc[:80], frame.y.iloc[:80])
+    imputer = model.named_steps['preprocess'].named_transformers_['numeric'].named_steps['fill']
+    assert imputer.statistics_[0] == pytest.approx(x.x.iloc[:80].median())
+    assert imputer.statistics_[0] != x.x.median()
+    folder = tmp_path / 'saved'; folder.mkdir()
+    joblib.dump(model, folder / 'model.joblib')
+    new = tmp_path / 'prediction.csv'
+    pd.DataFrame({'id': ['001', '002', '003'], 'batch': ['a'] * 3, 'x': ['3-5', '4', '/']}).to_csv(new, index=False)
+    result = worker.predict({**config, 'source': str(new), 'model': str(folder), 'feature_columns': ['x']})
+    assert result['rows'] == 3
+    predictions = pd.read_csv(Path(config['output']) / 'predictions.csv')
+    assert predictions.prediction.iloc[0] == predictions.prediction.iloc[1]
+    new.write_text('id,batch,x\n004,a,unknown\n')
+    with pytest.raises(ValueError, match='unknown'):
+        worker.predict({**config, 'source': str(new), 'model': str(folder), 'feature_columns': ['x']})
+
+
 def test_forward_validation_respects_windows_and_label_availability(tmp_path):
     config = fixture_data(tmp_path)
     frame = pd.read_csv(config['source']); dates = pd.date_range('2026-01-01', periods=len(frame), freq='h', tz='UTC')
@@ -187,6 +217,27 @@ def test_autogluon_compares_on_same_saved_rows(tmp_path, classification):
         predictor = ag.TabularPredictor.load(str(Path(config['output']) / 'trial-0' / name))
         assert predictor.eval_metric.name == expected_metric
         assert predictor.problem_type == ('binary' if classification else 'regression')
+
+
+def test_numeric_rules_apply_to_autogluon_training_and_prediction(tmp_path):
+    ag = pytest.importorskip('autogluon.tabular')
+    config = fixture_data(tmp_path); setup_split(config)
+    raw = pd.read_csv(config['source'], dtype={'id': str})
+    raw['x'] = raw.x.map(lambda v: '/' if pd.isna(v) else f'{v-.01}~{v+.01}')
+    raw.to_csv(config['source'], index=False)
+    config.update(engine='autogluon', batch_size=1, autogluon_hyperparameters={'RF': {'n_estimators': 10}})
+    config['features'] = {'columns': ['x'], 'numeric': {'columns': ['x'], 'missing_tokens': ['/'], 'intervals': 'midpoint'}}
+    result = worker.train(config)
+    assert result['best'], result
+    model_path = Path(config['output']) / 'trial-0'
+    model = ag.TabularPredictor.load(str(model_path / 'autogluon'))
+    assert model.feature_metadata_in.get_feature_type_raw('x') == 'float'
+    new = tmp_path / 'new.csv'
+    new.write_text('id,batch,x\n001,a,1-3\n002,a,2\n003,a,/\n')
+    prediction = worker.predict({**config, 'source': str(new), 'model': str(model_path), 'feature_columns': ['x']})
+    assert prediction['rows'] == 3
+    assert prediction['preview'][0]['prediction'] == prediction['preview'][1]['prediction']
+    assert np.isfinite(prediction['preview'][2]['prediction'])
 
 
 def test_numeric_time_units_are_explicit_and_preview_is_real(tmp_path):

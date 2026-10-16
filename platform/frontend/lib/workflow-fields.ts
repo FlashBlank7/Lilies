@@ -57,7 +57,9 @@ export function outputPaths(node: FieldNode | undefined, blocks: Block[] = []): 
       ? ['dataset_id', 'rows', 'columns', 'pairs', 'correlation', 'sample_counts', 'artifacts']
       : operation === 'outliers'
         ? ['dataset_id', 'source_dataset_id', 'rows', 'output_rows', 'bounds', 'affected_rows', 'affected_cells', 'artifacts']
-        : ['dataset_id', 'rows', 'columns', 'duplicates']
+        : operation === 'numeric'
+          ? ['dataset_id', 'source_dataset_id', 'rows', 'output_rows', 'converted_cells', 'missing_counts', 'artifacts']
+          : ['dataset_id', 'rows', 'columns', 'duplicates']
     dynamic = fields.map(key => ['output', key])
   }
   if (node.type === 'feature_extract') dynamic = ['dataset_id', 'feature_plan'].map(key => ['output', key])

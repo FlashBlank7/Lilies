@@ -82,7 +82,8 @@ async def predict_import(modeling, project_id, args, binding, run_id, node_id):
     if source.is_symlink() or not source.is_file() or hashlib.sha256(source.read_bytes()).hexdigest() != model['sha256']:
         raise ValueError('模型包已缺失或内容改变，请重新导入并绑定')
     dataset = await modeling.get(project_id, 'dataset', args['dataset_id'])
-    dataset = {**dataset, 'mapping': model['mapping']}
+    layout = {key: dataset['mapping'].get(key, 0) for key in ('sheet', 'header_row', 'skip_after_header')}
+    dataset = {**dataset, 'mapping': {**model['mapping'], **layout}}
     target = modeling.path(project_id, dataset['id']) / ('run-' + run_id + '-' + hashlib.sha256(node_id.encode()).hexdigest()[:10])
     result = await modeling.compute(project_id, dataset, {'action': 'predict', 'model': '/model', 'engine': 'sklearn',
         'features': {'columns': model['feature_columns']}, 'feature_columns': model['feature_columns'], 'classes': model['classes']},

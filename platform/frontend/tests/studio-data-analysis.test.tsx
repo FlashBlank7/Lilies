@@ -26,10 +26,12 @@ it('edits a concrete analysis operation and retains hidden settings when switchi
     }
     if(path.endsWith('/draft')) return draft as never
     if(path.startsWith('/api/v1/blocks?application_id=')) return [{type:'data_analysis',title:'数据分析',category:'integration',input_ports:[],output_ports:[],config_schema:{},editor:{fields:[
-      {path:'analysis.operation',label:'分析操作',control:'enum',options:['outliers','spearman'],option_labels:{outliers:'异常值处理',spearman:'Spearman 相关分析'}},
+      {path:'analysis.operation',label:'分析操作',control:'enum',options:['outliers','spearman','numeric'],option_labels:{outliers:'异常值处理',spearman:'Spearman 相关分析',numeric:'数值整理'}},
       {path:'analysis.columns',label:'分析列',control:'string_list'},
       {path:'analysis.lower',label:'固定下限',control:'number',visible_when:{'analysis.operation':['outliers']}},
       {path:'analysis.missing',label:'缺失值处理',control:'enum',options:['pairwise','raise'],default_value:'pairwise',visible_when:{'analysis.operation':['spearman']}},
+      {path:'analysis.numeric.missing_tokens',label:'缺失占位符',control:'string_list',visible_when:{'analysis.operation':['numeric']}},
+      {path:'analysis.numeric.intervals',label:'区间值处理',control:'enum',options:['reject','midpoint'],default_value:'reject',visible_when:{'analysis.operation':['numeric']}},
     ]}}] as never
     if(path.endsWith('/project')) return {project_id:null} as never
     if(path==='/health') return {status:'ok'} as never
@@ -44,7 +46,12 @@ it('edits a concrete analysis operation and retains hidden settings when switchi
   expect(screen.queryByRole('spinbutton',{name:'固定下限'})).not.toBeInTheDocument()
   fireEvent.change(screen.getByRole('textbox',{name:'分析列'}),{target:{value:'temperature\nquality'}})
   fireEvent.change(screen.getByRole('combobox',{name:'缺失值处理'}),{target:{value:'raise'}})
+  expect(screen.queryByRole('textbox',{name:'缺失占位符'})).not.toBeInTheDocument()
+  fireEvent.change(screen.getByRole('combobox',{name:'分析操作'}),{target:{value:'numeric'}})
+  expect(screen.queryByRole('combobox',{name:'缺失值处理'})).not.toBeInTheDocument()
+  fireEvent.change(screen.getByRole('textbox',{name:'缺失占位符'}),{target:{value:'/\nNA'}})
+  fireEvent.change(screen.getByRole('combobox',{name:'区间值处理'}),{target:{value:'midpoint'}})
   fireEvent.click(container.querySelector('[data-config-editor-action="save"]')!)
   await waitFor(()=>expect(saved).toHaveLength(1))
-  expect(saved[0]).toEqual({dataset_id:'dataset',analysis:{operation:'spearman',columns:['temperature','quality'],lower:0,missing:'raise'}})
+  expect(saved[0]).toEqual({dataset_id:'dataset',analysis:{operation:'numeric',columns:['temperature','quality'],lower:0,missing:'raise',numeric:{missing_tokens:['/','NA'],intervals:'midpoint'}}})
 })

@@ -38,6 +38,16 @@ def test_real_pipeline_import_prediction_and_version_isolation(real_compute):
     assert new['status'] == 'succeeded'
     assert new['outputs']['model_version']['import_id'] == second
     assert new['outputs']['preview'] == old['outputs']['preview']
+    # The new file controls its layout; model field semantics stay fixed.
+    source = settings.workspace_root / project['id'] / 'requirement-package/predict.csv'
+    source.write_text('Production table,,\nid,x,category\nunit,mm,kind\n0101,2,a\n0102,4,b\n')
+    data = client.post(base + '/datasets', json={'source_path': 'requirement-package/predict.csv',
+        'mapping': {'header_row': 1, 'skip_after_header': 1}}).json()
+    predicted = client.post(base + '/models/imported/predict', json={'dataset_id': data['id'], 'request_key': 'new-layout'})
+    result = wait_task(client, base, predicted.json())
+    assert result['status'] == 'succeeded', result
+    assert result['outputs']['rows'] == 2
+    assert result['outputs']['preview'][0]['id'] == '0101'
     # Runtime verifies bytes; existence alone does not make a package usable.
     (service.path(project['id'], second) / 'model.joblib').write_bytes(b'changed')
     failure = client.post(base + '/models/imported/predict', json={'dataset_id': dataset['id'], 'request_key': 'changed'})

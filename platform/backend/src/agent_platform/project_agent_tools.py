@@ -147,6 +147,12 @@ correlations, pair counts, approximate p-values and files; missing=pairwise/comp
 single-table numeric columns, method=iqr/bounds and handling=flag/drop/clip. drop/clip returns a NEW dataset_id;
 the original is preserved. IQR uses the selected full table: use fold-fitted preprocessing for model evaluation.
 The same analysis configuration runs in a data_analysis node. Unselected columns are never silently analyzed.
+numeric converts analysis.columns with explicit analysis.numeric.missing_tokens and intervals
+(reject/midpoint/lower/upper/missing). It preserves rows, returns a new dataset_id and conversions.csv;
+unknown text fails with row/column details. Do not guess what ranges or placeholders mean.
+mapping.header_row (zero-based) and skip_after_header handle title rows and extra headings.
+For reusable models, candidate.features.numeric={columns, missing_tokens, intervals} saves these same
+stateless rules for training AND prediction. Missing-value fitting still occurs inside each training fold.
 profile inspects data; create_study freezes dataset, evaluation and compute budget. train(study_id, candidate, wait=true)
 creates an idempotent project task without workflow_id. wait=false permits workflow editing while training runs.
 Reuse the candidate request_key for retries; changed content conflicts. workflow_run inspect reads the task;
@@ -216,7 +222,7 @@ PROJECT_TOOL_SUMMARIES = {
     'project_skills': 'List Skill names/purposes; read body or references when useful; write with expected_revision.',
     'project_models': 'List/declare model_ref, bind a trained candidate/slot, or predict with model_ref and dataset_id. request_key deduplicates; wait=false runs in background. Unbound references are allowed.',
     'project_code': 'Run Python in project Docker: read-only inputs, writable solution/results, no network. Returns actual output or error.',
-    'project_modeling': 'Profile data; analyze with Spearman or outlier flag/drop/clip; create studies, train and compare measured results. analyze returns a new dataset_id when data changes. train uses candidate.request_key for idempotency; wait=false runs in background. Holdout finalize needs authorization; AIDE needs next_step. Optional setup help is in project Skills.',
+    'project_modeling': 'Profile data; analyze with explicit numeric conversion, Spearman or outlier flag/drop/clip; create studies, train and compare measured results. analyze returns a new dataset_id when data changes. train uses candidate.request_key for idempotency; wait=false runs in background. Holdout finalize needs authorization; AIDE needs next_step. Optional setup help is in project Skills.',
     'project_progress': 'Read progress summary (view="full" for all). Prefer revision-checked patch of one item; update replaces the ENTIRE record: read view="full" first, never replace from a summary. Preserve other items and user answers. Progress tracking is optional.',
     'project_action': 'Optional task/progress actions. wait with task_id observes existing work; resume continues its snapshot; finish ends this request. No planning/build action is required before doing work.',
     'project_workflows': 'List/inspect/create/remove/classify project workflows. inspect reads inputs/outputs; create makes a blank member. Main workflow id equals project id. Members run through workflow_run.',

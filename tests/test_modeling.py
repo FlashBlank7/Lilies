@@ -24,7 +24,7 @@ from tests.test_projects import graph, node, edge, ref, start
 def modeling(configured, monkeypatch):
     client, app, project, settings = configured
     service = app.state.services.modeling
-    async def image():
+    async def image(reference=None):
         return 'test-real-worker-environment'
     if not os.environ.get('MODEL_TEST_DOCKER'):
         monkeypatch.setattr(service, 'image', image)
@@ -53,6 +53,7 @@ def real_compute(modeling, monkeypatch):
         folder.mkdir(parents=True, exist_ok=True)
         output = folder / 'output'; output.mkdir(exist_ok=True)
         replacements = {target: str(host) for host, target in (extra_mounts or []) + (writable_mounts or [])}
+        replacements.update({'/data/' + host.name: str(host) for host in service.path(project_id, dataset['id']).iterdir() if host.is_file()})
         replacements.update({target + '/optuna.db': str(host / 'optuna.db') for host, target in writable_mounts or []})
         config = {k: replacements.get(v, v) if isinstance(v, str) else v for k, v in config.items()}
         config.update(mapping=dataset['mapping'], output=str(output), **{k: str(service.path(project_id, dataset['id']) / v['name']) for k, v in dataset['files'].items()})

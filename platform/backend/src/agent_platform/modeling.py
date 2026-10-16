@@ -365,9 +365,10 @@ class Modeling:
                 if path.is_symlink():
                     raise ValueError('分析结果路径不能包含符号链接')
             destination.mkdir(parents=True, exist_ok=False)
-            names = (['analysis.json', 'correlations.csv'] if plan.operation == 'spearman'
-                     else ['analysis.json', 'outliers.csv', 'source-rows.csv'])
-            if plan.operation == 'outliers' and plan.handling != 'flag':
+            names = ['analysis.json']
+            names += {'spearman': ['correlations.csv'], 'outliers': ['outliers.csv', 'source-rows.csv'],
+                      'numeric': ['conversions.csv', 'source-rows.csv']}[plan.operation]
+            if plan.operation == 'numeric' or (plan.operation == 'outliers' and plan.handling != 'flag'):
                 names.append('processed.csv')
             artifacts = []
             for name in names:
@@ -378,10 +379,11 @@ class Modeling:
         artifacts = await asyncio.to_thread(export)
         result.update(dataset_id=dataset_id, source_dataset_id=dataset_id, operation_id=operation_id,
                       analysis=plan.model_dump(), image=image, artifacts=artifacts)
-        if plan.operation == 'outliers' and plan.handling != 'flag':
+        if plan.operation == 'numeric' or (plan.operation == 'outliers' and plan.handling != 'flag'):
             derived = await self.dataset(project_id, DatasetRequest(
-                name=dataset['name'] + ' · 异常值处理', source_path=(relative / 'processed.csv').as_posix(),
-                mapping=dataset['mapping']))
+                name=dataset['name'] + (' · 数值整理' if plan.operation == 'numeric' else ' · 异常值处理'),
+                source_path=(relative / 'processed.csv').as_posix(),
+                mapping={**dataset['mapping'], 'sheet': 0, 'header_row': 0, 'skip_after_header': 0}))
             derived.update(derived_from=dataset_id, transformation={'operation_id': operation_id,
                            'analysis': plan.model_dump(), 'image': image})
             await self.put(project_id, 'dataset', derived)
@@ -685,7 +687,7 @@ class Modeling:
                 raise ValueError('上游数据集与研究固定版本不一致，请创建新研究')
             if args.get('features'):
                 candidate = await self.get(project_id, 'candidate', args['candidate_id'])
-                if FeaturePlan.model_validate(args['features']).model_dump() != candidate['features']:
+                if FeaturePlan.model_validate(args['features']) != FeaturePlan.model_validate(candidate['features']):
                     raise ValueError('上游特征方案已改变，请提交关联新候选后运行')
             result = await self.run_candidate(project_id, args['study_id'], args['candidate_id'], project['task_id'], run_id, pause_when_done=True)
             if not any(t['status'] == 'completed' for t in result.get('trials', [])):
@@ -721,8 +723,9 @@ class Modeling:
         if best is None:
             raise ValueError('指定模型版本不可用，请重新绑定')
         original = await self.get(project_id, 'dataset', study['dataset_id'])
-        # Preserve trained field semantics and the pinned model environment.
-        dataset = {**dataset, 'mapping': original['mapping']}
+        # Preserve trained field semantics; file layout belongs to the new input.
+        layout = {key: dataset['mapping'].get(key, 0) for key in ('sheet', 'header_row', 'skip_after_header')}
+        dataset = {**dataset, 'mapping': {**original['mapping'], **layout}}
         model = self.path(project_id, candidate['id']) / 'output' / f'trial-{best["slot"]}'
         config = {'action': 'predict', 'features': candidate['features'], 'engine': candidate['engine'], 'model': '/model', 'feature_columns': best['feature_columns'], 'classes': best.get('classes')}
         group = original['mapping'].get('group_column')
@@ -730,7 +733,7 @@ class Modeling:
             # Grouping is for evaluation, not a prediction input. Adapt the job
             # contract so previously saved worker images also accept new rows
             # without this column; exclude it if the caller does provide it.
-            dataset = {**dataset, 'mapping': {**original['mapping'], 'group_column': ''}}
+            dataset = {**dataset, 'mapping': {**dataset['mapping'], 'group_column': ''}}
             config['features'] = {**candidate['features'], 'exclude': list(dict.fromkeys(
                 [*candidate['features'].get('exclude', []), group]))}
         mounts = [(model, '/model')]

@@ -22,6 +22,8 @@ class DataMapping(Contract):
     label_available_time_column: str = ''
     error_group_columns: list[str] = Field(default_factory=list, max_length=5, description='Columns used only for error breakdown (e.g. production line); they remain usable as features and do not change the split.')
     sheet: str | int = 0
+    header_row: int = Field(default=0, ge=0, le=10000, description='Zero-based row containing column names.')
+    skip_after_header: int = Field(default=0, ge=0, le=10000, description='Rows immediately below the header to omit, such as a second heading row.')
 
     @model_validator(mode='after')
     def time_keys(self):
@@ -85,12 +87,22 @@ class StudyRequest(Contract):
     aide: AideSearch = Field(default_factory=AideSearch)
 
 
+class NumericRules(Contract):
+    missing_tokens: list[str] = Field(default_factory=list, max_length=50)
+    intervals: Literal['reject', 'midpoint', 'lower', 'upper', 'missing'] = 'reject'
+
+
+class NumericPreparation(NumericRules):
+    columns: list[str] = Field(default_factory=list, max_length=500)
+
+
 class FeaturePlan(Contract):
     columns: list[str] = Field(default_factory=list, max_length=500)
     exclude: list[str] = Field(default_factory=list, max_length=500)
     timeseries: Literal['minimal', 'extended'] = 'minimal'
     window_seconds: int | None = Field(default=None, ge=1)
     select_k: int | None = Field(default=None, ge=1, le=500)
+    numeric: NumericPreparation = Field(default_factory=NumericPreparation)
     transformer_path: str = Field(default='', description='Optional current-project Python module defining build_transformer(); returns a sklearn transformer fitted inside each training fold.')
 
 
@@ -140,7 +152,7 @@ class CandidateRequest(Contract):
 
 
 class DataAnalysisPlan(Contract):
-    operation: Literal['profile', 'spearman', 'outliers'] = 'profile'
+    operation: Literal['profile', 'spearman', 'outliers', 'numeric'] = 'profile'
     columns: list[str] = Field(default_factory=list, max_length=50)
     missing: Literal['pairwise', 'complete', 'raise'] = 'pairwise'
     method: Literal['iqr', 'bounds'] = 'iqr'
@@ -148,6 +160,7 @@ class DataAnalysisPlan(Contract):
     iqr_factor: float = Field(default=1.5, gt=0)
     lower: float | None = None
     upper: float | None = None
+    numeric: NumericRules = Field(default_factory=NumericRules)
 
     @model_validator(mode='after')
     def valid_columns_and_bounds(self):
@@ -216,7 +229,7 @@ def register_modeling_blocks(registry):
     from .blocks import _definition
     from .workflow_models import ValueType
     for kind, title, description in [
-        ('data_analysis', '数据分析', '选择数据概况、Spearman 相关分析或异常值处理；返回统计结果或新的数据集。'),
+        ('data_analysis', '数据分析', '选择数据概况、数值整理、Spearman 相关分析或异常值处理；返回统计结果或新的数据集。'),
         ('feature_extract', '特征提取', '按预测时点提取时序特征或选择表格字段；需要拟合的转换留在训练折内。'),
         ('model_train', '训练评估', '从上游数据集和表单配置训练，或继续已有候选；保存模型、预处理和真实评价。'),
         ('model_predict', '模型预测', '选择项目文件和已绑定模型，沿用训练时的字段语义、预处理和环境预测。生成可下载 CSV；模型可稍后绑定。'),
@@ -244,6 +257,12 @@ def register_modeling_blocks(registry):
             'control': 'json' if key == 'features' else 'reference_or_text'} for key, label in fields]
         def field(path, label, control='text', **extra):
             return {'path': path, 'label': label, 'label_zh': label, 'control': control, **extra}
+        def numeric_fields(prefix):
+            return [field(prefix + '.missing_tokens', '视为缺失的文字（每行一个，如 /）', 'string_list'),
+                field(prefix + '.intervals', '区间值处理（如 3.5-4.2）', 'enum',
+                    options=['reject', 'midpoint', 'lower', 'upper', 'missing'], default_value='reject',
+                    option_labels={'reject': '遇到区间值即停止', 'midpoint': '取区间中点',
+                                   'lower': '取下限', 'upper': '取上限', 'missing': '视为缺失'})]
         if kind in {'data_analysis', 'model_predict'}:
             definition.editor['fields'] = [field('source_path', '项目数据文件', 'reference_or_text'),
                 field('labels_path', '独立标签文件（可选）', 'reference_or_text'),
@@ -254,19 +273,24 @@ def register_modeling_blocks(registry):
                     ('available_time_column', '数据可用时间列'), ('label_available_time_column', '标签可用时间列')]],
                 field('mapping.kind', '数据形态', 'enum', options=['tabular', 'timeseries'], default_value='tabular'),
                 field('mapping.time_unit', '时间格式', 'enum', options=['iso', 's', 'ms', 'us', 'ns'], default_value='iso'),
-                field('mapping.sheet', '工作表序号（从 0 开始）', 'number', default_value=0, minimum=0)]
+                field('mapping.sheet', '工作表序号（从 0 开始）', 'number', default_value=0, minimum=0),
+                field('mapping.header_row', '列名所在行（从 0 开始）', 'number', default_value=0, minimum=0),
+                field('mapping.skip_after_header', '列名下方跳过行数', 'number', default_value=0, minimum=0)]
             if kind == 'model_predict':
-                definition.editor['fields'] = definition.editor['fields'][:3] + [field('model_ref', '调用模型', 'reference_or_text')]
+                definition.editor['fields'] = (definition.editor['fields'][:3] + [field('model_ref', '调用模型', 'reference_or_text')]
+                                               + definition.editor['fields'][-3:])
         if kind == 'data_analysis':
             definition.manual_summary += (' analysis.operation 默认为 profile，兼容已有概况分析。spearman 需要至少两列数值字段，'
                 '返回 pairs、correlation、sample_counts 和可下载结果；missing 可选 pairwise、complete、raise。'
                 'outliers 支持单表数值列，method=iqr 或 bounds；handling=flag（只标记）、drop（删除异常行）、clip（截到边界）。'
                 'drop/clip 返回新的 output.dataset_id，原数据不变，可接下一分析或训练节点。列通过 analysis.columns 明确选择；'
+                'numeric 按 analysis.numeric.missing_tokens 和 intervals（reject/midpoint/lower/upper/missing）整理指定列，'
+                '返回新数据集和逐项转换文件；未知文字或布尔值报错，原始行数不变。mapping.header_row 和 skip_after_header 可跳过标题或第二层表头。'
                 '异常处理保留缺失值，不接受无穷值。IQR 在本次全表上估计，仅用于探索或经业务确认的数据清洗；'
                 '模型评价中的自适应预处理必须在训练折内拟合。资源和列可先留空，运行时再检查。')
             definition.editor['fields'] = [
-                field('analysis.operation', '分析操作', 'enum', options=['profile', 'spearman', 'outliers'], default_value='profile',
-                      option_labels={'profile': '数据概况', 'spearman': 'Spearman 相关分析', 'outliers': '异常值处理'}),
+                field('analysis.operation', '分析操作', 'enum', options=['profile', 'numeric', 'spearman', 'outliers'], default_value='profile',
+                      option_labels={'profile': '数据概况', 'numeric': '数值整理', 'spearman': 'Spearman 相关分析', 'outliers': '异常值处理'}),
                 *definition.editor['fields'],
                 field('analysis.columns', '分析列（每行一个；相关分析至少两列）', 'string_list'),
                 field('analysis.missing', '相关分析：缺失值处理', 'enum', options=['pairwise', 'complete', 'raise'], default_value='pairwise'),
@@ -275,11 +299,14 @@ def register_modeling_blocks(registry):
                 field('analysis.iqr_factor', '异常值：四分位距倍数', 'number', default_value=1.5, minimum=.01),
                 field('analysis.lower', '异常值：固定下限（可留空）', 'number'),
                 field('analysis.upper', '异常值：固定上限（可留空）', 'number'),
+                *numeric_fields('analysis.numeric'),
             ]
             for item in definition.editor['fields']:
                 path = item['path']
                 if path == 'analysis.columns':
-                    item['visible_when'] = {'analysis.operation': ['spearman', 'outliers']}
+                    item['visible_when'] = {'analysis.operation': ['numeric', 'spearman', 'outliers']}
+                elif path.startswith('analysis.numeric.'):
+                    item['visible_when'] = {'analysis.operation': ['numeric']}
                 elif path == 'analysis.missing':
                     item.update(visible_when={'analysis.operation': ['spearman']}, option_labels={
                         'pairwise': '每对变量分别删除缺失样本', 'complete': '删除任一分析列缺失的样本', 'raise': '发现缺失值即停止'})
@@ -300,6 +327,8 @@ def register_modeling_blocks(registry):
             definition.editor['fields'] = [field('dataset_id', '上游数据集', 'reference_or_text'),
                 field('features.columns', '使用字段（每行一个，留空使用全部）', 'string_list'),
                 field('features.exclude', '排除字段（每行一个）', 'string_list'),
+                field('features.numeric.columns', '需要整理为数值的字段（每行一个）', 'string_list'),
+                *numeric_fields('features.numeric'),
                 field('features.window_seconds', '过程窗口长度（秒）', 'number'),
                 field('features.timeseries', '时序特征集', 'enum', options=['minimal', 'extended'], default_value='minimal'),
                 field('features.select_k', '折内筛选特征数（留空不筛选）', 'number', minimum=1, maximum=500),

@@ -95,3 +95,70 @@ def test_small_samples_are_explicit_and_never_nan_json(tmp_path):
     assert result['pairs'][0]['samples'] == 2
     assert result['pairs'][0]['rho'] is None
     json.dumps(result, allow_nan=False)
+
+
+@pytest.mark.parametrize('extension', ['csv', 'tsv', 'xlsx'])
+def test_numeric_preparation_preserves_tokens_ids_and_source_rows(tmp_path, extension):
+    frame = pd.DataFrame({'id': ['001', '002', '003', '004', '005', '006'],
+                          'x': ['1e-3', '-2--1', '/', 'NA', '', ' 4.2 '], 'y': range(6)})
+    config = job(tmp_path, frame, operation='numeric', columns=['x'],
+                 numeric={'missing_tokens': ['/', 'NA'], 'intervals': 'midpoint'})
+    path = tmp_path / ('data.' + extension)
+    if extension == 'xlsx':
+        frame.to_excel(path, index=False)
+    else:
+        frame.to_csv(path, index=False, sep='\t' if extension == 'tsv' else ',')
+    config['source'] = str(path)
+    original = path.read_bytes()
+    result = worker.analyze(config)
+    assert result['rows'] == result['output_rows'] == 6
+    assert result['missing_counts'] == {'x': 3}
+    out = Path(config['output'])
+    processed = pd.read_csv(out / 'processed.csv', dtype={'id': str})
+    assert processed.id.tolist() == frame.id.tolist()
+    assert processed.y.tolist() == frame.y.tolist()
+    assert processed.x.iloc[0] == .001 and processed.x.iloc[1] == -1.5
+    assert processed.x.iloc[-1] == 4.2
+    changes = pd.read_csv(out / 'conversions.csv', keep_default_na=False)
+    assert changes.loc[changes.original == 'NA', 'conversion'].tolist() == ['missing_token']
+    assert pd.read_csv(out / 'source-rows.csv').source_row.tolist() == list(range(6))
+    assert path.read_bytes() == original
+
+
+@pytest.mark.parametrize('value,rule,message', [
+    ('NA', {}, '无法转换'), ('3.5-4.2', {}, '需要明确处理方式'),
+    ('4.2-3.5', {'intervals': 'midpoint'}, '边界无效'),
+    ('1e999', {}, '有限范围'), ('unexpected', {'missing_tokens': ['/']}, 'unexpected'),
+])
+def test_numeric_preparation_does_not_guess_invalid_values(tmp_path, value, rule, message):
+    config = job(tmp_path, pd.DataFrame({'x': ['1', value]}), operation='numeric', columns=['x'], numeric=rule)
+    with pytest.raises(ValueError, match=message):
+        worker.analyze(config)
+    assert not (Path(config['output']) / 'processed.csv').exists()
+
+
+@pytest.mark.parametrize('policy,expected', [('lower', 3.5), ('upper', 4.2), ('midpoint', 3.85), ('missing', None)])
+def test_numeric_interval_policy_is_explicit(policy, expected):
+    result, changes = worker.prepare_numeric(pd.DataFrame({'x': ['3.5-4.2']}), ['x'], {'intervals': policy})
+    assert changes[0]['conversion'] == 'interval_' + policy
+    if expected is None:
+        assert pd.isna(result.x.iloc[0])
+    else:
+        assert result.x.iloc[0] == pytest.approx(expected)
+    with pytest.raises(ValueError, match='布尔'):
+        worker.prepare_numeric(pd.DataFrame({'x': [True]}), ['x'], {})
+
+
+@pytest.mark.parametrize('extension', ['csv', 'xlsx'])
+def test_explicit_header_and_subheading_rows_are_respected(tmp_path, extension):
+    frame = pd.DataFrame([['Production table', None, None], ['id', 'x', 'y'],
+                          ['unit', 'micron', 'kg'], ['001', '3-5', 4], ['002', 6, 8]])
+    path = tmp_path / ('headers.' + extension)
+    if extension == 'xlsx':
+        frame.to_excel(path, index=False, header=False)
+    else:
+        frame.to_csv(path, index=False, header=False)
+    result = worker.read_table(path, {'id_column': 'id', 'header_row': 1, 'skip_after_header': 1}, literal_columns=['x'])
+    assert result.id.tolist() == ['001', '002']
+    numeric, _ = worker.prepare_numeric(result, ['x'], {'intervals': 'midpoint'})
+    assert numeric.x.tolist() == [4, 6]
