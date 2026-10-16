@@ -394,11 +394,11 @@ def prepare(config):
     if len(holdout) and group and rule['split'] == 'time' and not rule.get('gap_seconds'):
         allowed = ~frame[group].isin(frame[group].iloc[holdout])
         folds = [(a[allowed.iloc[a].to_numpy()], b[allowed.iloc[b].to_numpy()]) for a, b in folds]
-    for train, valid in folds:
+    for index, (train, valid) in enumerate(folds):
         if len(train) < 2 or len(valid) < 2:
             raise ValueError('隔离组别／时间后样本不足，请补充数据或降低折数')
         if rule['problem'] == 'classification' and y.iloc[train].nunique() < 2:
-            raise ValueError('训练折少于两类，当前划分不支持分类训练')
+            raise ValueError(f'第 {index + 1} 折的训练数据少于两类，当前划分不支持分类训练；请检查分组／时间与类别分布')
     return {'samples': frame['_sample'].tolist(), 'missing_labels': missing, 'folds': [[a.tolist(), b.tolist()] for a, b in folds],
             'development': indices.tolist(), 'holdout': holdout.tolist(), 'evaluation_label': '保留测试集（尚未使用）' if len(holdout) else '仅验证集结果'}
 
@@ -640,10 +640,41 @@ def classification_details(y, predictions, classes):
     from sklearn.metrics import precision_recall_fscore_support, confusion_matrix
     labels = list(dict.fromkeys([*classes, *y, *predictions]))
     precision, recall, f1, support = precision_recall_fscore_support(y, predictions, labels=labels, zero_division=0)
-    return {'classes': [{'label': str(label), 'precision': float(precision[i]), 'recall': float(recall[i]),
-                        'f1': float(f1[i]), 'samples': int(support[i])} for i, label in enumerate(labels)],
-            'confusion_matrix': confusion_matrix(y, predictions, labels=labels).tolist(),
-            'note': '宏平均使用固定类别范围；样本数为 0 的类别无法据此评价可靠性。'}
+    matrix = confusion_matrix(y, predictions, labels=labels)
+    predicted = matrix.sum(axis=0)
+    return {'classes': [{'label': str(label), 'precision': float(precision[i]) if predicted[i] else None,
+                        'recall': float(recall[i]) if support[i] else None,
+                        'f1': float(f1[i]) if support[i] + predicted[i] else None,
+                        'samples': int(support[i]), 'predicted_samples': int(predicted[i])} for i, label in enumerate(labels)],
+            'confusion_matrix': matrix.tolist(),
+            'note': '混淆矩阵的行表示实际类别，列表示预测类别，顺序与类别表一致。宏平均 F1 使用固定类别范围，未定义项按 0 计入；无法计算的指标单独标明。'}
+
+
+def validation_classification(y, predictions, baseline_predictions, classes, frame_y, split):
+    """Describe only development/fold rows; held-out labels never enter diagnostics."""
+    result = classification_details(y, predictions, classes)
+    result['baseline'] = classification_details(y, baseline_predictions, classes)
+    counts = frame_y.iloc[split['development']].value_counts()
+    for row, label in zip(result['classes'], classes):
+        row['development_samples'] = int(counts.get(label, 0))
+    result['folds'] = []
+    warnings = []
+    rare = [f'{row["label"]}（{row["development_samples"]} 条）' for row in result['classes']
+            if row['development_samples'] < len(split['folds'])]
+    if rare:
+        warnings.append('开发数据中以下类别的样本数少于验证折数：' + '、'.join(rare) + '；请检查每折类别分布，少量样本不足以判断稳定效果。')
+    for index, (train, valid) in enumerate(split['folds']):
+        training, validation = frame_y.iloc[train].value_counts(), frame_y.iloc[valid].value_counts()
+        rows = [{'label': str(label), 'train_samples': int(training.get(label, 0)),
+                 'validation_samples': int(validation.get(label, 0))} for label in classes]
+        result['folds'].append({'fold': index + 1, 'classes': rows})
+        unseen = [row['label'] for row in rows if not row['train_samples'] and row['validation_samples']]
+        absent = [row['label'] for row in rows if not row['validation_samples']]
+        if unseen:
+            warnings.append(f'第 {index + 1} 折验证数据包含训练时未见过的类别：' + '、'.join(unseen) + '。')
+        if absent:
+            warnings.append(f'第 {index + 1} 折验证数据缺少类别：' + '、'.join(absent) + '；该折无法计算这些类别的召回率。')
+    return result, warnings
 
 
 def decision_confidence(predictions, probabilities, classes):
@@ -785,7 +816,12 @@ def evaluate(config, x, frame, split, model_name, folder, trial=None):
         os.replace(folder / 'model.joblib.tmp', folder / 'model.joblib')
     constant_folds = [d['fold'] for d in diagnostics if d['constant_prediction']]
     warnings = [f'第 {"、".join(map(str, constant_folds))} 折对不同实测值给出了相同预测；请检查样本量、特征和参数。此提示不代表算法方向无效。'] if constant_folds else []
+    classification = None
+    if classes is not None:
+        classification, class_warnings = validation_classification(truth, predictions, baseline_predictions, classes, y, split)
+        warnings.extend(class_warnings)
     return {'metrics': metric, 'baseline': baseline, 'fold_metrics': fold_scores, 'diagnostics': diagnostics, 'warnings': warnings, 'group_errors': sorted(group_errors, key=lambda r: r['error'], reverse=True)[:50],
+            'classification': classification,
             'acceptance': acceptance, 'effective_model': effective, 'importance': importance, 'validation_rows': len(rows), 'prediction_preview': out.head(30).to_dict('records'), 'feature_columns': list(x.columns), 'classes': classes.tolist() if classes is not None else None}
 
 

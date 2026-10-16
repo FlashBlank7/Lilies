@@ -38,6 +38,51 @@ def test_macro_f1_keeps_absent_training_classes_visible():
     assert details['confusion_matrix'] == [[2, 0], [0, 0]]
 
 
+def test_classification_distinguishes_missed_classes_from_undefined_metrics():
+    result = worker.classification_details(['a', 'a', 'b'], ['a', 'a', 'a'], ['a', 'b', 'c'])
+    a, b, c = result['classes']
+    assert a['precision'] == pytest.approx(2/3) and a['recall'] == 1 and a['f1'] == .8
+    assert b['samples'] == 1 and b['predicted_samples'] == 0
+    assert b['recall'] == b['f1'] == 0 and b['precision'] is None
+    assert c['samples'] == c['predicted_samples'] == 0
+    assert c['precision'] is c['recall'] is c['f1'] is None
+    assert result['confusion_matrix'] == [[2, 0, 0], [1, 0, 0], [0, 0, 0]]
+    # A class seen for the first time in independent testing remains visible.
+    unseen = worker.classification_details(['new'], ['a'], ['a', 'b'])
+    assert unseen['classes'][-1]['label'] == 'new' and unseen['classes'][-1]['recall'] == 0
+
+
+def test_classification_reports_real_fold_coverage_without_using_holdout_labels(tmp_path):
+    from sklearn.metrics import confusion_matrix
+    config = fixture_data(tmp_path, classification=True)
+    config.update(engine='sklearn', parameters={'n_estimators': 8})
+    x, frame, _ = worker.features(config)
+    frame.loc[0, 'y'] = 'rare'
+    split = {'development': list(range(80)), 'holdout': list(range(80, 100)),
+             'folds': [[list(range(40)), list(range(40, 80))], [list(range(40, 80)), list(range(40))]]}
+    folder = tmp_path / 'trial'; folder.mkdir()
+    result = worker.evaluate(config, x, frame, split, 'forest', folder)
+    details = result['classification']
+    saved = pd.read_csv(folder / 'validation-predictions.csv')
+    labels = [row['label'] for row in details['classes']]
+    assert details['confusion_matrix'] == confusion_matrix(saved.actual, saved.prediction, labels=labels).tolist()
+    assert details['baseline']['confusion_matrix'] == confusion_matrix(saved.actual, saved.baseline_prediction, labels=labels).tolist()
+    assert sum(row['samples'] for row in details['classes']) == result['validation_rows'] == 80
+    rare = next(row for row in details['classes'] if row['label'] == 'rare')
+    assert rare['development_samples'] == rare['samples'] == 1
+    assert next(row for row in details['folds'][0]['classes'] if row['label'] == 'rare') == {
+        'label': 'rare', 'train_samples': 1, 'validation_samples': 0}
+    assert next(row for row in details['folds'][1]['classes'] if row['label'] == 'rare') == {
+        'label': 'rare', 'train_samples': 0, 'validation_samples': 1}
+    assert any('第 2 折' in w and '未见过' in w and 'rare' in w for w in result['warnings'])
+    assert any('第 1 折' in w and '缺少类别' in w and 'rare' in w for w in result['warnings'])
+    frame.loc[80:, 'y'] = 'private-holdout-label'
+    other = tmp_path / 'other'; other.mkdir()
+    again = worker.evaluate(config, x, frame, split, 'forest', other)
+    assert again['classification'] == details
+    assert again['metrics'] == result['metrics'] and again['warnings'] == result['warnings']
+
+
 def test_group_split_no_subject_overlap_and_holdout(tmp_path):
     config = fixture_data(tmp_path)
     split = setup_split(config)

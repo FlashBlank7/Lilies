@@ -70,6 +70,34 @@ def make_note(project_id, dataset, study, candidate, trial, split, candidates, f
             'scope': '同研究的固定数据和评价划分；验证指标用于搜索。不同研究不混排，未登记的外部 benchmark 不自动合并。'}
 
 
+def classification_markdown(result):
+    if not result:
+        return ''
+    baseline = {row['label']: row for row in result.get('baseline', {}).get('classes', [])}
+    def metric(value):
+        return '无法计算' if value is None else cell(value)
+    parts = ['### 各类别验证结果', '',
+             '每条预测来自未用该样本训练的模型。召回率说明实际属于这一类的样本找回了多少；精确率说明判为这一类的结果有多少正确。',
+             '',
+             '| 类别 | 开发样本 | 验证样本 | 预测为此类 | 精确率 | 召回率 | F1 | 基线召回率 |\n|---|---:|---:|---:|---:|---:|---:|---:|',
+             *['| ' + ' | '.join([cell(row['label']), cell(row.get('development_samples')), cell(row['samples']),
+                                cell(row.get('predicted_samples')), metric(row['precision']), metric(row['recall']),
+                                metric(row['f1']), metric(baseline.get(row['label'], {}).get('recall'))]) + ' |'
+               for row in result['classes']]]
+    if result.get('folds'):
+        parts += ['\n### 各次验证的类别分布\n', '| 折 | 类别 | 训练样本 | 验证样本 |\n|---|---|---:|---:|',
+                  *[f'| {fold["fold"]} | {cell(row["label"])} | {row["train_samples"]} | {row["validation_samples"]} |'
+                    for fold in result['folds'] for row in fold['classes']]]
+    if result.get('confusion_matrix') is not None:
+        labels = [cell(row['label']) for row in result['classes']]
+        parts += ['\n### 验证混淆矩阵\n', '行表示实际类别，列表示预测类别。\n',
+                  '| 实际 / 预测 | ' + ' | '.join(labels) + ' |', '|---|' + '---:|' * len(labels),
+                  *['| ' + label + ' | ' + ' | '.join(str(n) for n in row) + ' |'
+                    for label, row in zip(labels, result['confusion_matrix'])]]
+    parts += ['\n' + result.get('note', '')]
+    return '\n'.join(parts)
+
+
 def render_note(note):
     t, rule, split = note['trial'], note['evaluation'], note['split'] or {}
     metric = rule['metric']
@@ -89,7 +117,8 @@ def render_note(note):
              '## 实际模型与超参数', '实际模型参数来自本次拟合对象；搜索值与完整参数分别保存。' if t['status'] == 'completed' else '训练未成功，未产出可用模型。保留传入参数、搜索值和失败原因。',
              '```json\n' + pretty({'effective_model': t.get('effective_model'), 'requested_parameters': note['requested_parameters'], 'search_space': note.get('search_space'), 'autogluon_hyperparameters': note.get('autogluon_hyperparameters'), 'searched_parameters': t.get('parameters'), 'search': t.get('search')}) + '\n```',
              '## 预测检查', '\n\n'.join(t.get('warnings', [])) or ('各折未发现对不同实测值始终给出相同预测。' if 'diagnostics' in t else '本次没有保存逐折预测检查。'),
-             '## 评价结果', '```json\n' + pretty({k: t.get(k) for k in ('metrics', 'baseline', 'fold_metrics', 'diagnostics', 'group_errors', 'importance', 'error')}) + '\n```',
+             '## 评价结果', classification_markdown(t.get('classification')),
+             '```json\n' + pretty({k: t.get(k) for k in ('metrics', 'baseline', 'fold_metrics', 'diagnostics', 'group_errors', 'importance', 'error')}) + '\n```',
              '模型内部重要性不表示因果关系。',
              '保留测试结果（仅属于被最终选定的这个模型，不参与搜索曲线）：\n\n```json\n' + pretty(note['test_result']) + '\n```' if note['test_result'] else '这个模型没有已保存的最终测试结果；上面的指标为验证结果。',
              '## 同条件模型比较与改进曲线', note['scope'],

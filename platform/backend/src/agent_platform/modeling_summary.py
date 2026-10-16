@@ -55,6 +55,11 @@ def trial_summary(value):
     groups = value.get('group_errors', [])
     result['group_errors'] = deepcopy(groups[:5])
     result['group_errors_omitted'] = max(0, len(groups) - 5)
+    if value.get('classification'):
+        classification = value['classification']
+        result['classification'] = pick(classification, ('classes', 'folds', 'note'))
+        if classification.get('baseline'):
+            result['classification']['baseline'] = pick(classification['baseline'], ('classes',))
     return result
 
 

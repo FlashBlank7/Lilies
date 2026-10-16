@@ -66,11 +66,14 @@ it('selects a declared workflow option without JSON or automatically starting a 
 
 it('shows workflow training, fixed-class test results and model download without JSON',()=>{
   render(<ProjectTaskOutput projectId="p" task={{status:'succeeded',mode:'workflow',outputs:{
-    training:{id:'candidate',study_id:'study',trials:[{slot:0,model:'forest',status:'completed',metrics:{macro_f1:.5},baseline:{macro_f1:.2}}]},
+    training:{id:'candidate',study_id:'study',trials:[{slot:0,model:'forest',status:'completed',metrics:{macro_f1:.5},baseline:{macro_f1:.2},warnings:['第 1 折训练时未见过 rare'],classification:{classes:[{label:'rare',samples:1,predicted_samples:0,precision:null,recall:0,f1:0}]}}]},
     test:{rows:10,label:'保留测试',metrics:{macro_f1:.5,roc_auc:null},classification:{note:'固定类别',classes:[{label:'rare',samples:0,precision:0,recall:0,f1:0}]}}
   }} as never}/> )
   expect(screen.getByRole('heading',{name:'训练比较'})).toBeInTheDocument()
-  expect(screen.getByText('0 · 缺少此类测试样本')).toBeInTheDocument()
+  expect(screen.getByText('缺少此类测试样本')).toBeInTheDocument()
+  expect(screen.getByText('第 1 折训练时未见过 rare')).toBeInTheDocument()
+  fireEvent.click(screen.getByText('forest · 试验 1 · 分类验证明细'))
+  expect(screen.getByRole('table',{name:'类别验证指标'})).toBeVisible()
   expect(screen.getByText(/roc_auc: 无法计算/)).toBeInTheDocument()
   expect(screen.getByRole('link',{name:'下载模型与训练记录 ↓'})).toHaveAttribute('href','/api/platform/api/v1/projects/p/modeling/studies/study/candidates/candidate/download')
 })

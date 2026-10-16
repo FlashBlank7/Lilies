@@ -158,6 +158,9 @@ creates an idempotent project task without workflow_id. wait=false permits workf
 Reuse the candidate request_key for retries; changed content conflicts. workflow_run inspect reads the task;
 project_action resume continues the original task after interruption. candidates and training_note show measured
 scores, parameters, errors and model artifacts. Submit feedback as a new candidate with parent_id and hypothesis.
+Classification trials include per-class precision/recall/F1, sample counts, baseline class results and fold
+coverage. Undefined per-class metrics are null; zero recall means actual examples were all missed. Inspect
+warnings for classes absent from a training/validation fold instead of judging quality from accuracy alone.
 project_models binds a completed candidate and trial slot to a stable model_ref; model_predict resolves that name
 at run start and preserves training preprocessing and environment. Unlabeled prediction data must retain features.
 Workflows can be created before any resource exists. submit_and_run remains available for older training workflows.

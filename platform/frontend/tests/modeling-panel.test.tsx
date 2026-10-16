@@ -206,6 +206,22 @@ it('shows measured constant prediction warnings and binds repair to the failed c
   expect(onContext).toHaveBeenCalledWith(expect.objectContaining({ candidate_id: 'c', study_id: 's' }), expect.stringContaining('关联的修复候选'))
 })
 
+it('shows the selected model class results with undefined recall preserved', async () => {
+  const original = vi.mocked(api).getMockImplementation()!
+  vi.mocked(api).mockImplementation(async (path, options) => {
+    if (path.includes('/candidates')) return [{...candidate,trials:[{...candidate.trials[0],classification:{
+      classes:[{label:'rare',samples:0,predicted_samples:0,precision:null,recall:null,f1:null}],
+      confusion_matrix:[[0]],
+    }}]}] as never
+    return original(path, options)
+  })
+  render(<ModelingPanel projectId="p" onContext={vi.fn()}/>)
+  fireEvent.click(await screen.findByRole('button',{name:'查看结果'}))
+  expect(await screen.findByRole('heading',{name:'各类别验证结果'})).toBeInTheDocument()
+  expect(screen.getByText('缺少此类验证样本')).toBeInTheDocument()
+  expect(screen.getAllByText('无法计算')).toHaveLength(3)
+})
+
 it('ignores a previous study response arriving after the selected study changes', async () => {
   const original = vi.mocked(api).getMockImplementation()!
   const pending: ((value: unknown) => void)[] = []

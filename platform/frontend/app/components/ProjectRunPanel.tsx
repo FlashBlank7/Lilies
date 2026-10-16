@@ -9,6 +9,7 @@ import {FeedbackButton} from './UserFeedback'
 import WorkflowInputTable, {type InputColumn} from './WorkflowInputTable'
 import KnowledgeResults, {isKnowledgeSearchResult} from './KnowledgeResults'
 import FeatureResults from './FeatureResults'
+import ClassificationResults, { type ClassificationResult } from './ClassificationResults'
 import { WorkflowValueField } from './WorkflowValueField'
 import { useEffect, useRef, useState } from 'react'
 import { api, withFrontendToken } from '@/lib/platform'
@@ -44,9 +45,9 @@ export function ProjectTaskOutput({ projectId, task, onTask }: { projectId: stri
   const knowledgeResults = results.filter(isKnowledgeSearchResult)
   const knowledgeAnswer = knowledgeResults.length === 1 && typeof output.markdown === 'string' && isKnowledgeSearchResult((output.knowledge || {}) as Record<string, unknown>)
   const training = results.find(result => Array.isArray(result.trials) && typeof result.study_id === 'string')
-  const trials = training?.trials as {slot:number;model:string;status:string;metrics?:Record<string,number>;baseline?:Record<string,number>;error?:string}[] | undefined
+  const trials = training?.trials as {slot:number;model:string;status:string;metrics?:Record<string,number>;baseline?:Record<string,number>;error?:string;warnings?:string[];classification?:ClassificationResult}[] | undefined
   const evaluation = results.find(result => typeof result.rows === 'number' && result.metrics && typeof result.label === 'string')
-  const classification = evaluation?.classification as {classes:{label:string;samples:number;precision:number;recall:number;f1:number}[];note:string} | undefined
+  const classification = evaluation?.classification as ClassificationResult | undefined
   const acceptance = evaluation?.acceptance as {selection:{status:string;threshold:number|null;target_accuracy:number;validation:{accuracy:number;coverage:number;accepted:number}|null};test:{accepted:number;review:number;accuracy:number|null;coverage:number}} | undefined
   return <>
     <TaskError error={task.error}/>
@@ -56,10 +57,11 @@ export function ProjectTaskOutput({ projectId, task, onTask }: { projectId: stri
     {task.runs?.filter(run => run.reuse?.source_run_id).map(run => <p key={run.id}>使用当前配置创建了新运行，复用 {run.reuse!.nodes.length} 个已完成步骤{run.reuse!.nodes.length ? `（${(run.reuse!.titles || run.reuse!.nodes).join('、')}）` : ''}。其他步骤重新执行，原运行保持不变。</p>)}
     {!knowledgeAnswer && <MarkdownDocument source={markdown} resolveLink={href => resolveProjectLink(projectId, href)} emptyLabel={['queued', 'running'].includes(task.status) ? '正在运行，结果会自动显示。' : '本次运行的输出见下方详情。'} />}
     {knowledgeResults.map((result, i) => <KnowledgeResults key={i} result={result} answer={knowledgeAnswer ? output.markdown as string : undefined} question={typeof output.question === 'string' ? output.question : undefined} />)}
-    {!!trials?.length && <section><h3>训练比较</h3><p>先比较模型与简单基线在同一划分下的表现，再看下方独立测试。计算完成只表示训练成功；若效果接近简单基线，应先检查标签、特征和样本覆盖。</p><details><summary>怎么看这些指标？</summary><p>accuracy 是预测正确的比例；macro_f1 平等考虑每个类别，避免多数类掩盖少数类。roc_auc 衡量类别区分能力，不是某个阈值下的准确率。这些值通常越高越好。MAE、RMSE 是数值预测误差，越小越好；R² 越接近 1 越好，也可能为负。</p></details><table><thead><tr><th>模型</th><th>验证指标</th><th>简单基线</th><th>结果</th></tr></thead><tbody>{trials.map(t=><tr key={t.slot}><td>{t.model}</td><td>{Object.entries(t.metrics||{}).map(([k,v])=>`${k}: ${v == null ? '无法计算' : Number(v).toPrecision(5)}`).join(' / ')}</td><td>{Object.entries(t.baseline||{}).map(([k,v])=>`${k}: ${v == null ? '无法计算' : Number(v).toPrecision(5)}`).join(' / ')}</td><td>{t.error|| (t.status==='completed'?'已完成':t.status)}</td></tr>)}</tbody></table></section>}
+    {!!trials?.length && <section><h3>训练比较</h3><p>先比较模型与简单基线在同一划分下的表现，再看下方独立测试。计算完成只表示训练成功；若效果接近简单基线，应先检查标签、特征和样本覆盖。</p><details><summary>怎么看这些指标？</summary><p>accuracy 是预测正确的比例；macro_f1 平等考虑每个类别，避免多数类掩盖少数类。roc_auc 衡量类别区分能力，不是某个阈值下的准确率。这些值通常越高越好。MAE、RMSE 是数值预测误差，越小越好；R² 越接近 1 越好，也可能为负。</p></details><table><thead><tr><th>模型</th><th>验证指标</th><th>简单基线</th><th>结果</th></tr></thead><tbody>{trials.map(t=><tr key={t.slot}><td>{t.model}</td><td>{Object.entries(t.metrics||{}).map(([k,v])=>`${k}: ${v == null ? '无法计算' : Number(v).toPrecision(5)}`).join(' / ')}</td><td>{Object.entries(t.baseline||{}).map(([k,v])=>`${k}: ${v == null ? '无法计算' : Number(v).toPrecision(5)}`).join(' / ')}</td><td>{t.error|| (t.status==='completed'?'已完成':t.status)}{t.warnings?.map(w => <p key={w}>{w}</p>)}</td></tr>)}</tbody></table></section>}
+    {trials?.filter(t => t.classification).map(t => <details key={t.slot}><summary>{t.model} · 试验 {t.slot + 1} · 分类验证明细</summary><ClassificationResults result={t.classification!}/></details>)}
     {training && typeof training.study_id==='string' && typeof training.id==='string' && <p><a download href={withFrontendToken(`/api/platform/api/v1/projects/${projectId}/modeling/studies/${encodeURIComponent(training.study_id)}/candidates/${encodeURIComponent(training.id)}/download`)}>下载模型与训练记录 ↓</a></p>}
     {evaluation && <section><h3>独立测试</h3><p>{String(evaluation.rows)} 条样本 · {String(evaluation.label)}</p><p>{Object.entries(evaluation.metrics as Record<string,number|null>).map(([k,v])=>`${k}: ${v == null ? '无法计算' : Number(v).toPrecision(5)}`).join(' / ')}</p>
-      {classification && <><p>精确率说明判为这一类的结果有多少正确；召回率说明实际属于这一类的样本找回了多少。少数类样本很少时，单次分数不稳定，应保留人工复核并补充样本。</p><p>{classification.note}</p><table><thead><tr><th>类别</th><th>样本数</th><th>精确率</th><th>召回率</th><th>F1</th></tr></thead><tbody>{classification.classes.map(row=><tr key={row.label}><td>{row.label}</td><td>{row.samples}{row.samples===0?' · 缺少此类测试样本':''}</td><td>{row.precision.toFixed(3)}</td><td>{row.recall.toFixed(3)}</td><td>{row.f1.toFixed(3)}</td></tr>)}</tbody></table></>}
+      {classification && <ClassificationResults result={classification} phase="test"/>}
     </section>}
     {acceptance && <section><h3>自动采纳与人工复核</h3>
       <p>{acceptance.selection.status==='selected'?`验证数据选择阈值 ${acceptance.selection.threshold?.toPrecision(5)}`:'验证数据未找到满足要求的阈值，全部交由复核。'} · 验证目标准确率 {acceptance.selection.target_accuracy}</p>
