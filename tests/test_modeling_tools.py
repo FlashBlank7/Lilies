@@ -9,7 +9,7 @@ import time
 import pytest
 
 from agent_platform.modeling_models import ModelingTool
-from agent_platform.modeling_summary import study_summary, candidate_summary, note_summary, profile_summary
+from agent_platform.modeling_summary import study_summary, candidate_summary, note_summary, profile_summary, split_summary
 from agent_platform.project_agent_tools import WorkspaceProjectTools, project_tool_specs
 from tests.test_modeling import modeling, real_compute, setup, wait_task  # noqa: F401
 from tests.test_projects import configured, graph, node, edge, ref  # noqa: F401
@@ -80,6 +80,18 @@ def test_tool_help_and_default_summary_with_full_and_http_compatibility(modeling
     graph(client, project['id'], example['nodes'], example['edges'])
     example_args = next(e for e in help['examples'] if e['action']=='train')
     assert ModelingTool.model_validate(example_args).wait is True
+
+
+def test_split_summary_distinguishes_reserved_unevaluated_absent_and_unknown():
+    split = {'samples': list(range(10)), 'development': list(range(8)), 'holdout': [8, 9], 'folds': []}
+    assert split_summary(split)['holdout_status'] == 'not_evaluated'
+    assert split_summary(split)['holdout_samples'] == 2
+    assert split_summary(split)['development_samples'] == 8
+    assert split_summary(split, {'metrics': {'mae': 1}})['holdout_status'] == 'evaluated'
+    assert split_summary({**split, 'holdout': []})['holdout_status'] == 'not_reserved'
+    assert split_summary({})['holdout_status'] == 'unknown'
+    assert 'holdout_samples' not in split_summary({})
+    assert split_summary(None) is None
 
 
 @pytest.mark.parametrize('change,match', [

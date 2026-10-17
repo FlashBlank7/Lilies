@@ -333,6 +333,35 @@ class OfficialAgent:
         baseline = state.get('official_total_tokens', 0)
         previous_tokens = (self.job(job_id) or {}).get('tokens') or 0
         budget_exceeded = False
+        reserve = min(120, config.max_seconds * .25)
+
+        def request_budget():
+            seconds = max(0, remaining - (time.monotonic() - began))
+            used = (self.job(job_id) or {}).get('tokens') or 0
+            return {'remaining_seconds': round(seconds, 1),
+                    'remaining_tokens': None if config.max_tokens is None else max(0, config.max_tokens - used),
+                    'delivery_due': seconds <= reserve,
+                    'guidance': '在本次时限内安排计算和交付，预留时间保存报告、模型下载和工作流入口。'
+                                '已有结果无需重复读取；临近时限时收尾现有工作，说明失败和未完成项，不扩大搜索。'
+                                '不要等待超时后由用户催促；这不改变时限，也不允许自动续跑。'}
+
+        try:
+            context = json.loads(message)
+        except (ValueError, TypeError):
+            context = None
+        if isinstance(context, dict):
+            message = json.dumps({**context, 'request_budget': request_budget()}, ensure_ascii=False)
+        else:
+            message += '\n\n平台本次执行额度：' + json.dumps(request_budget(), ensure_ascii=False)
+
+        async def remind_delivery():
+            await asyncio.sleep(max(0, remaining - reserve))
+            # Steer the same turn; do not start another request or extend its budget.
+            try:
+                await client.steer('平台剩余时间提醒：' + json.dumps(request_budget(), ensure_ascii=False))
+            except Exception:
+                # A turn may have completed while the reminder was being sent.
+                pass
 
         async def event(method, params):
             nonlocal budget_exceeded
@@ -378,6 +407,7 @@ class OfficialAgent:
                     'wait_seconds': wait_seconds, 'view': arguments.get('view', 'summary')})
             return result
 
+        reminder = asyncio.create_task(remind_delivery()) if remaining > reserve else None
         try:
             async with asyncio.timeout(remaining):
                 result = await client.turn(message, event, tool, timeout=remaining)
@@ -393,6 +423,9 @@ class OfficialAgent:
                 raise ValueError('已达到本任务模型执行时限，进度已保留') from cause
             raise
         finally:
+            if reminder is not None:
+                reminder.cancel()
+                await asyncio.gather(reminder, return_exceptions=True)
             row = self.job(job_id) or {}
             self.update(job_id, status='waiting', execution_seconds=row.get('execution_seconds', 0) + time.monotonic() - began)
 

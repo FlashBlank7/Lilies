@@ -60,6 +60,7 @@ def test_profile_counts_boolean_flags_without_numeric_quantiles(tmp_path, extens
     flag, value = result['columns']
     assert result['rows'] == 6
     assert flag == {'name': 'flag', 'dtype': 'bool', 'missing': 0, 'unique': 2,
+                    'value_counts': [{'value': True, 'count': 4}, {'value': False, 'count': 2}],
                     'distribution': [{'label': 'True', 'count': 4}, {'label': 'False', 'count': 2}]}
     assert value['min'] == 1 and value['max'] == 100
     assert value['mean'] == pytest.approx(115 / 6)
@@ -79,3 +80,15 @@ def test_profile_preserves_missing_boolean_flags(tmp_path):
     assert {item['label']: item['count'] for item in flag['distribution']} == {'True': 1, 'False': 1}
     assert 'mean' not in flag and 'outliers' not in flag
     assert result['preview'][1]['flag'] is None
+
+
+def test_profile_summary_keeps_exact_flag_counts_and_empty_rows(tmp_path):
+    source = tmp_path / 'data.csv'
+    pd.DataFrame({'original': [1, 0, 0, None], 'filled': [0, 1, 1, None],
+                  'date': ['2026-01-01'] * 3 + [None]}).to_csv(source, index=False)
+    result = profile_summary(worker.profile({'source': str(source), 'mapping': {}}))
+    assert (result['rows'], result['empty_rows'], result['nonempty_rows']) == (4, 1, 3)
+    original, filled = result['columns'][:2]
+    assert {row['value']: row['count'] for row in original['value_counts']} == {0: 2, 1: 1}
+    assert {row['value']: row['count'] for row in filled['value_counts']} == {0: 1, 1: 2}
+    assert original['missing'] == filled['missing'] == 1

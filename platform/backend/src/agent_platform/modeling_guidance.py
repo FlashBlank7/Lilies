@@ -19,6 +19,9 @@ analyze 使用 analysis.operation='numeric'|'outliers'|'spearman'；这与画布
 create_study 的 evaluation 固定评价方式。有标签样本的 group_column（未设时 id_column）重复时选择 split='group'，不能随机拆分同一对象；split='time' 需要明确预测时点和可用时间。无分组元数据不等于样本独立，应结合设备、批次和测量过程确定样本单位。正式比较使用 project_modeling 的固定划分；沙盒试算也需保持分组/时间隔离，不能用随机拆分分数替代正式评价。
 train 只需 study_id 和 candidate，无需 workflow_id；wait=false 返回原任务，可同时编辑流程。读取原任务/候选结果；失败先按具体原因修正，再提交方案，不能反复启动相同错误。AIDE 是可选搜索策略，用 next_step 选择分支。对照基线、逐类召回和样本覆盖，不只报准确率；留出集不参与调参，finalize 仅在用户要求最终测试时执行。
 用 project_models 绑定已完成试验，model_predict 引用 model_ref；预测使用保存的预处理与环境。失败或预算不足也交代已有文件、可运行流程、未完成项及下一步，不把已提交的任务写成已训练成功。交付可下载计算结果、模型引用/下载和流程入口；缺少标签语义、样本或有效评价时，具体说明哪些结论还不能成立。
+交付模型用 project_models(action='export', model_ref='已绑定名称')，生成完整模型 ZIP、报告 Markdown 和结构化 JSON，返回可直接链接的项目文件路径。无需额外授权或手工拼研究/候选编号；导出不训练、不评价保留测试。报告使用导出的实际指标、split.development_samples/holdout_samples/holdout_status；not_evaluated 表示已留出但尚未评价，不能写成没有保留测试。
+字段计数使用 profile 的 value_counts（最多12种值）或从保存表按明确条件计算；原始非空数、实际填充数、仍缺失数分别统计，不把“原始记录标记为真”当作填充数。自定义处理脚本同时保存统计 JSON，并从该结果生成报告表格，避免凭会话记忆手写数字。业务假设和解释另外标明，计算结果不能自动证明假设成立。
+用户需要日常换表时，把整理步骤纳入流程，保留源行号和无法预测的原因。完成核心训练后优先导出、保存及运行流程、写报告和最终回复；已有结果按所需字段读取，避免反复全量列表。普通对话无需 project_task_result；用最终回复提供可点击文件与工作流入口。
 """
 
 

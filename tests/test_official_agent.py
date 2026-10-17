@@ -672,3 +672,67 @@ def test_local_codex_missing_rollout_recovers_after_cli_relocation(legacy_config
     assert '恢复文件缺失' in ScriptedCodex.contexts[-1]['instruction']
     assert '工具已升级' not in ScriptedCodex.contexts[-1]['instruction']
     assert any(message['text'] == '先读资料' for message in ScriptedCodex.contexts[-1]['recent_project_messages'])
+
+
+@pytest.mark.parametrize('await_reminder', [True, False])
+def test_delivery_reminder_uses_remaining_request_budget_and_never_adds_turns(official, monkeypatch, await_reminder):
+    client, app, service = official
+    _, headers = signup(client, 'DeliveryWorker')
+    pid = project(client, headers); enable(client, pid)
+    service.save_config(ServiceConfig(enabled=True, max_seconds=30, max_tokens=None))
+    acquire = service.acquire
+    async def acquired(project_id, job_id):
+        await acquire(project_id, job_id)
+        service.update(job_id, execution_seconds=22.2)
+    monkeypatch.setattr(service, 'acquire', acquired)
+    observed, reminders = [], []
+    async def steer(self, message):
+        reminders.append(json.loads(message.split('：', 1)[1]))
+    async def turn(self, message, on_event, on_tool, **kwargs):
+        context = json.loads(message)
+        observed.append(context['request_budget'])
+        if await_reminder:
+            for _ in range(100):
+                if reminders:
+                    break
+                await asyncio.sleep(.01)
+            assert len(reminders) == 1
+        result = await on_tool('project_file', {'action': 'list'})
+        await on_event('item/completed', {'item': {'type': 'agentMessage', 'text': '交付完成'}})
+        return {'status': 'completed'}
+    monkeypatch.setattr(FakeAgent, 'turn', turn)
+    monkeypatch.setattr(FakeAgent, 'steer', steer)
+    path = chat(client, pid, headers)
+    assert client.post(path + '/messages', headers=headers, json={'message': '交付已有结果'}).status_code == 202
+    assert wait(client, path, headers)['status'] == 'idle'
+    time.sleep(.4)
+    assert len(observed) == 1 and 7.5 < observed[0]['remaining_seconds'] <= 7.8
+    assert observed[0]['remaining_tokens'] is None
+    assert len(reminders) == int(await_reminder)
+    if reminders:
+        assert reminders[0]['delivery_due'] and reminders[0]['remaining_seconds'] <= 7.5
+    assert len(service.jobs()) == 1 and service.jobs()[0]['status'] == 'completed'
+    assert service.config().max_seconds == 30
+
+
+def test_near_deadline_still_stops_without_automatic_continuation(official, monkeypatch):
+    client, app, service = official
+    _, headers = signup(client, 'DeadlineWorker')
+    pid = project(client, headers); enable(client, pid)
+    service.save_config(ServiceConfig(enabled=True, max_seconds=30))
+    acquire = service.acquire
+    async def acquired(project_id, job_id):
+        await acquire(project_id, job_id)
+        service.update(job_id, execution_seconds=29.8)
+    monkeypatch.setattr(service, 'acquire', acquired)
+    calls = []
+    async def turn(self, message, on_event, on_tool, **kwargs):
+        calls.append(json.loads(message)['request_budget'])
+        await asyncio.sleep(10)
+    monkeypatch.setattr(FakeAgent, 'turn', turn)
+    path = chat(client, pid, headers)
+    assert client.post(path + '/messages', headers=headers, json={'message': '超时检查'}).status_code == 202
+    state = wait(client, path, headers)
+    assert state['status'] == 'error' and '时限' in state['error']
+    assert len(calls) == 1 and calls[0]['delivery_due']
+    assert len(service.jobs()) == 1 and service.jobs()[0]['status'] == 'error'

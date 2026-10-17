@@ -14,9 +14,9 @@ def detail(action, **ids):
 
 
 def profile_summary(value):
-    result = pick(value, ('sampled', 'rows', 'duplicates', 'runtime', 'id_column_count', 'group_column_count',
+    result = pick(value, ('sampled', 'rows', 'empty_rows', 'nonempty_rows', 'duplicates', 'runtime', 'id_column_count', 'group_column_count',
                          'sample_structure', 'warnings'))
-    result['columns'] = [pick(c, ('name', 'dtype', 'missing', 'unique', 'min', 'max', 'mean', 'outliers'))
+    result['columns'] = [pick(c, ('name', 'dtype', 'missing', 'unique', 'min', 'max', 'mean', 'outliers', 'value_counts'))
                          for c in value.get('columns', [])]
     if 'time' in value:
         result['time'] = pick(value['time'], ('start', 'end', 'invalid', 'median_interval_seconds'))
@@ -33,6 +33,21 @@ def dataset_summary(value):
     return result
 
 
+def split_summary(split, test_result=None):
+    if split is None:
+        return None
+    result = pick(split, ('missing_labels', 'evaluation_label'))
+    for name, field in [('samples', 'labeled_samples'), ('development', 'development_samples'), ('holdout', 'holdout_samples')]:
+        if name in split:
+            result[field] = len(split[name])
+    if 'folds' in split:
+        result['folds'] = len(split['folds'])
+    result['holdout_status'] = ('evaluated' if test_result else
+        'not_evaluated' if result.get('holdout_samples', 0) > 0 else
+        'not_reserved' if result.get('holdout_samples') == 0 else 'unknown')
+    return result
+
+
 def study_summary(value):
     result = pick(value, ('id', 'dataset_id', 'name', 'item_id', 'parent_study_id', 'status', 'evaluation', 'budget',
                          'best', 'baseline', 'trials_used', 'next_action', 'error', 'repair_candidate_id',
@@ -44,7 +59,7 @@ def study_summary(value):
                                   'trials': max(0, budget.get('trials', 0) - value.get('trials_used', 0))}
     result['metric_direction'] = 'minimize' if value['evaluation']['metric'] in {'mae', 'rmse'} else 'maximize'
     if value.get('split'):
-        result['split'] = pick(value['split'], ('missing_labels', 'evaluation_label'))
+        result['split'] = split_summary(value['split'], value.get('test_result'))
     result.update(view='summary', detail=detail('read_study', study_id=value['id']))
     return result
 
@@ -84,11 +99,7 @@ def note_summary(value):
     result['trial'] = trial_summary(value['trial'])
     result['dataset'] = pick(value['dataset'], ('id', 'name', 'mapping'))
     result['features'] = deepcopy(value['features'])
-    split = value.get('split')
-    result['split'] = None if split is None else {
-        **pick(split, ('missing_labels', 'evaluation_label')),
-        'development_samples': len(split.get('development', [])), 'holdout_samples': len(split.get('holdout', [])),
-        'folds': len(split.get('folds', []))}
+    result['split'] = split_summary(value.get('split'), value.get('test_result'))
     result['comparison_trials'] = len(value.get('comparison', []))
     result.update(view='summary', detail=detail('training_note', study_id=value['study_id'],
                                                candidate_id=value['candidate_id'], slot=value['slot']))

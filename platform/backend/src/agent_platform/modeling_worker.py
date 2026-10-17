@@ -140,6 +140,9 @@ def profile(config):
     for name in frame.columns:
         series = frame[name]
         info = {'name': str(name), 'dtype': str(series.dtype), 'missing': int(series.isna().sum()), 'unique': int(series.nunique())}
+        if info['unique'] <= 12:
+            info['value_counts'] = [{'value': clean(k) if isinstance(k, (str, int, float, bool, np.generic)) else str(k),
+                                    'count': int(v)} for k, v in series.value_counts().items()]
         if pd.api.types.is_numeric_dtype(series) and not pd.api.types.is_bool_dtype(series):
             finite = series.replace([np.inf, -np.inf], np.nan).dropna()
             if len(finite):
@@ -151,7 +154,9 @@ def profile(config):
         else:
             info['distribution'] = [{'label': str(k), 'count': int(v)} for k, v in series.value_counts().head(12).items()]
         columns.append(info)
-    result = {'sampled': config.get('sampled', False), 'rows': len(frame), 'duplicates': int(frame.duplicated().sum()), 'columns': columns,
+    empty_rows = int(frame.isna().all(axis=1).sum())
+    result = {'sampled': config.get('sampled', False), 'rows': len(frame), 'empty_rows': empty_rows, 'nonempty_rows': len(frame) - empty_rows,
+              'duplicates': int(frame.duplicated().sum()), 'columns': columns,
               'preview': frame.head(12).astype(object).where(pd.notna(frame.head(12)), None).to_dict('records')}
     time_col = mapping.get('time_column')
     if time_col and time_col in frame:

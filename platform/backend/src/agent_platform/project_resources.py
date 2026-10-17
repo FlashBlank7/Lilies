@@ -67,6 +67,51 @@ def binding_from_context(project, model_ref):
     return binding
 
 
+async def export_model(services, project_id, model_ref):
+    """Export the selected binding, with report values read from saved computation."""
+    import asyncio
+    import json
+    import shutil
+    from pathlib import Path
+    from uuid import uuid4
+    from .modeling_exports import model_bundle
+    from .modeling_summary import note_summary
+    from .training_notes import render_note
+
+    record = await services.projects.store.get_record(project_id, 'model_resources', model_ref)
+    value = record.get('value') or {}
+    if not value.get('candidate_id'):
+        raise ValueError('导出需要绑定已训练的研究/候选模型；当前引用尚未绑定或属于外部导入模型')
+    archive, note = await model_bundle(services.modeling, project_id, value['study_id'], value['candidate_id'], value['slot'])
+    facts = {**note_summary(note), 'model_ref': model_ref, 'revision': record['revision']}
+    relative = Path('results/models') / str(uuid4())
+    root = services.projects.workspace(project_id)
+    destination = root / relative
+    artifacts = [{'label': label, 'file_path': (relative / name).as_posix()} for label, name in (
+        ('完整预测模型包', 'prediction-model.zip'), ('模型与评价报告', 'model-report.md'), ('模型与评价数据', 'model-report.json'))]
+
+    def write():
+        for path in (root, root / 'results', destination.parent):
+            if path.is_symlink():
+                raise ValueError('模型导出路径不能包含符号链接')
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        temporary = destination.parent / ('.export-' + str(uuid4()))
+        temporary.mkdir()
+        try:
+            shutil.copyfile(archive, temporary / 'prediction-model.zip')
+            (temporary / 'model-report.json').write_text(json.dumps(facts, ensure_ascii=False, indent=2))
+            (temporary / 'model-report.md').write_text(
+                f'模型：{model_ref}；引用修订：{record["revision"]}。\n\n'
+                f'研究：{note["study_id"]}；候选：{note["candidate_id"]}；试验 slot：{note["slot"]}。\n\n' + render_note(note))
+            temporary.rename(destination)
+        finally:
+            if temporary.exists():
+                shutil.rmtree(temporary)
+    await asyncio.to_thread(write)
+    return {**facts, 'artifacts': artifacts,
+            'usage': '文件已保存到项目；将 artifacts.file_path 直接作为 Markdown 下载链接。报告数字和编号来自保存记录；无需重新手写标识。'}
+
+
 async def start_training(services, project_id, study_id, candidate):
     from uuid import uuid4
     import asyncio
