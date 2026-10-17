@@ -61,30 +61,43 @@ export default function ProjectConversation({ id, conversationId, projectName, c
   const restored = useRef(false)
   const cursor = useRef('')
   const revision = useRef(-1)
+  const refreshStarted = useRef(0)
+  const refreshApplied = useRef(0)
   const composer = useRef<HTMLTextAreaElement>(null)
   const historyElement = useRef<HTMLDivElement>(null)
   const followBottom = useRef(true)
   const merge = (previous: Event[], incoming: Event[]) => [...new Map([...previous, ...incoming].map(e => [e.id, e])).values()]
   const refresh = useCallback(async () => {
+    const request = ++refreshStarted.current
+    const after = cursor.current
+    let fromStart = !after
     try {
       let page: Session
       try {
-        page = await api<Session>(conversationBase + (cursor.current ? '?after=' + encodeURIComponent(cursor.current) : ''))
+        page = await api<Session>(conversationBase + (after ? '?after=' + encodeURIComponent(after) : ''))
       } catch (cause) {
-        if (!cursor.current || !cause || typeof cause !== 'object'
+        if (!mounted.current || request < refreshApplied.current) return
+        if (!after || !cause || typeof cause !== 'object'
           || !('status' in cause) || cause.status !== 422
           || !('detail' in cause) || cause.detail !== '会话分页位置不存在') throw cause
         // A prior connection may hold an obsolete cursor. Keep the displayed
         // history and composer, then resume incrementally from saved messages.
-        cursor.current = ''
+        fromStart = true
         page = await api<Session>(conversationBase)
       }
-      if (!mounted.current) return
-      if (!cursor.current) setOlder(page.has_more)
+      // Polls and action refreshes may overlap. A late response must not
+      // replace a newer task state, cursor, or recovered connection.
+      if (!mounted.current || request < refreshApplied.current) return
+      refreshApplied.current = request
+      if (fromStart) { setOlder(page.has_more); cursor.current = '' }
       if (page.last_cursor) cursor.current = page.last_cursor
       setSession(page); setSummaries(previous => ({ ...previous, ...page.request_activity })); setEvents(previous => merge(previous, page.events)); setConnectionError('')
       if (revision.current !== page.revision) { revision.current = page.revision; void onUpdated() }
-    } catch (cause) { setConnectionError(String(cause)) }
+    } catch (cause) {
+      if (!mounted.current || request < refreshApplied.current) return
+      refreshApplied.current = request
+      setConnectionError(String(cause))
+    }
   }, [conversationBase, onUpdated])
   useEffect(() => { try { const saved = sessionStorage.getItem(draftKey); if (saved) {setMessage(saved);messageRef.current=saved} const context = sessionStorage.getItem(draftKey + ':modeling'); if (context) setModelingContext(JSON.parse(context)); if(sessionStorage.getItem(draftKey+':mode')==='workflow')setMode('workflow') } catch {} }, [draftKey])
   useEffect(() => { void refresh(); const timer = window.setInterval(() => void refresh(), 1500); return () => window.clearInterval(timer) }, [refresh])

@@ -22,11 +22,14 @@ export default function ProjectConversations(props: Props) {
   const selection = useRef('')
   useEffect(() => {
     let alive = true
+    let started = 0, applied = 0
     selection.current = ''; setSelected(''); setRows([]); setLoading(true)
     const refresh = async () => {
+      const request = ++started
       try {
         const next = await api<Conversation[]>(base)
-        if (!alive) return
+        if (!alive || request < applied) return
+        applied = request
         setRows(next); setError('')
         if (!selection.current) {
           let saved = ''
@@ -34,8 +37,8 @@ export default function ProjectConversations(props: Props) {
           const initial = next.find(row => row.id === saved) || next[0]
           if (initial) { selection.current = initial.id; setSelected(initial.id); setTitle(initial.title) }
         }
-      } catch (cause) { if (alive) setError(String(cause)) }
-      finally { if (alive) setLoading(false) }
+      } catch (cause) { if (alive && request >= applied) { applied = request; setError(String(cause)) } }
+      finally { if (alive && request >= applied) setLoading(false) }
     }
     void refresh()
     const timer = window.setInterval(() => void refresh(), 3000)

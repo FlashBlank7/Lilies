@@ -40,6 +40,34 @@ async function setup(sessionOverride: Record<string, unknown> = {}, currentProgr
   await act(async () => { render(<Suspense fallback="加载"><ProjectPage params={Promise.resolve({ id: 'p' })} /></Suspense>) })
 }
 
+it('preserves a rejected shutdown message and its context and request key for retry', async () => {
+  await setup({ provider: 'official' })
+  const healthy = vi.mocked(api).getMockImplementation()!
+  const submitted: Record<string, string>[] = []
+  vi.mocked(api).mockImplementation(async (path, options) => {
+    if (path.endsWith('/messages')) {
+      submitted.push(JSON.parse(String(options?.body)))
+      if (submitted.length === 1)
+        throw Object.assign(new Error('服务正在关闭，消息未接收，请稍后重试'), { status: 503 })
+    }
+    return healthy(path, options)
+  })
+  fireEvent.click(screen.getByRole('button', { name: '回答这个问题' }))
+  fireEvent.change(screen.getByLabelText('给项目统筹的消息'), { target: { value: '从头部开始' } })
+  fireEvent.click(screen.getByRole('button', { name: '发送' }))
+  expect(await screen.findByText(/服务正在关闭，消息未接收/)).toBeInTheDocument()
+  expect(screen.getByLabelText('给项目统筹的消息')).toHaveValue('从头部开始')
+  expect(screen.queryByText('请求已发送。')).not.toBeInTheDocument()
+  await waitFor(() => expect(screen.getByRole('button', { name: '发送' })).toBeEnabled())
+  fireEvent.click(screen.getByRole('button', { name: '发送' }))
+  await waitFor(() => expect(screen.getByLabelText('给项目统筹的消息')).toHaveValue(''))
+  expect(submitted).toHaveLength(2)
+  expect(submitted[0]).toEqual(expect.objectContaining({ message: '从头部开始', item_id: 'predict', question_id: 'origin', request_key: expect.any(String) }))
+  expect(submitted[0].request_key).toBeTruthy()
+  expect(submitted[1]).toEqual(submitted[0])
+  expect(screen.queryByText(/服务正在关闭，消息未接收/)).not.toBeInTheDocument()
+})
+
 it('attaches an uploaded dataset without replacing the customer’s unsent request', async () => {
   await setup()
   const original = vi.mocked(api).getMockImplementation()!
@@ -101,6 +129,43 @@ it('recovers an invalid message cursor without losing visible history or the uns
   expect(screen.queryByText('连接暂时中断，已保存的对话和结果仍保留。')).not.toBeInTheDocument()
   await act(async () => { (intervals.mock.calls.find(call => call[1] === 1500)![0] as () => void)() })
   expect(api).toHaveBeenCalledWith('/api/v1/projects/p/conversations/chat?after=m2')
+})
+
+it.each(['previous_idle', 'previous_running', 'previous_failure'])('keeps the newest displayed task state when %s arrives late', async fault => {
+  const intervals = vi.spyOn(window, 'setInterval')
+  const previous = { ...session, status: fault === 'previous_running' ? 'running' : 'idle', revision: 2 }
+  await setup(previous)
+  fireEvent.change(screen.getByLabelText('给项目统筹的消息'), { target: { value: '尚未发送的补充' } })
+  const healthy = vi.mocked(api).getMockImplementation()!
+  let resolve!: (value: never) => void
+  let reject!: (error: Error) => void
+  let reads = 0
+  const latest = { ...session, status: fault === 'previous_running' ? 'idle' : 'running', revision: 3,
+    events: [{ id: 'm2', kind: 'assistant', text: '最新处理记录', time: '' }], first_cursor: 'm2', last_cursor: 'm2' }
+  vi.mocked(api).mockImplementation(async (path, options) => {
+    if (path.includes('/conversations/chat') && !path.includes('kind=') && !options) {
+      reads++
+      if (reads === 1) return new Promise((yes, no) => { resolve = yes; reject = no })
+      return latest as never
+    }
+    return healthy(path, options)
+  })
+  const refresh = intervals.mock.calls.find(call => call[1] === 1500)![0] as () => void
+  await act(async () => { refresh() })
+  expect(resolve).toBeDefined()
+  await act(async () => { refresh() })
+  expect(await screen.findByText('最新处理记录')).toBeInTheDocument()
+  await act(async () => {
+    if (fault === 'previous_failure') reject(new Error('older connection failed'))
+    else resolve(previous as never)
+  })
+  if (fault === 'previous_running') expect(screen.queryByRole('button', { name: '停止' })).not.toBeInTheDocument()
+  else expect(screen.getByRole('button', { name: '停止' })).toBeInTheDocument()
+  expect(screen.queryByText('连接暂时中断，已保存的对话和结果仍保留。')).not.toBeInTheDocument()
+  expect(screen.getByLabelText('给项目统筹的消息')).toHaveValue('尚未发送的补充')
+  expect(screen.getByText('最新处理记录')).toBeInTheDocument()
+  await act(async () => { refresh() })
+  expect(api).toHaveBeenLastCalledWith('/api/v1/projects/p/conversations/chat?after=m2')
 })
 
 it('shows usable capability and ongoing work independently, with local questions', async () => {

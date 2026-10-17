@@ -14,6 +14,10 @@ class SandboxError(RuntimeError):
     pass
 
 
+class SandboxCleanupError(SandboxError):
+    """Execution may have ended, but its container was not removed."""
+
+
 @dataclass(slots=True)
 class CommandResult:
     stdout: str
@@ -88,7 +92,12 @@ class SandboxSession:
     async def stop(self) -> None:
         if not self.started:
             return
-        await self._host_command(["docker", "rm", "-f", self.container_name], timeout=30)
+        try:
+            result = await self._host_command(["docker", "rm", "-f", self.container_name], timeout=30)
+        except Exception as error:
+            raise SandboxCleanupError(f"failed to stop sandbox: {error}") from error
+        if result.exit_code != 0:
+            raise SandboxCleanupError(f"failed to stop sandbox: {result.stderr or result.stdout}")
         self.started = False
 
     async def run(
@@ -202,9 +211,11 @@ class SandboxManager:
         return (self.settings.workspace_host_root.resolve() / relative).resolve()
 
     async def remove(self, session_id: str) -> None:
-        sandbox = self.sessions.pop(session_id, None)
+        sandbox = self.sessions.get(session_id)
         if sandbox:
             await sandbox.stop()
+            if self.sessions.get(session_id) is sandbox:
+                self.sessions.pop(session_id)
 
     async def close(self) -> None:
         await asyncio.gather(*(sandbox.stop() for sandbox in list(self.sessions.values())))

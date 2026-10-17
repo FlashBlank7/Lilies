@@ -54,14 +54,17 @@ export default function ProjectActivity({ projectId, conversationId, requestId, 
   useEffect(() => {
     if (!open) return
     let alive = true, cursor = ''
+    let started = 0, applied = 0
     const refresh = async () => {
+      const request = ++started
       try {
         const page = await api<{ events: Activity[]; has_more: boolean; first_cursor: string; last_cursor: string }>(`/api/v1/projects/${projectId}/${conversationPath}?kind=activity&request_id=${encodeURIComponent(requestId || '')}${cursor ? '&after=' + encodeURIComponent(cursor) : ''}`)
-        if (!alive) return
+        if (!alive || request < applied) return
+        applied = request
         if (!cursor) { setBefore(page.first_cursor); setMore(page.has_more) }
         cursor = page.last_cursor || cursor
         setOperations(previous => [...new Map([...previous, ...page.events].map(a => [a.operation_id, a])).values()]); setError('')
-      } catch (e) { if (alive) setError(String(e)) }
+      } catch (e) { if (alive && request >= applied) { applied = request; setError(String(e)) } }
     }
     void refresh()
     const timer = active ? window.setInterval(() => void refresh(), 1500) : undefined

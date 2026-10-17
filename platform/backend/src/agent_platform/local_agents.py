@@ -58,6 +58,8 @@ class LocalAgents:
         self.client_factory = client_factory
         self.clients: dict[str, CodexAppServer | ModelSession] = {}
         self.tasks: dict[str, asyncio.Task] = {}
+        self.finalizing: set[asyncio.Task] = set()
+        self.stop_requested: set[asyncio.Task] = set()
         self.active: dict[str, asyncio.Task] = {}  # BuilderEngine contract: build_id -> task
         self.locks: dict[str, asyncio.Lock] = {}
         self.runs: dict[str, set[str]] = {}
@@ -237,6 +239,16 @@ class LocalAgents:
         async with self.locks.setdefault(application_id, asyncio.Lock()):
             state = self.load(application_id)
             await self.require_project_model(application_id, state['provider'])
+            if state['provider'] == 'official':
+                self.services.official_agent.require_accepting_messages()
+            active = self.tasks.get(self.key(application_id))
+            if active in self.finalizing:
+                # A finalizer cannot consume more messages. Start a new request
+                # after it saves, and never let this sender cancel that cleanup.
+                await asyncio.shield(active)
+                if state['provider'] == 'official':
+                    self.services.official_agent.require_accepting_messages()
+            state = self.load(application_id)
             if state["provider"] not in AGENT_PROVIDERS | {"official"}:
                 raise ValueError("请先连接项目模型")
             unified = intent == 'coordinate'
@@ -267,16 +279,18 @@ class LocalAgents:
                     state.update(conversation_enabled=True, conversation_context=conversation_context or {})
                     self.save(application_id, state)
                     self.event(application_id, 'user', message, **(conversation_context or {}))
-                    if not client or getattr(client, 'turn_id', True) is None:
+                    delivered = False
+                    if client and getattr(client, 'turn_id', True) is not None:
+                        delivered = await client.steer(json.dumps({'message': message, 'context': conversation_context}, ensure_ascii=False))
+                    if delivered is False:
                         state = self.load(application_id)
                         state.setdefault('pending_messages', []).append(message)
                         self.save(application_id, state)
-                        return self.load(application_id)
-                    await client.steer(json.dumps({'message': message, 'context': conversation_context}, ensure_ascii=False))
                     return self.load(application_id)
                 if not client:
                     raise ValueError("Agent 正在连接，请稍后发送")
-                await client.steer(message)
+                if await client.steer(message) is False:
+                    raise ValueError('本轮已结束，请重新发送消息')
                 self.event(application_id, "user", message)
                 return self.load(application_id)
             workspace = self.services.settings.workspace_root.resolve() / application_id
@@ -291,6 +305,9 @@ class LocalAgents:
             state.update(phase=intent, status='queued' if official else 'connecting', error='', request_id=request_id)
             state.update(conversation_enabled=unified, continue_work=False, blocked_this_request=[],
                          conversation_context=conversation_context or {}, active_item_id='')
+            if unified and state.get('pending_messages'):
+                # A new request may revise undelivered input from a stopped turn.
+                state['pending_messages'].append(message)
             if intent != 'operate':
                 state.pop('project_task_id', None)
             self.save(application_id, state)
@@ -351,7 +368,8 @@ class LocalAgents:
         task = self.active.get(build_id)
         if not task or task.done():
             raise KeyError(build_id)
-        task.cancel()
+        if task not in self.finalizing and not task.cancelling():
+            task.cancel()
 
     def track_run(self, application_id: str, run_id: str) -> None:
         self.runs.setdefault(self.key(application_id), set()).add(run_id)
@@ -403,17 +421,39 @@ class LocalAgents:
                 await self.services.projects.stop(application_id, task_id)
 
     async def stop(self, application_id: str) -> dict:
+        def request_stop(task):
+            if task not in self.stop_requested:
+                self.stop_requested.add(task)
+                task.add_done_callback(self.stop_requested.discard)
+            if task not in self.finalizing and not task.cancelling():
+                task.cancel()
+
+        # message() can hold the project lock while awaiting a provider's steer
+        # reply. Cancel the observed run directly so stop never waits for that
+        # reply, including when another conversation owns the project lock.
+        key = self.key(application_id)
+        task = self.tasks.get(key)
+        if task and not task.done():
+            request_stop(task)
+            # The caller may abandon this HTTP request. It must not cancel the
+            # run again while that run is saving results or cleaning up.
+            await asyncio.gather(asyncio.shield(task), return_exceptions=True)
+            if self.tasks.get(key) is task:
+                await self.stop_project_tests(application_id)
+            return self.load(application_id)
+        # A first message may still be setting up its run under the lock.
         async with self.locks.setdefault(application_id, asyncio.Lock()):
             task = self.tasks.get(self.key(application_id))
             if task and not task.done():
-                task.cancel()
-                await asyncio.gather(task, return_exceptions=True)
+                request_stop(task)
+                await asyncio.gather(asyncio.shield(task), return_exceptions=True)
             await self.stop_project_tests(application_id)
             return self.load(application_id)
 
     async def _run(self, application_id: str, message: str, *, build_id: str | None = None) -> None:
         client = self.clients.get(self.key(application_id))
         status, error = "idle", ""
+        shutdown_cancelled = False
         is_project = self.services.projects.store.exists(application_id)
         from .project_agent_tools import WorkspaceProjectTools, PROJECT_INSTRUCTIONS, project_tool_specs
         from .project_conversation import CONVERSATION_INSTRUCTIONS
@@ -427,6 +467,20 @@ class LocalAgents:
         try:
             state = self.load(application_id)
             await self.require_project_model(application_id, state['provider'])
+            if official:
+                # Do not leave a never-run provider thread waiting in the queue:
+                # it may have no rollout to resume if its process exits there.
+                await self.services.official_agent.acquire(application_id, job_id)
+                state = self.load(application_id)
+                state['status'] = 'running'
+                self.save(application_id, state)
+            if isinstance(client, CodexAppServer) and (client.closing or (
+                    client.process is not None and client.process.returncode is not None)):
+                # An idle connection may die after the previous task succeeded.
+                # Resume its saved thread before sending this new request.
+                await client.close()
+                self.clients.pop(self.key(application_id), None)
+                client = None
             if not client:
                 runtime_dir = self.folder(application_id) / state["session_id"]
                 if official:
@@ -463,14 +517,14 @@ class LocalAgents:
                     try:
                         thread_id = await client.start(specs, instructions, None if renew else previous_thread)
                     except FileNotFoundError as cause:
+                        if state['provider'] != 'codex':
+                            raise
                         # Editor updates can remove the versioned CLI path. Only
                         # rediscover a missing executable, never missing session data.
                         # uvloop omits filename for subprocess spawn failures.
                         missing_cli = cause.filename == state['executable'] or (
                             cause.filename is None and not Path(state['executable']).exists())
                         if not missing_cli:
-                            raise
-                        if state['provider'] != 'codex':
                             raise
                         info = await inspect_executable('codex')
                         validate_codex_version(info['version'])
@@ -683,10 +737,6 @@ class LocalAgents:
                     context.update(phase=current['phase'],
                                    conversation_context=current.get('conversation_context', {}),
                                    continue_work=current.get('continue_work', False))
-                    pending = current.pop('pending_messages', [])
-                    if pending:
-                        context['latest_messages'] = pending
-                        self.save(application_id, current)
                     if current.get('context_handoff'):
                         context['recent_project_messages'] = [
                             {'role': e['kind'], 'text': e['text'][:2000]}
@@ -695,17 +745,47 @@ class LocalAgents:
                         context['instruction'] += ' ' + reason + ' 原项目消息、需求和结果均保留；从当前事项接续，不重复执行已完成的工具操作。'
                 productive = False
                 turn_key = str(uuid4())
-                self.event(application_id, 'agent_turn_started', 'Agent 回合开始', agent_turn_id=turn_key,
-                           context_bytes=payload_measurement(context)['bytes'],
-                           context_parts={k: payload_measurement(v) for k, v in context.items()})
+                turn_prepared = False
+
+                def prepare_message():
+                    nonlocal turn_prepared
+                    # Keep undelivered supplements queued while access, capacity
+                    # and budget checks can still reject the next model turn.
+                    current = self.load(application_id)
+                    pending = []
+                    if current.get('conversation_enabled'):
+                        context.update(phase=current['phase'],
+                                       conversation_context=current.get('conversation_context', {}),
+                                       continue_work=current.get('continue_work', False))
+                        pending = current.get('pending_messages', [])
+                        if pending:
+                            context['latest_messages'] = pending
+                            context['instruction'] += (
+                                ' latest_messages contains unprocessed user inputs in arrival order.'
+                                ' Later corrections override conflicting earlier requests.'
+                                ' If user_message also appears in this list, it is the same input, not another action.')
+                    message = json.dumps(context, ensure_ascii=False)
+                    self.event(application_id, 'agent_turn_started', 'Agent 回合开始', agent_turn_id=turn_key,
+                               context_bytes=payload_measurement(context)['bytes'],
+                               context_parts={k: payload_measurement(v) for k, v in context.items()})
+                    turn_prepared = True
+                    if pending:
+                        # A local preparation failure has sent nothing. Preserve
+                        # the queue until serialization and the event save pass.
+                        current = self.load(application_id)
+                        current.pop('pending_messages', None)
+                        self.save(application_id, current)
+                    return message
+
                 try:
                     if official:
                         turn = await self.services.official_agent.run_turn(application_id, job_id, client,
-                            json.dumps(context, ensure_ascii=False), on_event, on_tool)
+                            prepare_message, on_event, on_tool)
                     else:
-                        turn = await client.turn(json.dumps(context, ensure_ascii=False), on_event, on_tool, timeout=900)
+                        turn = await client.turn(prepare_message(), on_event, on_tool, timeout=900)
                 finally:
-                    self.event(application_id, 'agent_turn_ended', 'Agent 回合结束', agent_turn_id=turn_key)
+                    if turn_prepared:
+                        self.event(application_id, 'agent_turn_ended', 'Agent 回合结束', agent_turn_id=turn_key)
                 if turn.get('status') == 'failed':
                     raise RuntimeError((turn.get('error') or {}).get('message', '模型会话执行失败'))
                 if turn.get('status') == 'interrupted':
@@ -793,29 +873,16 @@ class LocalAgents:
                 self.event(application_id, 'status', '继续处理：' + ready[0]['title'])
         except asyncio.CancelledError:
             status = "interrupted"
+            shutdown_cancelled = official and self.services.official_agent.shutting_down
         except Exception as cause:
             status, error = "error", str(cause)[:4000]
         finally:
-            if official:
-                service = self.services.official_agent
-                rows = service.jobs('queued') if service.shutting_down else []
-                if not any(r['id'] == job_id for r in rows):
-                    service.update(job_id, status='completed' if status == 'idle' else status,
-                                   error=error, ended=time.time())
-                    row = service.job(job_id)
-                    if row:
-                        self.services.product_usage.record(key=job_id + ':result', user_id=row['user_id'],
-                            project_id=application_id, conversation_id=conversation_for(application_id), root_id=job_id,
-                            feature='chat_result', outcome=row['status'], tokens=row['tokens'],
-                            seconds=max(0, (row['ended'] or time.time()) - (row['started'] or row['created'])))
-            elif is_project and initial_state.get('provider') == 'api' and job_id:
-                self.services.product_usage.record(key=job_id + ':result', user_id=user_id,
-                    project_id=application_id, conversation_id=conversation_for(application_id), root_id=job_id,
-                    feature='chat_result', outcome='completed' if status == 'idle' else status,
-                    seconds=time.monotonic() - began)
-            if project_task_id:
-                await self.services.projects.finish_agent(application_id, project_task_id, status, error)
-            if status in {"interrupted", "error"}:
+            # Once execution has ended, stop/shutdown waits for these writes;
+            # cancelling halfway would leave the job and conversation disagreeing.
+            owner = asyncio.current_task()
+            self.finalizing.add(owner)
+
+            async def cleanup():
                 await self.stop_project_tests(application_id)
                 if client:
                     await client.close()
@@ -825,43 +892,102 @@ class LocalAgents:
                     if task and not task.done():
                         self.services.workflow_runtime.cancel(run_id)
                         await asyncio.gather(task, return_exceptions=True)
-            state = self.load(application_id)
-            if state.get('conversation_enabled'):
-                if status in {'interrupted', 'error'}:
-                    await self.services.projects.conversation.pause(application_id,
-                        error or '用户已停止，可继续', failed=status == 'error')
-                active_task = state.get('project_task_id')
-                if active_task:
-                    task = await self.services.projects.store.get_task(application_id, active_task)
-                    if task['status'] in {'queued', 'running'} and task['mode'] == 'agent':
-                        await self.services.projects.store.update_task(active_task, status='interrupted',
-                            error=error or '统筹尚未完成此任务，已保留进展，可继续处理')
-            state = self.load(application_id)
-            state.update(status=status, error=error)
-            self.save(application_id, state)
-            self.interrupt_operations(application_id, error or '本轮已停止，等待继续')
-            self.event(application_id, "status", error or ("已停止，可以继续" if status == "interrupted" else "本轮已结束"))
-            if build_id:
-                draft = await self.services.workflow_store.get_draft(application_id)
-                self.services.build_transcripts.append(build_id, {
-                    "kind": "turn", "turn": len(state["events"]), "actor": state.get('provider', 'Agent'),
-                    "model": state.get("model", ""), "thinking": "", "text": error or "本轮结束，请在项目 Agent 会话查看操作和结果。",
-                    "tool_calls": [], "stop_reason": status, "usage": {}, "draft_revision": draft["revision"],
-                })
-                # A completed agent turn doesn't mean the workflow passed its tests.
-                build_status = "needs_attention"
-                if status == "interrupted":
-                    build_status = "cancelled"
-                elif status == "idle" and draft.get("tested_hash") == draft["content_hash"]:
-                    build_status = "ready"
-                await self.services.workflow_store.update_build(build_id,
-                    status=build_status,
-                    error=error or None)
+
+            try:
+                try:
+                    if project_task_id:
+                        await self.services.projects.finish_agent(application_id, project_task_id, status, error)
+                    if status in {"interrupted", "error"}:
+                        await cleanup()
+                    state = self.load(application_id)
+                    if state.get('conversation_enabled'):
+                        if status in {'interrupted', 'error'}:
+                            await self.services.projects.conversation.pause(application_id,
+                                error or '用户已停止，可继续', failed=status == 'error')
+                        active_task = state.get('project_task_id')
+                        if active_task:
+                            task = await self.services.projects.store.get_task(application_id, active_task)
+                            if task['status'] in {'queued', 'running'} and task['mode'] == 'agent':
+                                await self.services.projects.store.update_task(active_task, status='interrupted',
+                                    error=error or '统筹尚未完成此任务，已保留进展，可继续处理')
+                    if build_id:
+                        draft = await self.services.workflow_store.get_draft(application_id)
+                        self.services.build_transcripts.append(build_id, {
+                            "kind": "turn", "turn": len(state["events"]), "actor": state.get('provider', 'Agent'),
+                            "model": state.get("model", ""), "thinking": "", "text": error or "本轮结束，请在项目 Agent 会话查看操作和结果。",
+                            "tool_calls": [], "stop_reason": status, "usage": {}, "draft_revision": draft["revision"],
+                        })
+                        # A completed agent turn doesn't mean the workflow passed its tests.
+                        build_status = "needs_attention"
+                        if status == "interrupted":
+                            build_status = "cancelled"
+                        elif status == "idle" and draft.get("tested_hash") == draft["content_hash"]:
+                            build_status = "ready"
+                        await self.services.workflow_store.update_build(build_id,
+                            status=build_status,
+                            error=error or None)
+                    # Finish the transcript before publishing terminal state.
+                    # A failed record must take the same error path as other
+                    # finalization failures, not leave the job waiting.
+                    self.interrupt_operations(application_id, error or '本轮已停止，等待继续')
+                    self.event(application_id, "status", error or ("已停止，可以继续" if status == "interrupted" else "本轮已结束"))
+                except Exception as cause:
+                    status = 'error'
+                    detail = str(cause)
+                    if detail not in error:
+                        error = (error + '；收尾失败：' + detail if error else detail)[:4000]
+                    try:
+                        await cleanup()
+                    except Exception as cleanup_error:
+                        error = (error + '；清理失败：' + str(cleanup_error))[:4000]
+                    self.event(application_id, "status", error)
+                def publish_terminal_state():
+                    state = self.load(application_id)
+                    state.update(status=status, error=error)
+                    self.save(application_id, state)
+                    if official:
+                        service = self.services.official_agent
+                        # Shutdown can overlap an explicit stop or an existing
+                        # failure. Only its own cancellation preserves the queue.
+                        preserve_queue = service.shutting_down and shutdown_cancelled and owner not in self.stop_requested
+                        rows = service.jobs('queued') if preserve_queue else []
+                        if not any(r['id'] == job_id for r in rows):
+                            service.update(job_id, status='completed' if status == 'idle' else status,
+                                           error=error, ended=time.time())
+                            return service.job(job_id)
+                    return None
+
+                # Execution and awaited finalization have ended. These writes
+                # do not yield: report a failed save before another request can
+                # observe partial completion. Never rerun the finished work.
+                try:
+                    row = publish_terminal_state()
+                except Exception as cause:
+                    status = 'error'
+                    detail = str(cause)
+                    if detail not in error:
+                        error = (error + '；收尾失败：' + detail if error else detail)[:4000]
+                    self.event(application_id, 'status', error)
+                    row = publish_terminal_state()
+                if official:
+                    if row:
+                        self.services.product_usage.record(key=job_id + ':result', user_id=row['user_id'],
+                            project_id=application_id, conversation_id=conversation_for(application_id), root_id=job_id,
+                            feature='chat_result', outcome=row['status'], tokens=row['tokens'],
+                            seconds=max(0, (row['ended'] or time.time()) - (row['started'] or row['created'])))
+                elif is_project and initial_state.get('provider') == 'api' and job_id:
+                    self.services.product_usage.record(key=job_id + ':result', user_id=user_id,
+                        project_id=application_id, conversation_id=conversation_for(application_id), root_id=job_id,
+                        feature='chat_result', outcome='completed' if status == 'idle' else status,
+                        seconds=time.monotonic() - began)
+            finally:
+                self.finalizing.discard(owner)
 
     async def close(self) -> None:
         tasks = [task for task in self.tasks.values() if not task.done()]
         for task in tasks:
-            task.cancel()
+            if task not in self.finalizing and not task.cancelling():
+                task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
         await asyncio.gather(*(client.close() for client in self.clients.values()), return_exceptions=True)
         self.clients.clear()

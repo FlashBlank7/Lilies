@@ -94,8 +94,8 @@ class OfficialAgent:
         self.initialized = True
 
     async def recover(self):
-        # A queued chat has never called the model. Its input is already in its
-        # private transcript; replay only these, never an interrupted training.
+        # Queued chats can be awaiting their first turn or an undelivered
+        # continuation. Recover only queued work, never interrupted execution.
         for row in self.jobs('queued'):
             if row['kind'] == 'generation':
                 from .official_generation_jobs import path, launch
@@ -110,8 +110,14 @@ class OfficialAgent:
                 token = actor_id.set(row['user_id'])
                 try:
                     if not manager.running(row['project_id']):
+                        message = manager.last_user_message(row['project_id'])
+                        if row['started'] is None:
+                            # Supplements must not replace the original request
+                            # before its first turn has been dispatched.
+                            message = next((e['text'] for e in manager.load(row['project_id'])['events']
+                                            if e['kind'] == 'user' and e.get('request_id') == row['id']), message)
                         manager.tasks[manager.key(row['project_id'])] = asyncio.create_task(manager._run(
-                            row['project_id'], manager.last_user_message(row['project_id'])))
+                            row['project_id'], message))
                 finally:
                     actor_id.reset(token)
 
@@ -152,7 +158,15 @@ class OfficialAgent:
 
     async def transport(self):
         async with self.control_lock:
-            if self.control is None or (self.control.process is not None and self.control.process.returncode is not None):
+            if self.control is not None and (
+                    self.control.closing or self.control.process is None
+                    or self.control.process.returncode is not None or self.control.process.stdin is None
+                    or self.control.process.stdin.is_closing()):
+                # Account probes must not keep dispatch queued behind a dead
+                # reader or input pipe whose process is still alive.
+                await self.control.close()
+                self.control = None
+            if self.control is None:
                 config = self.config()
                 info = await inspect_executable(config.executable)
                 validate_codex_version(info['version'])
@@ -264,15 +278,23 @@ class OfficialAgent:
         with connect(self.db) as db:
             db.execute('UPDATE official_agent_jobs SET ' + ','.join(k + '=?' for k in values) + ' WHERE id=?', (*values.values(), job_id))
 
+    def require_accepting_messages(self):
+        if self.shutting_down:
+            raise HTTPException(503, '服务正在关闭，消息未接收，请稍后重试')
+
     async def enqueue(self, project_id, job_id, kind='chat'):
         user = await self.authorize(project_id)
+        if kind == 'chat':
+            self.require_accepting_messages()
         with connect(self.db) as db:
             db.execute('INSERT OR IGNORE INTO official_agent_jobs(id,project_id,conversation_id,user_id,kind,status,created) VALUES(?,?,?,?,?,?,?)',
                        (job_id, project_id, conversation_for(project_id), user['id'], kind, 'queued', time.time()))
 
     async def acquire(self, project_id, job_id):
-        await self.authorize(project_id)
+        # Shutdown must preserve an undelivered turn even while its access
+        # check is awaiting I/O. Dispatch still requires that check to pass.
         self.update(job_id, status='queued')
+        await self.authorize(project_id)
         next_probe = 0
         queued_at = time.time()
         while True:
@@ -315,12 +337,17 @@ class OfficialAgent:
                                    allow_model_calls=egress,
                                    auto_compact_token_limit=config.auto_compact_token_limit)
 
-    async def run_turn(self, project_id, job_id, client, message, on_event, on_tool):
+    async def run_turn(self, project_id, job_id, client, prepare_message, on_event, on_tool):
         manager = self.services.local_agents
-        state = manager.load(project_id)
-        state.update(status='queued')
-        manager.save(project_id, state)
-        await self.acquire(project_id, job_id)
+        if (self.job(job_id) or {}).get('status') == 'running':
+            # The initial turn reserved its slot before connecting. Check access
+            # again after setup without putting that same request back in line.
+            await self.authorize(project_id)
+        else:
+            state = manager.load(project_id)
+            state.update(status='queued')
+            manager.save(project_id, state)
+            await self.acquire(project_id, job_id)
         state = manager.load(project_id)
         state.update(status='running')
         manager.save(project_id, state)
@@ -333,6 +360,7 @@ class OfficialAgent:
         baseline = state.get('official_total_tokens', 0)
         previous_tokens = (self.job(job_id) or {}).get('tokens') or 0
         budget_exceeded = False
+        owner = asyncio.current_task()
         reserve = min(120, config.max_seconds * .25)
 
         def request_budget():
@@ -345,14 +373,15 @@ class OfficialAgent:
                                 '已有结果无需重复读取；临近时限时收尾现有工作，说明失败和未完成项，不扩大搜索。'
                                 '不要等待超时后由用户催促；这不改变时限，也不允许自动续跑。'}
 
-        try:
-            context = json.loads(message)
-        except (ValueError, TypeError):
-            context = None
-        if isinstance(context, dict):
-            message = json.dumps({**context, 'request_budget': request_budget()}, ensure_ascii=False)
-        else:
-            message += '\n\n平台本次执行额度：' + json.dumps(request_budget(), ensure_ascii=False)
+        def message_with_budget():
+            message = prepare_message()
+            try:
+                context = json.loads(message)
+            except (ValueError, TypeError):
+                context = None
+            if isinstance(context, dict):
+                return json.dumps({**context, 'request_budget': request_budget()}, ensure_ascii=False)
+            return message + '\n\n平台本次执行额度：' + json.dumps(request_budget(), ensure_ascii=False)
 
         async def remind_delivery():
             await asyncio.sleep(max(0, remaining - reserve))
@@ -372,17 +401,21 @@ class OfficialAgent:
                 usage = params.get('tokenUsage') or {}
                 total = (usage.get('total') or {}).get('totalTokens')
                 if isinstance(total, int):
-                    used = previous_tokens + max(0, total - baseline)
+                    delta = params.get('usageDelta')
+                    if isinstance(delta, int):
+                        used = ((self.job(job_id) or {}).get('tokens') or 0) + max(0, delta)
+                    else:
+                        used = previous_tokens + max(0, total - baseline)
                     self.update(job_id, tokens=used)
-                    current = manager.load(project_id)
-                    current['official_total_tokens'] = total
-                    manager.save(project_id, current)
-                    if config.max_tokens is not None and used >= config.max_tokens:
+                    if params.get('threadId') in {None, client.thread_id}:
+                        current = manager.load(project_id)
+                        current['official_total_tokens'] = total
+                        manager.save(project_id, current)
+                    if config.max_tokens is not None and used >= config.max_tokens and not budget_exceeded:
                         budget_exceeded = True
-                        # The protocol reader cannot await its own response.
-                        task = asyncio.create_task(client.interrupt())
-                        self.services.background_tasks.add(task)
-                        task.add_done_callback(self.services.background_tasks.discard)
+                        # Cancel the owning run, including descendants and host
+                        # tools. Interrupting only the root can leave children live.
+                        owner.cancel()
             await on_event(method, params)
 
         async def tool(name, arguments):
@@ -410,11 +443,18 @@ class OfficialAgent:
         reminder = asyncio.create_task(remind_delivery()) if remaining > reserve else None
         try:
             async with asyncio.timeout(remaining):
-                result = await client.turn(message, event, tool, timeout=remaining)
+                deferred_turn = getattr(client, 'turn_prepared', None)
+                if deferred_turn is not None:
+                    result = await deferred_turn(message_with_budget, event, tool, timeout=remaining)
+                else:
+                    result = await client.turn(message_with_budget(), event, tool, timeout=remaining)
             if budget_exceeded:
                 raise ValueError('已达到本任务 token 上限；已保留会话和结果')
             return result
         except (asyncio.CancelledError, TimeoutError) as cause:
+            if budget_exceeded:
+                await client.close()
+                raise ValueError('已达到本任务 token 上限；已保留会话和结果') from cause
             try:
                 await client.interrupt()
             except Exception:

@@ -83,3 +83,36 @@ it('a slow send in the previous conversation cannot clear the newly selected dra
   expect(screen.getByLabelText('给项目统筹的消息')).toHaveValue('保留乙的输入')
   expect(sent).toHaveBeenCalledTimes(count)
 })
+
+it.each(['previous_idle', 'previous_running', 'previous_failure'])('keeps the current conversation list when %s arrives late', async fault => {
+  const intervals = vi.spyOn(window, 'setInterval')
+  setup()
+  await screen.findByText('设计分析的记录')
+  fireEvent.change(screen.getByLabelText('给项目统筹的消息'), { target: { value: '保留当前草稿' } })
+  const healthy = vi.mocked(api).getMockImplementation()!
+  let finish!: (value: never) => void
+  let reject!: (error: Error) => void
+  let reads = 0
+  const latest = [{ ...a, status: fault === 'previous_running' ? 'idle' : 'running' }, b]
+  vi.mocked(api).mockImplementation(async (path, options) => {
+    if (path === base && !options) {
+      if (++reads === 1) return new Promise((yes, no) => { finish = yes; reject = no })
+      return latest as never
+    }
+    return healthy(path, options)
+  })
+  const refresh = intervals.mock.calls.find(call => call[1] === 3000)![0] as () => void
+  await act(async () => { refresh() })
+  expect(finish).toBeDefined()
+  await act(async () => { refresh() })
+  await act(async () => {
+    if (fault === 'previous_failure') reject(new Error('old list request failed'))
+    else finish([{ ...a, status: fault === 'previous_idle' ? 'idle' : 'running' }, b] as never)
+  })
+  const chosen = (screen.getByLabelText('选择会话') as HTMLSelectElement).selectedOptions[0]
+  expect(chosen.textContent).toBe(fault === 'previous_running' ? '设计分析' : '设计分析 · 运行中')
+  expect(screen.queryByText('Error: old list request failed')).not.toBeInTheDocument()
+  expect(screen.getByLabelText('选择会话')).toHaveValue('a')
+  expect(screen.getByLabelText('给项目统筹的消息')).toHaveValue('保留当前草稿')
+  expect(vi.mocked(api).mock.calls.some(([path]) => path.endsWith('/stop') || path.endsWith('/messages'))).toBe(false)
+})

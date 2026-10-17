@@ -171,3 +171,28 @@ def test_readonly_input_registration_rejects_paths_outside_project(tmp_path):
     for path in ('../outside', str(outside), 'linked'):
         with pytest.raises(SandboxError):
             manager.protect_inputs(workspace, [path])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('failure', ['exit_code', 'exception'])
+async def test_failed_container_removal_stays_tracked_for_explicit_retry(tmp_path, failure):
+    session = _session(tmp_path)
+    session.started = True
+    manager = SandboxManager(session.settings)
+    manager.sessions[session.session_id] = session
+    commands = []
+    async def failed_remove(argv, **kwargs):
+        commands.append(argv)
+        if failure == 'exception': raise SandboxError('removal unavailable')
+        return CommandResult('', 'removal unavailable', 1)
+    session._host_command = failed_remove
+    with pytest.raises(SandboxError, match='removal unavailable'):
+        await manager.remove(session.session_id)
+    assert manager.sessions[session.session_id] is session and session.started
+    async def successful_remove(argv, **kwargs):
+        commands.append(argv)
+        return CommandResult('', '', 0)
+    session._host_command = successful_remove
+    await manager.remove(session.session_id)
+    assert not session.started and session.session_id not in manager.sessions
+    assert commands == [['docker','rm','-f',session.container_name]] * 2

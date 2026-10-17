@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { api } from '@/lib/platform'
 import ProjectActivity from '@/app/components/ProjectActivity'
@@ -33,4 +33,36 @@ it('restores interrupted activity from saved summary without claiming success', 
   render(<ProjectActivity projectId="p" requestId="q1" current={{ ...started, status:'interrupted', summary:'服务已重启，等待继续' }} />)
   expect(screen.getByText('已中断')).toBeInTheDocument()
   expect(screen.queryByText('操作完成')).not.toBeInTheDocument()
+})
+
+it.each(['previous_running', 'previous_failure'])('keeps a completed child operation when %s arrives late during ongoing parent work', async fault => {
+  const intervals = vi.spyOn(window, 'setInterval')
+  const initial = { events: [started], first_cursor: 'e1', last_cursor: 'e1', has_more: false }
+  const completed = { ...started, id: 'e2', status: 'completed', duration_seconds: 2, result: 'saved output' }
+  let reads = 0
+  let finish!: (value: never) => void
+  let reject!: (error: Error) => void
+  vi.mocked(api).mockImplementation(async () => {
+    if (++reads === 1) return initial as never
+    if (reads === 2) return new Promise((yes, no) => { finish = yes; reject = no })
+    return { ...initial, events: [completed], last_cursor: 'e2' } as never
+  })
+  const view = render(<ProjectActivity projectId="p" requestId="q1" current={started} active />)
+  fireEvent.click(screen.getByText('运行资源分配 · 资源分配'))
+  await waitFor(() => expect(screen.getAllByText('运行资源分配 · 资源分配')).toHaveLength(2))
+  const refresh = intervals.mock.calls.find(call => call[1] === 1500)![0] as () => void
+  await act(async () => { refresh() })
+  expect(finish).toBeDefined()
+  await act(async () => { refresh() })
+  expect(screen.getByText('操作完成 · 2.0 秒')).toBeInTheDocument()
+  view.rerender(<ProjectActivity projectId="p" requestId="q1" current={completed} active />)
+  await act(async () => {
+    if (fault === 'previous_failure') reject(new Error('old operation request failed'))
+    else finish(initial as never)
+  })
+  expect(screen.getByText('操作完成 · 2.0 秒')).toBeInTheDocument()
+  expect(screen.queryByText('正在执行')).not.toBeInTheDocument()
+  expect(screen.queryByText('Error: old operation request failed')).not.toBeInTheDocument()
+  await act(async () => { refresh() })
+  expect(api).toHaveBeenLastCalledWith('/api/v1/projects/p/conversation?kind=activity&request_id=q1&after=e2')
 })

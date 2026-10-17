@@ -316,7 +316,7 @@ def test_supplement_arriving_while_loading_progress_reaches_the_next_turn(config
     monkeypatch.setattr(store, 'progress', interleaved)
     assert client.post(base + '/conversation/messages', json={'message': '继续当前事项'}).status_code == 202
     state = agent_settled(client, base)
-    assert seen == ['先到的补充', '加载进展期间收到的补充']
+    assert seen == ['先到的补充', '继续当前事项', '加载进展期间收到的补充']
     assert any(e.get('text') == '加载进展期间收到的补充' for e in state['events'])
     assert not state.get('pending_messages')
 
