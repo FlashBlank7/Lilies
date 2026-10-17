@@ -1587,6 +1587,13 @@ class WorkflowRuntime:
             outputs = nested_progress['outputs']
             completed = set(nested_progress['completed'])
             skipped = set(nested_progress['skipped'])
+        # Resolve declared defaults for both $inputs and the start node, including
+        # resumed/nested graphs. Keep the caller's raw inputs and checkpoints intact.
+        inputs = dict(inputs)
+        for node in workflow.nodes:
+            if node.type in {'start', 'event_subscription_trigger'}:
+                for field in self.blocks.validate_node(node).inputs:
+                    inputs.setdefault(field.name, field.default)
         from .workflow_reuse import blocked_nodes, reuse_step, source_state
         reuse_source = (await source_state(self, top_state, top_state.reuse_source_run_id)
                         if top_state and not prefix and top_state.reuse_source_run_id else None)
@@ -1715,6 +1722,8 @@ class WorkflowRuntime:
 
     @staticmethod
     def _retryable_execution_error(error: Exception) -> bool:
+        if isinstance(error, WorkflowReferenceResolutionError):
+            return False  # Retrying an unchanged graph cannot repair a reference.
         if isinstance(error, ProviderError):
             return error.retryable
         if isinstance(error, WorkflowHTTPError):
@@ -5294,6 +5303,13 @@ class WorkflowRuntime:
                 )
                 if isinstance(current, list):
                     detail += f"; container_length={len(current)}"
+                if node_id == '$inputs':
+                    detail += (
+                        f"; 可用输入字段：{list(context.get('inputs', {}))[:20]!r}。"
+                        "引用在节点代码执行前解析；检查入口声明与引用路径。"
+                        "确为可选且未声明的输入可在 $ref 内设置 optional=true；"
+                        "只改代码内的默认值不会修复该引用。"
+                    )
                 # 拒绝即教学：把该节点真实可用的路径摆出来。实测同一个坑
                 # （variable_assigner 的产出包在 output 下）把 32B 和人类
                 # 作者双双绊倒——只报"解析不了"等于让人猜。

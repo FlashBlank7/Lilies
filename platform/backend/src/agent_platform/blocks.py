@@ -2777,7 +2777,7 @@ def _definition(
 def build_block_registry() -> BlockRegistry:
     registry = BlockRegistry()
     blocks: list[tuple[BlockDefinition, type[BaseModel]]] = [
-        (_definition("start", "User Input", "Declare workflow inputs.", "input", StartConfig, outputs=[("output", ValueType.any)]), StartConfig),
+        (_definition("start", "User Input", "Declare workflow inputs. Omitted declared fields use their default (null when absent) in both $inputs and start output; supplied values take precedence. Required fields without a value still fail at runtime.", "input", StartConfig, outputs=[("output", ValueType.any)]), StartConfig),
         (_definition("schedule_trigger", "Schedule Trigger", "Start a published workflow on an IANA-timezone daily schedule.", "input", ScheduleTriggerConfig, outputs=[("output", ValueType.any)]), ScheduleTriggerConfig),
         (
             _definition(
