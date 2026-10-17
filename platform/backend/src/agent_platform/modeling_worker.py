@@ -1371,7 +1371,14 @@ def predict(config):
     else:
         model = joblib.load(Path(config['model']) / 'model.joblib')
     predictions = model.predict(input_x) if len(input_x) else []
-    output = frame[[config['mapping']['id_column']]].copy() if config['mapping'].get('id_column') else frame[['_sample']].copy()
+    identifier = config['mapping'].get('id_column')
+    identifier_column = identifier or '_sample'
+    # User identifiers may have the same name as generated result columns. Keep
+    # their values under an explicit input name instead of silently replacing them.
+    reserved = {'prediction', 'prediction_name', 'source_row', 'source_line', 'prediction_status', 'prediction_reason', 'decision'}
+    if identifier and (identifier in reserved or identifier.startswith('probability_')):
+        identifier_column = 'input_' + identifier
+    output = frame[[identifier or '_sample']].rename(columns={identifier: identifier_column}).copy()
     output['prediction'] = pd.Series(index=frame.index, dtype=object)
     output.loc[usable, 'prediction'] = np.asarray(predictions)
     names = category_labels(config)
@@ -1404,6 +1411,7 @@ def predict(config):
     output.to_csv(Path(config['output']) / 'predictions.csv', index=False)
     write_data_state(frame, config['output'])
     return clean({'rows': len(output), 'predicted_rows': int(usable.sum()), 'unavailable_rows': int((~usable).sum()),
+                  'identifier_column': identifier_column, 'input_identifier_column': identifier,
                   'preview': output.head(30).to_dict('records'), 'probability_columns': probability_columns, 'acceptance': acceptance,
                   **({'data_state': data_state_summary(frame)} if config['mapping'].get('field_rules') else {})})
 

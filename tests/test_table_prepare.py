@@ -2,6 +2,7 @@
 import io
 import json
 import zipfile
+from pathlib import Path
 
 import pytest
 
@@ -138,3 +139,25 @@ def test_prepare_training_and_same_workflow_replacement_keep_rows_and_absent_cla
     assert outputs[0]['相关分析']['pairs'][0]['rho'] != outputs[1]['相关分析']['pairs'][0]['rho']
     assert client.get('/api/v1/applications/' + project['id'] + '/draft').json()['revision'] == revision
     assert path.read_bytes() == original
+
+
+def test_prediction_result_names_cannot_overwrite_input_identifiers(tmp_path):
+    pd = pytest.importorskip('pandas')
+    from tests.test_modeling_worker import fixture_data, setup_split
+    config = fixture_data(tmp_path, classification=True)
+    config.update(engine='sklearn', models=['forest'], parameters={'n_estimators': 8}, batch_size=1)
+    config['mapping'] = DataMapping(**config['mapping'], field_rules={'x': {'allow_missing': ['unknown']}}).model_dump()
+    config['features'] = {'columns': ['x', 'category']}
+    setup_split(config); best = worker.train(config)['best']
+    original = pd.read_csv(config['source'], dtype={'id': str})
+    for name in ['source_row', 'source_line', 'prediction', 'probability_pass']:
+        path = tmp_path / (name + '.csv'); original.rename(columns={'id': name}).to_csv(path, index=False)
+        output = tmp_path / name; output.mkdir()
+        result = worker.predict({**config, 'source': str(path), 'mapping': {**config['mapping'], 'id_column': name},
+            'model': str(Path(config['output']) / 'trial-0'), 'output': str(output),
+            'feature_columns': best['feature_columns'], 'classes': best['classes']})
+        saved = pd.read_csv(output / 'predictions.csv', dtype={result['identifier_column']: str})
+        assert result['identifier_column'] == 'input_' + name and result['input_identifier_column'] == name
+        assert saved[result['identifier_column']].tolist() == original.id.tolist()
+        assert saved.source_row.tolist() == list(range(100)) and saved.source_line.tolist() == list(range(2, 102))
+        assert result['rows'] == 100 and saved.prediction.notna().all()
