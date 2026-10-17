@@ -9,7 +9,7 @@ from uuid import uuid4
 from fastapi.encoders import jsonable_encoder
 from pydantic import Field, model_validator
 
-from .local_agent_tools import Arguments, Catalog, Draft, ProjectTools, Run, TOOL_MODELS, tool_specs
+from .local_agent_tools import Arguments, Catalog, Draft, ProjectTools, Run, tool_specs
 from .project_conversation import ProgressTool, ProjectAction
 from .project_agent_context import draft_summary, progress_summary, task_summary
 from .workflow_models import DraftEdit, DraftOperation

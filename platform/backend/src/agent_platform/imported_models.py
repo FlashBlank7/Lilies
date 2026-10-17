@@ -1,7 +1,6 @@
 """Bind existing preprocessing pipelines through the same offline compute service."""
 import asyncio
 import hashlib
-from pathlib import Path
 import re
 import shutil
 from uuid import uuid4

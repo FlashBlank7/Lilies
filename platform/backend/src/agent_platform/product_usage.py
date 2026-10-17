@@ -1,6 +1,5 @@
 """Small content-free usage counters. Collection failure never fails user work."""
 import asyncio
-import json
 import logging
 import time
 from datetime import datetime, timezone

@@ -145,6 +145,38 @@ def test_broken_backups_do_not_produce_partial_restore(tmp_path, contents, corru
     assert not list(tmp_path.glob('.restore-*'))
 
 
+@pytest.mark.parametrize('action', ['create', 'restore'])
+def test_cli_reports_corrupt_database_without_leaving_partial_output(
+    tmp_path, contents, monkeypatch, capsys, action,
+):
+    from agent_platform import backup as module
+
+    data, workspaces, _ = contents
+    backups = tmp_path / 'backups'
+    destination = tmp_path / 'restore'
+    if action == 'create':
+        database = data / 'agent_platform.db'
+        arguments = ['create', '--data', str(data), '--workspaces', str(workspaces),
+                     '--output', str(backups)]
+    else:
+        backup = create_backup(data, workspaces, backups)
+        database = backup / 'data/agent_platform.db'
+        arguments = ['restore', str(backup), str(destination)]
+    database.write_bytes(b'0' * database.stat().st_size)
+    monkeypatch.setattr('sys.argv', ['backup', *arguments])
+
+    with pytest.raises(SystemExit) as error:
+        module.main()
+
+    assert error.value.code == 1
+    assert 'file is not a database' in capsys.readouterr().err
+    assert not destination.exists()
+    assert not list(tmp_path.glob('.restore-*'))
+    assert not list(backups.glob('.incomplete-*'))
+    if action == 'create':
+        assert list(backups.iterdir()) == []
+
+
 def test_existing_and_nested_directories_are_not_overwritten(tmp_path, contents):
     data, workspaces, _ = contents
     with pytest.raises(ValueError, match='嵌套'):
