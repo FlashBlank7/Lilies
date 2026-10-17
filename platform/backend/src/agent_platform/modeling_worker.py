@@ -228,11 +228,17 @@ def data_state_summary(frame):
             'issues_preview': issues[:30], 'field_rules': state['rules']}
 
 
-def blocked_data_rows(frame, columns):
+def blocked_data_rows(frame, columns, require_observed=False):
     reasons = {}
     for cell in frame.attrs.get('data_state', {}).get('cells', []):
         if cell['column'] in columns and cell['blocked']:
             reasons.setdefault(cell['row'], []).append(f"{cell['column']}：{cell['reason']}（原值 {cell['raw']!r}）")
+    if require_observed and frame.attrs.get('data_state'):
+        selected = [c for c in columns if c in frame and c != '_sample']
+        if selected:
+            empty = frame[selected].isna().all(axis=1)
+            for row in frame.loc[empty, '_sample']:
+                reasons.setdefault(int(row), []).append('所有选用特征均无可用观测值')
     return reasons
 
 
@@ -483,8 +489,8 @@ def samples(config, prediction=False):
         frame = frame.loc[frame[target].notna()].copy()
         roles = {mapping.get(k) for k in ('target', 'id_column', 'group_column', 'time_column', 'prediction_time_column', 'available_time_column', 'label_available_time_column')}
         plan = config.get('features', {})
-        active = set(plan.get('columns') or frame.columns) - set(plan.get('exclude', [])) - roles
-        unusable = blocked_data_rows(frame, set(mapping.get('field_rules', {})) & active)
+        active = set(plan.get('columns') or frame.columns) - set(plan.get('exclude', [])) - roles - {'_sample'}
+        unusable = blocked_data_rows(frame, active, require_observed=True)
         affected = frame['_sample'].isin(unusable)
         if affected.any() and mapping.get('invalid_rows', 'error') != 'exclude':
             first = int(frame.loc[affected, '_sample'].iloc[0])
@@ -1249,7 +1255,7 @@ def predict(config):
     if set(columns) != set(x.columns):
         raise ValueError('预测字段与训练特征不匹配')
     x = x[columns]
-    blocked = blocked_data_rows(frame, columns)
+    blocked = blocked_data_rows(frame, columns, require_observed=True)
     usable = ~frame['_sample'].isin(blocked)
     input_x = x.loc[usable]
     if config.get('transformer'):
@@ -1268,7 +1274,9 @@ def predict(config):
     output['prediction'] = pd.Series(index=frame.index, dtype=object)
     output.loc[usable, 'prediction'] = np.asarray(predictions)
     if config['mapping'].get('field_rules'):
-        output['source_row'] = frame['_sample']
+        origins = {c['row']: c for c in frame.attrs['data_state']['cells']}
+        output['source_row'] = [origins[int(i)]['source_row'] for i in frame['_sample']]
+        output['source_line'] = [origins[int(i)]['source_line'] for i in frame['_sample']]
         output['prediction_status'] = np.where(usable, 'predicted', 'unavailable')
         output['prediction_reason'] = ['；'.join(blocked.get(int(i), [])) for i in frame['_sample']]
     probability_columns = {}
