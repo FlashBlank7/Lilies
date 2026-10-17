@@ -231,6 +231,20 @@ class Modeling:
                 else:
                     await asyncio.to_thread(copy_workspace_file, self.source(project_id, relative), dest)
                 doc['files'][key] = {'name': dest.name, 'sha256': hashlib.sha256(dest.read_bytes()).hexdigest(), 'bytes': dest.stat().st_size, 'original': relative}
+            state_path = body.state_path
+            if not state_path and upload is None and Path(body.source_path).name == 'processed.csv':
+                companion = Path(body.source_path).with_name('data-state.json')
+                if (self.services.projects.workspace(project_id) / companion).is_file():
+                    state_path = companion.as_posix()
+            if state_path:
+                dest = folder / 'data-state.json'
+                await asyncio.to_thread(copy_workspace_file, self.source(project_id, state_path), dest)
+                state = json.loads(dest.read_text())
+                if state.get('rules') != {k: v.model_dump() for k, v in body.mapping.field_rules.items()}:
+                    raise ValueError('数据状态的字段规则与 mapping.field_rules 不一致')
+                if state.get('table_sha256') and state['table_sha256'] != doc['files']['source']['sha256']:
+                    raise ValueError('处理后的表格已改变，请从原始表重新处理，不能沿用旧状态')
+                doc['files']['state'] = {'name': dest.name, 'sha256': hashlib.sha256(dest.read_bytes()).hexdigest(), 'bytes': dest.stat().st_size, 'original': state_path}
             return await self.put(project_id, 'dataset', doc)
         except BaseException:
             shutil.rmtree(folder)
@@ -320,6 +334,10 @@ class Modeling:
 
     async def compute(self, project_id, dataset, config, folder, *, image='', on_event=None, timeout=1800, extra_mounts=None, writable_mounts=None):
         """Only this transport knows Docker; tests may use a real local worker instead."""
+        if dataset['mapping'].get('field_rules'):
+            environment = await self.snapshot_environment(image or await self.image())
+            if 'field_semantics_v1' not in json.loads((environment / 'environment.json').read_text()).get('capabilities', []):
+                raise ValueError('该建模环境不支持字段含义规则，请选择新版建模环境；不能忽略规则继续计算')
         folder.mkdir(parents=True, exist_ok=True)
         output = folder / 'output'; output.mkdir(exist_ok=True)
         data = self.path(project_id, dataset['id'])
@@ -419,6 +437,8 @@ class Modeling:
             names = ['analysis.json']
             names += {'spearman': ['correlations.csv'], 'outliers': ['outliers.csv', 'source-rows.csv'],
                       'numeric': ['conversions.csv', 'source-rows.csv']}[plan.operation]
+            if (folder / 'output/data-state.json').is_file():
+                names.append('data-state.json')
             if plan.operation == 'numeric' or (plan.operation == 'outliers' and plan.handling != 'flag'):
                 names.append('processed.csv')
             artifacts = []
@@ -434,6 +454,7 @@ class Modeling:
             derived = await self.dataset(project_id, DatasetRequest(
                 name=dataset['name'] + (' · 数值整理' if plan.operation == 'numeric' else ' · 异常值处理'),
                 source_path=(relative / 'processed.csv').as_posix(),
+                state_path=(relative / 'data-state.json').as_posix() if (destination / 'data-state.json').is_file() else '',
                 mapping={**dataset['mapping'], 'sheet': 0, 'header_row': 0, 'skip_after_header': 0}))
             derived.update(derived_from=dataset_id, transformation={'operation_id': operation_id,
                            'analysis': plan.model_dump(), 'image': image})
@@ -706,7 +727,7 @@ class Modeling:
         # The task identifies a retry; a new task always gets new data and experiments.
         key = 'workflow-' + hashlib.sha256(encode([project.get('task_id', run_id), node_id]).encode()).hexdigest()
         if kind in {'data_analysis', 'model_predict'} and args.get('source_path'):
-            body = DatasetRequest(source_path=args['source_path'], labels_path=args.get('labels_path', ''), mapping=args.get('mapping') or {})
+            body = DatasetRequest(source_path=args['source_path'], labels_path=args.get('labels_path', ''), state_path=args.get('state_path', ''), mapping=args.get('mapping') or {})
             async with self.locks.setdefault(key, asyncio.Lock()):
                 record = await self.services.projects.store.get_record(project_id, 'workflow_datasets', key)
                 saved = record['value']
@@ -797,6 +818,9 @@ class Modeling:
         if best is None:
             raise ValueError('指定模型版本不可用，请重新绑定')
         original = await self.get(project_id, 'dataset', study['dataset_id'])
+        incoming_rules = dataset['mapping'].get('field_rules', {})
+        if incoming_rules and incoming_rules != original['mapping'].get('field_rules', {}):
+            raise ValueError('新数据字段规则与模型训练时不同；请沿用模型规则，或从原始数据训练新版本')
         # Preserve trained field semantics; file layout belongs to the new input.
         layout = {key: dataset['mapping'].get(key, 0) for key in ('sheet', 'header_row', 'skip_after_header')}
         dataset = {**dataset, 'mapping': {**original['mapping'], **layout}}
@@ -829,15 +853,22 @@ class Modeling:
         destination.parent.mkdir(parents=True, exist_ok=True)
         copy_workspace_file(folder / 'output/predictions.csv', destination)
         result['project_path'] = relative.as_posix()
+        state = folder / 'output/data-state.json'
+        if state.is_file():
+            copy_workspace_file(state, destination.with_name('data-state.json'))
+            result['data_state_path'] = relative.with_name('data-state.json').as_posix()
         return result
 
     def export_feature_files(self, project_id, dataset, folder):
         workspace = self.services.projects.workspace(project_id).resolve()
         relative = Path('results/features') / dataset['id'] / folder.name
         artifacts = []
-        for filename, label in [('features.csv', '下载完整特征表 CSV'),
+        files = [('features.csv', '下载完整特征表 CSV'),
                                 ('samples.csv', '下载样本标识与标签 CSV'),
-                                ('feature-summary.json', '下载特征定义与处理说明 JSON')]:
+                                ('feature-summary.json', '下载特征定义与处理说明 JSON')]
+        if (folder / 'output/data-state.json').is_file():
+            files.append(('data-state.json', '下载原值与处理原因'))
+        for filename, label in files:
             target = relative / filename
             if any((workspace / Path(*target.parts[:i])).is_symlink() for i in range(1, len(target.parts) + 1)):
                 raise ValueError('特征导出目录不支持符号链接')
@@ -946,7 +977,8 @@ class Modeling:
                         shutil.rmtree(temporary)
             return {'dataset_id': dataset_id, 'files': files,
                     'source_path': files['source']['path'],
-                    'labels_path': files.get('labels', {}).get('path', '')}
+                    'labels_path': files.get('labels', {}).get('path', ''),
+                    **({'state_path': files['state']['path']} if 'state' in files else {})}
 
         async with self.locks.setdefault('export/' + dataset_id, asyncio.Lock()):
             return await asyncio.to_thread(export)

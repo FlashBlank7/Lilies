@@ -12,6 +12,12 @@ GUIDE = """直接完成数据任务；工作流可随时保存，分析、训练
 区间、斜杠等未解释值保留原文及待确认标记；不要先 errors='coerce' 再把待确认值当普通缺失填补。未确认字段可暂不进入正式模型，明确说明影响；用户允许的假设试算另存并标明规则。缺失类别保留未知，不能用 (类别=='A').astype(int) 把未知混成另一种已知类别。传入原类别列时设置 candidate.features.preprocessing.categorical_missing='preserve'，在训练折内独热编码且不填成已有类别；auto 的 sklearn/Optuna 默认会填训练折众数。新数据的未见类别（含训练未见的缺失）编码全零，不代表业务上已有定义；训练中出现过的缺失单独编码。
 
 分析与流程
+字段含义规则
+有未知符号、区间或数字类别时，在 dataset.mapping.field_rules 按列保存规则，再使用平台分析、训练和预测；参考 field-rules.json。每列 dtype=number/category/text，description 和 unit 写已有定义；meaning=pending 表示整列含义未知。missing_tokens 是“原文→缺失原因”的字典（unknown/not_measured/not_applicable/unjudged），pending_tokens 是仍不知道含义的符号列表。空白默认为 unknown；allow_missing 只列出该字段明确允许交给模型缺失处理的原因，默认不允许。intervals 默认 pending；只有含义和取值方式明确时才选 midpoint/lower/upper。数字类别用 category；无明确等级顺序不得做秩相关，ordered_values 只用于已说明的顺序。
+用户已说不知道时保持待确认，继续可做工作，不再反复问同一问题。模拟业务答复只写入演练项目规则，不能替代企业真实定义。普通格式解析可自动执行；含义未知不得用 to_numeric(errors='coerce')、空字符串或填零抹掉。自定义表头/合并单元格整理应保留所有测量原文、原标签和源行对应；仅按明确业务定义补齐分组标识。不要先在 project_code 里把未知值变成空白再登记，否则平台无法恢复丢失的含义。
+有规则的数据集直接用于 profile、spearman、outliers 和训练，无需先把字段手工清洗成数字。分析只使用有效数值并报告样本数，data_state 给出原值、位置和原因；统计异常默认标记。训练遇到待确认/无效特征默认报错，mapping.invalid_rows='exclude' 可明确在固定划分前排除这些行，结果 split.excluded_data_rows 说明数量；它基于所有已声明规则的非元数据字段，若研究完全不使用某列，请在该研究输入中明确移除该列及其规则。目标缺失不填补；unjudged 标签不参加监督训练。预测保留每行，无法使用的行 prediction_status='unavailable'，prediction_reason 说明原因，不把它当作已预测。预测只检查模型实际需要的字段，缺少目标不影响预测。
+numeric、异常删除/截断返回的新 dataset_id 已携带 data-state.json；优先继续使用这个 dataset_id。若重新登记 processed.csv，必须同时传 state_path，并保留完全相同的 mapping.field_rules；状态文件与表格绑定，换表必须重新解释原始数据，不能复制旧状态。模型包保存字段规则，预测继承训练定义，数据另带不一致规则时会明确报错。最终交付同时链接 data_state_path 或分析 artifacts 中的 data-state.json，说明待确认/排除/无法预测的数量。规则可在草稿高级配置中修改，保存草稿不要求数据问题已解决。
+
 用 project_modeling(action='register_dataset', dataset={source_path,mapping}) 保存版本，mapping 设置实际 sheet/header_row/skip_after_header；profile 返回概况，sample_structure 描述有标签样本的分组，labels 是独立标签表的概况。sampled=true 只覆盖前 1000 行，不能把预览外未检查的记录当作无问题。
 analyze 使用 analysis.operation='numeric'|'outliers'|'spearman'；这与画布 data_analysis 共用实现。numeric 只采用明确的占位符/区间规则，产生新 dataset_id 和转换明细。outliers 可 flag/drop/clip，默认先 flag；统计离群不等于错误工况。说明检测总体，IQR 为 0 时查看实际边界，不盲目删除或截断。spearman 明确选择可解释的数值字段，保留每对有效样本数、系数、p 值与未定义原因，不把很小的 p 值写成 0，也不宣称相关性是因果。
 标准分析先用现有操作；特殊表头、多行样本整理可用 project_code，一次保存处理文件和必要脚本。训练中需要拟合的填补、编码、缩放、异常截断和筛选放在训练折内，通过 candidate.features 配置并随模型保存。
@@ -82,5 +88,9 @@ ANALYSIS_PREDICTION_WORKFLOW['edges'] = [
 MODELING_SKILL = {'name': '项目数据与建模',
     'description': '数值整理、异常值、Spearman、分组训练及模型复用；含换表后重算分析并预测的可编辑流程示例。',
     'content': GUIDE, 'references': {
+        'field-rules.json': json.dumps({'mapping': {'kind': 'tabular', 'target': 'quality', 'group_column': 'sample_id', 'invalid_rows': 'exclude', 'field_rules': {
+            'height': {'dtype': 'number', 'description': '高度；区间和斜杠含义尚未明确', 'pending_tokens': ['/'], 'intervals': 'pending', 'allow_missing': ['unknown']},
+            'pressure': {'dtype': 'number', 'allow_missing': ['unknown']},
+            'quality': {'dtype': 'category', 'description': '仅为示例，必须替换为项目已说明的定义', 'categories': ['0', '1', '2'], 'missing_tokens': {'-1': 'unjudged'}}}}}, ensure_ascii=False, indent=2),
         'analysis-workflow.json': json.dumps(ANALYSIS_WORKFLOW, ensure_ascii=False, indent=2),
         'analysis-prediction-workflow.json': json.dumps(ANALYSIS_PREDICTION_WORKFLOW, ensure_ascii=False, indent=2)}}

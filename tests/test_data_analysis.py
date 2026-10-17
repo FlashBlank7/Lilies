@@ -18,6 +18,66 @@ def register(config):
     return base, response.json(), path
 
 
+def test_semantic_rules_survive_tool_derivation_training_and_workflow_replacement(real_compute):
+    config, service = real_compute
+    client, app, project, settings = config
+    root = settings.workspace_root / project['id']
+    path = root / 'requirement-package/data.csv'; path.parent.mkdir(exist_ok=True)
+    values = [str(i) for i in range(60)]
+    values[3:6] = ['3.5-4.2', '/', '6..2']
+    def source(values):
+        return 'id,x,pressure,y\n' + '\n'.join(f'{i:03d},{x},{i % 13},{i * 2}' for i, x in enumerate(values))
+    path.write_text(source(values))
+    original = path.read_bytes()
+    mapping = {'id_column': 'id', 'target': 'y', 'invalid_rows': 'exclude',
+               'field_rules': {'x': {'pending_tokens': ['/']}, 'pressure': {'dtype': 'number'}}}
+    base = '/api/v1/projects/' + project['id']
+    graph(client, project['id'], [node('start', 'start'),
+        node('data', 'data_analysis', source_path='requirement-package/data.csv', mapping=mapping,
+             analysis={'operation': 'numeric', 'columns': ['x']}),
+        node('train', 'model_train', dataset_id=ref('data', 'output', 'dataset_id'),
+             evaluation={'folds': 2}, features={'columns': ['x', 'pressure']},
+             candidate={'engine': 'sklearn', 'models': ['linear'], 'batch_size': 1},
+             budget={'seconds': 180, 'trials': 1, 'trial_seconds': 45}),
+        node('end', 'end', outputs={'training': ref('train', 'output'), 'data': ref('data', 'output')})],
+        [edge('start', 'data'), edge('data', 'train'), edge('train', 'end')])
+    task = wait_task(client, base, start(client, base, 'semantic-training', workflow_id=project['id']))
+    assert task['status'] == 'succeeded', task
+    trained = task['outputs']['training']
+    derived = client.get(base + '/datasets/' + task['outputs']['data']['dataset_id']).json()
+    assert 'state' in derived['files']
+    split = json.loads((service.path(project['id'], trained['study_id']) / 'output/split.json').read_text())
+    assert split['excluded_data_rows'] == 3 and len(split['samples']) == 57
+    response = client.put(base + '/models/semantic-model', json={'name': '测试模型', 'study_id': trained['study_id'],
+        'candidate_id': trained['id'], 'slot': 0})
+    assert response.status_code == 200, response.text
+    graph(client, project['id'], [node('start', 'start', inputs=[{'name': 'source_path', 'type': 'string', 'required': True}]),
+        node('data', 'data_analysis', source_path=ref('$inputs', 'source_path'), mapping=mapping),
+        node('stats', 'data_analysis', dataset_id=ref('data', 'output', 'dataset_id'), analysis={'operation': 'spearman', 'columns': ['x', 'pressure']}),
+        node('predict', 'model_predict', dataset_id=ref('data', 'output', 'dataset_id'), model_ref='semantic-model'),
+        node('end', 'end', outputs={'stats': ref('stats', 'output'), 'predict': ref('predict', 'output')})],
+        [edge('start', 'data'), edge('data', 'stats'), edge('stats', 'predict'), edge('predict', 'end')])
+    revision = client.get('/api/v1/applications/' + project['id'] + '/draft').json()['revision']
+    outputs = []
+    for number in range(2):
+        if number:
+            values[7] = 'new-marker'; values[8] = '999'
+            (root / 'requirement-package/changed.csv').write_text(source(values))
+        result = wait_task(client, base, start(client, base, f'semantic-predict-{number}', workflow_id=project['id'],
+            inputs={'source_path': 'requirement-package/changed.csv' if number else 'requirement-package/data.csv'}))
+        assert result['status'] == 'succeeded', result
+        outputs.append(result['outputs'])
+        prediction = result['outputs']['predict']
+        assert prediction['rows'] == 60 and prediction['unavailable_rows'] == 3 + number
+        state = json.loads((root / prediction['data_state_path']).read_text())
+        interval = next(r for r in state['cells'] if r['raw'] == '3.5-4.2')
+        assert interval['status'] == 'pending' and interval['source_row'] == 3
+        assert result['outputs']['stats']['pairs'][0]['samples'] == 57 - number
+    assert outputs[0]['stats']['pairs'][0]['rho'] != outputs[1]['stats']['pairs'][0]['rho']
+    assert client.get('/api/v1/applications/' + project['id'] + '/draft').json()['revision'] == revision
+    assert path.read_bytes() == original
+
+
 def test_skill_analysis_workflow_saves_before_data_and_reuses_new_input(real_compute):
     config, service = real_compute
     client, app, project, settings = config

@@ -7,6 +7,7 @@ atomically before its completion event is emitted.
 from __future__ import annotations
 
 import importlib.util
+import hashlib
 from datetime import datetime, timezone
 import json
 import math
@@ -18,7 +19,7 @@ import sys
 import time
 import traceback
 
-CAPABILITIES = ['categorical_missing_preserve']
+CAPABILITIES = ['categorical_missing_preserve', 'field_semantics_v1']
 
 
 def clean(value):
@@ -131,11 +132,136 @@ def timestamps(value, mapping, errors='raise'):
     return pd.to_datetime(value, utc=True, errors=errors, **({'unit': unit} if numeric else {}))
 
 
+def read_data(config, *, preview=False, literal_columns=()):
+    """Keep physical values and semantic decisions together, including derived tables."""
+    import numpy as np
+    import pandas as pd
+    mapping = config['mapping']
+    rules = mapping.get('field_rules', {})
+    frame = read_table(config.get('labels') or config['source'], mapping, preview,
+                       literal_columns=list(dict.fromkeys([*literal_columns, *rules])))
+    if not rules:
+        if config.get('state'):
+            raise ValueError('数据带有字段状态，不能丢弃 field_rules 后读取')
+        return frame
+    records = []
+    if config.get('state'):
+        state = json.loads(Path(config['state']).read_text())
+        if state.get('table_sha256') and hashlib.sha256(Path(config['source']).read_bytes()).hexdigest() != state['table_sha256']:
+            raise ValueError('处理后的表格已经改变，不能沿用旧数据状态；请从原始表重新处理')
+        if state['rules'] != rules:
+            raise ValueError('字段规则已改变，请从原始表登记新版本；不能重新解释处理后的数值')
+        if not preview and state['rows'] != len(frame):
+            raise ValueError('数据状态与表格行数不一致，请同时保留处理结果和状态文件')
+        records = [r for r in state['cells'] if r['row'] in frame.index]
+        expected = {(int(i), c) for c in rules if c in frame for i in frame.index}
+        if {(r['row'], r['column']) for r in records} != expected or len(records) != len(expected):
+            raise ValueError('数据状态缺少或重复单元格，不能自动当作普通缺失')
+    else:
+        number = r'[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?'
+        interval = re.compile(rf'^({number})\s*[-–—~～]\s*({number})$')
+        for column, rule in rules.items():
+            if column not in frame:
+                continue  # Prediction need not supply targets or unused fields.
+            for row, raw in frame[column].items():
+                text = '' if pd.isna(raw) else str(raw)
+                token = text.strip()
+                value, status, reason, blocked = None, 'valid', '', False
+                bounds = None
+                if rule.get('meaning') == 'pending' or token in rule.get('pending_tokens', []):
+                    status, reason, blocked = 'pending', '含义待确认', True
+                elif not token or token in rule.get('missing_tokens', {}):
+                    status = 'missing'
+                    reason = rule.get('missing_tokens', {}).get(token, 'unknown')
+                    blocked = reason not in rule.get('allow_missing', [])
+                elif rule.get('dtype', 'number') != 'number':
+                    categories = rule.get('categories') or rule.get('ordered_values', [])
+                    if categories and token not in categories:
+                        status, reason, blocked = 'pending', '未定义类别', True
+                    else:
+                        order = rule.get('ordered_values', [])
+                        value = order.index(token) if order else token
+                elif isinstance(raw, (bool, np.bool_)):
+                    status, reason, blocked = 'invalid', '布尔值不是测量数值', True
+                elif re.fullmatch(number, token):
+                    value = float(token)
+                elif match := interval.fullmatch(token):
+                    low, high = map(float, match.groups())
+                    bounds = [low, high]
+                    if not all(map(math.isfinite, bounds)) or low > high:
+                        status, reason, blocked = 'invalid', '区间边界无效', True
+                    elif rule.get('intervals', 'pending') == 'pending':
+                        status, reason, blocked = 'pending', '区间含义或取值方式待确认', True
+                    else:
+                        status, reason = 'converted', 'interval_' + rule['intervals']
+                        value = {'lower': low, 'upper': high, 'midpoint': low / 2 + high / 2}[rule['intervals']]
+                else:
+                    status, reason, blocked = 'invalid', '数值格式错误', True
+                if isinstance(value, (int, float)) and not isinstance(value, bool):
+                    if not math.isfinite(value):
+                        value, status, reason, blocked = None, 'invalid', '数值非有限', True
+                    elif ((rule.get('lower') is not None and value < rule['lower']) or
+                          (rule.get('upper') is not None and value > rule['upper'])):
+                        status, reason, blocked = 'invalid', '超出已定义业务范围', True
+                records.append({'row': int(row), 'source_row': int(row),
+                    'source_line': int(row) + mapping.get('header_row', 0) + mapping.get('skip_after_header', 0) + 2,
+                    'column': column, 'raw': text, 'value': value, 'status': status, 'reason': reason,
+                    'blocked': blocked, 'interval': bounds, 'unit': rule.get('unit', '')})
+    for column, rule in rules.items():
+        if column in frame:
+            cells = {r['row']: r for r in records if r['column'] == column}
+            values = [np.nan if cells[i]['blocked'] or cells[i]['value'] is None else cells[i]['value'] for i in frame.index]
+            dtype = float if rule.get('dtype', 'number') == 'number' or rule.get('ordered_values') else object
+            frame[column] = pd.Series(values, index=frame.index, dtype=dtype)
+    frame.attrs['data_state'] = {'rules': rules, 'rows': len(frame), 'cells': records}
+    return frame
+
+
+def data_state_summary(frame):
+    from collections import Counter
+    state = frame.attrs.get('data_state')
+    if not state:
+        return {}
+    issues = [r for r in state['cells'] if r['status'] != 'valid']
+    return {'counts': dict(Counter(r['status'] for r in state['cells'])),
+            'blocked_cells': sum(r['blocked'] for r in state['cells']),
+            'issues_preview': issues[:30], 'field_rules': state['rules']}
+
+
+def blocked_data_rows(frame, columns):
+    reasons = {}
+    for cell in frame.attrs.get('data_state', {}).get('cells', []):
+        if cell['column'] in columns and cell['blocked']:
+            reasons.setdefault(cell['row'], []).append(f"{cell['column']}：{cell['reason']}（原值 {cell['raw']!r}）")
+    return reasons
+
+
+def write_data_state(frame, output):
+    state = frame.attrs.get('data_state')
+    if not state:
+        return
+    # _sample keeps original positions after excluding training rows.
+    ids = frame['_sample'].tolist() if '_sample' in frame else list(frame.index)
+    positions = {int(old): new for new, old in enumerate(ids)}
+    cells = []
+    for r in state['cells']:
+        if r['row'] not in positions or r['column'] not in frame:
+            continue
+        cell = {**r, 'row': positions[r['row']]}
+        value = clean(frame.iloc[cell['row']][r['column']])
+        if not r['blocked'] and value != r['value']:
+            cell.update(value=value, status='converted', reason='processed_value')
+        cells.append(cell)
+    processed = Path(output) / 'processed.csv'
+    save(Path(output) / 'data-state.json', {**state, 'rows': len(frame), 'cells': cells,
+         **({'table_sha256': hashlib.sha256(processed.read_bytes()).hexdigest()} if processed.is_file() else {})})
+
+
 def profile(config):
     import numpy as np
     import pandas as pd
     mapping = config['mapping']
-    frame = read_table(config['source'], mapping, config.get('sampled', False))
+    frame = read_data(config, preview=config.get('sampled', False))
     columns = []
     for name in frame.columns:
         series = frame[name]
@@ -158,6 +284,9 @@ def profile(config):
     result = {'sampled': config.get('sampled', False), 'rows': len(frame), 'empty_rows': empty_rows, 'nonempty_rows': len(frame) - empty_rows,
               'duplicates': int(frame.duplicated().sum()), 'columns': columns,
               'preview': frame.head(12).astype(object).where(pd.notna(frame.head(12)), None).to_dict('records')}
+    if frame.attrs.get('data_state'):
+        result['data_state'] = data_state_summary(frame)
+        write_data_state(frame, config['output'])
     time_col = mapping.get('time_column')
     if time_col and time_col in frame:
         stamp = timestamps(frame[time_col], mapping, errors='coerce')
@@ -213,12 +342,13 @@ def analyze(config):
     minimum = 2 if operation == 'spearman' else 1
     if len(columns) < minimum:
         raise ValueError(f'请明确选择至少 {minimum} 个数值分析列')
-    frame = read_table(config['source'], config['mapping'], literal_columns=columns if operation == 'numeric' else ())
+    frame = read_data(config, literal_columns=columns if operation == 'numeric' else ())
     unknown = [name for name in columns if name not in frame]
     if unknown:
         raise ValueError('分析列不存在：' + '、'.join(unknown))
     if operation == 'numeric':
-        processed, changes = prepare_numeric(frame, columns, plan.get('numeric', {}))
+        ruled = config['mapping'].get('field_rules', {})
+        processed, changes = prepare_numeric(frame, [c for c in columns if c not in ruled], plan.get('numeric', {}))
         output = Path(config['output']); output.mkdir(parents=True, exist_ok=True)
         processed.to_csv(output / 'processed.csv', index=False)
         pd.DataFrame(changes, columns=['source_row', 'column', 'original', 'value', 'conversion']).to_csv(output / 'conversions.csv', index=False)
@@ -230,6 +360,10 @@ def analyze(config):
             'row_numbering': 'source_row 从 0 开始，指向按表头设置读取后的数据行',
             'warnings': ['区间值按所选规则转换；规则应依据数据含义确定。'] if any(c['conversion'].startswith('interval_') for c in changes) else []})
         save(output / 'analysis.json', result)
+        if ruled:
+            result['data_state'] = data_state_summary(frame)
+            write_data_state(processed, output)
+            save(output / 'analysis.json', result)
         return result
     invalid = [name for name in columns if not pd.api.types.is_numeric_dtype(frame[name])
                or pd.api.types.is_bool_dtype(frame[name])]
@@ -241,6 +375,9 @@ def analyze(config):
     output = Path(config['output']); output.mkdir(parents=True, exist_ok=True)
     result = {'operation': operation, 'rows': len(frame), 'columns': columns,
               'missing_counts': {name: int(selected[name].isna().sum()) for name in columns}}
+    if frame.attrs.get('data_state'):
+        result['data_state'] = data_state_summary(frame)
+        write_data_state(frame, output)
     if operation == 'spearman':
         missing = plan['missing']
         if missing == 'raise' and selected.isna().any().any():
@@ -272,6 +409,9 @@ def analyze(config):
                 if i != j:
                     pairs.append({'left': left, 'right': right, 'rho': rho, 'p_value': p,
                                   'samples': n, 'status': 'undefined' if reason else 'ok', 'reason': reason})
+                    if frame.attrs.get('data_state'):
+                        excluded = blocked_data_rows(frame, [left, right])
+                        pairs[-1]['excluded_unusable_rows'] = len(excluded)
         result.update(missing=missing, correlation=matrix, sample_counts=counts, pairs=pairs,
                       warnings=['p 值使用渐近近似且未经多重比较校正；小样本结论需要进一步统计检验。'])
         pd.DataFrame(pairs).to_csv(output / 'correlations.csv', index=False)
@@ -312,6 +452,7 @@ def analyze(config):
             if processed.empty:
                 raise ValueError('异常值处理会删除全部样本，请调整边界')
             processed.to_csv(output / 'processed.csv', index=False)
+            write_data_state(processed, output)
         pd.DataFrame(details, columns=['source_row', 'column', 'value', 'lower', 'upper']).to_csv(output / 'outliers.csv', index=False)
         pd.DataFrame({'source_row': processed.index}).to_csv(output / 'source-rows.csv', index=False)
         result.update(method=method, handling=handling, bounds=bounds, affected_rows=int(affected.sum()),
@@ -330,7 +471,7 @@ def samples(config, prediction=False):
     import pandas as pd
     mapping = config['mapping']
     numeric_columns = config.get('features', {}).get('numeric', {}).get('columns', []) if mapping.get('kind', 'tabular') == 'tabular' else []
-    frame = read_table(config.get('labels') or config['source'], mapping, literal_columns=numeric_columns)
+    frame = read_data(config, literal_columns=numeric_columns)
     frame['_sample'] = np.arange(len(frame))
     target = mapping.get('target')
     missing = 0
@@ -339,6 +480,14 @@ def samples(config, prediction=False):
             raise ValueError('请指定实际存在的目标列；时序目标须在标签表中')
         missing = int(frame[target].isna().sum())
         frame = frame.loc[frame[target].notna()].copy()
+        roles = {mapping.get(k) for k in ('target', 'id_column', 'group_column', 'time_column', 'prediction_time_column', 'available_time_column', 'label_available_time_column')}
+        unusable = blocked_data_rows(frame, set(mapping.get('field_rules', {})) - roles)
+        affected = frame['_sample'].isin(unusable)
+        if affected.any() and mapping.get('invalid_rows', 'error') != 'exclude':
+            first = int(frame.loc[affected, '_sample'].iloc[0])
+            raise ValueError('训练特征存在待确认或无效值：' + '；'.join(unusable[first]) + '；请明确 mapping.invalid_rows="exclude" 排除这些行，或修正字段规则')
+        frame.attrs['excluded_data_rows'] = int(affected.sum())
+        frame = frame.loc[~affected].copy()
         if len(frame) < 8:
             raise ValueError('至少需要 8 个有标签样本；当前标签不足')
         if config.get('evaluation', {}).get('problem') == 'regression':
@@ -428,7 +577,8 @@ def prepare(config):
         if rule['problem'] == 'classification' and y.iloc[train].nunique() < 2:
             raise ValueError(f'第 {index + 1} 折的训练数据少于两类，当前划分不支持分类训练；请检查分组／时间与类别分布')
     return {'samples': frame['_sample'].tolist(), 'missing_labels': missing, 'folds': [[a.tolist(), b.tolist()] for a, b in folds],
-            'development': indices.tolist(), 'holdout': holdout.tolist(), 'evaluation_label': '保留测试集（尚未使用）' if len(holdout) else '仅验证集结果'}
+            'development': indices.tolist(), 'holdout': holdout.tolist(), 'evaluation_label': '保留测试集（尚未使用）' if len(holdout) else '仅验证集结果',
+            **({'excluded_data_rows': frame.attrs.get('excluded_data_rows', 0), 'data_state': data_state_summary(frame)} if mapping.get('field_rules') else {})}
 
 
 def features(config, prediction=False):
@@ -484,7 +634,7 @@ def features(config, prediction=False):
         x = frame[[c for c in columns if c not in plan.get('exclude', [])]].copy()
         numeric = plan.get('numeric', {})
         if numeric.get('columns'):
-            x, _ = prepare_numeric(x, numeric['columns'], numeric)
+            x, _ = prepare_numeric(x, [c for c in numeric['columns'] if c not in mapping.get('field_rules', {})], numeric)
         x = x.replace([np.inf, -np.inf], np.nan)
         descriptions = [{'name': c, 'source': c, 'calculation': '原始字段；缺失填补及编码仅在训练折拟合'} for c in x]
         for item in descriptions:
@@ -533,6 +683,12 @@ def export_features(config):
         'stage': 'before_fold_preprocessing',
         'note': '此表是确定性特征。缺失值填补、类别编码、标准化及特征筛选仍在每个训练折内拟合；标签只在样本表中。样本序号对应原始样本表从0开始的行序。'}
     save(folder / 'feature-summary.json', result)
+    if mapping.get('field_rules'):
+        result['data_state'] = data_state_summary(frame)
+        result['excluded'] = [{'reason': '目标标签缺失或不可用', 'rows': source_rows - len(frame) - frame.attrs.get('excluded_data_rows', 0)},
+                              {'reason': '特征待确认或无效', 'rows': frame.attrs.get('excluded_data_rows', 0)}]
+        write_data_state(frame, folder)
+        save(folder / 'feature-summary.json', result)
     return result
 
 
@@ -1023,6 +1179,7 @@ def train(config):
     if frame['_sample'].tolist() != split['samples']:
         raise ValueError('样本与固定划分不一致，需创建新研究')
     save(output / 'features.json', descriptions)
+    write_data_state(frame, output)
     direction = 'minimize' if config['evaluation']['metric'] in ('mae', 'rmse') else 'maximize'
     study = optuna.create_study(storage='sqlite:///' + str(config.get('optuna_storage') or output / 'optuna.db'), study_name='parameters', load_if_exists=True, direction=direction,
                                 sampler=optuna.samplers.TPESampler(seed=config['evaluation']['seed'] + len(list(output.glob('trial-*/result.json'))), n_startup_trials=2))
@@ -1082,11 +1239,16 @@ def train(config):
 
 def predict(config):
     import joblib
+    import numpy as np
+    import pandas as pd
     x, frame, _ = features(config, prediction=True)
     columns = config['feature_columns']
     if set(columns) != set(x.columns):
         raise ValueError('预测字段与训练特征不匹配')
     x = x[columns]
+    blocked = blocked_data_rows(frame, columns)
+    usable = ~frame['_sample'].isin(blocked)
+    input_x = x.loc[usable]
     if config.get('transformer'):
         spec = importlib.util.spec_from_file_location('project_transformer', config['transformer'])
         module = importlib.util.module_from_spec(spec); sys.modules['project_transformer'] = module; spec.loader.exec_module(module)
@@ -1095,30 +1257,39 @@ def predict(config):
     if config['engine'] == 'autogluon':
         from autogluon.tabular import TabularPredictor
         model = TabularPredictor.load(str(Path(config['model']) / 'autogluon'))
-        x = autogluon_prediction_input(config, x)
+        input_x = autogluon_prediction_input(config, input_x) if len(input_x) else input_x
     else:
         model = joblib.load(Path(config['model']) / 'model.joblib')
-    predictions = model.predict(x)
+    predictions = model.predict(input_x) if len(input_x) else []
     output = frame[[config['mapping']['id_column']]].copy() if config['mapping'].get('id_column') else frame[['_sample']].copy()
-    output['prediction'] = predictions
+    output['prediction'] = pd.Series(index=frame.index, dtype=object)
+    output.loc[usable, 'prediction'] = np.asarray(predictions)
+    if config['mapping'].get('field_rules'):
+        output['source_row'] = frame['_sample']
+        output['prediction_status'] = np.where(usable, 'predicted', 'unavailable')
+        output['prediction_reason'] = ['；'.join(blocked.get(int(i), [])) for i in frame['_sample']]
     probability_columns = {}
     if config.get('classes'):
-        import numpy as np
-        probabilities = model.predict_proba(x)
-        classes = list(probabilities.columns) if hasattr(probabilities, 'columns') else list(model.classes_)
+        probabilities = model.predict_proba(input_x) if len(input_x) else np.empty((0, len(config['classes'])))
+        classes = list(probabilities.columns) if hasattr(probabilities, 'columns') else list(getattr(model, 'classes_', config['classes']))
         probabilities = np.asarray(probabilities)
         for i, label in enumerate(classes):
             column = 'probability_' + str(label)
-            output[column] = probabilities[:, i]
+            output[column] = np.nan
+            output.loc[usable, column] = probabilities[:, i]
             probability_columns[str(label)] = column
     acceptance = None
     policy_path = Path(config['model']) / 'acceptance.json'
     if policy_path.exists():
         policy = json.loads(policy_path.read_text())
         accepted, acceptance = acceptance_result(policy, list(predictions), probabilities, classes)
-        output['decision'] = ['accept_prediction' if keep else 'review' for keep in accepted]
+        output['decision'] = 'unavailable'
+        output.loc[usable, 'decision'] = ['accept_prediction' if keep else 'review' for keep in accepted]
     output.to_csv(Path(config['output']) / 'predictions.csv', index=False)
-    return {'rows': len(output), 'preview': output.head(30).to_dict('records'), 'probability_columns': probability_columns, 'acceptance': acceptance}
+    write_data_state(frame, config['output'])
+    return clean({'rows': len(output), 'predicted_rows': int(usable.sum()), 'unavailable_rows': int((~usable).sum()),
+                  'preview': output.head(30).to_dict('records'), 'probability_columns': probability_columns, 'acceptance': acceptance,
+                  **({'data_state': data_state_summary(frame)} if config['mapping'].get('field_rules') else {})})
 
 
 def holdout(config):

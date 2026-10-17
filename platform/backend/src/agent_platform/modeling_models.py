@@ -10,6 +10,32 @@ class Contract(BaseModel):
     model_config = ConfigDict(extra='forbid', allow_inf_nan=False)
 
 
+class FieldRule(Contract):
+    dtype: Literal['number', 'category', 'text'] = 'number'
+    description: str = ''
+    unit: str = ''
+    meaning: Literal['known', 'pending'] = 'known'
+    missing_tokens: dict[str, Literal['unknown', 'not_measured', 'not_applicable', 'unjudged']] = Field(default_factory=dict)
+    allow_missing: list[Literal['unknown', 'not_measured', 'not_applicable']] = Field(default_factory=list)
+    pending_tokens: list[str] = Field(default_factory=list)
+    intervals: Literal['pending', 'midpoint', 'lower', 'upper'] = 'pending'
+    categories: list[str] = Field(default_factory=list)
+    ordered_values: list[str] = Field(default_factory=list)
+    lower: float | None = None
+    upper: float | None = None
+
+    @model_validator(mode='after')
+    def consistent(self):
+        if set(self.pending_tokens) & set(self.missing_tokens):
+            raise ValueError('同一符号不能同时是含义待确认和已定义缺失')
+        if self.lower is not None and self.upper is not None and self.lower > self.upper:
+            raise ValueError('字段下限不能大于上限')
+        if self.ordered_values and (self.dtype != 'category' or len(set(self.ordered_values)) != len(self.ordered_values)
+                                    or (self.categories and set(self.ordered_values) != set(self.categories))):
+            raise ValueError('有序类别必须是明确的、不重复的完整类别顺序')
+        return self
+
+
 class DataMapping(Contract):
     kind: Literal['tabular', 'timeseries'] = 'tabular'
     target: str = Field(default='', description='Target column name; use target, not target_column. Leave empty for analysis or unlabeled prediction.')
@@ -24,9 +50,13 @@ class DataMapping(Contract):
     sheet: str | int = Field(default=0, description='Sheet name or zero-based index for XLSX. Omit for CSV/TSV; null is not valid.')
     header_row: int = Field(default=0, ge=0, le=10000, description='Zero-based row containing column names.')
     skip_after_header: int = Field(default=0, ge=0, le=10000, description='Rows immediately below the header to omit, such as a second heading row.')
+    field_rules: dict[str, FieldRule] = Field(default_factory=dict, description='Per-column meaning, missing reasons and parsing rules, saved with datasets and models. Unknown tokens stay unresolved; they are never automatically imputed.')
+    invalid_rows: Literal['error', 'exclude'] = Field(default='error', description='Training only: explicitly exclude rows with unresolved or invalid ruled features before fixing the split, or fail with their locations. Prediction retains all rows and gives reasons for unavailable predictions.')
 
     @model_validator(mode='after')
     def time_keys(self):
+        if self.field_rules and self.kind != 'tabular':
+            raise ValueError('字段含义规则当前适用于单张表格')
         if self.kind == 'timeseries' and not all([self.id_column, self.time_column, self.prediction_time_column]):
             raise ValueError('工艺时序需要样本标识、测量时间及标签表中的预测时点列')
         return self
@@ -36,6 +66,7 @@ class DatasetRequest(Contract):
     name: str = Field(default='', max_length=160)
     source_path: str
     labels_path: str = ''
+    state_path: str = Field(default='', description='Optional data-state.json returned by a platform transformation; preserve it when registering its processed.csv.')
     replaces_id: str = ''
     mapping: DataMapping = Field(default_factory=DataMapping)
 
@@ -213,6 +244,7 @@ class ModelingBlock(Contract):
 class DatasetBlock(ModelingBlock):
     source_path: Any = ''
     labels_path: Any = ''
+    state_path: Any = ''
     mapping: Any = Field(default_factory=dict)
     dataset_id: Any = ''
 
@@ -388,7 +420,12 @@ def register_modeling_blocks(registry):
             if kind == 'model_predict':
                 definition.editor['fields'] = (definition.editor['fields'][:3] + [field('model_ref', '调用模型', 'reference_or_text')]
                                                + definition.editor['fields'][-3:])
+                definition.editor['fields'].append(field('state_path', '处理结果的原值与状态文件（可选）', 'reference_or_text'))
         if kind == 'data_analysis':
+            definition.editor['fields'] += [field('mapping.field_rules', '字段含义与处理规则', 'json'),
+                field('mapping.invalid_rows', '训练中无法使用的记录', 'enum', options=['error', 'exclude'], default_value='error',
+                      option_labels={'error': '提示具体问题', 'exclude': '排除并报告数量'}),
+                field('state_path', '处理结果的原值与状态文件（可选）', 'reference_or_text')]
             definition.manual_summary += (' analysis.operation 默认为 profile，兼容已有概况分析。spearman 需要至少两列数值字段，'
                 '返回 pairs、correlation、sample_counts 和可下载结果；missing 可选 pairwise、complete、raise。'
                 'outliers 支持单表数值列，method=iqr 或 bounds；handling=flag（只标记）、drop（删除异常行）、clip（截到边界）。'

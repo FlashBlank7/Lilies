@@ -10,10 +10,10 @@ from tests.test_projects import configured, edge, graph, node, ref, start  # noq
 
 
 FIELDS = {
-    'data_analysis': {'source_path', 'labels_path', 'mapping', 'dataset_id', 'analysis'},
+    'data_analysis': {'source_path', 'labels_path', 'state_path', 'mapping', 'dataset_id', 'analysis'},
     'feature_extract': {'dataset_id', 'features'},
     'model_train': {'dataset_id', 'features', 'evaluation', 'budget', 'candidate', 'study_id', 'candidate_id', 'finalize'},
-    'model_predict': {'source_path', 'labels_path', 'mapping', 'dataset_id', 'model_ref', 'study_id', 'candidate_id', 'slot'},
+    'model_predict': {'source_path', 'labels_path', 'state_path', 'mapping', 'dataset_id', 'model_ref', 'study_id', 'candidate_id', 'slot'},
 }
 # The old shared schema allowed all these fields on every modeling node.
 LEGACY_DEFAULTS = {'source_path': '', 'labels_path': '', 'mapping': {}, 'evaluation': {},

@@ -18,6 +18,8 @@ def profile_summary(value):
                          'sample_structure', 'warnings'))
     result['columns'] = [pick(c, ('name', 'dtype', 'missing', 'unique', 'min', 'max', 'mean', 'outliers', 'value_counts'))
                          for c in value.get('columns', [])]
+    if value.get('data_state'):
+        result['data_state'] = pick(value['data_state'], ('counts', 'blocked_cells', 'issues_preview'))
     if 'time' in value:
         result['time'] = pick(value['time'], ('start', 'end', 'invalid', 'median_interval_seconds'))
     if 'labels' in value:
@@ -36,7 +38,7 @@ def dataset_summary(value):
 def split_summary(split, test_result=None):
     if split is None:
         return None
-    result = pick(split, ('missing_labels', 'evaluation_label'))
+    result = pick(split, ('missing_labels', 'excluded_data_rows', 'evaluation_label'))
     for name, field in [('samples', 'labeled_samples'), ('development', 'development_samples'), ('holdout', 'holdout_samples')]:
         if name in split:
             result[field] = len(split[name])
