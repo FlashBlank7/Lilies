@@ -95,10 +95,12 @@ def test_real_training_and_saved_prediction_preserve_unknown_rows(tmp_path):
     data = pd.read_csv(config['source'], dtype={'id': str, 'x': str})
     data.loc[3:5, 'x'] = ['3.5-4.2', '/', '6..2']
     data.loc[6, 'y'] = '-1'
+    data['unused_measurement'] = 'not yet understood'
     data.to_csv(config['source'], index=False)
     config['mapping'] = DataMapping(**config['mapping'], invalid_rows='exclude', field_rules={
         'x': {'pending_tokens': ['/'], 'allow_missing': ['unknown']},
         'y': {'dtype': 'category', 'categories': ['pass', 'reject'], 'missing_tokens': {'-1': 'unjudged'}},
+        'unused_measurement': {'dtype': 'text', 'meaning': 'pending'},
     }).model_dump()
     config.update(engine='sklearn', models=['forest'], parameters={'n_estimators': 8}, batch_size=1)
     config['features'] = {'columns': ['x', 'category']}

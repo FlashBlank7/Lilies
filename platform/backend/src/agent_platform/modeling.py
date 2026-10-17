@@ -652,7 +652,7 @@ class Modeling:
                     await self.save_training_note(project_id, study_id, candidate_id, event['slot'])
             try:
                 if not split_path.exists():
-                    study['split'] = await self.compute(project_id, dataset, {'action': 'prepare', 'evaluation': study['evaluation']}, study_folder, image=study['image'], timeout=remaining)
+                    study['split'] = await self.compute(project_id, dataset, {'action': 'prepare', 'evaluation': study['evaluation'], 'features': candidate['features']}, study_folder, image=study['image'], timeout=remaining)
                     await self.put(project_id, 'study', study)
                 config = {**candidate['request'], 'action': 'train', 'evaluation': study['evaluation'], 'split': '/split.json',
                           'remaining_seconds': max(1, study['budget']['seconds'] - self.elapsed(study)), 'trial_seconds': study['budget']['trial_seconds'], 'batch_size': min(slots, candidate['batch_size'])}

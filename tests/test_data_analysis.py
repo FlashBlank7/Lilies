@@ -26,11 +26,11 @@ def test_semantic_rules_survive_tool_derivation_training_and_workflow_replacemen
     values = [str(i) for i in range(60)]
     values[3:6] = ['3.5-4.2', '/', '6..2']
     def source(values):
-        return 'id,x,pressure,y\n' + '\n'.join(f'{i:03d},{x},{i % 13},{i * 2}' for i, x in enumerate(values))
+        return 'id,x,pressure,y,unused\n' + '\n'.join(f'{i:03d},{x},{i % 13},{i * 2},unknown' for i, x in enumerate(values))
     path.write_text(source(values))
     original = path.read_bytes()
     mapping = {'id_column': 'id', 'target': 'y', 'invalid_rows': 'exclude',
-               'field_rules': {'x': {'pending_tokens': ['/']}, 'pressure': {'dtype': 'number'}}}
+               'field_rules': {'x': {'pending_tokens': ['/']}, 'pressure': {'dtype': 'number'}, 'unused': {'dtype': 'text', 'meaning': 'pending'}}}
     base = '/api/v1/projects/' + project['id']
     graph(client, project['id'], [node('start', 'start'),
         node('data', 'data_analysis', source_path='requirement-package/data.csv', mapping=mapping,
@@ -46,11 +46,21 @@ def test_semantic_rules_survive_tool_derivation_training_and_workflow_replacemen
     trained = task['outputs']['training']
     derived = client.get(base + '/datasets/' + task['outputs']['data']['dataset_id']).json()
     assert 'state' in derived['files']
+    repeated = client.post(base + '/datasets', json={'source_path': derived['files']['source']['original'], 'mapping': derived['mapping']})
+    assert repeated.status_code == 201, repeated.text
+    assert repeated.json()['files']['state']['sha256'] == derived['files']['state']['sha256']
     split = json.loads((service.path(project['id'], trained['study_id']) / 'output/split.json').read_text())
     assert split['excluded_data_rows'] == 3 and len(split['samples']) == 57
     response = client.put(base + '/models/semantic-model', json={'name': '测试模型', 'study_id': trained['study_id'],
         'candidate_id': trained['id'], 'slot': 0})
     assert response.status_code == 200, response.text
+    import io, zipfile
+    bundle = client.get(base + f'/modeling/studies/{trained["study_id"]}/candidates/{trained["id"]}/download')
+    assert bundle.status_code == 200, bundle.text[:200] if bundle.status_code != 200 else ''
+    with zipfile.ZipFile(io.BytesIO(bundle.content)) as archive:
+        example = json.loads(archive.read('predict.example.json'))
+        assert example['mapping']['field_rules'] == derived['mapping']['field_rules']
+        assert example['mapping']['field_rules']['x']['intervals'] == 'pending'
     graph(client, project['id'], [node('start', 'start', inputs=[{'name': 'source_path', 'type': 'string', 'required': True}]),
         node('data', 'data_analysis', source_path=ref('$inputs', 'source_path'), mapping=mapping),
         node('stats', 'data_analysis', dataset_id=ref('data', 'output', 'dataset_id'), analysis={'operation': 'spearman', 'columns': ['x', 'pressure']}),

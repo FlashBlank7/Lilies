@@ -248,7 +248,8 @@ def write_data_state(frame, output):
         if r['row'] not in positions or r['column'] not in frame:
             continue
         cell = {**r, 'row': positions[r['row']]}
-        value = clean(frame.iloc[cell['row']][r['column']])
+        # Scalar access avoids pandas copying the complete attrs state for each row.
+        value = clean(frame.at[frame.index[cell['row']], r['column']])
         if not r['blocked'] and value != r['value']:
             cell.update(value=value, status='converted', reason='processed_value')
         cells.append(cell)
@@ -261,7 +262,7 @@ def profile(config):
     import numpy as np
     import pandas as pd
     mapping = config['mapping']
-    frame = read_data(config, preview=config.get('sampled', False))
+    frame = read_data({**config, 'labels': ''}, preview=config.get('sampled', False))
     columns = []
     for name in frame.columns:
         series = frame[name]
@@ -481,7 +482,9 @@ def samples(config, prediction=False):
         missing = int(frame[target].isna().sum())
         frame = frame.loc[frame[target].notna()].copy()
         roles = {mapping.get(k) for k in ('target', 'id_column', 'group_column', 'time_column', 'prediction_time_column', 'available_time_column', 'label_available_time_column')}
-        unusable = blocked_data_rows(frame, set(mapping.get('field_rules', {})) - roles)
+        plan = config.get('features', {})
+        active = set(plan.get('columns') or frame.columns) - set(plan.get('exclude', [])) - roles
+        unusable = blocked_data_rows(frame, set(mapping.get('field_rules', {})) & active)
         affected = frame['_sample'].isin(unusable)
         if affected.any() and mapping.get('invalid_rows', 'error') != 'exclude':
             first = int(frame.loc[affected, '_sample'].iloc[0])
@@ -489,7 +492,7 @@ def samples(config, prediction=False):
         frame.attrs['excluded_data_rows'] = int(affected.sum())
         frame = frame.loc[~affected].copy()
         if len(frame) < 8:
-            raise ValueError('至少需要 8 个有标签样本；当前标签不足')
+            raise ValueError(f'至少需要 8 个可用有标签样本；按字段规则排除 {int(affected.sum())} 条后剩 {len(frame)} 条，请检查标签和实际选用的特征')
         if config.get('evaluation', {}).get('problem') == 'regression':
             frame[target] = pd.to_numeric(frame[target], errors='raise')
             if not np.isfinite(frame[target]).all():

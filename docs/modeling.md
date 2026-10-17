@@ -159,7 +159,7 @@ COPYFILE_DISABLE=1 tar --no-xattrs -cf - Dockerfile.modeling requirements-modeli
 
 原文、源行、解析值、状态和原因在 `data-state.json` 保存。标准分析直接读取带规则的数据集，Spearman 仅用有效观测并输出实际样本数；异常默认只标记。数值整理和异常删除/截断产生的新数据集自动携带状态，后续操作保留原行位置。重新登记导出的 processed.csv 应同时提供 state_path；标准结果目录自动识别同目录状态文件。表格或规则改变不能沿用旧状态，须从原始表重新处理。
 
-训练默认提示待确认/无效记录；设置 `mapping.invalid_rows="exclude"` 后在固定划分之前排除，`split.excluded_data_rows` 返回排除数量。此选择针对所有已声明规则的非元数据字段，确保候选比较使用同一批样本。缺失或未判定标签始终不参加监督训练。预测按模型实际使用的字段检查，原行保留，返回 `prediction_status`、`prediction_reason`、`predicted_rows` 和 `unavailable_rows`；未提供标签不影响预测。允许的缺失才交给模型保存的填补/编码流程，训练统计不在新表重算。
+训练默认提示待确认/无效记录；设置 `mapping.invalid_rows="exclude"` 后在固定划分之前排除，`split.excluded_data_rows` 返回排除数量。此选择针对候选实际使用的特征，未用字段的状态保留但不阻止训练；修改特征导致样本集合改变时须创建新研究，旧研究的固定划分不变。缺失或未判定标签始终不参加监督训练。预测按模型实际使用的字段检查，原行保留，返回 `prediction_status`、`prediction_reason`、`predicted_rows` 和 `unavailable_rows`；未提供标签不影响预测。允许的缺失才交给模型保存的填补/编码流程，训练统计不在新表重算。
 
 字段规则随模型包保存，平台预测继承训练定义；新输入若携带不同规则会明确报错。旧镜像不支持该能力时拒绝忽略规则计算，历史无规则数据/模型继续按旧行为运行。可随时保存含待确认规则的工作流草稿。当前支持单张表格，不扩展时序语义。
 
