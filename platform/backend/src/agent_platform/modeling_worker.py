@@ -19,7 +19,7 @@ import sys
 import time
 import traceback
 
-CAPABILITIES = ['categorical_missing_preserve', 'field_semantics_v1', 'field_reporting_v1']
+CAPABILITIES = ['categorical_missing_preserve', 'field_semantics_v1', 'field_reporting_v1', 'table_prepare_v1']
 
 
 def clean(value):
@@ -48,6 +48,8 @@ def emit(kind, **value):
 
 def read_table(path, mapping, preview=False, literal_columns=()):
     import pandas as pd
+    if Path(path).suffix.lower() != '.xlsx' and mapping.get('sheet', 0) != 0:
+        raise ValueError('CSV/TSV 没有 Excel 工作表；请更新 sheet=0 及实际 header_row/skip_after_header，或使用 prepare 返回的数据集，不能沿用 Excel 布局')
     keys = [mapping.get(k) for k in ('id_column', 'group_column') if mapping.get(k)]
     header = mapping.get('header_row', 0)
     options = {'header': header, 'skiprows': list(range(header + 1, header + 1 + mapping.get('skip_after_header', 0))),
@@ -55,7 +57,7 @@ def read_table(path, mapping, preview=False, literal_columns=()):
     def read(**extra):
         if Path(path).suffix.lower() == '.xlsx':
             return pd.read_excel(path, sheet_name=mapping.get('sheet', 0), **options, **extra)
-        return pd.read_csv(path, sep='\t' if Path(path).suffix.lower() == '.tsv' else ',', **options, **extra)
+        return pd.read_csv(path, sep='\t' if Path(path).suffix.lower() == '.tsv' else ',', skip_blank_lines=False, **options, **extra)
     frame = read(dtype={k: str for k in keys})
     if literal_columns:
         # Preserve tokens such as "NA" in explicitly converted columns. Other
@@ -147,6 +149,8 @@ def read_data(config, *, preview=False, literal_columns=()):
     records = []
     if config.get('state'):
         state = json.loads(Path(config['state']).read_text())
+        if state.get('mapping') and any(mapping.get(k, 0) != state['mapping'].get(k, 0) for k in ('sheet', 'header_row', 'skip_after_header')):
+            raise ValueError('中间表读取布局与保存状态不一致，不能再次跳过表头；请使用 prepare 返回的数据集或其 mapping')
         if state.get('table_sha256') and hashlib.sha256(Path(config['source']).read_bytes()).hexdigest() != state['table_sha256']:
             raise ValueError('处理后的表格已经改变，不能沿用旧数据状态；请从原始表重新处理')
         if state['rules'] != rules:
@@ -213,7 +217,7 @@ def read_data(config, *, preview=False, literal_columns=()):
             values = [np.nan if cells[i]['blocked'] or cells[i]['value'] is None else cells[i]['value'] for i in frame.index]
             dtype = float if rule.get('dtype', 'number') == 'number' or rule.get('ordered_values') else object
             frame[column] = pd.Series(values, index=frame.index, dtype=dtype)
-    frame.attrs['data_state'] = {'rules': rules, 'rows': len(frame), 'cells': records}
+    frame.attrs['data_state'] = {'rules': rules, 'rows': len(frame), 'cells': records, 'mapping': mapping}
     return frame
 
 
@@ -299,6 +303,7 @@ def write_data_state(frame, output):
         cells.append(cell)
     processed = Path(output) / 'processed.csv'
     save(Path(output) / 'data-state.json', {**state, 'rows': len(frame), 'cells': cells,
+         **({'mapping': {**state['mapping'], 'sheet': 0, 'header_row': 0, 'skip_after_header': 0}} if processed.is_file() else {}),
          **({'table_sha256': hashlib.sha256(processed.read_bytes()).hexdigest()} if processed.is_file() else {})})
     summary = data_state_summary(frame)
     def cell(value):
@@ -414,13 +419,32 @@ def analyze(config):
     if config['mapping'].get('kind', 'tabular') != 'tabular' or config.get('labels'):
         raise ValueError('统计与异常值操作需要单张表格；请先明确整理时序或独立标签表')
     columns = plan['columns']
-    minimum = 2 if operation == 'spearman' else 1
+    minimum = 0 if operation == 'prepare' else 2 if operation == 'spearman' else 1
     if len(columns) < minimum:
         raise ValueError(f'请明确选择至少 {minimum} 个数值分析列')
     frame = read_data(config, literal_columns=columns if operation == 'numeric' else ())
     unknown = [name for name in columns if name not in frame]
     if unknown:
         raise ValueError('分析列不存在：' + '、'.join(unknown))
+    if operation == 'prepare':
+        if not frame.attrs.get('data_state') or not set(config['mapping'].get('field_rules', {})).intersection(frame.columns):
+            raise ValueError('整理表格前请在 mapping.field_rules 声明需要保留的字段含义；已有数据概况可继续直接使用')
+        indices = plan.get('row_indices')
+        if indices is not None and (len(set(indices)) != len(indices) or any(i < 0 or i >= len(frame) for i in indices)):
+            raise ValueError('所选行号越界或重复；row_indices 是当前数据集从 0 开始的数据行号')
+        processed = frame if indices is None else frame.iloc[indices].copy()
+        output = Path(config['output']); output.mkdir(parents=True, exist_ok=True)
+        processed.to_csv(output / 'processed.csv', index=False)
+        write_data_state(processed, output)
+        state = json.loads((output / 'data-state.json').read_text())
+        origins = {r['row']: r for r in state['cells']}
+        pd.DataFrame([{'row': i, 'source_row': origins[i]['source_row'], 'source_line': origins[i]['source_line']} for i in range(len(processed))],
+                     columns=['row', 'source_row', 'source_line']).to_csv(output / 'source-rows.csv', index=False)
+        result = {'operation': operation, 'rows': len(frame), 'output_rows': len(processed), 'excluded_rows': len(frame)-len(processed),
+                  'mapping': state['mapping'], 'data_state': data_state_summary(processed),
+                  'row_numbering': 'row 是本次结果行；source_row/source_line 沿用原始数据/原表行号。未选择 row_indices 时所有行（含空行）保留。'}
+        save(output / 'analysis.json', result)
+        return clean(result)
     if operation == 'numeric':
         ruled = config['mapping'].get('field_rules', {})
         processed, changes = prepare_numeric(frame, [c for c in columns if c not in ruled], plan.get('numeric', {}))
@@ -577,7 +601,10 @@ def samples(config, prediction=False):
                 raise ValueError('回归标签包含无穷值')
     for key in ('id_column', 'group_column'):
         col = mapping.get(key)
-        if col and (col not in frame or frame[col].isna().any()):
+        # Tabular prediction does not split by identity. Keep unknown identities
+        # and blank records in place; source positions identify every output row.
+        require_identity = not prediction or mapping.get('kind') == 'timeseries'
+        if col and (col not in frame or (require_identity and frame[col].isna().any())):
             raise ValueError(f'{key} 缺失，不能静默丢弃这些样本')
     return frame.reset_index(drop=True), missing
 

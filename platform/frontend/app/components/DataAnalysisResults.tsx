@@ -1,17 +1,18 @@
 type Pair = {left:string;right:string;rho:number|null;p_value:number|null;samples:number;reason?:string}
 export type DataAnalysisResult = {
-  operation:'numeric'|'spearman'|'outliers';rows:number;output_rows?:number;affected_rows?:number;converted_cells?:number;
+  operation:'prepare'|'numeric'|'spearman'|'outliers';rows:number;output_rows?:number;affected_rows?:number;converted_cells?:number;
   handling?:string;columns?:string[];bounds?:Record<string,{lower:number|null;upper:number|null}>;
   pairs?:Pair[];warnings?:string[];
 }
 const number = (value:number|null|undefined) => value == null ? '无法计算' : Number(value).toPrecision(6)
 
 export default function DataAnalysisResults({result}:{result:DataAnalysisResult}) {
-  const title = {numeric:'数值整理',spearman:'Spearman 相关分析',outliers:'异常值处理'}[result.operation]
+  const title = {prepare:'整理表格与选行',numeric:'数值整理',spearman:'Spearman 相关分析',outliers:'异常值处理'}[result.operation]
   return <section aria-label={title}>
     <h3>{title}</h3>
     <p>输入 {result.rows} 行{result.output_rows!=null && ` · 输出 ${result.output_rows} 行`}</p>
     {result.columns?.length ? <p>字段：{result.columns.join('、')}</p> : null}
+    {result.operation==='prepare' && <p>保留所选行的原值、字段含义和原始位置；后续分析与训练使用本次生成的数据集。</p>}
     {result.operation==='numeric' && <p>转换 {result.converted_cells ?? 0} 个单元格，涉及 {result.affected_rows ?? 0} 行；原文件保留。</p>}
     {result.operation==='outliers' && <>
       <p>按所选规则识别 {result.affected_rows ?? 0} 行 · {{flag:'只标记，保留全部数据',drop:'删除标记行，另存结果',clip:'截到边界，另存结果'}[result.handling || ''] || result.handling}</p>

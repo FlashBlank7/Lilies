@@ -146,6 +146,12 @@ Register with dataset={source_path, mapping:{kind:'tabular', target:'label', id_
 mapping belongs INSIDE dataset; top-level mapping is only for revise_dataset. Use target, not target_column;
 kind is tabular/timeseries, not table. Omit sheet for CSV; for XLSX use a sheet name or index 0, never null.
 Use exact paths returned by project_file(action='list'); do not remove upload directory identifiers.
+prepare (analysis.operation) normalizes a table with field_rules and returns a NEW dataset_id plus mapping, data-state.json and source-rows.csv.
+It preserves EVERY row including blank rows by default; optional row_indices selects zero-based data positions.
+All field rules survive selection, even categories or unjudged codes absent from that subset.
+Use its dataset_id downstream, or re-register its processed.csv without mapping to inherit the saved layout and definitions.
+Never reuse Excel sheet/header/skip settings on a one-header CSV or rebuild category definitions from observed training labels.
+Prefer training the original ruled dataset with invalid_rows=exclude; explicit subsets should use prepare rather than hand-written CSV.
 analyze(dataset_id, analysis) also runs without a workflow. analysis.operation=spearman with columns returns
 correlations, pair counts, approximate p-values and files; missing=pairwise/complete/raise. outliers supports
 single-table numeric columns, method=iqr/bounds and handling=flag/drop/clip. drop/clip returns a NEW dataset_id;
@@ -252,7 +258,7 @@ PROJECT_TOOL_SUMMARIES = {
     'project_skills': 'List Skill names/purposes; read body or references when useful; write with expected_revision.',
     'project_models': 'List/bind model_ref; export(model_ref) saves a downloadable model ZIP and generated report with exact IDs/metrics/split counts; predict with model_ref and dataset_id. Unbound references are allowed.',
     'project_code': 'Run Python in project Docker: read-only inputs, writable solution/results, no network. Returns actual output or error.',
-    'project_modeling': 'Profile data; analyze with explicit numeric conversion, Spearman or outlier flag/drop/clip; create studies, train and compare measured results. analyze returns a new dataset_id when data changes. train uses candidate.request_key for idempotency; wait=false runs in background. Holdout finalize needs authorization; AIDE needs next_step. Optional setup help is in project Skills.',
+    'project_modeling': 'Profile data; prepare tables/subsets preserving rows and meanings; analyze with explicit numeric conversion, Spearman or outlier flag/drop/clip; create studies, train and compare measured results. analyze returns a new dataset_id when data changes. train uses candidate.request_key for idempotency; wait=false runs in background. Holdout finalize needs authorization; AIDE needs next_step. Optional setup help is in project Skills.',
     'project_progress': 'Read progress summary (view="full" for all). Prefer revision-checked patch of one item; update replaces the ENTIRE record: read view="full" first, never replace from a summary. Preserve other items and user answers. Progress tracking is optional.',
     'project_action': 'Optional task/progress actions. wait with task_id observes existing work; resume continues its snapshot; finish ends this request. No planning/build action is required before doing work.',
     'project_workflows': 'List/inspect/create/remove/classify project workflows. inspect reads inputs/outputs; create makes a blank member. Main workflow id equals project id. Members run through workflow_run.',

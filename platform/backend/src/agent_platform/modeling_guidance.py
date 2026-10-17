@@ -16,11 +16,12 @@ GUIDE = """直接完成数据任务；工作流可随时保存，分析、训练
 有未知符号、区间或数字类别时，在 dataset.mapping.field_rules 按列保存规则，再使用平台分析、训练和预测；参考 field-rules.json。每列 dtype=number/category/text，description 和 unit 写已有定义；meaning=pending 表示整列含义未知。missing_tokens 是“原文→缺失原因”的字典（unknown/not_measured/not_applicable/unjudged），pending_tokens 是仍不知道含义的符号列表。空白默认为 unknown；allow_missing 只列出该字段明确允许交给模型缺失处理的原因，默认不允许。intervals 默认 pending；只有含义和取值方式明确时才选 midpoint/lower/upper。数字类别用 category；已确认的代码含义必须存入 category_labels（例如 {"0":"合格","1":"压连不足","2":"过压损伤","-1":"未判定"}，仅示例，不是通用定义），不能只写在 description。报告直接复用评价 classes[].name、预测 prediction_name 和自动生成的模型报告，不按编码猜测“缺陷”或等级；无明确等级顺序不得做秩相关，ordered_values 只用于已说明的顺序。
 用户已说不知道时保持待确认，继续可做工作，不再反复问同一问题。模拟业务答复只写入演练项目规则，不能替代企业真实定义。普通格式解析可自动执行；含义未知不得用 to_numeric(errors='coerce')、空字符串或填零抹掉。自定义表头/合并单元格整理应保留所有测量原文、原标签和源行对应；仅按明确业务定义补齐分组标识。不要先在 project_code 里把未知值变成空白再登记，否则平台无法恢复丢失的含义。
 有规则的数据集直接用于 profile、spearman、outliers 和训练，无需先把字段手工清洗成数字。分析只使用有效数值并报告样本数，data_state 给出原值、位置和原因；profile 每列 counts 和 data_state.columns 分开计数 valid/converted/missing/pending/invalid，五项互斥且合计为数据行数。missing 仅为已识别缺失，missing_reasons 再分原因；parsed_unavailable 包含缺失、待确认和错误等解析后不可用值，不能写成缺失数。分析 artifacts 的 data-summary.md 及预测 data_summary_path 提供直接可交付的状态与类别表，报告使用这些表和实际统计；统计异常默认标记。训练遇到待确认/无效特征默认报错，mapping.invalid_rows='exclude' 可明确在固定划分前排除这些行，结果 split.excluded_data_rows 说明数量；它仅检查候选实际使用的特征列，未用字段的待确认状态继续保留但不影响模型；修改特征导致可用样本变化时须新建研究，不能改变旧研究固定划分。目标缺失不填补；unjudged 标签不参加监督训练。预测保留每行，无法使用的行 prediction_status='unavailable'，prediction_reason 说明原因，不把它当作已预测。预测只检查模型实际需要的字段，缺少目标不影响预测。 选用特征全部没有有效观测的行也不可训练或预测，即使各列允许缺失；不要把空白记录计作成功预测。
-numeric、异常删除/截断返回的新 dataset_id 已携带 data-state.json；优先继续使用这个 dataset_id。若重新登记 processed.csv，必须同时传 state_path，并保留完全相同的 mapping.field_rules；状态文件与表格绑定，换表必须重新解释原始数据，不能复制旧状态。模型包保存字段规则，预测继承训练定义，数据另带不一致规则时会明确报错。最终交付同时链接 data_state_path 或分析 artifacts 中的 data-state.json，说明待确认/排除/无法预测的数量。规则可在草稿高级配置中修改，保存草稿不要求数据问题已解决。
+prepare、numeric、异常删除/截断返回的新 dataset_id 已携带 data-state.json；优先继续使用这个 dataset_id。若重新登记 processed.csv，同目录的 data-state.json 会自动读取，省略 mapping 时继承完整规则和处理后的读取布局；另存其他文件名需传 state_path，显式规则必须一致。不能从训练中出现的标签重建类别定义，未出现在子集中的类别名称和未判定编码仍须保留；状态文件与表格绑定，换表必须重新解释原始数据，不能复制旧状态。模型包保存字段规则，预测继承训练定义，数据另带不一致规则时会明确报错。最终交付同时链接 data_state_path 或分析 artifacts 中的 data-state.json，说明待确认/排除/无法预测的数量。规则可在草稿高级配置中修改，保存草稿不要求数据问题已解决。
 
 用 project_modeling(action='register_dataset', dataset={source_path,mapping}) 保存版本，mapping 设置实际 sheet/header_row/skip_after_header；profile 返回概况，sample_structure 描述有标签样本的分组，labels 是独立标签表的概况。sampled=true 只覆盖前 1000 行，不能把预览外未检查的记录当作无问题。
-analyze 使用 analysis.operation='numeric'|'outliers'|'spearman'；这与画布 data_analysis 共用实现。numeric 只采用明确的占位符/区间规则，产生新 dataset_id 和转换明细。outliers 可 flag/drop/clip，默认先 flag；统计离群不等于错误工况。说明检测总体，IQR 为 0 时查看实际边界，不盲目删除或截断。spearman 明确选择可解释的数值字段，保留每对有效样本数、系数、p 值与未定义原因，不把很小的 p 值写成 0，也不宣称相关性是因果。
-标准分析先用现有操作；特殊表头、多行样本整理可用 project_code，一次保存处理文件和必要脚本。训练中需要拟合的填补、编码、缩放、异常截断和筛选放在训练折内，通过 candidate.features 配置并随模型保存。
+analyze 使用 analysis.operation='prepare'|'numeric'|'outliers'|'spearman'；这与画布 data_analysis 共用实现。numeric 只采用明确的占位符/区间规则，产生新 dataset_id 和转换明细。outliers 可 flag/drop/clip，默认先 flag；统计离群不等于错误工况。说明检测总体，IQR 为 0 时查看实际边界，不盲目删除或截断。spearman 明确选择可解释的数值字段，保留每对有效样本数、系数、p 值与未定义原因，不把很小的 p 值写成 0，也不宣称相关性是因果。
+需要导出中间表或选择训练行时，使用 prepare：要求先声明 field_rules，默认保留全部数据行（含空行），analysis.row_indices 可显式选择当前数据集从 0 开始的行。返回的新 dataset_id 同时保存原始位置、完整字段定义和 sheet=0/header_row=0/skip_after_header=0 的 CSV 布局；下游引用它，不能再跳过一行表头。参考 prepare-workflow.json。优先直接用原数据集和 invalid_rows=exclude 训练；确需按分组等业务条件选择子集时，代码只计算行号，再交 prepare 选行，不另写一份缩水规则。
+标准分析先用现有操作；两层表头用 header_row/skip_after_header，整理布局用 prepare。特殊合并单元格、多行样本整理可用 project_code，一次保存处理文件和必要脚本。训练中需要拟合的填补、编码、缩放、异常截断和筛选放在训练折内，通过 candidate.features 配置并随模型保存。
 用户要求复用流程时，步骤确定后即可保存分析草稿；无需等模型搜索结束。reference='analysis-workflow.json' 是单行表头、两个已明确数值字段的普通流程示例：概况、IQR 标记、Spearman。用 project_skills(action='read',skill_id='modeling',reference=...) 读取；按实际列和表头调整，输入 source_path 指向新文件，输入 first_column/second_column 选择字段。没有标签解释或模型时，已明确的因素分析仍可独立运行。workflow_run 实际检查结果后，再换一份合法输入验证复用；不重新训练或覆盖旧结果来掩盖失败。
 同时交付分析和预测时，读取 reference='analysis-prediction-workflow.json'：同一次输入登记的数据集连接概况、异常标记、Spearman 和模型预测，结束节点返回每项结果及文件。这是普通可编辑节点，可以在概况前插入原表整理节点并引用其本次输出。业务字段确定后把 analysis_columns、mapping、model_ref 固定到节点配置或入口默认值，让现场只需提供 source_path。不要把本次运行的 dataset_id 或静态相关文件写死到流程；模型引用可以固定，分析数据集必须随输入更新。
 
@@ -85,6 +86,21 @@ ANALYSIS_PREDICTION_WORKFLOW['edges'] = [
     for a, b in [('start', 'profile'), ('profile', 'outliers'), ('outliers', 'spearman'),
                  ('spearman', 'predict'), ('predict', 'end')]]
 
+PREPARE_WORKFLOW = deepcopy(ANALYSIS_PREDICTION_WORKFLOW)
+PREPARE_WORKFLOW['nodes'].insert(1, {
+    'id': 'prepare', 'type': 'data_analysis', 'title': '整理表格并保留原始位置', 'config': {
+        'source_path': ref('$inputs', 'source_path'), 'mapping': ref('$inputs', 'mapping'),
+        'analysis': {'operation': 'prepare'}}})
+PREPARE_WORKFLOW['nodes'][2]['config'] = {
+    'dataset_id': ref('prepare', 'output', 'dataset_id'), 'analysis': {'operation': 'profile'}}
+PREPARE_WORKFLOW['edges'] = [
+    {'id': f'{a}-{b}', 'source': a, 'target': b}
+    for a, b in [('start', 'prepare'), ('prepare', 'profile'), ('profile', 'outliers'),
+                 ('outliers', 'spearman'), ('spearman', 'predict'), ('predict', 'end')]]
+PREPARE_WORKFLOW['nodes'][-1]['config']['outputs']['表格与源行'] = ref('prepare', 'output')
+# Field definitions are required at execution, never to save a draft.
+PREPARE_WORKFLOW['nodes'][0]['config']['inputs'][-1] = {'name': 'mapping', 'type': 'object', 'required': True}
+
 MODELING_SKILL = {'name': '项目数据与建模',
     'description': '数值整理、异常值、Spearman、分组训练及模型复用；含换表后重算分析并预测的可编辑流程示例。',
     'content': GUIDE, 'references': {
@@ -92,5 +108,6 @@ MODELING_SKILL = {'name': '项目数据与建模',
             'height': {'dtype': 'number', 'description': '高度；区间和斜杠含义尚未明确', 'pending_tokens': ['/'], 'intervals': 'pending', 'allow_missing': ['unknown']},
             'pressure': {'dtype': 'number', 'allow_missing': ['unknown']},
             'quality': {'dtype': 'category', 'description': '仅为示例，必须替换为项目已说明的定义', 'categories': ['0', '1', '2'], 'category_labels': {'0': '示例类别甲', '1': '示例类别乙', '2': '示例类别丙', '-1': '未判定'}, 'missing_tokens': {'-1': 'unjudged'}}}}}, ensure_ascii=False, indent=2),
+        'prepare-workflow.json': json.dumps(PREPARE_WORKFLOW, ensure_ascii=False, indent=2),
         'analysis-workflow.json': json.dumps(ANALYSIS_WORKFLOW, ensure_ascii=False, indent=2),
         'analysis-prediction-workflow.json': json.dumps(ANALYSIS_PREDICTION_WORKFLOW, ensure_ascii=False, indent=2)}}

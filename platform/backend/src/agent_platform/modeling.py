@@ -13,7 +13,7 @@ from uuid import uuid4
 
 from .db import connect
 from .models import utc_now
-from .modeling_models import DatasetRequest, StudyRequest, CandidateRequest, FeaturePlan, TrainingPreprocessing, AideSearch, DataAnalysisPlan
+from .modeling_models import DataMapping, DatasetRequest, StudyRequest, CandidateRequest, FeaturePlan, TrainingPreprocessing, AideSearch, DataAnalysisPlan
 from .modeling_search import choose_step
 from .project_store import ProjectConflict, encode
 from .workspace_copy import copy_workspace_file
@@ -240,7 +240,13 @@ class Modeling:
                 dest = folder / 'data-state.json'
                 await asyncio.to_thread(copy_workspace_file, self.source(project_id, state_path), dest)
                 state = json.loads(dest.read_text())
-                if state.get('rules') != {k: v.model_dump() for k, v in body.mapping.field_rules.items()}:
+                supplied = body.mapping.model_dump(exclude_unset=True)
+                saved_mapping = state.get('mapping', {'field_rules': state.get('rules', {})})
+                for key in ('sheet', 'header_row', 'skip_after_header'):
+                    if key in supplied and key in saved_mapping and supplied[key] != saved_mapping[key]:
+                        raise ValueError('中间表读取布局与保存状态不一致；请直接使用返回的数据集，或省略 mapping 继承处理后的布局')
+                doc['mapping'] = DataMapping.model_validate({**saved_mapping, **supplied}).model_dump()
+                if state.get('rules') != doc['mapping']['field_rules']:
                     raise ValueError('数据状态的字段规则与 mapping.field_rules 不一致')
                 if state.get('table_sha256') and state['table_sha256'] != doc['files']['source']['sha256']:
                     raise ValueError('处理后的表格已改变，请从原始表重新处理，不能沿用旧状态')
@@ -334,9 +340,11 @@ class Modeling:
 
     async def compute(self, project_id, dataset, config, folder, *, image='', on_event=None, timeout=1800, extra_mounts=None, writable_mounts=None):
         """Only this transport knows Docker; tests may use a real local worker instead."""
-        if dataset['mapping'].get('field_rules'):
+        if dataset['mapping'].get('field_rules') or config.get('analysis', {}).get('operation') == 'prepare':
             environment = await self.snapshot_environment(image or await self.image())
             capabilities = json.loads((environment / 'environment.json').read_text()).get('capabilities', [])
+            if config.get('analysis', {}).get('operation') == 'prepare' and 'table_prepare_v1' not in capabilities:
+                raise ValueError('该建模环境不支持保留字段含义的表格整理，请选择新版建模环境')
             if 'field_semantics_v1' not in capabilities:
                 raise ValueError('该建模环境不支持字段含义规则，请选择新版建模环境；不能忽略规则继续计算')
             if any(r.get('category_labels') for r in dataset['mapping']['field_rules'].values()) and 'field_reporting_v1' not in capabilities:
@@ -439,12 +447,12 @@ class Modeling:
             destination.mkdir(parents=True, exist_ok=False)
             names = ['analysis.json']
             names += {'spearman': ['correlations.csv'], 'outliers': ['outliers.csv', 'source-rows.csv'],
-                      'numeric': ['conversions.csv', 'source-rows.csv']}[plan.operation]
+                      'numeric': ['conversions.csv', 'source-rows.csv'], 'prepare': ['source-rows.csv']}[plan.operation]
             if (folder / 'output/data-state.json').is_file():
                 names.append('data-state.json')
             if (folder / 'output/data-summary.md').is_file():
                 names.append('data-summary.md')
-            if plan.operation == 'numeric' or (plan.operation == 'outliers' and plan.handling != 'flag'):
+            if plan.operation in {'numeric', 'prepare'} or (plan.operation == 'outliers' and plan.handling != 'flag'):
                 names.append('processed.csv')
             artifacts = []
             for name in names:
@@ -455,9 +463,9 @@ class Modeling:
         artifacts = await asyncio.to_thread(export)
         result.update(dataset_id=dataset_id, source_dataset_id=dataset_id, operation_id=operation_id,
                       analysis=plan.model_dump(), image=image, artifacts=artifacts)
-        if plan.operation == 'numeric' or (plan.operation == 'outliers' and plan.handling != 'flag'):
+        if plan.operation in {'numeric', 'prepare'} or (plan.operation == 'outliers' and plan.handling != 'flag'):
             derived = await self.dataset(project_id, DatasetRequest(
-                name=dataset['name'] + (' · 数值整理' if plan.operation == 'numeric' else ' · 异常值处理'),
+                name=dataset['name'] + {'numeric': ' · 数值整理', 'prepare': ' · 表格整理', 'outliers': ' · 异常值处理'}[plan.operation],
                 source_path=(relative / 'processed.csv').as_posix(),
                 state_path=(relative / 'data-state.json').as_posix() if (destination / 'data-state.json').is_file() else '',
                 mapping={**dataset['mapping'], 'sheet': 0, 'header_row': 0, 'skip_after_header': 0}))
@@ -465,6 +473,7 @@ class Modeling:
                            'analysis': plan.model_dump(), 'image': image})
             await self.put(project_id, 'dataset', derived)
             result['dataset_id'] = derived['id']
+            result['mapping'] = derived['mapping']
         return result
 
     @staticmethod

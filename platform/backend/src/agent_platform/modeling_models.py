@@ -200,7 +200,8 @@ class CandidateRequest(Contract):
 
 
 class DataAnalysisPlan(Contract):
-    operation: Literal['profile', 'spearman', 'outliers', 'numeric'] = 'profile'
+    operation: Literal['profile', 'prepare', 'spearman', 'outliers', 'numeric'] = 'profile'
+    row_indices: list[int] | None = Field(default=None, description='prepare only: zero-based positions in the current dataset, in output order. Omit to keep every row, including blanks. Rules and original locations are inherited even for absent categories.')
     columns: list[str] = Field(default_factory=list, max_length=50)
     missing: Literal['pairwise', 'complete', 'raise'] = 'pairwise'
     method: Literal['iqr', 'bounds'] = 'iqr'
@@ -212,6 +213,9 @@ class DataAnalysisPlan(Contract):
 
     @model_validator(mode='after')
     def valid_columns_and_bounds(self):
+        if self.row_indices is not None and (self.operation != 'prepare' or len(set(self.row_indices)) != len(self.row_indices)
+                                            or any(i < 0 for i in self.row_indices)):
+            raise ValueError('row_indices 仅用于 prepare，须为不重复的非负数据行号；省略表示保留全部行')
         if len(self.columns) != len(set(self.columns)):
             raise ValueError('分析列不能重复')
         if self.lower is not None and self.upper is not None and self.lower > self.upper:
@@ -432,7 +436,7 @@ def register_modeling_blocks(registry):
                 field('mapping.invalid_rows', '训练中无法使用的记录', 'enum', options=['error', 'exclude'], default_value='error',
                       option_labels={'error': '提示具体问题', 'exclude': '排除并报告数量'}),
                 field('state_path', '处理结果的原值与状态文件（可选）', 'reference_or_text')]
-            definition.manual_summary += (' analysis.operation 默认为 profile，兼容已有概况分析。spearman 需要至少两列数值字段，'
+            definition.manual_summary += (' analysis.operation 默认为 profile。prepare 按已声明 field_rules 整理表格，默认保留全部行含空行；可用 row_indices 选择从 0 开始的数据行，返回新 dataset_id、完整规则、读取布局和源行对应。spearman 需要至少两列数值字段，'
                 '返回 pairs、correlation、sample_counts 和可下载结果；missing 可选 pairwise、complete、raise。'
                 'outliers 支持单表数值列，method=iqr 或 bounds；handling=flag（只标记）、drop（删除异常行）、clip（截到边界）。'
                 'drop/clip 返回新的 output.dataset_id，原数据不变，可接下一分析或训练节点。列通过 analysis.columns 明确选择；'
@@ -441,9 +445,10 @@ def register_modeling_blocks(registry):
                 '异常处理保留缺失值，不接受无穷值。IQR 在本次全表上估计，仅用于探索或经业务确认的数据清洗；'
                 '模型评价中的自适应预处理必须在训练折内拟合。资源和列可先留空，运行时再检查。')
             definition.editor['fields'] = [
-                field('analysis.operation', '分析操作', 'enum', options=['profile', 'numeric', 'spearman', 'outliers'], default_value='profile',
-                      option_labels={'profile': '数据概况', 'numeric': '数值整理', 'spearman': 'Spearman 相关分析', 'outliers': '异常值处理'}),
+                field('analysis.operation', '分析操作', 'enum', options=['profile', 'prepare', 'numeric', 'spearman', 'outliers'], default_value='profile',
+                      option_labels={'profile': '数据概况', 'prepare': '整理表格与选行', 'numeric': '数值整理', 'spearman': 'Spearman 相关分析', 'outliers': '异常值处理'}),
                 *definition.editor['fields'],
+                field('analysis.row_indices', '保留的数据行号（从 0 开始；留空保留全部）', 'json'),
                 field('analysis.columns', '分析列（每行一个；相关分析至少两列）', 'string_list'),
                 field('analysis.missing', '相关分析：缺失值处理', 'enum', options=['pairwise', 'complete', 'raise'], default_value='pairwise'),
                 field('analysis.method', '异常值：识别方法', 'enum', options=['iqr', 'bounds'], default_value='iqr'),
@@ -455,7 +460,9 @@ def register_modeling_blocks(registry):
             ]
             for item in definition.editor['fields']:
                 path = item['path']
-                if path == 'analysis.columns':
+                if path == 'analysis.row_indices':
+                    item['visible_when'] = {'analysis.operation': ['prepare']}
+                elif path == 'analysis.columns':
                     item['visible_when'] = {'analysis.operation': ['numeric', 'spearman', 'outliers']}
                 elif path.startswith('analysis.numeric.'):
                     item['visible_when'] = {'analysis.operation': ['numeric']}
