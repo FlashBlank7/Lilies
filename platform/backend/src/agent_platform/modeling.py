@@ -336,8 +336,11 @@ class Modeling:
         """Only this transport knows Docker; tests may use a real local worker instead."""
         if dataset['mapping'].get('field_rules'):
             environment = await self.snapshot_environment(image or await self.image())
-            if 'field_semantics_v1' not in json.loads((environment / 'environment.json').read_text()).get('capabilities', []):
+            capabilities = json.loads((environment / 'environment.json').read_text()).get('capabilities', [])
+            if 'field_semantics_v1' not in capabilities:
                 raise ValueError('该建模环境不支持字段含义规则，请选择新版建模环境；不能忽略规则继续计算')
+            if any(r.get('category_labels') for r in dataset['mapping']['field_rules'].values()) and 'field_reporting_v1' not in capabilities:
+                raise ValueError('该建模环境不支持类别业务名称，请选择新版建模环境；不能忽略类别定义继续计算')
         folder.mkdir(parents=True, exist_ok=True)
         output = folder / 'output'; output.mkdir(exist_ok=True)
         data = self.path(project_id, dataset['id'])
@@ -439,6 +442,8 @@ class Modeling:
                       'numeric': ['conversions.csv', 'source-rows.csv']}[plan.operation]
             if (folder / 'output/data-state.json').is_file():
                 names.append('data-state.json')
+            if (folder / 'output/data-summary.md').is_file():
+                names.append('data-summary.md')
             if plan.operation == 'numeric' or (plan.operation == 'outliers' and plan.handling != 'flag'):
                 names.append('processed.csv')
             artifacts = []
@@ -857,6 +862,10 @@ class Modeling:
         if state.is_file():
             copy_workspace_file(state, destination.with_name('data-state.json'))
             result['data_state_path'] = relative.with_name('data-state.json').as_posix()
+        summary = folder / 'output/data-summary.md'
+        if summary.is_file():
+            copy_workspace_file(summary, destination.with_name(summary.name))
+            result['data_summary_path'] = relative.with_name(summary.name).as_posix()
         return result
 
     def export_feature_files(self, project_id, dataset, folder):

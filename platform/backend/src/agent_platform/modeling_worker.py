@@ -19,7 +19,7 @@ import sys
 import time
 import traceback
 
-CAPABILITIES = ['categorical_missing_preserve', 'field_semantics_v1']
+CAPABILITIES = ['categorical_missing_preserve', 'field_semantics_v1', 'field_reporting_v1']
 
 
 def clean(value):
@@ -222,10 +222,48 @@ def data_state_summary(frame):
     state = frame.attrs.get('data_state')
     if not state:
         return {}
-    issues = [r for r in state['cells'] if r['status'] != 'valid']
-    return {'counts': dict(Counter(r['status'] for r in state['cells'])),
-            'blocked_cells': sum(r['blocked'] for r in state['cells']),
-            'issues_preview': issues[:30], 'field_rules': state['rules']}
+    # Derived/filtered frames retain original row identifiers in their state.
+    ids = list(frame['_sample'] if '_sample' in frame else frame.index)
+    positions = dict(zip(ids, frame.index))
+    cells = [r for r in state['cells'] if r['row'] in positions and r['column'] in frame]
+    for i, record in enumerate(cells):
+        if not record['blocked'] and clean(frame.at[positions[record['row']], record['column']]) != record['value']:
+            cells[i] = {**record, 'status': 'converted', 'reason': 'processed_value'}
+    issues = [r for r in cells if r['status'] != 'valid']
+    columns = {}
+    for column, rule in state['rules'].items():
+        records = [r for r in cells if r['column'] == column]
+        if column not in frame:
+            continue
+        counts = Counter(r['status'] for r in records)
+        columns[column] = {
+            'counts': {key: counts[key] for key in ('valid', 'converted', 'missing', 'pending', 'invalid')},
+            'missing_reasons': dict(Counter(r['reason'] for r in records if r['status'] == 'missing')),
+            'invalid_reasons': dict(Counter(r['reason'] for r in records if r['status'] == 'invalid')),
+            'parsed_unavailable': int(frame[column].isna().sum()),
+            'category_labels': rule.get('category_labels', {}),
+        }
+    return {'counts': dict(Counter(r['status'] for r in cells)),
+            'columns': columns, 'blocked_cells': sum(r['blocked'] for r in cells),
+            'issues_preview': issues[:30], 'field_rules': state['rules'],
+            'note': 'valid/converted/missing/pending/invalid 互斥，逐列相加为数据行数。missing 仅为已识别缺失；parsed_unavailable 是解析后不可用总数，不能称作缺失。'}
+
+
+def missing_counts(frame, columns):
+    state = data_state_summary(frame).get('columns', {})
+    return {name: state[name]['counts']['missing'] if name in state else int(frame[name].isna().sum()) for name in columns}
+
+
+def encoded_category_labels(rule):
+    names = rule.get('category_labels', {})
+    if rule.get('ordered_values') and names:
+        return {key: names.get(code, '含义待确认') for i, code in enumerate(rule['ordered_values']) for key in (str(i), str(float(i)))}
+    return names
+
+
+def category_labels(config):
+    mapping = config['mapping']
+    return encoded_category_labels(mapping.get('field_rules', {}).get(mapping.get('target'), {}))
 
 
 def blocked_data_rows(frame, columns, require_observed=False):
@@ -262,6 +300,23 @@ def write_data_state(frame, output):
     processed = Path(output) / 'processed.csv'
     save(Path(output) / 'data-state.json', {**state, 'rows': len(frame), 'cells': cells,
          **({'table_sha256': hashlib.sha256(processed.read_bytes()).hexdigest()} if processed.is_file() else {})})
+    summary = data_state_summary(frame)
+    def cell(value):
+        return str(value).replace('|', '\\|').replace('\n', ' ')
+    lines = ['# 字段数据状态', '', summary['note'], '',
+             '| 字段 | 有效 | 已转换 | 缺失 | 待确认 | 格式或范围错误 | 解析后不可用合计 |',
+             '|---|---:|---:|---:|---:|---:|---:|']
+    for column, info in summary['columns'].items():
+        lines.append('| ' + ' | '.join(map(cell, [column, *info['counts'].values(), info['parsed_unavailable']])) + ' |')
+    lines += ['', '## 已声明的类别含义', '', '| 字段 | 原编码 | 业务含义 |', '|---|---|---|']
+    for column, rule in state['rules'].items():
+        for code, name in rule.get('category_labels', {}).items():
+            lines.append('| ' + ' | '.join(map(cell, [column, code, name])) + ' |')
+    lines += ['', '缺失原因按 unknown（未知缺失原因）、not_measured（未测量）、not_applicable（不适用）、unjudged（未判定）分别计数：']
+    for column, info in summary['columns'].items():
+        if info['missing_reasons']:
+            lines.append(f"- {cell(column)}：" + '；'.join(f'{cell(k)} = {v}' for k, v in info['missing_reasons'].items()))
+    Path(output, 'data-summary.md').write_text('\n'.join(lines) + '\n')
 
 
 def profile(config):
@@ -269,13 +324,19 @@ def profile(config):
     import pandas as pd
     mapping = config['mapping']
     frame = read_data({**config, 'labels': ''}, preview=config.get('sampled', False))
+    state = data_state_summary(frame)
     columns = []
     for name in frame.columns:
         series = frame[name]
         info = {'name': str(name), 'dtype': str(series.dtype), 'missing': int(series.isna().sum()), 'unique': int(series.nunique())}
+        if name in state.get('columns', {}):
+            info.update(state['columns'][name])
+            info['missing'] = info['counts']['missing']
         if info['unique'] <= 12:
+            names = encoded_category_labels(mapping.get('field_rules', {}).get(name, {}))
             info['value_counts'] = [{'value': clean(k) if isinstance(k, (str, int, float, bool, np.generic)) else str(k),
-                                    'count': int(v)} for k, v in series.value_counts().items()]
+                                    'count': int(v), **({'name': names.get(str(k), '含义待确认')} if names else {})}
+                                    for k, v in series.value_counts().items()]
         if pd.api.types.is_numeric_dtype(series) and not pd.api.types.is_bool_dtype(series):
             finite = series.replace([np.inf, -np.inf], np.nan).dropna()
             if len(finite):
@@ -287,12 +348,16 @@ def profile(config):
         else:
             info['distribution'] = [{'label': str(k), 'count': int(v)} for k, v in series.value_counts().head(12).items()]
         columns.append(info)
-    empty_rows = int(frame.isna().all(axis=1).sum())
+    empty = frame.isna().all(axis=1)
+    for record in frame.attrs.get('data_state', {}).get('cells', []):
+        if str(record['raw']).strip():
+            empty.at[record['row']] = False
+    empty_rows = int(empty.sum())
     result = {'sampled': config.get('sampled', False), 'rows': len(frame), 'empty_rows': empty_rows, 'nonempty_rows': len(frame) - empty_rows,
               'duplicates': int(frame.duplicated().sum()), 'columns': columns,
               'preview': frame.head(12).astype(object).where(pd.notna(frame.head(12)), None).to_dict('records')}
     if frame.attrs.get('data_state'):
-        result['data_state'] = data_state_summary(frame)
+        result['data_state'] = state
         write_data_state(frame, config['output'])
     time_col = mapping.get('time_column')
     if time_col and time_col in frame:
@@ -316,6 +381,9 @@ def profile(config):
         labeled = frame.loc[frame[target].notna()]
         structure = {'target': target, 'labeled_rows': len(labeled),
                      'missing_labels': int(frame[target].isna().sum())}
+        if target in state.get('columns', {}):
+            structure.update(label_state_counts=state['columns'][target]['counts'],
+                             unavailable_labels=int(frame[target].isna().sum()))
         group = mapping.get('group_column') or mapping.get('id_column')
         if group and group in labeled:
             counts = labeled[group].value_counts()
@@ -362,7 +430,8 @@ def analyze(config):
         pd.DataFrame({'source_row': processed.index}).to_csv(output / 'source-rows.csv', index=False)
         result = clean({'operation': operation, 'rows': len(frame), 'output_rows': len(processed), 'columns': columns,
             'converted_cells': len(changes), 'affected_rows': len({item['source_row'] for item in changes}),
-            'missing_counts': {name: int(processed[name].isna().sum()) for name in columns},
+            'missing_counts': missing_counts(processed, columns),
+            'parsed_unavailable_counts': {name: int(processed[name].isna().sum()) for name in columns},
             'preview': processed.head(12).astype(object).where(processed.head(12).notna(), None).to_dict('records'),
             'row_numbering': 'source_row 从 0 开始，指向按表头设置读取后的数据行',
             'warnings': ['区间值按所选规则转换；规则应依据数据含义确定。'] if any(c['conversion'].startswith('interval_') for c in changes) else []})
@@ -381,7 +450,8 @@ def analyze(config):
         raise ValueError('分析列含无穷值，请先修正数据')
     output = Path(config['output']); output.mkdir(parents=True, exist_ok=True)
     result = {'operation': operation, 'rows': len(frame), 'columns': columns,
-              'missing_counts': {name: int(selected[name].isna().sum()) for name in columns}}
+              'missing_counts': missing_counts(frame, columns),
+              'parsed_unavailable_counts': {name: int(selected[name].isna().sum()) for name in columns}}
     if frame.attrs.get('data_state'):
         result['data_state'] = data_state_summary(frame)
         write_data_state(frame, output)
@@ -486,6 +556,8 @@ def samples(config, prediction=False):
         if not target or target not in frame:
             raise ValueError('请指定实际存在的目标列；时序目标须在标签表中')
         missing = int(frame[target].isna().sum())
+        if target in frame.attrs.get('data_state', {}).get('rules', {}):
+            frame.attrs['label_state_counts'] = data_state_summary(frame)['columns'][target]['counts']
         frame = frame.loc[frame[target].notna()].copy()
         roles = {mapping.get(k) for k in ('target', 'id_column', 'group_column', 'time_column', 'prediction_time_column', 'available_time_column', 'label_available_time_column')}
         plan = config.get('features', {})
@@ -586,6 +658,7 @@ def prepare(config):
         if rule['problem'] == 'classification' and y.iloc[train].nunique() < 2:
             raise ValueError(f'第 {index + 1} 折的训练数据少于两类，当前划分不支持分类训练；请检查分组／时间与类别分布')
     return {'samples': frame['_sample'].tolist(), 'missing_labels': missing, 'folds': [[a.tolist(), b.tolist()] for a, b in folds],
+            **({'label_state_counts': frame.attrs['label_state_counts'], 'unavailable_labels': missing} if 'label_state_counts' in frame.attrs else {}),
             'development': indices.tolist(), 'holdout': holdout.tolist(), 'evaluation_label': '保留测试集（尚未使用）' if len(holdout) else '仅验证集结果',
             **({'excluded_data_rows': frame.attrs.get('excluded_data_rows', 0), 'data_state': data_state_summary(frame)} if mapping.get('field_rules') else {})}
 
@@ -932,13 +1005,14 @@ def scores(y, predictions, problem, probabilities=None, classes=None):
     return clean(result)
 
 
-def classification_details(y, predictions, classes):
+def classification_details(y, predictions, classes, names=None):
     from sklearn.metrics import precision_recall_fscore_support, confusion_matrix
     labels = list(dict.fromkeys([*classes, *y, *predictions]))
     precision, recall, f1, support = precision_recall_fscore_support(y, predictions, labels=labels, zero_division=0)
     matrix = confusion_matrix(y, predictions, labels=labels)
     predicted = matrix.sum(axis=0)
-    return {'classes': [{'label': str(label), 'precision': float(precision[i]) if predicted[i] else None,
+    return {'classes': [{'label': str(label), **({'name': names.get(str(label), '含义待确认')} if names else {}),
+                        'precision': float(precision[i]) if predicted[i] else None,
                         'recall': float(recall[i]) if support[i] else None,
                         'f1': float(f1[i]) if support[i] + predicted[i] else None,
                         'samples': int(support[i]), 'predicted_samples': int(predicted[i])} for i, label in enumerate(labels)],
@@ -946,10 +1020,10 @@ def classification_details(y, predictions, classes):
             'note': '混淆矩阵的行表示实际类别，列表示预测类别，顺序与类别表一致。宏平均 F1 使用固定类别范围，未定义项按 0 计入；无法计算的指标单独标明。'}
 
 
-def validation_classification(y, predictions, baseline_predictions, classes, frame_y, split):
+def validation_classification(y, predictions, baseline_predictions, classes, frame_y, split, names=None):
     """Describe only development/fold rows; held-out labels never enter diagnostics."""
-    result = classification_details(y, predictions, classes)
-    result['baseline'] = classification_details(y, baseline_predictions, classes)
+    result = classification_details(y, predictions, classes, names)
+    result['baseline'] = classification_details(y, baseline_predictions, classes, names)
     counts = frame_y.iloc[split['development']].value_counts()
     for row, label in zip(result['classes'], classes):
         row['development_samples'] = int(counts.get(label, 0))
@@ -961,7 +1035,7 @@ def validation_classification(y, predictions, baseline_predictions, classes, fra
         warnings.append('开发数据中以下类别的样本数少于验证折数：' + '、'.join(rare) + '；请检查每折类别分布，少量样本不足以判断稳定效果。')
     for index, (train, valid) in enumerate(split['folds']):
         training, validation = frame_y.iloc[train].value_counts(), frame_y.iloc[valid].value_counts()
-        rows = [{'label': str(label), 'train_samples': int(training.get(label, 0)),
+        rows = [{'label': str(label), **({'name': names.get(str(label), '含义待确认')} if names else {}), 'train_samples': int(training.get(label, 0)),
                  'validation_samples': int(validation.get(label, 0))} for label in classes]
         result['folds'].append({'fold': index + 1, 'classes': rows})
         unseen = [row['label'] for row in rows if not row['train_samples'] and row['validation_samples']]
@@ -1130,7 +1204,7 @@ def evaluate(config, x, frame, split, model_name, folder, trial=None):
     warnings.extend('最终开发集预处理：' + message for message in preprocessing_result['development'].get('warnings', []))
     classification = None
     if classes is not None:
-        classification, class_warnings = validation_classification(truth, predictions, baseline_predictions, classes, y, split)
+        classification, class_warnings = validation_classification(truth, predictions, baseline_predictions, classes, y, split, category_labels(config))
         warnings.extend(class_warnings)
     return {'metrics': metric, 'baseline': baseline, 'fold_metrics': fold_scores, 'diagnostics': diagnostics, 'warnings': warnings, 'group_errors': sorted(group_errors, key=lambda r: r['error'], reverse=True)[:50],
             'classification': classification,
@@ -1273,6 +1347,10 @@ def predict(config):
     output = frame[[config['mapping']['id_column']]].copy() if config['mapping'].get('id_column') else frame[['_sample']].copy()
     output['prediction'] = pd.Series(index=frame.index, dtype=object)
     output.loc[usable, 'prediction'] = np.asarray(predictions)
+    names = category_labels(config)
+    if names:
+        output['prediction_name'] = None
+        output.loc[usable, 'prediction_name'] = [names.get(str(value), '含义待确认') for value in predictions]
     if config['mapping'].get('field_rules'):
         origins = {c['row']: c for c in frame.attrs['data_state']['cells']}
         output['source_row'] = [origins[int(i)]['source_row'] for i in frame['_sample']]
@@ -1332,7 +1410,7 @@ def holdout(config):
     result = {'metrics': scores(y, pred, config['evaluation']['problem'], proba, classes), 'rows': len(indices),
               'label': '保留测试集结果；从此不再用于本研究搜索。未声明为未见数据的盲测。'}
     if classes is not None:
-        result['classification'] = classification_details(y, pred, classes)
+        result['classification'] = classification_details(y, pred, classes, category_labels(config))
     import pandas as pd
     out = pd.DataFrame({'sample': frame['_sample'].iloc[indices], 'actual': y, 'prediction': pred})
     if classes is not None:

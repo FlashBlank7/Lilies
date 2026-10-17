@@ -84,20 +84,22 @@ def classification_markdown(result):
     baseline = {row['label']: row for row in result.get('baseline', {}).get('classes', [])}
     def metric(value):
         return '无法计算' if value is None else cell(value)
+    def label(row):
+        return cell(row['label']) + (f"（{cell(row['name'])}）" if row.get('name') else '')
     parts = ['### 各类别验证结果', '',
              '每条预测来自未用该样本训练的模型。召回率说明实际属于这一类的样本找回了多少；精确率说明判为这一类的结果有多少正确。',
              '',
              '| 类别 | 开发样本 | 验证样本 | 预测为此类 | 精确率 | 召回率 | F1 | 基线召回率 |\n|---|---:|---:|---:|---:|---:|---:|---:|',
-             *['| ' + ' | '.join([cell(row['label']), cell(row.get('development_samples')), cell(row['samples']),
+             *['| ' + ' | '.join([label(row), cell(row.get('development_samples')), cell(row['samples']),
                                 cell(row.get('predicted_samples')), metric(row['precision']), metric(row['recall']),
                                 metric(row['f1']), metric(baseline.get(row['label'], {}).get('recall'))]) + ' |'
                for row in result['classes']]]
     if result.get('folds'):
         parts += ['\n### 各次验证的类别分布\n', '| 折 | 类别 | 训练样本 | 验证样本 |\n|---|---|---:|---:|',
-                  *[f'| {fold["fold"]} | {cell(row["label"])} | {row["train_samples"]} | {row["validation_samples"]} |'
+                  *[f'| {fold["fold"]} | {label(row)} | {row["train_samples"]} | {row["validation_samples"]} |'
                     for fold in result['folds'] for row in fold['classes']]]
     if result.get('confusion_matrix') is not None:
-        labels = [cell(row['label']) for row in result['classes']]
+        labels = [label(row) for row in result['classes']]
         parts += ['\n### 验证混淆矩阵\n', '行表示实际类别，列表示预测类别。\n',
                   '| 实际 / 预测 | ' + ' | '.join(labels) + ' |', '|---|' + '---:|' * len(labels),
                   *['| ' + label + ' | ' + ' | '.join(str(n) for n in row) + ' |'
@@ -115,7 +117,8 @@ def render_note(note):
              '## 本次改动', note['hypothesis'] or '未提供改动说明。',
              f"父候选：{note['parent_candidate_id'] or '无'}；反馈任务：{note['feedback_task_id'] or '无'}。",
              '## 数据与划分', f"数据集：{note['dataset']['name']}（{note['dataset']['id']}）。",
-             f"划分方式：{dict(random='随机划分', group='按组隔离', time='时间向前验证').get(rule['split'], rule['split'])}；随机种子：{rule['seed']}；开发样本：{len(split.get('development', [])) if note['split'] is not None else '未记录'}；保留测试：{len(split.get('holdout', [])) if note['split'] is not None else '未记录'}；缺失标签：{split.get('missing_labels', '未记录')}。",
+             f"划分方式：{dict(random='随机划分', group='按组隔离', time='时间向前验证').get(rule['split'], rule['split'])}；随机种子：{rule['seed']}；开发样本：{len(split.get('development', [])) if note['split'] is not None else '未记录'}；保留测试：{len(split.get('holdout', [])) if note['split'] is not None else '未记录'}；不可用标签合计：{split.get('missing_labels', '未记录')}。",
+             *(['标签状态分别计数（原始输入，先于特征排除）：\n\n```json\n' + pretty(split['label_state_counts']) + '\n```'] if 'label_state_counts' in split else []),
              '划分索引指向 split.json 的 samples；samples 保存源数据行号，不能将时序清洗后的索引直接当作原 CSV 行号。',
              *([f"按字段规则排除的特征待确认／无效记录：{split['excluded_data_rows']} 条；缺失标签另计，未用估算值替代标签。"] if 'excluded_data_rows' in split else []),
              '| 折 | 训练样本 | 验证样本 |\n|---|---:|---:|\n' + '\n'.join(f'| {i+1} | {len(a)} | {len(b)} |' for i, (a, b) in enumerate(split.get('folds', []))),

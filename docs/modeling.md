@@ -164,3 +164,5 @@ COPYFILE_DISABLE=1 tar --no-xattrs -cf - Dockerfile.modeling requirements-modeli
 字段规则随模型包保存，平台预测继承训练定义；新输入若携带不同规则会明确报错。旧镜像不支持该能力时拒绝忽略规则计算，历史无规则数据/模型继续按旧行为运行。可随时保存含待确认规则的工作流草稿。当前支持单张表格，不扩展时序语义。
 
 自定义 Python 整理必须保留测量原文和行对应，或同时传递状态文件；已经被任意代码擦除的业务含义无法从空白 CSV 恢复。界面提供规则高级配置和训练问题行处理选择；智能体参考 `field-rules.json`，业务未知只询问必要信息，用户已答不知道时保持待确认并继续独立可做的工作。
+
+类别的业务名称通过 `category_labels` 显式绑定原编码，随模型、评价明细、训练笔记和预测的 `prediction_name` 保存；编码仍保留，未定义名称不推断。概况每列及分析 `data_state.columns` 分开提供五种互斥状态计数与缺失原因，`missing`/`missing_counts` 仅计已识别缺失，`parsed_unavailable`/`parsed_unavailable_counts` 计解析后不可用值。后者不可写成缺失数。标签同样返回 `label_state_counts` 与 `unavailable_labels`；兼容字段 `missing_labels` 仍是历史不可用标签合计。分析和预测附带可下载 `data-summary.md`，直接列出状态数和类别定义。

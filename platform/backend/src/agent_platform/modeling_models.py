@@ -20,6 +20,7 @@ class FieldRule(Contract):
     pending_tokens: list[str] = Field(default_factory=list)
     intervals: Literal['pending', 'midpoint', 'lower', 'upper'] = 'pending'
     categories: list[str] = Field(default_factory=list)
+    category_labels: dict[str, str] = Field(default_factory=dict, description='Explicit code to business name, e.g. {"0": "合格"}; never infer a quality order from codes.')
     ordered_values: list[str] = Field(default_factory=list)
     lower: float | None = None
     upper: float | None = None
@@ -30,6 +31,11 @@ class FieldRule(Contract):
             raise ValueError('同一符号不能同时是含义待确认和已定义缺失')
         if self.lower is not None and self.upper is not None and self.lower > self.upper:
             raise ValueError('字段下限不能大于上限')
+        if self.category_labels:
+            defined = set(self.categories or self.ordered_values) | set(self.missing_tokens) | set(self.pending_tokens)
+            if (self.dtype != 'category' or any(not v.strip() for v in self.category_labels.values())
+                    or (defined and not set(self.category_labels) <= defined)):
+                raise ValueError('类别名称须对应已声明的类别或特殊值，且名称不能为空')
         if self.ordered_values and (self.dtype != 'category' or len(set(self.ordered_values)) != len(self.ordered_values)
                                     or (self.categories and set(self.ordered_values) != set(self.categories))):
             raise ValueError('有序类别必须是明确的、不重复的完整类别顺序')
