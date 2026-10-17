@@ -38,6 +38,12 @@ class Draft(Arguments):
 
     @model_validator(mode='after')
     def update_shape(self):
+        if self.operation and self.operation.op in {'add_node', 'add_edge', 'add_test'}:
+            key = self.operation.op.removeprefix('add_')
+            if not isinstance(self.operation.data.get(key), dict):
+                raise ValueError(f'{self.operation.op} 需要 data={{"{key}":{{...}}}}；'
+                                 f'将完整{key}配置放进 data.{key}，不要直接放在 data 中。'
+                                 '批量 operations 与单次 operation 使用相同结构；保存未生效，可修正后重试。')
         if self.operation and self.operation.op == 'update_node':
             data = self.operation.data
             if not data.get('node_id') or not isinstance(data.get('changes'), dict) or not data['changes']:

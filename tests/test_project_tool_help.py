@@ -3,6 +3,7 @@ import json
 from types import SimpleNamespace
 
 import jsonschema
+import pytest
 
 from tests.test_projects import configured, graph, node, edge  # noqa: F401
 from agent_platform.requirement_discussion import save_discussion
@@ -130,6 +131,34 @@ def test_file_errors_give_format_and_exact_path_recovery(configured):
     for action in ['read', 'profile']:
         failure = file(action=action, path='requirement-package/upload-id/table.xlsx')
         assert failure.status_code == 422 and 'register_dataset' in failure.text
+
+
+@pytest.mark.parametrize('batch', [False, True])
+def test_add_shape_error_recovers_with_help_example_without_partial_save(configured, batch):
+    client, _, pid, base = prepare(configured)
+    graph(client, pid, [node('start', 'start')], [])
+    spec = client.post(base + '/agent-tools', json={'name': 'block_catalog',
+        'arguments': {'tool_name': 'workflow_draft'}}).json()
+    draft_path = '/api/v1/applications/' + pid + '/draft'
+    for op, wrapper in [('add_node', 'node'), ('add_edge', 'edge')]:
+        example = next(e['operation'] for e in spec['examples'] if e.get('operation', {}).get('op') == op)
+        before = client.get(draft_path).json()
+        def save(data):
+            operation = {**example, 'expected_revision': before['revision'], 'data': data}
+            arguments = {'operation': operation}
+            if batch:
+                arguments = {'batch': {'expected_revision': before['revision'],
+                    'expected_content_hash': before['content_hash'], 'idempotency_key': example['idempotency_key'],
+                    'operations': [{'op': 'update_node', 'data': {'node_id': 'start', 'changes': {'title': 'changed'}}},
+                                   {'op': op, 'data': data}]}}
+            return client.post(base + '/agent-tools', json={'name': 'workflow_draft', 'arguments': arguments})
+        rejected = save(example['data'][wrapper])
+        assert rejected.status_code == 422 and f'data.{wrapper}' in rejected.text
+        assert client.get(draft_path).json() == before
+        fixed = save(example['data'])
+        assert fixed.status_code == 200, fixed.text
+    run = client.post(base + '/agent-tools', json={'name': 'workflow_run', 'arguments': {'action': 'start'}})
+    assert run.status_code == 200 and run.json()['outputs'] == {'quantity': 1}
 
 
 def test_compact_manuals_keep_config_help_and_graph_schema_builds_a_real_flow(configured):

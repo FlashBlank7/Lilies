@@ -405,6 +405,10 @@ class WorkspaceProjectTools(ProjectTools):
                 result['examples'] = [
                     {'workflow_id': 'current-member-id', 'view': 'summary'},
                     {'view': 'nodes', 'node_ids': ['compute']},
+                    {'operation': {'op': 'add_node', 'expected_revision': 0, 'idempotency_key': 'add-output',
+                        'data': {'node': {'id': 'end', 'type': 'end', 'title': '输出', 'config': {'outputs': {'quantity': 1}}}}}},
+                    {'operation': {'op': 'add_edge', 'expected_revision': 1, 'idempotency_key': 'connect-output',
+                        'data': {'edge': {'id': 'start-end', 'source': 'start', 'target': 'end'}}}},
                     {'batch': {'expected_revision': 5, 'expected_content_hash': 'hash-from-summary',
                         'idempotency_key': 'one-related-change', 'operations': [
                             {'op': 'update_node', 'data': {'node_id': 'compute', 'changes': {'title': '计算报价'}, 'merge_config': True}},
