@@ -142,11 +142,18 @@ class TaskResult(Arguments):
 
 
 MODELING_MANUAL = """Project-scoped CPU modeling. Register CSV/TSV/XLSX with register_dataset, or upload in the model page.
+Register with dataset={source_path, mapping:{kind:'tabular', target:'label', id_column:'row_id', group_column:'group_id'}}.
+mapping belongs INSIDE dataset; top-level mapping is only for revise_dataset. Use target, not target_column;
+kind is tabular/timeseries, not table. Omit sheet for CSV; for XLSX use a sheet name or index 0, never null.
+Use exact paths returned by project_file(action='list'); do not remove upload directory identifiers.
 analyze(dataset_id, analysis) also runs without a workflow. analysis.operation=spearman with columns returns
 correlations, pair counts, approximate p-values and files; missing=pairwise/complete/raise. outliers supports
 single-table numeric columns, method=iqr/bounds and handling=flag/drop/clip. drop/clip returns a NEW dataset_id;
 the original is preserved. IQR uses the selected full table: use fold-fitted preprocessing for model evaluation.
 The same analysis configuration runs in a data_analysis node. Unselected columns are never silently analyzed.
+For reusable analysis AND prediction, read project_skills(action='read', skill_id='modeling',
+reference='analysis-prediction-workflow.json'). It registers the current input once and connects that dataset
+to profile, outliers, Spearman and prediction, returning every result. Adapt preparation and columns as needed.
 numeric converts analysis.columns with explicit analysis.numeric.missing_tokens and intervals
 (reject/midpoint/lower/upper/missing). It preserves rows, returns a new dataset_id and conversions.csv;
 unknown text fails with row/column details. Do not guess what ranges or placeholders mean.
@@ -374,6 +381,11 @@ class WorkspaceProjectTools(ProjectTools):
             if name == 'block_catalog' and arguments.get('tool_name') == 'project_modeling':
                 result['description'] = MODELING_MANUAL
                 result['examples'] = [
+                    {'action': 'register_dataset', 'dataset': {'source_path': 'results/data.csv',
+                     'mapping': {'kind': 'tabular', 'target': 'label', 'id_column': 'row_id', 'group_column': 'group_id'}}},
+                    {'action': 'create_study', 'study': {'dataset_id': 'current-dataset', 'request_key': 'first-study',
+                     'evaluation': {'problem': 'classification', 'metric': 'macro_f1', 'split': 'group'},
+                     'budget': {'seconds': 180, 'trials': 1, 'trial_seconds': 60}}},
                     {'action': 'profile', 'dataset_id': 'current-dataset', 'sampled': True},
                     {'action': 'export_dataset', 'dataset_id': 'current-dataset'},
                     {'action': 'train', 'study_id': 'current-study',

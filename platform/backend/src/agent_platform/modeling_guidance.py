@@ -1,5 +1,6 @@
 """On-demand modeling instructions and an ordinary editable workflow example."""
 import json
+from copy import deepcopy
 
 
 GUIDE = """直接完成数据任务；工作流可随时保存，分析、训练和资源就绪都不是草稿的前置条件。
@@ -15,6 +16,7 @@ GUIDE = """直接完成数据任务；工作流可随时保存，分析、训练
 analyze 使用 analysis.operation='numeric'|'outliers'|'spearman'；这与画布 data_analysis 共用实现。numeric 只采用明确的占位符/区间规则，产生新 dataset_id 和转换明细。outliers 可 flag/drop/clip，默认先 flag；统计离群不等于错误工况。说明检测总体，IQR 为 0 时查看实际边界，不盲目删除或截断。spearman 明确选择可解释的数值字段，保留每对有效样本数、系数、p 值与未定义原因，不把很小的 p 值写成 0，也不宣称相关性是因果。
 标准分析先用现有操作；特殊表头、多行样本整理可用 project_code，一次保存处理文件和必要脚本。训练中需要拟合的填补、编码、缩放、异常截断和筛选放在训练折内，通过 candidate.features 配置并随模型保存。
 用户要求复用流程时，步骤确定后即可保存分析草稿；无需等模型搜索结束。reference='analysis-workflow.json' 是单行表头、两个已明确数值字段的普通流程示例：概况、IQR 标记、Spearman。用 project_skills(action='read',skill_id='modeling',reference=...) 读取；按实际列和表头调整，输入 source_path 指向新文件，输入 first_column/second_column 选择字段。没有标签解释或模型时，已明确的因素分析仍可独立运行。workflow_run 实际检查结果后，再换一份合法输入验证复用；不重新训练或覆盖旧结果来掩盖失败。
+同时交付分析和预测时，读取 reference='analysis-prediction-workflow.json'：同一次输入登记的数据集连接概况、异常标记、Spearman 和模型预测，结束节点返回每项结果及文件。这是普通可编辑节点，可以在概况前插入原表整理节点并引用其本次输出。业务字段确定后把 analysis_columns、mapping、model_ref 固定到节点配置或入口默认值，让现场只需提供 source_path。不要把本次运行的 dataset_id 或静态相关文件写死到流程；模型引用可以固定，分析数据集必须随输入更新。
 
 训练与交付
 create_study 的 evaluation 固定评价方式。有标签样本的 group_column（未设时 id_column）重复时选择 split='group'，不能随机拆分同一对象；split='time' 需要明确预测时点和可用时间。无分组元数据不等于样本独立，应结合设备、批次和测量过程确定样本单位。正式比较使用 project_modeling 的固定划分；沙盒试算也需保持分组/时间隔离，不能用随机拆分分数替代正式评价。
@@ -57,6 +59,28 @@ ANALYSIS_WORKFLOW = {
               for a, b in [('start', 'profile'), ('profile', 'outliers'), ('outliers', 'spearman'), ('spearman', 'end')]],
 }
 
+ANALYSIS_PREDICTION_WORKFLOW = deepcopy(ANALYSIS_WORKFLOW)
+ANALYSIS_PREDICTION_WORKFLOW['nodes'][0]['config']['inputs'] = [
+    {'name': 'source_path', 'type': 'string', 'required': True},
+    {'name': 'analysis_columns', 'type': 'array', 'required': True},
+    {'name': 'model_ref', 'type': 'string', 'required': True},
+    {'name': 'mapping', 'type': 'object', 'default': {}},
+]
+ANALYSIS_PREDICTION_WORKFLOW['nodes'][1]['config']['mapping'] = ref('$inputs', 'mapping')
+for node in ANALYSIS_PREDICTION_WORKFLOW['nodes'][2:4]:
+    node['config']['analysis']['columns'] = ref('$inputs', 'analysis_columns')
+ANALYSIS_PREDICTION_WORKFLOW['nodes'].insert(-1, {
+    'id': 'predict', 'type': 'model_predict', 'title': '预测本次数据', 'config': {
+        'dataset_id': ref('profile', 'output', 'dataset_id'), 'model_ref': ref('$inputs', 'model_ref')}})
+ANALYSIS_PREDICTION_WORKFLOW['nodes'][-1]['title'] = '查看分析和预测结果'
+ANALYSIS_PREDICTION_WORKFLOW['nodes'][-1]['config']['outputs']['逐条预测'] = ref('predict', 'output')
+ANALYSIS_PREDICTION_WORKFLOW['edges'] = [
+    {'id': f'{a}-{b}', 'source': a, 'target': b}
+    for a, b in [('start', 'profile'), ('profile', 'outliers'), ('outliers', 'spearman'),
+                 ('spearman', 'predict'), ('predict', 'end')]]
+
 MODELING_SKILL = {'name': '项目数据与建模',
-    'description': '数值整理、异常值、Spearman、分组训练及模型复用；含可换数据的分析流程示例。',
-    'content': GUIDE, 'references': {'analysis-workflow.json': json.dumps(ANALYSIS_WORKFLOW, ensure_ascii=False, indent=2)}}
+    'description': '数值整理、异常值、Spearman、分组训练及模型复用；含换表后重算分析并预测的可编辑流程示例。',
+    'content': GUIDE, 'references': {
+        'analysis-workflow.json': json.dumps(ANALYSIS_WORKFLOW, ensure_ascii=False, indent=2),
+        'analysis-prediction-workflow.json': json.dumps(ANALYSIS_PREDICTION_WORKFLOW, ensure_ascii=False, indent=2)}}

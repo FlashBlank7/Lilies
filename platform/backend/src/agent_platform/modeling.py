@@ -201,7 +201,7 @@ class Modeling:
         root = self.services.projects.workspace(project_id)
         path = root / relative
         if Path(relative).is_absolute() or '..' in Path(relative).parts or not Path(relative).parts or Path(relative).parts[0] not in {'requirement-package', 'solution', 'results'}:
-            raise ValueError('数据／特征代码只能来自当前项目 requirement-package、solution 或 results')
+            raise ValueError('数据／特征代码只能来自当前项目 requirement-package、solution 或 results，使用项目相对路径；例如沙盒写入 /workspace/results/data.csv 后，source_path 返回 results/data.csv，不能返回 /workspace/ 绝对路径')
         if any(p.is_symlink() for p in [path, *path.parents] if p != root.parent):
             # Checking parents outside root is unnecessary and can reject a symlinked home.
             if path.resolve() != path.absolute():

@@ -2,7 +2,7 @@
 from pathlib import Path
 import json
 
-from tests.test_modeling import modeling, real_compute, wait_task  # noqa: F401
+from tests.test_modeling import modeling, real_compute, wait_task, setup  # noqa: F401
 from tests.test_projects import configured, graph, node, edge, ref, start  # noqa: F401
 
 
@@ -61,6 +61,55 @@ def test_referenced_analysis_settings_are_validated_after_resolution(real_comput
     invalid = wait_task(client, base, start(client, base, 'invalid-analysis', workflow_id=project['id'], inputs={
         'analysis': {'operation': 'spearman', 'columns': [42, 'y']}}))
     assert invalid['status'] == 'failed' and 'columns.0' in invalid['error']
+
+
+def test_analysis_prediction_example_recomputes_every_result_for_new_input(real_compute):
+    config, _ = real_compute
+    client, app, project, settings = config
+    base = '/api/v1/projects/' + project['id']
+    help = client.post(base + '/agent-tools', json={'name': 'project_skills', 'arguments': {
+        'action': 'read', 'skill_id': 'modeling', 'reference': 'analysis-prediction-workflow.json'}})
+    assert help.status_code == 200, help.text
+    example = json.loads(help.json()['content'])
+    # The full editable chain can be saved before a model or dataset exists.
+    graph(client, project['id'], example['nodes'], example['edges'])
+    base, _, study, candidate = setup(client, project, settings, batch_size=1,
+                                     features={'columns': ['x', 'category']})
+    trained = wait_task(client, base, start(client, base, 'train-template-model'))
+    assert trained['status'] == 'succeeded', trained
+    assert client.put(base + '/models/quality', json={'name': '质量模型', 'study_id': study['id'],
+        'candidate_id': candidate['id'], 'slot': 0}).status_code == 200
+    # Once the project setup is known, the customer supplies only a new file.
+    for field in example['nodes'][0]['config']['inputs']:
+        if field['name'] in {'analysis_columns', 'model_ref'}:
+            field.update(required=False, default={'analysis_columns': ['x', 'height'], 'model_ref': 'quality'}[field['name']])
+    graph(client, project['id'], example['nodes'], example['edges'])
+    before = client.get('/api/v1/applications/' + project['id'] + '/draft').json()
+    root = settings.workspace_root / project['id']
+    saved = {}
+    predictions = []
+    for name, text, rho in [('first', 'id,x,height,category\n1,1,4,a\n2,2,3,b\n3,3,2,a\n4,100,1,b\n', -1),
+                            ('second', 'id,x,height,category\n1,2,2,a\n2,3,3,b\n3,4,4,a\n4,5,5,b\n', 1)]:
+        source = 'requirement-package/' + name + '.csv'
+        (root / source).write_text(text)
+        task = wait_task(client, base, start(client, base, name, inputs={'source_path': source}))
+        assert task['status'] == 'succeeded', task
+        output = task['outputs']
+        assert output['数据概况']['rows'] == output['异常标记']['output_rows'] == 4
+        assert output['异常标记']['affected_rows'] == (1 if name == 'first' else 0)
+        assert output['相关分析']['pairs'][0]['rho'] == rho
+        assert output['相关分析']['pairs'][0]['samples'] == 4
+        paths = [a['file_path'] for kind in ['相关分析', '异常标记'] for a in output[kind]['artifacts']]
+        prediction = output['逐条预测']['project_path']
+        paths.append(prediction)
+        predictions.append((root / prediction).read_text())
+        assert not set(paths) & saved.keys()
+        for path, content in saved.items():
+            assert (root / path).read_bytes() == content
+        saved.update({path: (root / path).read_bytes() for path in paths})
+        assert (root / source).read_text() == text
+    assert predictions[0] != predictions[1]
+    assert client.get('/api/v1/applications/' + project['id'] + '/draft').json() == before
 
 
 def test_tool_clean_then_workflow_spearman_and_original_preserved(real_compute):

@@ -94,6 +94,34 @@ def test_split_summary_distinguishes_reserved_unevaluated_absent_and_unknown():
     assert split_summary(None) is None
 
 
+def test_register_help_creates_grouped_study_and_rejects_ignored_mapping(modeling):
+    config, _ = modeling
+    client, app, project, settings = config
+    prepare(config)
+    base = '/api/v1/projects/' + project['id']
+    root = settings.workspace_root / project['id']
+    (root / 'results').mkdir(exist_ok=True)
+    (root / 'results/data.csv').write_text('row_id,group_id,label,x\n' + '\n'.join(
+        f'{i},g{i//2},{i%2},{i}' for i in range(60)))
+    help = client.post(base + '/agent-tools', json={'name': 'block_catalog', 'arguments': {'tool_name': 'project_modeling'}}).json()
+    register = next(e for e in help['examples'] if e['action'] == 'register_dataset')
+    misplaced = deepcopy(register)
+    misplaced['mapping'] = misplaced['dataset'].pop('mapping')
+    rejected = call(client, base, **misplaced)
+    assert rejected.status_code == 422 and 'dataset.mapping' in rejected.text
+    assert client.get(base + '/datasets').json() == []
+    created = call(client, base, **register)
+    assert created.status_code == 200, created.text
+    dataset = created.json()
+    assert dataset['mapping']['target'] == 'label' and dataset['mapping']['group_column'] == 'group_id'
+    study = next(e for e in help['examples'] if e['action'] == 'create_study')
+    study['study']['dataset_id'] = dataset['id']
+    result = call(client, base, **study)
+    assert result.status_code == 200, result.text
+    full = call(client, base, action='read_study', study_id=result.json()['id'], view='full').json()
+    assert full['request']['evaluation']['split'] == 'group'
+
+
 @pytest.mark.parametrize('change,match', [
     ('literal', '必须引用'), ('finalize', '留出集'), ('missing', '声明字符串'),
     ('extra_input', '必填字段'), ('type', '类型不匹配'), ('reserved', '由平台绑定'),

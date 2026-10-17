@@ -113,6 +113,25 @@ def test_old_pause_state_does_not_block_direct_editing(configured):
     assert client.get(base+'/tasks').json() == []
 
 
+def test_file_errors_give_format_and_exact_path_recovery(configured):
+    client, _, pid, base = prepare(configured)
+    settings = configured[3]
+    package = settings.workspace_root / pid / 'requirement-package/upload-id'
+    package.mkdir(parents=True, exist_ok=True)
+    (package / 'notes.txt').write_text('business context')
+    (package / 'table.xlsx').write_bytes(b'binary')
+    def file(**arguments):
+        return client.post(base + '/agent-tools', json={'name': 'project_file', 'arguments': arguments})
+    missing = file(action='read', path='requirement-package/notes.txt')
+    assert missing.status_code == 422 and 'action=\\"list\\"' in missing.text
+    listing = file(action='list').json()['files']
+    path = next(f['path'] for f in listing if f['path'].endswith('notes.txt'))
+    assert file(action='read', path=path).json()['lines'] == ['business context']
+    for action in ['read', 'profile']:
+        failure = file(action=action, path='requirement-package/upload-id/table.xlsx')
+        assert failure.status_code == 422 and 'register_dataset' in failure.text
+
+
 def test_compact_manuals_keep_config_help_and_graph_schema_builds_a_real_flow(configured):
     client, manager, pid, base = prepare(configured)
     def catalog(**arguments):

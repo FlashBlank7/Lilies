@@ -12,7 +12,7 @@ class Contract(BaseModel):
 
 class DataMapping(Contract):
     kind: Literal['tabular', 'timeseries'] = 'tabular'
-    target: str = ''
+    target: str = Field(default='', description='Target column name; use target, not target_column. Leave empty for analysis or unlabeled prediction.')
     id_column: str = ''
     group_column: str = ''
     time_column: str = ''
@@ -21,7 +21,7 @@ class DataMapping(Contract):
     available_time_column: str = ''
     label_available_time_column: str = ''
     error_group_columns: list[str] = Field(default_factory=list, max_length=5, description='Columns used only for error breakdown (e.g. production line); they remain usable as features and do not change the split.')
-    sheet: str | int = 0
+    sheet: str | int = Field(default=0, description='Sheet name or zero-based index for XLSX. Omit for CSV/TSV; null is not valid.')
     header_row: int = Field(default=0, ge=0, le=10000, description='Zero-based row containing column names.')
     skip_after_header: int = Field(default=0, ge=0, le=10000, description='Rows immediately below the header to omit, such as a second heading row.')
 
@@ -271,8 +271,8 @@ class ModelingTool(Contract):
     candidate_id: str = ''
     slot: int = Field(default=0, ge=0)
     sampled: bool = False
-    dataset: DatasetRequest | None = None
-    mapping: DataMapping | None = None
+    dataset: DatasetRequest | None = Field(default=None, description='register_dataset uses {source_path, mapping:{kind:"tabular", target:"label", ...}}. Mapping belongs inside dataset.')
+    mapping: DataMapping | None = Field(default=None, description='For revise_dataset only. register_dataset uses dataset.mapping.')
     study: StudyRequest | None = None
     candidate: CandidateRequest | None = None
     budget: Budget | None = None
@@ -281,6 +281,8 @@ class ModelingTool(Contract):
 
     @model_validator(mode='after')
     def submission(self):
+        if self.action == 'register_dataset' and self.mapping is not None:
+            raise ValueError('register_dataset 的映射应放在 dataset.mapping；顶层 mapping 只用于 revise_dataset，不能在注册时忽略它。例：dataset={"source_path":"results/data.csv","mapping":{"kind":"tabular","target":"label","id_column":"row_id","group_column":"group_id"}}；CSV 省略 sheet，XLSX 用 sheet=0 或工作表名，不用 null')
         if self.action == 'train' and (not self.study_id or self.candidate is None):
             raise ValueError('train 需要 study_id 和 candidate 配置')
         if self.action == 'submit_and_run':
@@ -336,7 +338,8 @@ def register_modeling_blocks(registry):
             'when_to_use': ['用已训练或已导入的模型处理新样本。'],
             'examples': [{'description': '使用稍后绑定的项目模型', 'config': {'source_path': 'requirement-package/new-data.csv', 'model_ref': 'quality-model'}}],
             'anti_patterns': ['不在预测节点重新配置训练特征、训练预算或评估划分。'],
-            'common_errors': ['运行时必须绑定模型并提供所需字段；缺失字段应补齐，不能悄悄换模型。'],
+            'common_errors': ['运行时必须绑定模型并提供所需字段；缺失字段应补齐，不能悄悄换模型。',
+                '此节点只预测，不生成新表的异常与相关分析。整套分析复用示例：project_skills(action="read", skill_id="modeling", reference="analysis-prediction-workflow.json")；将本次输入的数据集分别连接分析和预测节点。'],
         },
     }
     for kind, config, title, description in [
