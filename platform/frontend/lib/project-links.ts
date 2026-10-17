@@ -2,6 +2,10 @@ import { withFrontendToken } from './platform'
 
 export function resolveProjectLink(projectId: string, href: string): string {
   const relative = href.trim().replace(/^\.\//, '')
+  if (relative.startsWith('workflow://')) {
+    const id = relative.slice('workflow://'.length)
+    return /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(id) ? `/applications/${id}?tab=edit` : ''
+  }
   if (relative.startsWith(`/api/v1/projects/${encodeURIComponent(projectId)}/`))
     return withFrontendToken(`/api/platform${relative}`)
   if (!/^(results|solution|requirement-package|requirements)\//.test(relative)) return href

@@ -1,8 +1,21 @@
 import {cleanup,render,screen} from '@testing-library/react'
 import {afterEach,expect,it} from 'vitest'
 import {MarkdownDocument} from '@/lib/markdown'
+import {resolveProjectFileLink,resolveProjectLink} from '@/lib/project-links'
 
 afterEach(cleanup)
+
+it('opens agent workflow links from conversation replies and saved reports',()=>{
+  const project='11111111-1111-4111-8111-111111111111',member='22222222-2222-4222-8222-222222222222'
+  const source=`[打开工作流](workflow://${member}) [下载模型](results/models/export/prediction-model.zip)`
+  const {rerender}=render(<MarkdownDocument source={source} emptyLabel="" resolveLink={href=>resolveProjectLink(project,href)} />)
+  expect(screen.getByRole('link',{name:'打开工作流'})).toHaveAttribute('href',`/applications/${member}?tab=edit`)
+  expect(screen.getByRole('link',{name:'下载模型'}).getAttribute('href')).toContain(`/applications/${project}/workspace/files/results/models/export/prediction-model.zip`)
+  rerender(<MarkdownDocument source={source} emptyLabel="" resolveLink={href=>resolveProjectFileLink(project,'results/report.md',href)} />)
+  expect(screen.getByRole('link',{name:'打开工作流'})).toHaveAttribute('href',`/applications/${member}?tab=edit`)
+  rerender(<MarkdownDocument source="[错误地址](workflow://example.com/path) [脚本](javascript:alert%281%29)" emptyLabel="" resolveLink={href=>resolveProjectLink(project,href)} />)
+  expect(screen.queryByRole('link')).not.toBeInTheDocument()
+})
 
 it('shows escaped sample identifiers and literal links as supplied text',()=>{
   render(<MarkdownDocument source={'产品：sample\\_one\\_v2；\\[原文名称\\](https://example.invalid)'} emptyLabel="" />)

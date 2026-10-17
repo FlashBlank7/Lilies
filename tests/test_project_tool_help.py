@@ -50,6 +50,13 @@ def test_help_example_can_edit_a_project_member_and_run_its_changed_output(confi
         'node_id': 'end', 'changes': {'config': {'outputs': {'quantity': 2}}}, 'merge_config': True}}]
     edited = client.post(base+'/agent-tools', json={'name': 'workflow_draft', 'arguments': example})
     assert edited.status_code == 200, edited.text
+    # Delivery links must open the edited member, not the project's main workflow.
+    link = '/applications/'+member+'?tab=edit'
+    assert edited.json()['editor_url'] == link
+    for tool, arguments in [('workflow_draft', {}), ('project_workflows', {'action': 'inspect'})]:
+        value = client.post(base+'/agent-tools', json={'name': tool, 'arguments': {
+            **arguments, 'workflow_id': member}}).json()
+        assert value['workflow_id'] == member and value['editor_url'] == link
     run = client.post(base+'/agent-tools', json={'name': 'workflow_run', 'arguments': {'action': 'start', 'workflow_id': member}})
     assert run.status_code == 200, run.text
     assert run.json()['outputs'] == {'quantity': 2}

@@ -285,6 +285,7 @@ project_code 在隔离环境执行 Python；project_modeling(action="train", stu
 模型交付用 project_models(action="export", model_ref=...)，返回完整模型包、自动生成报告及准确编号；直接链接文件，不手抄编号。报告数字从保存的计算结果生成，明确计数条件；有保留测试但未评价不等于没有保留测试。
 将用户需要的整理步骤保存在工作流中，避免要求用户另做临时输入表。得到足够的计算结果后及时完成报告、下载链接和使用说明；不要无休止地重复读表或搜索模型。普通对话以最终回复交付，不需要创建或提交统筹任务。
 workflow_draft 支持整图替换和批量操作；修改前读取 revision/content_hash 并保留人工改动。生成不会自动执行业务。
+交付工作流时直接链接工具返回的 editor_url，页面地址为 /applications/<workflow_id>?tab=edit；不要自行构造 workflow:// 地址。
 文件、数据、模型和结果只属于当前项目。使用真实工具输出判断，不把验证指标称为生产或独立测试效果。
 预算和用户停止必须遵守；遇到错误根据具体反馈修复，保留可用产物。是否允许完整智能体由项目能力控制，不能自行放开。
 """
@@ -489,6 +490,7 @@ class WorkspaceProjectTools(ProjectTools):
                 draft = await self.services.workflow_store.get_draft(args.workflow_id)
                 graph = draft['snapshot'].workflow
                 return {'workflow_id': args.workflow_id, 'revision': draft['revision'],
+                        'editor_url': f'/applications/{args.workflow_id}?tab=edit',
                         'inputs': [n.config.get('inputs', []) for n in graph.nodes if n.type == 'start'],
                         'outputs': [n.config.get('outputs', {}) for n in graph.nodes if n.type == 'end']}
             if args.action == 'list':
@@ -553,6 +555,7 @@ class WorkspaceProjectTools(ProjectTools):
                 else:
                     result = await self.services.applications.apply_operation(workflow_id, args.operation)
                 summary = draft_summary(await self.services.workflow_store.get_draft(workflow_id))
+                summary.update(workflow_id=workflow_id, editor_url=f'/applications/{workflow_id}?tab=edit')
                 summary['applied_revision'] = result['revision']
                 summary['operations_applied'] = len(edits)
                 summary['changed_operations'] = [e.op for e in edits]
@@ -569,7 +572,8 @@ class WorkspaceProjectTools(ProjectTools):
                         'nodes': [found[n] for n in args.node_ids]}
             if args.view == 'tests':
                 return {'revision': draft['revision'], 'content_hash': draft['content_hash'], 'tests': draft['snapshot']['tests']}
-            return draft_summary(draft)
+            return {**draft_summary(draft), 'workflow_id': workflow_id,
+                    'editor_url': f'/applications/{workflow_id}?tab=edit'}
         if name == 'workflow_run':
             if args.action == 'respond':
                 result = await self.run_build_task(
