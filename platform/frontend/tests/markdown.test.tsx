@@ -5,6 +5,21 @@ import {resolveProjectFileLink,resolveProjectLink} from '@/lib/project-links'
 
 afterEach(cleanup)
 
+it('resolves Codex workspace downloads within the current project in replies and reports',()=>{
+  const project='p',path='results/模型包.zip'
+  for(const prefix of ['sandbox:/workspace/','/workspace/']){
+    const source=`[模型下载](${prefix}${path})`
+    const {rerender,unmount}=render(<MarkdownDocument source={source} emptyLabel="" resolveLink={href=>resolveProjectLink(project,href)} />)
+    const expected=resolveProjectLink(project,path)
+    expect(screen.getByRole('link',{name:'模型下载'})).toHaveAttribute('href',expected)
+    rerender(<MarkdownDocument source={source} emptyLabel="" resolveLink={href=>resolveProjectFileLink(project,'results/report.md',href)} />)
+    expect(screen.getByRole('link',{name:'模型下载'})).toHaveAttribute('href',expected)
+    unmount()
+    for(const invalid of ['results/../secret','results/%2e%2e/secret','results/%5csecret','results/%00secret','.codex/auth.json','/etc/passwd'])
+      expect(resolveProjectLink(project,prefix+invalid)).toBe('')
+  }
+})
+
 it('opens agent workflow links from conversation replies and saved reports',()=>{
   const project='11111111-1111-4111-8111-111111111111',member='22222222-2222-4222-8222-222222222222'
   const source=`[打开工作流](workflow://${member}) [下载模型](results/models/export/prediction-model.zip)`

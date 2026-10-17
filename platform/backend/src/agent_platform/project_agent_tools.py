@@ -195,11 +195,17 @@ class SkillsTool(Arguments):
 
 class ModelsTool(Arguments):
     action: Literal['list', 'bind', 'predict', 'export'] = 'list'
-    model_ref: str = ''
+    model_ref: str = Field(default='', description='Required top-level identifier for bind/predict/export, using letters, digits, - or _. resource.name is only a display name and does not set model_ref.')
     resource: ModelResource | None = None
     dataset_id: str = ''
     request_key: str = ''
     wait: bool = True
+
+    @model_validator(mode='after')
+    def require_model_ref(self):
+        if self.action != 'list' and not self.model_ref.strip():
+            raise ValueError(f'project_models(action="{self.action}") 缺少顶层 model_ref，例如 model_ref="quality_v1"；resource.name 仅为显示名称，修改它不能补齐 model_ref')
+        return self
 
 
 class ExecuteCode(Arguments):
@@ -284,6 +290,7 @@ project_code 在隔离环境执行 Python；project_modeling(action="train", stu
 主动澄清会改变结论的业务含义：一行代表什么、空白是否沿用上一行、重复编号是否同一对象、标签定义及预测时能取得哪些字段。资料未说明时，读取代表性原文后把必要问题集中问用户，并说明影响；不要先合并、填充、定义目标或训练后再让用户纠错。未知答复保留待确认，已明确部分照常处理，不要求为保存草稿确认完整需求。
 训练期间可以修改工作流。project_models 列出或绑定模型版本，预测积木通过 model_ref 选择；原始 LLM 使用项目可信 API。
 模型交付用 project_models(action="export", model_ref=...)，返回完整模型包、自动生成报告及准确编号；直接链接文件，不手抄编号。报告数字从保存的计算结果生成，明确计数条件；有保留测试但未评价不等于没有保留测试。
+项目文件链接使用工具返回的相对路径，例如 [报告](results/report.md)，保留中文和文件名；不要自行添加 sandbox: 或 /workspace 前缀。
 将用户需要的整理步骤保存在工作流中，避免要求用户另做临时输入表。得到足够的计算结果后及时完成报告、下载链接和使用说明；不要无休止地重复读表或搜索模型。普通对话以最终回复交付，不需要创建或提交统筹任务。
 首次交付应覆盖用户明确要求的每项成果：直接链接实际保存的分析文件、模型包和工作流，未完成的具体说明原因。报告与清单从同一次最终计算结果生成；旧中间文件不得冒充当前结果。用户要求换数据复用时，自行用一份真实改值的同格式小样实际运行，只传用户必填输入，分开保存测试结果；不要等甲方指出漏项后才验证。
 workflow_draft 支持整图替换和批量操作；修改前读取 revision/content_hash 并保留人工改动。生成不会自动执行业务。
@@ -343,6 +350,12 @@ class WorkspaceProjectTools(ProjectTools):
                 canonical = query.removeprefix('lilies__')
                 if any(t['name'] == canonical and t.get('deferLoading') for t in project_tool_specs()):
                     arguments['tool_name'] = canonical
+            # Agents sometimes put an exact block name in tool_name. Return its
+            # existing manual, using the project's filtered catalog, not a dead end.
+            if query and not arguments['block_type'] and not arguments['schema_type']:
+                blocks = await self.services.projects.blocks_for(self.application_id)
+                if any(b.type == query for b in blocks.list()):
+                    arguments.update(block_type=query, tool_name='')
         phase = self.manager.load(self.application_id).get('phase')
         if name == 'project_file' and arguments.get('action') == 'write':
             self.require_build()

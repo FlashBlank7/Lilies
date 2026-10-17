@@ -80,6 +80,22 @@ def test_catalog_accepts_advertised_namespace_names_and_keeps_specialized_help(c
     assert runtime.status_code == 200 and 'command' in runtime.json()['input_schema']['properties']
 
 
+def test_exact_block_names_in_tool_help_resolve_without_exposing_disabled_capabilities(configured):
+    client, _, _, base = prepare(configured)
+    def query(**arguments):
+        return client.post(base+'/agent-tools', json={'name':'block_catalog','arguments':arguments})
+    for kind in ['code','model_predict','data_analysis','feature_extract','start','end','model_train']:
+        for view in ['compact','full']:
+            result = query(tool_name=kind,view=view)
+            assert result.status_code == 200, result.text
+            assert result.json() == query(block_type=kind,view=view).json()
+    assert client.put(base+'/capabilities',json={'agent_modules_enabled':False}).status_code == 200
+    assert query(tool_name='claude_agent').status_code == 422
+    assert client.put(base+'/capabilities',json={'agent_modules_enabled':True}).status_code == 200
+    result = query(tool_name='claude_agent')
+    assert result.status_code == 200 and result.json() == query(block_type='claude_agent').json()
+
+
 def test_old_pause_state_does_not_block_direct_editing(configured):
     client, manager, pid, base = prepare(configured)
     state = manager.load(pid)

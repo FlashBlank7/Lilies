@@ -2,6 +2,7 @@
 import io
 import json
 import zipfile
+import pytest
 
 from tests.test_modeling import modeling, real_compute, setup, wait_task  # noqa: F401
 from tests.test_projects import configured, start  # noqa: F401
@@ -68,3 +69,19 @@ def test_unbound_export_does_not_create_results(configured):
     client.put(base + '/models/later', json={'name': '稍后训练'})
     assert export(client, base, 'later').status_code == 422
     assert not (settings.workspace_root / project['id'] / 'results/models').exists()
+
+
+@pytest.mark.parametrize('action', ['bind', 'predict', 'export'])
+def test_model_identifier_error_points_to_missing_top_level_field(configured, action):
+    client, _, project, _ = configured
+    base = '/api/v1/projects/' + project['id']
+    response = client.post(base+'/agent-tools', json={'name': 'project_models', 'arguments': {
+        'action': action, 'resource': {'name': 'display-name'}}})
+    assert response.status_code == 422
+    assert '缺少顶层 model_ref' in response.text and 'resource.name' in response.text
+    assert client.get(base+'/models').json() == []
+    bound = client.post(base+'/agent-tools', json={'name': 'project_models', 'arguments': {
+        'action': 'bind', 'model_ref': 'quality_v1', 'resource': {'name': '质量模型'}}})
+    assert bound.status_code == 200, bound.text
+    models = client.get(base+'/models').json()
+    assert len(models) == 1 and models[0]['model_ref'] == 'quality_v1' and models[0]['name'] == '质量模型'
