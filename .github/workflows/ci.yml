@@ -1,5 +1,5 @@
 # CI：每次 push/PR 跑后端全量回归 + 前端类型检查。
-# 测试全部使用桩 provider，不需要任何模型密钥或网络出口。
+# 模型调用使用桩 provider；工作流代码测试需要真实 Docker 沙箱，无需模型密钥。
 name: ci
 
 on:
@@ -18,7 +18,11 @@ jobs:
       fail-fast: false
       matrix:
         python-version: ["3.12", "3.14"]
-    timeout-minutes: 20
+    # 全量回归已接近 5000 项；Linux runner 上 20 分钟只能完成约八成。
+    timeout-minutes: 35
+    env:
+      MODEL_EGRESS_ENABLED: "false"
+      SANDBOX_IMAGE: agent-platform-sandbox:ci
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -36,8 +40,15 @@ jobs:
       # 格式类规则（E5xx 行宽之类）故意不开，那些是口味。
       - name: Ruff（只查真 bug 类）
         run: ruff check platform/backend/src --select F
+      - name: 准备工作流代码沙箱
+        run: |
+          docker build -f Dockerfile.sandbox -t "$SANDBOX_IMAGE" \
+            --build-arg SANDBOX_UID="$(id -u)" \
+            --build-arg SANDBOX_GID="$(id -g)" .
+          echo "SANDBOX_UID=$(id -u)" >> "$GITHUB_ENV"
+          echo "SANDBOX_GID=$(id -g)" >> "$GITHUB_ENV"
       - name: Pytest（全量回归）
-        run: pytest tests/ -q
+        run: pytest tests/ -q --durations=20
 
   frontend:
     runs-on: ubuntu-latest
