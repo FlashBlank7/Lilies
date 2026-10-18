@@ -48,6 +48,7 @@ class SandboxSession:
         self.network_allowlist = network_allowlist
         self.readonly_paths = readonly_paths
         self.started = False
+        self._stop_task: asyncio.Task[None] | None = None
 
     async def start(self) -> None:
         if self.started:
@@ -90,6 +91,28 @@ class SandboxSession:
         self.started = True
 
     async def stop(self) -> None:
+        # remove(), shutdown and direct callers can own the same sandbox.
+        # Share both success and failure; only a later call retries a failed stop.
+        if self._stop_task is None or self._stop_task.done():
+            if not self.started:
+                return
+            self._stop_task = asyncio.create_task(self._stop_container())
+        stopping = self._stop_task
+        cancelled = False
+        while not stopping.done():
+            try:
+                await asyncio.shield(stopping)
+            except asyncio.CancelledError:
+                if stopping.cancelled():
+                    raise
+                cancelled = True
+        # Keep ownership until removal really settles, even if this waiter is
+        # cancelled repeatedly. A cleanup failure takes precedence over a stop.
+        stopping.result()
+        if cancelled:
+            raise asyncio.CancelledError
+
+    async def _stop_container(self) -> None:
         if not self.started:
             return
         try:

@@ -1748,3 +1748,13 @@ Chrome文件选择窗口已触发，选CSV／Excel时扩展返回Not allowed。�
 - 使用该全局变量复现两项失败；移除后，两个受影响测试文件在Python 3.12和3.14各17项通过、0跳过。CI YAML及shell语法检查通过，未追加真实模型调用或产品功能。
 
 下一步未完成事项：推送这项CI配置修正，核对最新提交的全部远端检查结果；仍不合并、不发布。
+
+### 10/18：修复 PR #3 审阅发现的并发沙箱清理误报
+
+- Astra ultra 审阅发现单项 remove、全局 close 与直接 stop 可能同时删除同一容器。真实 Docker 并发删除会返回 removal already in progress；已不存在的容器在本机 docker rm -f 下返回 0，未沿用早期离线夹具对此的错误假设。
+- 同一 SandboxSession 现在共享一次清理任务及其结果，所有等待者均等实际删除结束；重复取消等待者不会取消共享删除或提前结束收尾。真实删除失败仍报告 SandboxCleanupError 并保留沙箱供后续明确重试，不吞掉非零返回，不扩展其他功能。
+- 新增12个行为回归场景，覆盖两种清理先后顺序、成功、命令失败、异常、三个入口的重复取消，以及取消期间的真实清理失败。首批9个场景在修复前全部失败；修复后相关4个测试文件在Python 3.12下299通过，Python 3.14沙箱文件22通过；Ruff F类与git diff --check通过。
+- 使用现有独立测试镜像运行三组真实Docker验证：remove先开始、close先开始、等待者被重复取消，每组均只执行一次删除、所有调用等待容器清理完成，临时容器全部移除。MODEL_EGRESS_ENABLED=false，没有进行平台模型演练；员工服务检出与构建产物未变。
+- 验证记录保存在本机 Documents/ChatGPT/lilies/industrial-evaluation-2026-10-16/pr3-concurrent-cleanup-fix-20261018/。
+
+下一步未完成事项：推送本次修复，确认PR #3最新提交的全部远端CI通过，再用Astra ultra复审该提交；仍保持草稿，不合并、不发布。
