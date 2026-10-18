@@ -5,6 +5,7 @@ import { clientId } from '@/lib/client-id'
 import Link from 'next/link'
 import ProjectTaskInput from './ProjectTaskInput'
 import TaskError from './TaskError'
+import RunDeliverables from './RunDeliverables'
 import {FeedbackButton} from './UserFeedback'
 import WorkflowInputTable, {type InputColumn} from './WorkflowInputTable'
 import KnowledgeResults, {isKnowledgeSearchResult} from './KnowledgeResults'
@@ -52,6 +53,7 @@ export function ProjectTaskOutput({ projectId, task, onTask }: { projectId: stri
   const acceptance = evaluation?.acceptance as {selection:{status:string;threshold:number|null;target_accuracy:number;validation:{accuracy:number;coverage:number;accepted:number}|null};test:{accepted:number;review:number;accuracy:number|null;coverage:number}} | undefined
   return <>
     <TaskError error={task.error}/>
+    <RunDeliverables key={task.id} projectId={projectId} results={results}/>
     <FeedbackButton source={{project_id:projectId,task_id:task.id,workflow_id:task.workflow_id||undefined,page:'run'}} excerpt={task.error||markdown} category={task.error?'runtime':'result'}/>
     {task.id && ['waiting_input','running','queued'].includes(task.status) && <ProjectTaskInput projectId={projectId} taskId={task.id} initialTask={task} onTask={onTask}/>}
     {results.filter(result => result.stage === 'before_fold_preprocessing').map((result, i) => <FeatureResults key={i} result={result as unknown as Parameters<typeof FeatureResults>[0]['result']} />)}
@@ -89,6 +91,7 @@ export default function ProjectRunPanel({ projectId, members, initialWorkflowId,
 }) {
   const [workflowId, setWorkflowId] = useState(initialWorkflowId || projectId)
   const [fields, setFields] = useState<Field[]>([])
+  const [showOtherFiles, setShowOtherFiles] = useState(false)
   const [values, setValues] = useState<Record<string, string>>({})
   const [files, setFiles] = useState<FileEntry[]>([])
   const [task, setTask] = useState<ProjectTask | null>(null)
@@ -100,10 +103,10 @@ export default function ProjectRunPanel({ projectId, members, initialWorkflowId,
   const active = Boolean(task && ['queued', 'running'].includes(task.status))
   useEffect(() => {
     let current = true
-    setLoading(true); setError('')
+    setLoading(true); setError(''); setShowOtherFiles(false)
     Promise.all([api<Draft>(`/api/v1/applications/${workflowId}/draft`), api<FileEntry[]>(`/api/v1/applications/${projectId}/workspace/files`)]).then(([draft, available]) => {
       if (!current) return
-      const inputs = draft.snapshot.workflow.nodes.find(node => node.type === 'start')?.config.inputs || []
+      const inputs = (draft.snapshot.workflow.nodes.find(node => node.type === 'start')?.config.inputs || []).map(field => ({...field, required: field.required ?? true}))
       const previous = workflowId === reuseTask?.workflow_id ? reuseTask.inputs as Record<string, unknown> | undefined : undefined
       setFields(inputs); setValues(Object.fromEntries(inputs.map(field => {
         const value = previous && Object.hasOwn(previous, field.name) ? previous[field.name] : field.default
@@ -131,13 +134,13 @@ export default function ProjectRunPanel({ projectId, members, initialWorkflowId,
   }, [projectId, task?.id, task?.status, active])
   async function start() {
     if (lock.current) return
-    lock.current = true; setBusy(true); setError('')
+    lock.current = true; setBusy(true); setError(''); setTask(null)
     try {
       const inputs: Record<string, unknown> = {}
       for (const field of fields) {
         const value = values[field.name] ?? ''
         const raw = ['object', 'array', 'any'].includes(field.type) ? value.trim() : value
-        if (!raw && field.required) throw new Error(`请填写 ${field.name}`)
+        if (!raw && field.required) throw new Error(`请填写 ${field.label || field.name}`)
         if (!raw) {
           // Omitting a cleared field would restore the workflow's old default.
           if (field.type === 'array') inputs[field.name] = []
@@ -146,7 +149,7 @@ export default function ProjectRunPanel({ projectId, members, initialWorkflowId,
         }
         if (field.type === 'number') {
           const number = Number(raw)
-          if (!Number.isFinite(number)) throw new Error(`${field.name} 需要有效数字`)
+          if (!Number.isFinite(number)) throw new Error(`${field.label || field.name} 需要有效数字`)
           inputs[field.name] = number
         } else if (field.type === 'boolean') inputs[field.name] = raw === 'true'
         else if (['object', 'array', 'any'].includes(field.type)) {
@@ -168,7 +171,17 @@ export default function ProjectRunPanel({ projectId, members, initialWorkflowId,
           : field.type === 'string' && field.options?.length ? <select aria-label={field.name} disabled={active || busy} value={values[field.name] || ''} onChange={event => setValues(previous => ({ ...previous, [field.name]: event.target.value }))}><option value="">请选择</option>{field.options.map(option => <option key={option} value={option}>{option}</option>)}</select>
           : <textarea aria-label={field.name} rows={['object', 'array', 'any'].includes(field.type) ? 4 : 2} disabled={active || busy} value={values[field.name] || ''} onChange={event => setValues(previous => ({ ...previous, [field.name]: event.target.value }))} />}
       </label>}{field.description && <p>{field.description}</p>}
-      {(field.type === 'file' || /(?:path|file|document|attachment)$/i.test(field.name)) && files.length > 0 && <label>选择项目文件<select aria-label={`为 ${field.name} 选择项目文件`} disabled={active || busy} value="" onChange={event => setValues(previous => ({ ...previous, [field.name]: event.target.value }))}><option value="">从已上传资料或结果中选择…</option>{files.map(file => <option key={file.path} value={file.path}>{file.path}</option>)}</select></label>}
+      {(field.type === 'file' || /(?:path|file|document|attachment)$/i.test(field.name)) && files.length > 0 && <>
+        <label>选择已上传资料<select aria-label={`为 ${field.label || field.name} 选择项目文件`} disabled={active || busy} value={files.some(file => file.path === values[field.name]) ? values[field.name] : ''} onChange={event => setValues(previous => ({ ...previous, [field.name]: event.target.value }))}><option value="">请选择本次资料…</option>{[
+          {label:'已上传资料', files:files.filter(file => /^(requirement-package|requirements)\//.test(file.path))},
+          {label:'历史结果与其他文件', files:files.filter(file => !/^(requirement-package|requirements)\//.test(file.path) && (showOtherFiles || file.path === values[field.name]))},
+        ].filter(group => group.files.length).map(group => <optgroup key={group.label} label={group.label}>{group.files.map(file => {
+          const name = file.path.split('/').pop() || file.path
+          const duplicate = files.some(other => other.path !== file.path && other.path.split('/').pop() === name)
+          return <option key={file.path} value={file.path}>{duplicate ? `${name} — ${file.path}` : name}</option>
+        })}</optgroup>)}</select></label>
+        <label><input type="checkbox" aria-label={`为 ${field.label || field.name} 显示历史结果与其他文件`} checked={showOtherFiles} disabled={active || busy} onChange={event => setShowOtherFiles(event.target.checked)}/>显示历史结果与其他文件</label>
+      </>}
     </div>)}
     <div className={styles.actions}><button className={styles.primary} disabled={loading || busy || active} onClick={() => void start()}>{busy ? '正在启动…' : active ? '正在运行…' : '启动工作流'}</button>
       {(active || task?.status === 'waiting_input') && task && <button disabled={busy} onClick={async () => { setBusy(true); try { const next = await api<ProjectTask>(`${base}/tasks/${task.id}/stop`, { method: 'POST' }); setTask(next); onTask?.(next) } catch (cause) { setError(String(cause)) } finally { setBusy(false) } }}>停止运行</button>}

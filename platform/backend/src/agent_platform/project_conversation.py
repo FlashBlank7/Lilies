@@ -7,6 +7,7 @@ from uuid import uuid4
 
 from pydantic import Field, model_validator
 
+from .blocks import InputField
 from .local_agent_tools import Arguments, ProjectTools
 from .project_store import ProjectConflict
 from .requirement_discussion import load_discussion
@@ -451,7 +452,17 @@ class ProjectConversation:
                 if isinstance(target, str) and target.startswith('workflow:'):
                     calls.append({'source': workflow_id, 'target': target.removeprefix('workflow:'),
                                   'node_id': node['id'], 'label': node.get('title', node['id'])})
+            inputs = [
+                InputField.model_validate(field).model_dump(include={'name', 'label', 'type', 'required', 'description'})
+                for node in graph['nodes'] if node['type'] == 'start'
+                for field in node.get('config', {}).get('inputs', [])
+            ]
+            endings = [node for node in graph['nodes'] if node['type'] == 'end']
             flows[workflow_id] = {'revision': draft['revision'], 'nodes': nodes,
+                                 'description': draft['snapshot'].get('description', ''),
+                                 'inputs': inputs,
+                                 'outputs': list(dict.fromkeys(key for node in endings for key in node.get('config', {}).get('outputs', {}))),
+                                 'output_description': '\n'.join(node.get('description', '') for node in endings if node.get('description')),
                                  'edges': [{'source': e['source'], 'target': e['target'], 'branch': e.get('branch')}
                                            for e in graph['edges']]}
         return {'members': project['members'], 'calls': calls, 'flows': flows}

@@ -1,10 +1,13 @@
 """Business explanations stay project scoped; routes reflect actual draft edges."""
-from tests.test_projects import configured, fixture_graphs, start, settled, graph, node, edge  # noqa: F401
+from tests.test_projects import configured as _configured, fixture_graphs, start, settled, graph, node, edge  # noqa: F401
 
+
+configured = _configured
 
 def test_requirement_comparison_persists_with_real_references_and_rejects_foreign_ones(configured):
     client, app, project, settings = configured
-    pid = project['id']; base = '/api/v1/projects/' + pid
+    pid = project['id']
+    base = '/api/v1/projects/' + pid
     _, validate, allocate = fixture_graphs(client, project)
     task = settled(client, base, start(client, base, 'explanation', inputs={'request_id': 'a'}))
     value = {'goal': '资源分配', 'workflows': [{'workflow_id': validate, 'purpose': '校验申请', 'inputs': '申请标识', 'outputs': '有效申请'}],
@@ -33,7 +36,8 @@ def test_requirement_comparison_persists_with_real_references_and_rejects_foreig
 
 def test_topology_preserves_call_order_and_conditional_branches_without_running(configured):
     client, app, project, settings = configured
-    pid = project['id']; base = '/api/v1/projects/' + pid
+    pid = project['id']
+    base = '/api/v1/projects/' + pid
     _, validate, allocate = fixture_graphs(client, project)
     topology = client.get(base+'/topology').json()
     main = topology['flows'][pid]
@@ -47,3 +51,39 @@ def test_topology_preserves_call_order_and_conditional_branches_without_running(
     updated = client.get(base+'/topology').json()['flows'][validate]
     assert updated['revision'] > topology['flows'][validate]['revision']
     assert [n['id'] for n in updated['nodes']] == ['s', 'e']
+
+
+def test_saved_input_instructions_follow_current_draft_without_running(configured):
+    from agent_platform.blocks import StartConfig
+    client, app, project, settings = configured
+    pid = project['id']
+    field = {'name': 'source_path', 'label': '生产原始表', 'description': '保留Sheet2和两行表头',
+             'type': 'file', 'required': True, 'default': 'private-default.xlsx'}
+    assert StartConfig(inputs=[field]).inputs[0].description == field['description']
+    graph(client, pid, [node('s', 'start', inputs=[field]), node('e', 'end', outputs={'完整报告': 'results/report.md'})], [edge('s', 'e')])
+    flow = client.get(f'/api/v1/projects/{pid}/topology').json()['flows'][pid]
+    assert flow['inputs'] == [{key: field[key] for key in ('name', 'label', 'type', 'required', 'description')}]
+    assert flow['outputs'] == ['完整报告']
+    assert 'default' not in flow['inputs'][0]
+    field['description'] = '保留Sheet2，勿上传文档或旧预测结果'
+    graph(client, pid, [node('s', 'start', inputs=[field]), node('e', 'end', outputs={'完整报告': 'results/report.md'})], [edge('s', 'e')])
+    assert client.get(f'/api/v1/projects/{pid}/topology').json()['flows'][pid]['inputs'][0]['description'] == field['description']
+    assert client.get(f'/api/v1/projects/{pid}/tasks').json() == []
+
+
+def test_topology_uses_runtime_input_defaults_and_preserves_explicit_optional(configured):
+    from agent_platform.blocks import StartConfig
+    client, app, project, settings = configured
+    pid = project['id']
+    fields = [{'name': 'source_path', 'label': '原表', 'type': 'file'},
+              {'name': 'note', 'required': False, 'default': 'private-note'}]
+    graph(client, pid, [node('s', 'start', inputs=fields), node('e', 'end')], [edge('s', 'e')])
+    saved = client.get(f'/api/v1/applications/{pid}/draft').json()['snapshot']['workflow']
+    runtime = StartConfig.model_validate(saved['nodes'][0]['config'])
+    inputs = client.get(f'/api/v1/projects/{pid}/topology').json()['flows'][pid]['inputs']
+    assert inputs == [field.model_dump(include={'name', 'label', 'type', 'required', 'description'}) for field in runtime.inputs]
+    assert inputs[0]['required'] is True
+    assert inputs[1]['required'] is False
+    assert inputs[1]['type'] == 'string'
+    assert all('default' not in field for field in inputs)
+    assert client.get(f'/api/v1/projects/{pid}/tasks').json() == []

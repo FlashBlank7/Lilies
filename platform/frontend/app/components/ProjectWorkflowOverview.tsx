@@ -63,9 +63,9 @@ export default function ProjectWorkflowOverview({ projectId, selectedId, progres
   </span>)}</div> }
   return <div className={styles.overview}>
     <header className={styles.heading}><div><small>{main ? '主流程 · 项目协作入口' : '成员工作流'}</small><h2>{member?.name || '工作流'}</h2>
-      <p>{note?.purpose || (main ? progress.value.goal : member?.description) || '尚未整理这条工作流的业务说明。'}</p></div>
+      <p>{note?.purpose || flow?.description || (main ? progress.value.goal : member?.description) || '尚未整理这条工作流的业务说明。'}</p></div>
       <div className={styles.actions}><button onClick={onRequirements}>查看原需求</button><button onClick={onEdit}>编辑画布</button></div></header>
-    <div className={styles.io}><div><h3>需要什么输入</h3><p>{note?.inputs || '尚未整理输入说明，可让统筹根据当前草稿补充。'}</p></div><ArrowRight size={20}/><div><h3>产出什么</h3><p>{note?.outputs || '尚未整理产出说明，请查看下方已有结果。'}</p></div></div>
+    <div className={styles.io}><div><h3>需要什么输入</h3>{flow?.inputs ? flow.inputs.length ? <ul>{flow.inputs.map(field => <li key={field.name}><strong>{field.label || field.name}</strong>{field.required ? '（必填）' : '（可选）'}{field.description && <p>{field.description}</p>}</li>)}</ul> : <p>无需手动填写输入。</p> : <p>{note?.inputs || '尚未整理输入说明，可让统筹根据当前草稿补充。'}</p>}</div><ArrowRight size={20}/><div><h3>产出什么</h3><p>{flow?.output_description || note?.outputs || flow?.outputs?.join('、') || '尚未整理产出说明，请查看下方已有结果。'}</p></div></div>
     {!note && <button onClick={() => explain()}>让统筹补充这条流程的说明</button>}
     <div className={styles.viewTabs} role="tablist" aria-label="工作流说明视图"><button role="tab" aria-selected={view === 'requirements'} onClick={() => setView('requirements')}>用途与需求对照</button><button role="tab" aria-selected={view === 'path'} onClick={() => setView('path')}>协作如何执行</button></div>
     {view === 'requirements' && <section aria-label="需求与当前结果对照"><div className={styles.sectionHeading}><h3>{main ? '业务能力与需求对照' : '这条流程参与解决的需求'}</h3><small>{progress.updated_at ? '整理于 ' + new Date(progress.updated_at).toLocaleString() : '等待统筹整理'}</small></div>

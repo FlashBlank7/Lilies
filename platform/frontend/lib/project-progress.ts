@@ -17,6 +17,10 @@ export type ProgressItem = {
 export type ProjectProgress = { revision: number; value: { goal: string; summary: string; items: ProgressItem[]; workflows?: WorkflowNote[] }; updated_at: string | null }
 export type WorkflowOutline = {
   revision: number
+  description?: string
+  inputs?: { name: string; label?: string; type?: string; required?: boolean; description?: string }[]
+  outputs?: string[]
+  output_description?: string
   nodes: { id: string; type: string; title: string; workflow_id: string; branches: { id: string; conditions: unknown[] }[]; default_branch: string }[]
   edges: { source: string; target: string; branch: string | null }[]
 }

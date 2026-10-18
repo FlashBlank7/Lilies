@@ -84,6 +84,7 @@ class InputColumn(BaseModel):
 class InputField(BaseModel):
     name: str
     label: str = ""
+    description: str = ""
     type: ValueType = ValueType.string
     required: bool = True
     default: Any = None

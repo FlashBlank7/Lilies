@@ -143,3 +143,10 @@ it('adds uniquely named inputs and only offers runtime-supported types',()=>{
   expect(screen.queryByRole('option',{name:'整数'})).not.toBeInTheDocument()
   expect(screen.getByRole('option',{name:'文件列表'})).toBeInTheDocument()
 })
+
+it('edits the business label and instructions without dropping the input type or default',()=>{
+  const changed=vi.fn()
+  render(<WorkflowInputFields value={JSON.stringify([{name:'source_path',type:'file',default:'input.xlsx',label:'原表'}])} onChange={changed}/>)
+  fireEvent.change(screen.getByRole('textbox',{name:'输入说明 1'}),{target:{value:'保留Sheet2'}})
+  expect(JSON.parse(changed.mock.calls.at(-1)![0])[0]).toMatchObject({name:'source_path',type:'file',default:'input.xlsx',label:'原表',description:'保留Sheet2'})
+})

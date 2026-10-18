@@ -22,3 +22,11 @@ it('does not invent a cause when a traceback has no final exception',()=>{
   render(<TaskError error={'Traceback (most recent call last):\n  File "workflow.py", line 1'}/>);
   expect(screen.getByRole('alert')).toHaveTextContent('执行失败，请展开查看错误详情。')
 })
+
+it('explains a bare assertion without exposing a stack as the business message',()=>{
+  const error='node report failed: Python 执行失败：Traceback (most recent call last):\n  File "workflow.py", line 78\nAssertionError\n'
+  render(<TaskError error={error}/>)
+  expect(screen.getByRole('alert')).toHaveTextContent('执行检查未通过，本次运行未完成')
+  expect(screen.getByRole('alert')).not.toHaveTextContent('AssertionError')
+  expect(screen.getByText('错误详情')).toBeInTheDocument()
+})

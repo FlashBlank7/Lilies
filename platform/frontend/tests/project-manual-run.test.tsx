@@ -29,7 +29,7 @@ it('can stop a waiting question from the manual run page without submitting an a
 it('offers newly created files after completion without resetting edited inputs or starting another run', async () => {
   let finished=false
   vi.mocked(api).mockImplementation(async (path,options)=>{
-    if(path.endsWith('/draft'))return {snapshot:{workflow:{nodes:[{type:'start',config:{inputs:[{name:'source_path',type:'file',default:'requirement-package/source.csv'},{name:'method_path',type:'file',default:''},{name:'note',type:'string',default:'原说明'}]}}]}}} as never
+    if(path.endsWith('/draft'))return {snapshot:{workflow:{nodes:[{type:'start',config:{inputs:[{name:'source_path',type:'file',default:'requirement-package/source.csv'},{name:'method_path',type:'file',required:false,default:''},{name:'note',type:'string',default:'原说明'}]}}]}}} as never
     if(path.endsWith('/workspace/files'))return [{path:'requirement-package/source.csv'},...(finished?[{path:'results/run/method.json'}]:[])] as never
     if(options?.method==='POST'){finished=true;return {id:'done',status:'succeeded',outputs:{markdown:'方法已保存'}} as never}
     throw new Error(path)
@@ -38,7 +38,8 @@ it('offers newly created files after completion without resetting edited inputs 
   fireEvent.change(screen.getByRole('textbox',{name:'note'}),{target:{value:'本次修改保留'}})
   fireEvent.click(screen.getByRole('button',{name:'启动工作流'}))
   await screen.findByText('方法已保存')
-  await waitFor(()=>expect(screen.getByRole('combobox',{name:'为 method_path 选择项目文件'})).toHaveTextContent('results/run/method.json'))
+  fireEvent.click(screen.getByRole('checkbox',{name:'为 method_path 显示历史结果与其他文件'}))
+  await waitFor(()=>expect(screen.getByRole('combobox',{name:'为 method_path 选择项目文件'})).toHaveTextContent('method.json'))
   fireEvent.change(screen.getByRole('combobox',{name:'为 method_path 选择项目文件'}),{target:{value:'results/run/method.json'}})
   expect(screen.getByRole('textbox',{name:'method_path'})).toHaveValue('results/run/method.json')
   expect(screen.getByRole('textbox',{name:'note'})).toHaveValue('本次修改保留')
@@ -113,9 +114,9 @@ it('rejects missing required input before starting a task', async () => {
 
 it.each(['', ' '])('sends cleared optional defaults (%j) so switching inputs cannot restore an old file or requirement version', async empty => {
   const defaults = [
-    { name: 'previous_versions', type: 'array', default: ['results/old-requirements.json'] },
-    { name: 'package_path', type: 'string', default: 'requirement-package/old.zip' },
-    { name: 'document', type: 'file', default: 'requirement-package/old.pdf' },
+    { name: 'previous_versions', type: 'array', required: false, default: ['results/old-requirements.json'] },
+    { name: 'package_path', type: 'string', required: false, default: 'requirement-package/old.zip' },
+    { name: 'document', type: 'file', required: false, default: 'requirement-package/old.pdf' },
     { name: 'count', type: 'number', default: 2 },
   ]
   vi.mocked(api).mockImplementation(async (path, options) => {
@@ -163,4 +164,38 @@ it('recomputes the current draft using historical inputs and a scoped reuse task
   expect(await screen.findByText(/复用 1 个已完成步骤/)).toHaveTextContent('train')
   const call=vi.mocked(api).mock.calls.find(([,options])=>options?.method==='POST')!
   expect(JSON.parse(call[1]!.body as string)).toMatchObject({reuse_task_id:'old',workflow_id:'member',inputs:{source_path:'original.csv'}})
+})
+
+it('keeps uploaded inputs separate from generated files and retains the selected filename', async () => {
+  vi.mocked(api).mockImplementation(async path => {
+    if (path.endsWith('/draft')) return {snapshot:{workflow:{nodes:[{type:'start',config:{inputs:[{name:'source_path',label:'生产原始表',type:'file',required:true,description:'选择 Excel，保留 Sheet2 和两行表头。'}]}}]}}} as never
+    return [{path:'requirement-package/batch/new.xlsx'},{path:'results/run/old.csv'},{path:'solution/prepare.py'}] as never
+  })
+  await act(async () => {render(<ProjectRunPanel projectId="p" members={members} initialWorkflowId="member"/>)})
+  expect(screen.getByText('选择 Excel，保留 Sheet2 和两行表头。')).toBeVisible()
+  const select=screen.getByRole('combobox',{name:'为 生产原始表 选择项目文件'})
+  expect(select).toHaveTextContent('new.xlsx')
+  expect(select).not.toHaveTextContent('old.csv')
+  fireEvent.change(select,{target:{value:'requirement-package/batch/new.xlsx'}})
+  expect(select).toHaveValue('requirement-package/batch/new.xlsx')
+  fireEvent.click(screen.getByRole('checkbox',{name:'为 生产原始表 显示历史结果与其他文件'}))
+  expect(select).toHaveTextContent('old.csv')
+  expect(select).toHaveValue('requirement-package/batch/new.xlsx')
+})
+
+it('opens the complete report for the selected task without searching project files', async () => {
+  vi.stubGlobal('fetch',vi.fn().mockResolvedValue({ok:true,headers:new Headers(),text:async()=> '# 本次报告\n\n保留555行'}))
+  const task = {id:'t',status:'succeeded',outputs:{'完整交付':{paths:{report:'results/run-1/现场报告.md',report_html:'results/run-1/现场报告.html',results_excel:'results/run-1/结果.xlsx'}}}}
+  render(<ProjectTaskOutput projectId="p" task={task as never}/>)
+  fireEvent.click(screen.getByRole('button',{name:'查看完整报告'}))
+  expect(await screen.findByRole('heading',{name:'本次报告'})).toBeVisible()
+  expect(fetch).toHaveBeenCalledWith('/api/platform/api/v1/applications/p/workspace/files/results/run-1/%E7%8E%B0%E5%9C%BA%E6%8A%A5%E5%91%8A.md',expect.anything())
+  expect(api).not.toHaveBeenCalled()
+})
+
+it('does not turn external or traversal delivery paths into project downloads', () => {
+  render(<ProjectTaskOutput projectId="p" task={{id:'t',status:'succeeded',outputs:{delivery:{paths:{report:'https://outside/report.html',results_csv:'results/%2e%2e/secret.csv',results_excel:'results/new/results.xlsx'}}}} as never}/>)
+  expect(screen.queryByRole('button',{name:'查看完整报告'})).not.toBeInTheDocument()
+  expect(screen.queryByRole('link',{name:'下载完整结果 CSV ↓'})).not.toBeInTheDocument()
+  expect(screen.getByRole('link',{name:'下载完整结果 Excel ↓'})).toHaveAttribute('href','/api/platform/api/v1/applications/p/workspace/files/results/new/results.xlsx?download=1')
 })
