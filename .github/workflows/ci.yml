@@ -23,6 +23,7 @@ jobs:
     env:
       MODEL_EGRESS_ENABLED: "false"
       SANDBOX_IMAGE: agent-platform-sandbox:ci
+      MODELING_IMAGE: lilies-modeling:ci
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -40,6 +41,13 @@ jobs:
       # 格式类规则（E5xx 行宽之类）故意不开，那些是口味。
       - name: Ruff（只查真 bug 类）
         run: ruff check platform/backend/src --select F
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: platform/frontend/package-lock.json
+      - name: 准备后端验证脚本所需的前端工具
+        run: npm ci --prefix platform/frontend
       - name: 准备工作流代码沙箱
         run: |
           docker build -f Dockerfile.sandbox -t "$SANDBOX_IMAGE" \
@@ -47,6 +55,8 @@ jobs:
             --build-arg SANDBOX_GID="$(id -g)" .
           echo "SANDBOX_UID=$(id -u)" >> "$GITHUB_ENV"
           echo "SANDBOX_GID=$(id -g)" >> "$GITHUB_ENV"
+      - name: 准备数据分析环境
+        run: docker build -f Dockerfile.modeling -t "$MODELING_IMAGE" .
       - name: Pytest（全量回归）
         run: pytest tests/ -q --durations=20
 
