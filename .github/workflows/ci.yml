@@ -23,7 +23,6 @@ jobs:
     env:
       MODEL_EGRESS_ENABLED: "false"
       SANDBOX_IMAGE: agent-platform-sandbox:ci
-      MODELING_IMAGE: lilies-modeling:ci
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -56,7 +55,8 @@ jobs:
           echo "SANDBOX_UID=$(id -u)" >> "$GITHUB_ENV"
           echo "SANDBOX_GID=$(id -g)" >> "$GITHUB_ENV"
       - name: 准备数据分析环境
-        run: docker build -f Dockerfile.modeling -t "$MODELING_IMAGE" .
+        # 使用默认镜像名；全局 MODELING_IMAGE 会覆盖恢复与配置文件测试。
+        run: docker build -f Dockerfile.modeling -t lilies-modeling:20260922-feature-tables .
       - name: Pytest（全量回归）
         run: pytest tests/ -q --durations=20
 
