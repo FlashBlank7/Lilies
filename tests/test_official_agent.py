@@ -1700,11 +1700,11 @@ def test_shutdown_does_not_restore_an_explicitly_stopped_or_denied_queued_reques
         state = wait(client, path, headers, ('queued',))
         job_id = state['request_id']
         assert client.post(path+'/messages', headers=headers, json={'message':'supplement','request_key':'supplement'}).status_code == 202
+        async def request_stop():
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as api:
+                return await api.post(path+'/stop', headers=headers)
         async def begin_stop():
-            async def request():
-                async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as api:
-                    return await api.post(path+'/stop', headers=headers)
-            return asyncio.create_task(request())
+            return asyncio.create_task(request_stop())
         async def cancel_stop(task):
             task.cancel()
             return (await asyncio.gather(task, return_exceptions=True))[0]
@@ -1712,7 +1712,10 @@ def test_shutdown_does_not_restore_an_explicitly_stopped_or_denied_queued_reques
             try:
                 if phase == 'stop_before_shutdown':
                     if cancel_waiter: stop_task = client.portal.call(begin_stop)
-                    else: stopping = executor.submit(client.post, path+'/stop', headers=headers)
+                    # Keep the request and response-body read in one portal task.
+                    # A TestClient.post thread may try to read its streaming body
+                    # after concurrent __exit__ has already closed that portal.
+                    else: stopping = client.portal.start_task_soon(request_stop)
                     assert finishing.wait(5)
                     if cancel_waiter: assert isinstance(client.portal.call(cancel_stop, stop_task), asyncio.CancelledError)
                 elif phase == 'denied_before_shutdown':
@@ -1726,7 +1729,7 @@ def test_shutdown_does_not_restore_an_explicitly_stopped_or_denied_queued_reques
                 assert service.shutting_down
                 if phase == 'stop_during_shutdown':
                     if cancel_waiter: stop_task = client.portal.call(begin_stop)
-                    else: stopping = executor.submit(client.post, path+'/stop', headers=headers)
+                    else: stopping = client.portal.start_task_soon(request_stop)
                     # Wait for the public stop to reach the observed task while
                     # shutdown is still waiting for its finalizer.
                     assert stop_entered.wait(5)
