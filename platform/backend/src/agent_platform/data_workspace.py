@@ -563,9 +563,22 @@ class DataWorkspace:
                 current = producers.get(operations[current]['source']['id'])
             if any(op['request']['selection']['row_indices'] is not None for op in chain):
                 raise ValueError('手动选行绑定当前数据版本；保存可换表的流程前，请用字段筛选表达所需样本范围')
-            root_kind = 'file' if chain[0]['source']['id'].startswith('file:') else 'dataset'
-            root_name = 'dataset_id' if root_kind == 'dataset' else 'source_path'
-            nodes = [node('start', 'start', '选择输入数据', inputs=[{'name': root_name, 'label': '输入数据', 'type': 'string', 'required': True, 'resource_kind': root_kind}])]
+            called_fields = {}
+            for i, op in enumerate(chain):
+                if op['request']['tool'].startswith('workflow:'):
+                    task = await self.projects.store.get_task(pid, op['task_id'], snapshots=True)
+                    snapshot = task['snapshots'][op['request']['tool'][9:]]['snapshot']
+                    called_fields[i] = [f for n in snapshot['workflow']['nodes'] if n['type'] == 'start' for f in n['config'].get('inputs', [])]
+            root_kind = chain[0]['source']['id'].partition(':')[0]
+            original_field = next((f for f in called_fields.get(0, []) if f['name'] == chain[0]['request']['input_name']), {})
+            if root_kind == 'dataset' and (original_field.get('resource_kind') == 'file' or original_field.get('type') == 'file' or original_field.get('name') in {'source_path','file_path'}):
+                root_kind = 'file'
+            root_name = {'file':'source_path','dataset':'dataset_id','model':'model','result':'analysis'}[root_kind]
+            root_field = {**deepcopy(original_field), 'name':root_name, 'label':original_field.get('label') or '输入数据',
+                          'type':original_field.get('type', 'object' if root_kind in {'model','result'} else 'string'),
+                          'required':True, 'resource_kind':root_kind}
+            root_field.pop('default', None)
+            nodes = [node('start', 'start', '选择输入数据', inputs=[root_field])]
             incoming = ref('$inputs', root_name)
             if root_kind == 'file' and chain[0].get('dataset_id'):
                 original_data = await self.modeling.get(pid, 'dataset', chain[0]['dataset_id'])
@@ -609,6 +622,20 @@ class DataWorkspace:
                     nodes.append({**deepcopy(n), 'id': prefix + n['id'], 'config': replace(n['config'])})
                     if n['id'] == 'step' and n['type'] == 'tool' and not any(v['id'] == 'selection' for v in op['graph']['nodes']):
                         nodes[-1]['config']['input'][op['request']['input_name']] = incoming
+                    if n['id'] == 'step' and n['type'] == 'tool':
+                        for field in called_fields.get(i, []):
+                            field_name = field['name']
+                            kind = field.get('resource_kind') or ('dataset' if field_name == 'dataset_id' else 'file' if field.get('type') == 'file' or field_name in {'source_path','file_path'} else '')
+                            if field_name == op['request']['input_name']:
+                                continue
+                            input_name = f'op{i + 1}_{field_name}'
+                            exposed = {**deepcopy(field), 'name':input_name, 'label':field.get('label') or field_name}
+                            if kind:
+                                exposed['resource_kind'] = kind
+                            if field_name in n['config']['input']:
+                                exposed['default'] = deepcopy(n['config']['input'][field_name])
+                            nodes[0]['config']['inputs'].append(exposed)
+                            nodes[-1]['config']['input'][field_name] = ref('$inputs', input_name)
                     if n['type'] == 'model_predict' and op['request'].get('model'):
                         for field in ('study_id', 'candidate_id', 'slot'):
                             nodes[-1]['config'][field] = ref('$inputs', model_input, field)

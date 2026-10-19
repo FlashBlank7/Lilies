@@ -1,6 +1,7 @@
 """Workspace behavior: real parsing, scoped resources and real workflow execution."""
 from concurrent.futures import ThreadPoolExecutor
 import time
+import pytest
 
 from tests.test_projects import configured as configured
 from tests.test_projects import graph, node, edge, ref
@@ -306,12 +307,17 @@ def test_agent_uses_workspace_objects_and_waits_for_the_actual_task(configured):
     assert client.get(base+'/data-workspace/operations/'+response['id']).json()['task_id']==response['task_id']
 
 
-def test_default_secondary_file_is_frozen_and_shown_as_an_input(configured):
+@pytest.mark.parametrize('source_kind',['file','dataset'])
+def test_default_secondary_file_is_frozen_and_shown_as_an_input(configured,source_kind):
     client,_,project,_=configured
     client,base,obj,path=setup(configured)
+    if source_kind=='dataset':
+        dataset=client.post(base+'/datasets',json={'source_path':obj['path']}).json()
+        obj=client.get(base+'/data-workspace/object',params={'object_id':'dataset:'+dataset['id']}).json()
     path.with_name('second.csv').write_text('x\noriginal\n')
     graph(client,project['id'],[node('start','start',inputs=[{'name':'source_path','resource_kind':'file'},
-        {'name':'aux_path','resource_kind':'file','default':'requirement-package/second.csv'}]),
+        {'name':'aux_path','resource_kind':'file','default':'requirement-package/second.csv'},
+        {'name':'header','type':'number','purpose':'header_row','default':1}]),
         node('end','end',outputs={'second':ref('$inputs','aux_path')})],[edge('start','end')])
     revision=client.get('/api/v1/applications/'+project['id']+'/draft').json()['revision']
     operation,task=run(client,base,obj,'workflow:'+project['id'],workflow_revision=revision,input_name='source_path')
@@ -320,3 +326,38 @@ def test_default_secondary_file_is_frozen_and_shown_as_an_input(configured):
     frozen=next(o for o in operation['results'] if o.get('name')=='second.csv')
     path.with_name('second.csv').write_text('x\nchanged\n')
     assert preview(client,base,frozen)['rows'][0]['raw']['x']=='original'
+    saved=client.post(base+'/data-workspace/operations/'+operation['id']+'/save',json={'name':'双输入复用','request_key':'two-inputs'}).json()
+    draft=client.get('/api/v1/applications/'+saved['workflow_id']+'/draft').json()
+    inputs=draft['snapshot']['workflow']['nodes'][0]['config']['inputs']
+    auxiliary=next(f for f in inputs if f['name']!='source_path' and f.get('resource_kind')=='file')
+    assert auxiliary['resource_kind']=='file'
+    assert next(f for f in inputs if f.get('purpose')=='header_row')['default']==1
+    replacement=client.get(base+'/data-workspace/object',params={'object_id':'file:requirement-package/second.csv'}).json()
+    reused,task=run(client,base,obj,'workflow:'+saved['workflow_id'],workflow_revision=draft['revision'],input_name='source_path',
+        bindings={auxiliary['name']:{'id':replacement['id'],'version':replacement['version']}})
+    assert task['status']=='succeeded',task
+    changed=next(o for o in reused['results'] if o.get('name')=='second.csv')
+    assert preview(client,base,changed)['rows'][0]['raw']['x']=='changed'
+    assert preview(client,base,frozen)['rows'][0]['raw']['x']=='original'
+
+
+def test_saved_result_workflow_preserves_result_input_type(configured):
+    client,_,project,_=configured
+    client,base,obj,_=setup(configured)
+    graph(client,project['id'],[node('start','start',inputs=[{'name':'source_path','resource_kind':'file'}]),
+        node('end','end',outputs={'answer':42})],[edge('start','end')])
+    revision=client.get('/api/v1/applications/'+project['id']+'/draft').json()['revision']
+    original,task=run(client,base,obj,'workflow:'+project['id'],workflow_revision=revision,input_name='source_path')
+    result=next(o for o in original['results'] if o['kind']=='analysis')
+    graph(client,project['id'],[node('start','start',inputs=[{'name':'analysis','type':'object','resource_kind':'result'}]),
+        node('end','end',outputs={'received':ref('$inputs','analysis')})],[edge('start','end')])
+    revision=client.get('/api/v1/applications/'+project['id']+'/draft').json()['revision']
+    operation,task=run(client,base,result,'workflow:'+project['id'],workflow_revision=revision,input_name='analysis')
+    assert task['status']=='succeeded',task
+    saved=client.post(base+'/data-workspace/operations/'+operation['id']+'/save',json={'name':'复用分析结果','request_key':'result-input'}).json()
+    draft=client.get('/api/v1/applications/'+saved['workflow_id']+'/draft').json()
+    field=draft['snapshot']['workflow']['nodes'][0]['config']['inputs'][0]
+    assert field['resource_kind']=='result' and field['type']=='object'
+    reused,task=run(client,base,result,'workflow:'+saved['workflow_id'],workflow_revision=draft['revision'],input_name=field['name'])
+    assert task['status']=='succeeded',task
+    assert reused['results'][0]['value']['result']==operation['results'][0]['value']
