@@ -92,6 +92,10 @@ class InputField(BaseModel):
     example: Any = None
     options: list[str] = Field(default_factory=list)
     columns: list[InputColumn] = Field(default_factory=list)
+    resource_kind: Literal['', 'file', 'dataset', 'model', 'result'] = ''
+    purpose: Literal['', 'worksheet', 'header_row', 'skip_after_header'] = ''
+    accepted_formats: list[str] = Field(default_factory=list)
+    required_columns: list[str] = Field(default_factory=list)
 
 
 class StartConfig(BaseModel):

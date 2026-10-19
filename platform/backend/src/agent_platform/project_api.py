@@ -419,5 +419,7 @@ def project_router(services, require_token):
     register_session_routes(scoped, services, invoke)
     from .project_space import register_space_routes
     register_space_routes(scoped, services, invoke)
+    from .data_workspace import register_data_workspace_routes
+    register_data_workspace_routes(scoped, services, invoke)
     router.include_router(scoped)
     return router

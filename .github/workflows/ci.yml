@@ -19,7 +19,7 @@ jobs:
       matrix:
         python-version: ["3.12", "3.14"]
     # 全量回归已接近 5000 项；Linux runner 上 20 分钟只能完成约八成。
-    timeout-minutes: 35
+    timeout-minutes: 45
     env:
       MODEL_EGRESS_ENABLED: "false"
       SANDBOX_IMAGE: agent-platform-sandbox:ci
@@ -59,6 +59,10 @@ jobs:
         run: docker build -f Dockerfile.modeling -t lilies-modeling:20260922-feature-tables .
       - name: Pytest（全量回归）
         run: pytest tests/ -q --durations=20
+      - name: 数据工作空间真实计算与换表
+        env:
+          MODEL_TEST_DOCKER: "1"
+        run: pytest tests/test_data_workspace.py -q -k "real_selection or saved_excel"
 
   frontend:
     runs-on: ubuntu-latest

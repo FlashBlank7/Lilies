@@ -32,6 +32,7 @@ def modeling(configured, monkeypatch):
             folder = settings.data_dir / 'test-environment'; folder.mkdir(exist_ok=True)
             (folder / 'worker.py').write_text(Path(modeling_worker.__file__).read_text())
             (folder / 'modeling_preprocessing.py').write_text(Path(modeling_worker.__file__).with_name('modeling_preprocessing.py').read_text())
+            (folder / 'table_selection.py').write_text(Path(modeling_worker.__file__).with_name('table_selection.py').read_text())
             (folder / 'requirements.lock').write_text('Real worker dependencies installed in MODEL_TEST_PYTHON')
             (folder / 'environment.json').write_text(json.dumps({'image': image, 'capabilities': modeling_worker.CAPABILITIES}))
             return folder

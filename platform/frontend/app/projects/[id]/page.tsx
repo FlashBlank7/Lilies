@@ -1,5 +1,6 @@
 'use client'
 
+import DataWorkspace from '@/app/components/DataWorkspace'
 import {FeedbackButton} from '@/app/components/UserFeedback'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
@@ -95,7 +96,7 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
     window.addEventListener('lilies:guide-navigate', listener)
     return () => window.removeEventListener('lilies:guide-navigate', listener)
   }, [id])
-  useEffect(() => { const selected = new URLSearchParams(window.location.search).get('run'); if (selected) { setReuseTask(undefined); setRunWorkflowId(selected); setTab('run') } }, [id])
+  useEffect(() => { if(new URLSearchParams(window.location.search).get('tab')==='workspace')setTab('workspace');const selected = new URLSearchParams(window.location.search).get('run'); if (selected) { setReuseTask(undefined); setRunWorkflowId(selected); setTab('run') } }, [id])
   useEffect(() => {
     const request = ++taskRequest.current
     setTaskLinkError(''); setTaskLoading(false); setReader(false); setTask(null)
@@ -161,7 +162,7 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
   const workflowCount = project?.members.filter(member=>member.purpose==='business').length || 0
   const activeMember = project?.members.find(m => m.id === workflowId)
   return <AppShell projectName={project?.name} navigation={<nav className={styles.projectNav} role="tablist" aria-label="项目页面">
-      {([['overview', '对话', MessageSquare], ['space', '项目空间', Files], ['flow', '工作流', Workflow], ['materials', '资料与知识', Files], ['models', '模型', ChartNoAxesCombined], ['results', '运行记录', ChartNoAxesCombined], ['settings', '设置', Wrench]] as const).map(([key, label, Icon]) =>
+      {([['overview', '对话', MessageSquare], ['workspace', '数据工作空间', Files], ['space', '项目空间', Files], ['flow', '工作流', Workflow], ['materials', '资料与知识', Files], ['models', '模型', ChartNoAxesCombined], ['results', '运行记录', ChartNoAxesCombined], ['settings', '设置', Wrench]] as const).map(([key, label, Icon]) =>
         <button key={key} role="tab" aria-label={label} title={label} aria-selected={tab === key} onClick={() => key === 'flow' ? void showFlow() : setTab(key)}><Icon size={17} /><span>{label}</span></button>)}
     </nav>}><main className={styles.page} onClickCapture={event => {
       const anchor = (event.target as HTMLElement).closest('a')
@@ -181,6 +182,7 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
     {error && <p role="alert" className={styles.error}>{error}</p>}
     {taskLoading && <p role="status">正在读取运行结果…</p>}
     {taskLinkError && <p role="alert" className={styles.error}>{taskLinkError}</p>}
+    {tab==='workspace' && <DataWorkspace projectId={id} onWorkflow={workflow=>{void refresh();void showFlow(undefined,workflow)}} />}
     {tab==='space' && <ProjectSpace projectId={id} onWorkflow={workflow=>{void refresh();void showFlow(undefined,workflow)}} onFile={showFile} onChanged={refresh} onTalk={(message,mode='task')=>{setFocus({nonce:Date.now(),label:'项目空间',message,mode});setTab('overview');setReader(false)}} />}
     {tab === 'models' && <ProjectModels projectId={id} onWorkflow={workflow => { void refresh(); void showFlow(undefined, workflow); setEditingFlow(true) }} onTask={taskId => { void refresh(); void showTask(taskId) }} onTalk={message => talk(undefined, message)} />}
     <div hidden={tab !== 'flow'}><WorkflowComposer projectId={id} workflowId={workflowId} onChanged={workflow => { void refresh(); void showFlow(undefined, workflow); setEditingFlow(true) }} /></div>

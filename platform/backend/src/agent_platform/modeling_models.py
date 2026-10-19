@@ -199,9 +199,16 @@ class CandidateRequest(Contract):
         return self
 
 
+class TableFilter(Contract):
+    column: str
+    operator: Literal['eq', 'ne', 'gt', 'ge', 'lt', 'le', 'contains', 'empty', 'state']
+    value: str | float | None = None
+
+
 class DataAnalysisPlan(Contract):
-    operation: Literal['profile', 'prepare', 'spearman', 'outliers', 'numeric'] = 'profile'
-    row_indices: list[int] | None = Field(default=None, description='prepare only: zero-based positions in the current dataset, in output order. Omit to keep every row, including blanks. Rules and original locations are inherited even for absent categories.')
+    operation: Literal['profile', 'prepare', 'select', 'spearman', 'outliers', 'numeric'] = 'profile'
+    filters: list[TableFilter] = Field(default_factory=list, max_length=30)
+    row_indices: list[int] | None = Field(default=None, description='prepare/select: zero-based positions in the current dataset, in output order. Omit to keep every row, including blanks. Rules and original locations are inherited even for absent categories.')
     columns: list[str] = Field(default_factory=list, max_length=50)
     missing: Literal['pairwise', 'complete', 'raise'] = 'pairwise'
     method: Literal['iqr', 'bounds'] = 'iqr'
@@ -213,9 +220,11 @@ class DataAnalysisPlan(Contract):
 
     @model_validator(mode='after')
     def valid_columns_and_bounds(self):
-        if self.row_indices is not None and (self.operation != 'prepare' or len(set(self.row_indices)) != len(self.row_indices)
+        if self.filters and self.operation != 'select':
+            raise ValueError('筛选条件用于选取数据步骤')
+        if self.row_indices is not None and (self.operation not in {'prepare', 'select'} or len(set(self.row_indices)) != len(self.row_indices)
                                             or any(i < 0 for i in self.row_indices)):
-            raise ValueError('row_indices 仅用于 prepare，须为不重复的非负数据行号；省略表示保留全部行')
+            raise ValueError('row_indices 仅用于 prepare/select，须为不重复的非负数据行号；省略表示保留全部行')
         if len(self.columns) != len(set(self.columns)):
             raise ValueError('分析列不能重复')
         if self.lower is not None and self.upper is not None and self.lower > self.upper:

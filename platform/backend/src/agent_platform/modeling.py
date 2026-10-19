@@ -251,6 +251,12 @@ class Modeling:
                 if state.get('table_sha256') and state['table_sha256'] != doc['files']['source']['sha256']:
                     raise ValueError('处理后的表格已改变，请从原始表重新处理，不能沿用旧状态')
                 doc['files']['state'] = {'name': dest.name, 'sha256': hashlib.sha256(dest.read_bytes()).hexdigest(), 'bytes': dest.stat().st_size, 'original': state_path}
+            if upload is None and Path(body.source_path).name in {'processed.csv', 'predictions.csv'}:
+                companion = Path(body.source_path).with_name('source-rows.json')
+                if (self.services.projects.workspace(project_id) / companion).is_file():
+                    dest = folder / 'source-rows.json'
+                    await asyncio.to_thread(copy_workspace_file, self.source(project_id, companion.as_posix()), dest)
+                    doc['files']['origins'] = {'name': dest.name, 'sha256': hashlib.sha256(dest.read_bytes()).hexdigest(), 'bytes': dest.stat().st_size}
             return await self.put(project_id, 'dataset', doc)
         except BaseException:
             shutil.rmtree(folder)
@@ -277,7 +283,7 @@ class Modeling:
         folder = self.root / '_environments' / image.replace(':', '-')
         if (folder / 'worker.py').exists():
             return folder
-        script = "import json,pathlib,importlib.metadata,platform,runpy; root=pathlib.Path('/opt/modeling'); print(json.dumps({'worker':(root/'worker.py').read_text(),'capabilities':runpy.run_path(str(root/'worker.py')).get('CAPABILITIES',[]),'support_files':{name:(root/name).read_text() for name in ['modeling_preprocessing.py'] if (root/name).is_file()},'requirements':'\\n'.join(sorted(d.metadata['Name']+'=='+d.version for d in importlib.metadata.distributions())),'python':platform.python_version(),'machine':platform.machine()}))"
+        script = "import json,pathlib,importlib.metadata,platform,runpy; root=pathlib.Path('/opt/modeling'); print(json.dumps({'worker':(root/'worker.py').read_text(),'capabilities':runpy.run_path(str(root/'worker.py')).get('CAPABILITIES',[]),'support_files':{name:(root/name).read_text() for name in ['modeling_preprocessing.py', 'table_selection.py'] if (root/name).is_file()},'requirements':'\\n'.join(sorted(d.metadata['Name']+'=='+d.version for d in importlib.metadata.distributions())),'python':platform.python_version(),'machine':platform.machine()}))"
         name = 'lilies-modeling-environment-' + str(uuid4())
         self.containers.add(name)
         process = None
@@ -303,7 +309,7 @@ class Modeling:
             support = metadata.pop('support_files', {})
             if not isinstance(worker, str) or not worker.strip() or not isinstance(requirements, str):
                 raise ValueError('缺少 worker 或依赖信息')
-            if not isinstance(support, dict) or set(support) - {'modeling_preprocessing.py'} or any(not isinstance(value, str) or not value.strip() for value in support.values()):
+            if not isinstance(support, dict) or set(support) - {'modeling_preprocessing.py', 'table_selection.py'} or any(not isinstance(value, str) or not value.strip() for value in support.values()):
                 raise ValueError('预处理代码不完整')
         except (ValueError, TypeError, KeyError, AttributeError) as error:
             raise RuntimeError(f'建模环境 {image} 返回的代码或依赖信息不完整；请维护方检查建模镜像') from error
@@ -340,11 +346,13 @@ class Modeling:
 
     async def compute(self, project_id, dataset, config, folder, *, image='', on_event=None, timeout=1800, extra_mounts=None, writable_mounts=None):
         """Only this transport knows Docker; tests may use a real local worker instead."""
-        if dataset['mapping'].get('field_rules') or config.get('analysis', {}).get('operation') == 'prepare':
+        if dataset['mapping'].get('field_rules') or config.get('analysis', {}).get('operation') in {'prepare', 'select'}:
             environment = await self.snapshot_environment(image or await self.image())
             capabilities = json.loads((environment / 'environment.json').read_text()).get('capabilities', [])
             if config.get('analysis', {}).get('operation') == 'prepare' and 'table_prepare_v1' not in capabilities:
                 raise ValueError('该建模环境不支持保留字段含义的表格整理，请选择新版建模环境')
+            if config.get('analysis', {}).get('operation') == 'select' and 'table_selection_v1' not in capabilities:
+                raise ValueError('该建模环境不支持数据选择，请使用支持 table_selection_v1 的镜像')
             if 'field_semantics_v1' not in capabilities:
                 raise ValueError('该建模环境不支持字段含义规则，请选择新版建模环境；不能忽略规则继续计算')
             if any(r.get('category_labels') for r in dataset['mapping']['field_rules'].values()) and 'field_reporting_v1' not in capabilities:
@@ -447,12 +455,14 @@ class Modeling:
             destination.mkdir(parents=True, exist_ok=False)
             names = ['analysis.json']
             names += {'spearman': ['correlations.csv'], 'outliers': ['outliers.csv', 'source-rows.csv'],
-                      'numeric': ['conversions.csv', 'source-rows.csv'], 'prepare': ['source-rows.csv']}[plan.operation]
+                      'numeric': ['conversions.csv', 'source-rows.csv'], 'prepare': ['source-rows.csv'], 'select': ['source-rows.json']}[plan.operation]
+            if (folder / 'output/source-rows.json').is_file() and 'source-rows.json' not in names:
+                names.append('source-rows.json')
             if (folder / 'output/data-state.json').is_file():
                 names.append('data-state.json')
             if (folder / 'output/data-summary.md').is_file():
                 names.append('data-summary.md')
-            if plan.operation in {'numeric', 'prepare'} or (plan.operation == 'outliers' and plan.handling != 'flag'):
+            if plan.operation in {'numeric', 'prepare', 'select'} or (plan.operation == 'outliers' and plan.handling != 'flag'):
                 names.append('processed.csv')
             artifacts = []
             for name in names:
@@ -463,17 +473,23 @@ class Modeling:
         artifacts = await asyncio.to_thread(export)
         result.update(dataset_id=dataset_id, source_dataset_id=dataset_id, operation_id=operation_id,
                       analysis=plan.model_dump(), image=image, artifacts=artifacts)
-        if plan.operation in {'numeric', 'prepare'} or (plan.operation == 'outliers' and plan.handling != 'flag'):
+        if plan.operation in {'numeric', 'prepare', 'select'} or (plan.operation == 'outliers' and plan.handling != 'flag'):
             derived = await self.dataset(project_id, DatasetRequest(
-                name=dataset['name'] + {'numeric': ' · 数值整理', 'prepare': ' · 表格整理', 'outliers': ' · 异常值处理'}[plan.operation],
+                name=dataset['name'] + {'numeric': ' · 数值整理', 'prepare': ' · 表格整理', 'outliers': ' · 异常值处理', 'select': ' · 所选数据'}[plan.operation],
                 source_path=(relative / 'processed.csv').as_posix(),
                 state_path=(relative / 'data-state.json').as_posix() if (destination / 'data-state.json').is_file() else '',
                 mapping={**dataset['mapping'], 'sheet': 0, 'header_row': 0, 'skip_after_header': 0}))
+            if (destination / 'source-rows.json').is_file():
+                origin_path = self.path(project_id, derived['id']) / 'source-rows.json'
+                copy_workspace_file(destination / 'source-rows.json', origin_path)
+                derived['files']['origins'] = {'name': origin_path.name, 'sha256': hashlib.sha256(origin_path.read_bytes()).hexdigest(), 'bytes': origin_path.stat().st_size}
             derived.update(derived_from=dataset_id, transformation={'operation_id': operation_id,
                            'analysis': plan.model_dump(), 'image': image})
             await self.put(project_id, 'dataset', derived)
             result['dataset_id'] = derived['id']
             result['mapping'] = derived['mapping']
+            result['source_path'] = (relative / 'processed.csv').as_posix()
+            result['state_path'] = (relative / 'data-state.json').as_posix() if derived['files'].get('state') else ''
         return result
 
     @staticmethod
@@ -867,6 +883,14 @@ class Modeling:
         destination.parent.mkdir(parents=True, exist_ok=True)
         copy_workspace_file(folder / 'output/predictions.csv', destination)
         result['project_path'] = relative.as_posix()
+        # Predictions are another table input. Preserve original positions when
+        # the result is filtered or passed to the next workflow.
+        import csv
+        with destination.open(newline='') as stream:
+            rows = csv.DictReader(stream)
+            if {'source_row', 'source_line'} <= set(rows.fieldnames or []):
+                origins = {str(i): {'source_row': int(row['source_row']), 'source_line': int(row['source_line'])} for i,row in enumerate(rows)}
+                destination.with_name('source-rows.json').write_text(json.dumps(origins))
         state = folder / 'output/data-state.json'
         if state.is_file():
             copy_workspace_file(state, destination.with_name('data-state.json'))

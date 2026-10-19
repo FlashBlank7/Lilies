@@ -13,7 +13,7 @@ async def space(services, project_id):
     blocks = await services.projects.blocks_for(project_id)
     workflows = []
     for member in project['members']:
-        if member.get('purpose') == 'test':
+        if member.get('purpose') in {'test', 'workspace'}:
             continue
         draft = await services.workflow_store.get_draft(member['id'])
         snapshot = draft['snapshot']

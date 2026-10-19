@@ -19,7 +19,7 @@ import sys
 import time
 import traceback
 
-CAPABILITIES = ['categorical_missing_preserve', 'field_semantics_v1', 'field_reporting_v1', 'table_prepare_v1']
+CAPABILITIES = ['categorical_missing_preserve', 'field_semantics_v1', 'field_reporting_v1', 'table_prepare_v1', 'table_selection_v1']
 
 
 def clean(value):
@@ -142,6 +142,8 @@ def read_data(config, *, preview=False, literal_columns=()):
     rules = mapping.get('field_rules', {})
     frame = read_table(config.get('labels') or config['source'], mapping, preview,
                        literal_columns=list(dict.fromkeys([*literal_columns, *rules])))
+    if config.get('origins'):
+        frame.attrs['source_rows'] = json.loads(Path(config['origins']).read_text())
     if not rules:
         if config.get('state'):
             raise ValueError('数据带有字段状态，不能丢弃 field_rules 后读取')
@@ -406,6 +408,24 @@ def profile(config):
     return clean(result)
 
 
+def write_processed_table(frame, config, output, changed_columns=()):
+    """Keep uninterpreted tokens and physical row origins across transformations."""
+    written = frame.copy()
+    unruled = [c for c in frame if c not in config['mapping'].get('field_rules', {}) and c not in changed_columns]
+    if unruled:
+        raw = read_table(config['source'], config['mapping'], literal_columns=unruled)
+        for column in unruled:
+            written[column] = raw.loc[frame.index, column]
+    written.to_csv(output / 'processed.csv', index=False)
+    previous = frame.attrs.get('source_rows', {})
+    cells = {str(c['row']): c for c in frame.attrs.get('data_state', {}).get('cells', [])}
+    origins = {str(i): {k: (cells.get(str(row)) or previous.get(str(row)) or {
+        'source_row': int(row), 'source_line': int(row) + config['mapping'].get('header_row', 0) + config['mapping'].get('skip_after_header', 0) + 2})[k]
+        for k in ('source_row', 'source_line')} for i, row in enumerate(frame.index)}
+    save(output / 'source-rows.json', origins)
+    write_data_state(frame, output)
+
+
 def analyze(config):
     """Explicit numeric operations on a single table, independent of training."""
     import numpy as np
@@ -416,6 +436,19 @@ def analyze(config):
     operation = plan['operation']
     if operation == 'profile':
         return profile(config)
+    if operation == 'select':
+        try:
+            from .table_selection import select_table
+        except ImportError:
+            from table_selection import select_table
+        frame = read_data(config)
+        selected = select_table(frame, plan)
+        output = Path(config['output']); output.mkdir(parents=True, exist_ok=True)
+        write_processed_table(selected, config, output)
+        result = {'operation': 'select', 'rows': len(frame), 'output_rows': len(selected),
+                  'columns': list(selected.columns), 'data_state': data_state_summary(selected)}
+        save(output / 'analysis.json', result)
+        return clean(result)
     if config['mapping'].get('kind', 'tabular') != 'tabular' or config.get('labels'):
         raise ValueError('统计与异常值操作需要单张表格；请先明确整理时序或独立标签表')
     columns = plan['columns']
@@ -433,9 +466,10 @@ def analyze(config):
         if indices is not None and (len(set(indices)) != len(indices) or any(i < 0 or i >= len(frame) for i in indices)):
             raise ValueError('所选行号越界或重复；row_indices 是当前数据集从 0 开始的数据行号')
         processed = frame if indices is None else frame.iloc[indices].copy()
+        if columns:
+            processed = processed.loc[:, columns].copy()
         output = Path(config['output']); output.mkdir(parents=True, exist_ok=True)
-        processed.to_csv(output / 'processed.csv', index=False)
-        write_data_state(processed, output)
+        write_processed_table(processed, config, output)
         state = json.loads((output / 'data-state.json').read_text())
         origins = {r['row']: r for r in state['cells']}
         pd.DataFrame([{'row': i, 'source_row': origins[i]['source_row'], 'source_line': origins[i]['source_line']} for i in range(len(processed))],
@@ -449,7 +483,7 @@ def analyze(config):
         ruled = config['mapping'].get('field_rules', {})
         processed, changes = prepare_numeric(frame, [c for c in columns if c not in ruled], plan.get('numeric', {}))
         output = Path(config['output']); output.mkdir(parents=True, exist_ok=True)
-        processed.to_csv(output / 'processed.csv', index=False)
+        write_processed_table(processed, config, output, columns)
         pd.DataFrame(changes, columns=['source_row', 'column', 'original', 'value', 'conversion']).to_csv(output / 'conversions.csv', index=False)
         pd.DataFrame({'source_row': processed.index}).to_csv(output / 'source-rows.csv', index=False)
         result = clean({'operation': operation, 'rows': len(frame), 'output_rows': len(processed), 'columns': columns,
@@ -552,8 +586,7 @@ def analyze(config):
         if handling != 'flag':
             if processed.empty:
                 raise ValueError('异常值处理会删除全部样本，请调整边界')
-            processed.to_csv(output / 'processed.csv', index=False)
-            write_data_state(processed, output)
+            write_processed_table(processed, config, output, columns if handling == 'clip' else ())
         pd.DataFrame(details, columns=['source_row', 'column', 'value', 'lower', 'upper']).to_csv(output / 'outliers.csv', index=False)
         pd.DataFrame({'source_row': processed.index}).to_csv(output / 'source-rows.csv', index=False)
         result.update(method=method, handling=handling, bounds=bounds, affected_rows=int(affected.sum()),
@@ -1391,6 +1424,10 @@ def predict(config):
         output['source_line'] = [origins[int(i)]['source_line'] for i in frame['_sample']]
         output['prediction_status'] = np.where(usable, 'predicted', 'unavailable')
         output['prediction_reason'] = ['；'.join(blocked.get(int(i), [])) for i in frame['_sample']]
+    elif frame.attrs.get('source_rows'):
+        origins = frame.attrs['source_rows']
+        output['source_row'] = [origins[str(int(i))]['source_row'] for i in frame['_sample']]
+        output['source_line'] = [origins[str(int(i))]['source_line'] for i in frame['_sample']]
     probability_columns = {}
     if config.get('classes'):
         probabilities = model.predict_proba(input_x) if len(input_x) else np.empty((0, len(config['classes'])))
