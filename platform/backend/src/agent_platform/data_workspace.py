@@ -189,9 +189,7 @@ class DataWorkspace:
                 **{k: str(self.modeling.source(pid, v)) for k,v in obj.get('companions', {}).items()}}
 
     async def preview(self, pid, body):
-        obj = await self.object(pid, body.object_id)
-        if body.version and obj['version'] != body.version:
-            raise ProjectConflict('数据版本已变化，请刷新后重新选择')
+        obj = await self.checked(pid, ObjectRef(id=body.object_id, version=body.version)) if body.version else await self.object(pid, body.object_id)
         if obj['kind'] == 'table':
             config = await self.table_config(pid, obj, body.mapping)
             return {**await asyncio.to_thread(self.views.preview, config, body), 'object': obj}
@@ -450,6 +448,17 @@ class DataWorkspace:
                 for field in fields:
                     if field['name'] not in values and field.get('default') is not None:
                         values[field['name']] = field['default']
+                    # Default/parameter resource inputs need the same fixed-file
+                    # binding as resources explicitly selected in the dialog.
+                    resource_kind = field.get('resource_kind') or ('dataset' if field['name'] == 'dataset_id' else 'file' if field.get('type') == 'file' or field['name'] in {'source_path','file_path'} else '')
+                    if field['name'] != body.input_name and field['name'] not in body.bindings and resource_kind in {'file','dataset'} and values.get(field['name']) not in (None, ''):
+                        raw = values[field['name']]
+                        if not isinstance(raw, str):
+                            raise ValueError('输入“' + field['name'] + '”需要选择项目对象')
+                        resource = await self.object(pid, resource_kind + ':' + raw)
+                        resource = await self.checked(pid, ObjectRef(id=resource['id'], version=resource['version']))
+                        values[field['name']] = await self.bound_value(pid, resource, field)
+                        input_objects.append({'role':field.get('label') or field['name'], **{k:resource[k] for k in ('id','version','name')}})
                     if field.get('resource_kind') == 'model' and field['name'] not in body.bindings and isinstance(values.get(field['name']), dict):
                         binding = values[field['name']]
                         if 'candidate_id' in binding and 'slot' in binding:

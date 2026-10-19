@@ -20,6 +20,16 @@
 - 预测流程使用显式历史模型输入。保存预测处理链不沿模型来源回溯训练。
 - 已完成步骤的产物在失败后保留；整次任务结束才显示完成，失败结果不借用其他运行报告。
 
+## 开发环境准备
+
+安装更新后的平台依赖与前端依赖。数据选择要求计算镜像声明 `table_selection_v1`；使用当前源码重建镜像，并将调试配置的 `MODELING_IMAGE` 指向该镜像，例如：
+
+```sh
+docker build -f Dockerfile.modeling -t lilies-modeling:data-workspace .
+```
+
+已训练研究继续绑定原镜像，不替换其模型环境。原镜像缺少新选择能力时会明确拒绝，不能忽略字段规则运行。PDF 预览依赖由平台 Python 安装包提供，不要求浏览器安装 PDF 插件。
+
 ## 实现入口
 
 后端 `/api/v1/projects/{project_id}/data-workspace` 提供对象列表、`object`、`preview`、`file`、`catalog`、`operations` 和操作的 `save`。`project_data_workspace` 供项目智能体调用同一服务。Skill 只说明如何配置，未另写一套处理实现。

@@ -200,6 +200,7 @@ def test_dataset_version_rejects_changed_frozen_content(configured):
     file.write_text('id,x,y,label\n001,999,1,0\n')
     response=client.post(base+'/data-workspace/operations',json={'request_key':'tampered','source':{'id':obj['id'],'version':obj['version']},'tool':'profile'})
     assert response.status_code==409
+    assert client.post(base+'/data-workspace/preview',json={'object_id':obj['id'],'version':obj['version']}).status_code==409
     assert client.get(base+'/tasks').json()==[]
 
 
@@ -303,3 +304,19 @@ def test_agent_uses_workspace_objects_and_waits_for_the_actual_task(configured):
     assert response['status']=='succeeded'
     assert client.get(base+'/tasks/'+response['task_id']).json()['status']=='succeeded'
     assert client.get(base+'/data-workspace/operations/'+response['id']).json()['task_id']==response['task_id']
+
+
+def test_default_secondary_file_is_frozen_and_shown_as_an_input(configured):
+    client,_,project,_=configured
+    client,base,obj,path=setup(configured)
+    path.with_name('second.csv').write_text('x\noriginal\n')
+    graph(client,project['id'],[node('start','start',inputs=[{'name':'source_path','resource_kind':'file'},
+        {'name':'aux_path','resource_kind':'file','default':'requirement-package/second.csv'}]),
+        node('end','end',outputs={'second':ref('$inputs','aux_path')})],[edge('start','end')])
+    revision=client.get('/api/v1/applications/'+project['id']+'/draft').json()['revision']
+    operation,task=run(client,base,obj,'workflow:'+project['id'],workflow_revision=revision,input_name='source_path')
+    assert task['status']=='succeeded',task
+    assert len(operation['inputs'])==2
+    frozen=next(o for o in operation['results'] if o.get('name')=='second.csv')
+    path.with_name('second.csv').write_text('x\nchanged\n')
+    assert preview(client,base,frozen)['rows'][0]['raw']['x']=='original'
