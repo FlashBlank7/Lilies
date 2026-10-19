@@ -206,14 +206,17 @@ def test_dataset_version_rejects_changed_frozen_content(configured):
 
 
 def test_failure_does_not_reuse_another_runs_success_report(configured):
-    client, app, project, _ = configured
-    client, base, obj, path = setup(configured)
-    path.with_name('report.html').write_text('<h1>Only the successful run</h1>')
+    client, app, project, settings = configured
+    client, base, obj, _ = setup(configured)
+    report = settings.workspace_root / project['id'] / 'results/report.html'
+    report.parent.mkdir(exist_ok=True)
+    report.write_text('<h1>Only the successful run</h1>')
     graph(client,project['id'],[node('start','start',inputs=[{'name':'source_path','resource_kind':'file'}]),
-        node('end','end',outputs={'report':'requirement-package/report.html','input':ref('$inputs','source_path')})],[edge('start','end')])
+        node('end','end',outputs={'report':'results/report.html','input':ref('$inputs','source_path')})],[edge('start','end')])
     revision=client.get('/api/v1/applications/'+project['id']+'/draft').json()['revision']
     success,task=run(client,base,obj,'workflow:'+project['id'],workflow_revision=revision,input_name='source_path')
     assert task['status']=='succeeded'
+    assert any(value.get('path') == 'results/report.html' for value in success['results'])
     graph(client,project['id'],[node('start','start',inputs=[{'name':'source_path','resource_kind':'file'}]),
         node('step','code',code='raise ValueError("验收中的故意失败")'),node('end','end',outputs={'result':ref('step','output')})],[edge('start','step'),edge('step','end')])
     revision=client.get('/api/v1/applications/'+project['id']+'/draft').json()['revision']
@@ -222,6 +225,25 @@ def test_failure_does_not_reuse_another_runs_success_report(configured):
     assert failed['results']==[]
     assert failed['task_id']!=success['task_id']
     assert client.get(base+'/data-workspace/operations/'+success['id']).json()['status']=='succeeded'
+
+
+def test_failed_workflow_call_keeps_its_completed_step_artifact(configured):
+    client, _, project, settings = configured
+    client, base, obj, _ = setup(configured)
+    artifact = settings.workspace_root / project['id'] / 'results/partial.csv'
+    artifact.parent.mkdir(exist_ok=True)
+    artifact.write_text('x,y\n1,2\n')
+    graph(client, project['id'], [
+        node('start', 'start', inputs=[{'name':'source_path','resource_kind':'file'}]),
+        node('completed', 'template_transform', template='results/partial.csv', variables={}),
+        node('failed', 'code', code='raise ValueError("后续步骤失败，保留已完成产物")'),
+        node('end', 'end', outputs={'result':ref('failed','output')}),
+    ], [edge('start','completed'), edge('completed','failed'), edge('failed','end')])
+    revision = client.get('/api/v1/applications/'+project['id']+'/draft').json()['revision']
+    operation, task = run(client, base, obj, 'workflow:'+project['id'], workflow_revision=revision, input_name='source_path')
+    assert task['status'] == 'failed'
+    assert [value.get('path') for value in operation['results']] == ['results/partial.csv']
+    assert preview(client, base, operation['results'][0])['total_rows'] == 1
 
 
 def test_numeric_equality_and_literal_category_identity_use_different_semantics(configured):

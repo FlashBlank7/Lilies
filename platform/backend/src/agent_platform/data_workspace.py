@@ -310,7 +310,11 @@ class DataWorkspace:
         if task:
             # Only completed step outputs from this task, including partial failure.
             for run in task.get('runs', []):
-                if run['application_id'] != value['workflow_id']:
+                # A failed call never completes its parent tool node. Recover
+                # completed child steps from this task's failed/cancelled runs.
+                # Successful calls already expose their outputs on the parent.
+                partial_call = task['status'] in {'failed', 'interrupted'} and run['status'] in {'failed', 'cancelled'}
+                if run['application_id'] != value['workflow_id'] and not partial_call:
                     continue
                 saved = await self.services.workflow_store.get_run(run['id'])
                 state = saved['state']
