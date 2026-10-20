@@ -17,7 +17,7 @@ def test_profile_distinguishes_labeled_repeats_from_unlabeled_rows_and_missing_g
     summary = profile_summary(result)
     assert summary['sample_structure'] == result['sample_structure']
     assert 'chip' in summary['warnings'][0] and 'evaluation.split="group"' in summary['warnings'][0]
-    assert 'preview' not in summary
+    assert summary['preview'] == {'preview_omitted': True, 'count': len(result['preview'])}
     assert result['preview'][0]['chip'] == '001'
 
 
