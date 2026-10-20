@@ -35,6 +35,33 @@ if [[ -f .env ]]; then
   load_env_file .env
 fi
 
+DEBUG_MODE=false
+CHECK_ENV=false
+for option in "$@"; do
+  case "$option" in
+    --debug) DEBUG_MODE=true ;;
+    --check-env) CHECK_ENV=true ;;
+    *) echo "Usage: $0 [--debug] [--check-env]" >&2; exit 1 ;;
+  esac
+done
+
+# Password-free access is an explicit startup choice, never inherited from .env.
+export LILIES_LOCAL_DEBUG=false LILIES_LOCAL_DEBUG_TOKEN=''
+if [[ "$DEBUG_MODE" == true ]]; then
+  export API_HOST=127.0.0.1 WEB_HOST=127.0.0.1
+  export DATA_DIR="$ROOT/.local-debug/data"
+  export WORKSPACE_ROOT="$ROOT/.local-debug/workspaces"
+  export WORKSPACE_HOST_ROOT="$WORKSPACE_ROOT"
+  export MODEL_EGRESS_ENABLED=false OFFICIAL_AGENT_EGRESS_ENABLED=false
+  export LILIES_LOCAL_DEBUG=true
+  LILIES_LOCAL_DEBUG_TOKEN="$(openssl rand -hex 32)"
+  export LILIES_LOCAL_DEBUG_TOKEN
+  export API_TOKEN="$LILIES_LOCAL_DEBUG_TOKEN"
+  STUDIO_PLATFORM_URL="http://127.0.0.1:$API_PORT"
+  echo "Local debug mode: no login required; loopback access only."
+  echo "Debug data: $DATA_DIR"
+fi
+
 API_CONNECT_HOST="$API_HOST"
 if [[ "$API_CONNECT_HOST" == "0.0.0.0" || "$API_CONNECT_HOST" == "::" ]]; then
   API_CONNECT_HOST="127.0.0.1"
@@ -46,7 +73,7 @@ fi
 API_CONNECT_URL="http://$API_CONNECT_AUTHORITY:$API_PORT"
 STUDIO_PLATFORM_URL="${STUDIO_PLATFORM_URL:-$API_CONNECT_URL}"
 
-if [[ "${1:-}" == "--check-env" ]]; then
+if [[ "$CHECK_ENV" == true ]]; then
   [[ -n "${API_TOKEN:-}" ]] && echo "API_TOKEN ok" || echo "API_TOKEN not configured (optional service integration)"
   echo "Studio proxy target: $STUDIO_PLATFORM_URL"
   command -v codex >/dev/null 2>&1 && echo "Local Codex found (login checked when connecting)" || echo "Local Codex not found on PATH; select its executable in the project"
@@ -179,6 +206,8 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 echo "Starting API on http://$API_HOST:$API_PORT"
+# A shared development venv must still import this checkout's source.
+export PYTHONPATH="$ROOT/platform/backend/src${PYTHONPATH:+:$PYTHONPATH}"
 .venv/bin/uvicorn agent_platform.api:app --host "$API_HOST" --port "$API_PORT" &
 
 echo "Starting Studio on http://$WEB_HOST:$WEB_PORT"

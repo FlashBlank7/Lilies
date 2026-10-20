@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -139,3 +141,70 @@ def test_example_configuration_keeps_provider_egress_closed(tmp_path: Path, monk
     assert settings.model_egress_enabled is False
     assert not settings.deepseek_api_key
     assert settings.modeling_image == 'lilies-modeling:20260922-feature-tables'
+
+
+@pytest.mark.parametrize('debug', [False, True])
+def test_debug_start_is_explicit_local_isolated_and_uses_ephemeral_credentials(tmp_path: Path, debug: bool) -> None:
+    scripts = tmp_path / 'scripts'
+    scripts.mkdir()
+    script = scripts / 'dev_platform.sh'
+    script.write_text((ROOT / 'scripts/dev_platform.sh').read_text())
+    (tmp_path / '.env').write_text('\n'.join([
+        'API_TOKEN=normal-service-token',
+        'API_HOST=0.0.0.0', 'WEB_HOST=0.0.0.0',
+        'DATA_DIR=ordinary-data', 'WORKSPACE_ROOT=ordinary-workspaces',
+        'WORKSPACE_HOST_ROOT=/ordinary-host',
+        'STUDIO_PLATFORM_URL=http://remote.test:9999',
+        'MODEL_EGRESS_ENABLED=true', 'OFFICIAL_AGENT_EGRESS_ENABLED=true',
+        'LILIES_LOCAL_DEBUG=true', 'LILIES_LOCAL_DEBUG_TOKEN=' + 'e' * 64,
+    ]) + '\n')
+    fake_bin = tmp_path / 'bin'
+    fake_bin.mkdir()
+    (tmp_path / '.venv/bin').mkdir(parents=True)
+    (tmp_path / 'platform/frontend/node_modules').mkdir(parents=True)
+    selected = ['API_TOKEN', 'LILIES_LOCAL_DEBUG', 'LILIES_LOCAL_DEBUG_TOKEN',
+                'DATA_DIR', 'WORKSPACE_ROOT', 'WORKSPACE_HOST_ROOT',
+                'MODEL_EGRESS_ENABLED', 'OFFICIAL_AGENT_EGRESS_ENABLED', 'AGENT_PLATFORM_URL']
+    for name, executable in [('api', tmp_path / '.venv/bin/uvicorn'), ('web', fake_bin / 'npm')]:
+        executable.write_text(
+            f'#!{sys.executable}\nimport os, json, sys\nfrom pathlib import Path\n'
+            f'record = {{key: os.environ.get(key) for key in {selected!r}}}\n'
+            'record["args"] = sys.argv[1:]\n'
+            f'Path(os.environ["LAUNCH_DIR"], "{name}.json").write_text(json.dumps(record))\n'
+        )
+        executable.chmod(0o755)
+    for name, code in [('docker', 0), ('lsof', 1)]:
+        executable = fake_bin / name
+        executable.write_text(f'#!/bin/sh\nexit {code}\n')
+        executable.chmod(0o755)
+    environment = {**os.environ, 'PATH': str(fake_bin) + os.pathsep + os.environ['PATH'],
+                   'API_PORT': '8123', 'WEB_PORT': '3123', 'LAUNCH_DIR': str(tmp_path)}
+    args = ['bash', str(script)] + (['--debug'] if debug else [])
+    first_token = None
+    for _ in range(2):
+        result = subprocess.run(args, env=environment, capture_output=True, text=True, timeout=10)
+        assert result.returncode == 0, result.stderr
+        api = json.loads((tmp_path / 'api.json').read_text())
+        web = json.loads((tmp_path / 'web.json').read_text())
+        assert web['API_TOKEN'] is None
+        if debug:
+            assert api['args'][-4:] == ['--host', '127.0.0.1', '--port', '8123']
+            assert web['args'][-4:] == ['--hostname', '127.0.0.1', '--port', '3123']
+            assert web['AGENT_PLATFORM_URL'] == 'http://127.0.0.1:8123'
+            assert api['API_TOKEN'] == web['LILIES_LOCAL_DEBUG_TOKEN']
+            assert len(api['API_TOKEN']) == 64
+            assert api['API_TOKEN'] != first_token
+            first_token = api['API_TOKEN']
+            assert first_token not in result.stdout + result.stderr
+            assert api['DATA_DIR'] == str(tmp_path / '.local-debug/data')
+            assert api['WORKSPACE_ROOT'] == api['WORKSPACE_HOST_ROOT'] == str(tmp_path / '.local-debug/workspaces')
+            assert api['MODEL_EGRESS_ENABLED'] == api['OFFICIAL_AGENT_EGRESS_ENABLED'] == 'false'
+        else:
+            assert api['API_TOKEN'] == 'normal-service-token'
+            assert web['LILIES_LOCAL_DEBUG'] == 'false'
+            assert web['LILIES_LOCAL_DEBUG_TOKEN'] == ''
+            assert api['DATA_DIR'] == 'ordinary-data'
+            assert web['AGENT_PLATFORM_URL'] == 'http://remote.test:9999'
+    check = subprocess.run([*args, '--check-env'], env=environment, capture_output=True, text=True, timeout=10)
+    assert check.returncode == 0, check.stderr
+    assert ('Local debug mode:' in check.stdout) is debug

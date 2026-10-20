@@ -17,6 +17,7 @@ export default function AuthBoundary({ children }: { children: ReactNode }) {
   const router = useRouter()
   const embedded = useSearchParams().get('embedded') === '1'
   const [user, setUser] = useState<AccountUser | null>(null)
+  const [localDebug, setLocalDebug] = useState(false)
   const [error, setError] = useState('')
   const [retry, setRetry] = useState(0)
   const publicPage = path === '/login' || path === '/register'
@@ -29,7 +30,10 @@ export default function AuthBoundary({ children }: { children: ReactNode }) {
       // Check the current cookie without emitting another unauthorized event.
       void fetch('/api/platform/api/v1/me', { cache: 'no-store' }).then(async response => {
         if (!current) return
-        if (response.ok) { setUser((await response.json()).user); return }
+        if (response.ok) {
+          const result = await response.json()
+          setUser(result.user); setLocalDebug(result.local_debug === true); return
+        }
         if (response.status === 401) {
           setUser(null)
           router.replace('/login?next=' + encodeURIComponent(window.location.pathname + window.location.search))
@@ -38,8 +42,8 @@ export default function AuthBoundary({ children }: { children: ReactNode }) {
     }
     window.addEventListener('lilies:unauthorized', login)
     setError('')
-    const check = () => { void api<{ user: AccountUser }>('/api/v1/me').then(result => {
-      if (current) setUser(result.user)
+    const check = () => { void api<{ user: AccountUser; local_debug?: boolean }>('/api/v1/me').then(result => {
+      if (current) { setUser(result.user); setLocalDebug(result.local_debug === true) }
     }).catch(cause => { if (current) setError(String(cause)) }) }
     check()
     const channel = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('lilies-account') : null
@@ -61,7 +65,8 @@ export default function AuthBoundary({ children }: { children: ReactNode }) {
       <TutorialLauncher />
       <FeedbackNavigation />
       {user.role === 'admin' && <><Link href="/improvements">使用改进</Link><Link href="/official-agent">官方智能体</Link><Link href="/users">账号管理</Link></>}
-      <Link href="/account">{user.name}</Link><button onClick={() => void logout()}>退出登录</button>
+      {localDebug ? <span title="仅本机免登录，数据保存在独立调试目录">本地调试 · 免登录</span>
+        : <><Link href="/account">{user.name}</Link><button onClick={() => void logout()}>退出登录</button></>}
     </nav>}
     {error && <p role="alert" className={styles.error}>{error}</p>}{children}</>
   return <AccountContext.Provider key={user.id} value={user}>
