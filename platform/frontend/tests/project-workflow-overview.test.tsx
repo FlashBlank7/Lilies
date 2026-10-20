@@ -68,3 +68,34 @@ it('lets customers select a capability and retains its context when entering fee
   fireEvent.click(screen.getByRole('button', { name: '反馈或继续完善' }))
   expect(cb.onTalk).toHaveBeenCalledWith(second, '')
 })
+
+it('reads input and output instructions from the current draft when no separate note exists',()=>{
+  const flow = {revision:5,description:'用已训练模型检查新批次',inputs:[{name:'source_path',label:'生产原始表',required:true,description:'保留Sheet2和两行表头'}],outputs:['完整交付'],output_description:'完整报告、结果表与逐行原因',nodes:[],edges:[]}
+  render(<ProjectWorkflowOverview projectId="p" selectedId="p" progress={{...progress,value:{...progress.value,workflows:[]}}} topology={{...topology,flows:{p:flow}}} onWorkflow={vi.fn()} onTalk={vi.fn()} onTask={vi.fn()} onFile={vi.fn()} onRequirements={vi.fn()} onEdit={vi.fn()}/>)
+  expect(screen.getByText('用已训练模型检查新批次')).toBeVisible()
+  expect(screen.getByText('生产原始表')).toBeVisible()
+  expect(screen.getByText('保留Sheet2和两行表头')).toBeVisible()
+  expect(screen.getByText('完整报告、结果表与逐行原因')).toBeVisible()
+})
+
+it('explains a shared draft from its declared inputs and outputs without requiring an AI note', () => {
+  const callbacks = {onWorkflow:vi.fn(),onTalk:vi.fn(),onTask:vi.fn(),onFile:vi.fn(),onRequirements:vi.fn(),onEdit:vi.fn()}
+  const shared = {...topology,flows:{m:{revision:2,nodes:[],edges:[],inputs:[
+    {name:'source_path',label:'费用表',type:'file',required:true,description:'选择当前项目的CSV'},
+    {name:'group_by',label:'汇总维度',type:'string',required:false},
+  ],outputs:['result','artifacts']}}}
+  const value = {...progress,value:{...progress.value,workflows:[],items:[]}}
+  const page=render(<ProjectWorkflowOverview projectId="p" selectedId="m" progress={value} topology={shared} {...callbacks}/>)
+  const inputs=screen.getByRole('region',{name:'工作流输入'})
+  expect(inputs).toHaveTextContent('费用表 · 必填 · 文件')
+  expect(inputs).toHaveTextContent('选择当前项目的CSV')
+  expect(inputs).toHaveTextContent('汇总维度 · 可选 · 文本')
+  expect(screen.getByRole('region',{name:'工作流输出'})).toHaveTextContent('artifacts')
+  expect(screen.getByRole('tab',{name:'协作如何执行'})).toHaveAttribute('aria-selected','true')
+  expect(screen.queryByText(/尚未整理输入说明/)).not.toBeInTheDocument()
+  expect(callbacks.onTalk).not.toHaveBeenCalled()
+  page.rerender(<ProjectWorkflowOverview projectId="p" selectedId="m" progress={value} topology={{...shared,flows:{m:{revision:3,nodes:[],edges:[],inputs:[],outputs:[]}}}} {...callbacks}/>)
+  expect(inputs).toHaveTextContent('r3')
+  expect(inputs).toHaveTextContent('当前流程未声明需要填写的输入')
+  expect(screen.getByRole('region',{name:'工作流输出'})).toHaveTextContent('当前流程未声明结束输出')
+})

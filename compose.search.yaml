@@ -1,0 +1,12 @@
+# Optional project search; independent of the main platform startup.
+# SEARXNG_SECRET="$(openssl rand -hex 32)" docker compose -f compose.search.yaml up -d
+services:
+  search:
+    image: ghcr.io/searxng/searxng@sha256:bcfaed4091d59f7ce85670bd701a2d0295872196dc19908a3965a8353b149f83
+    ports:
+      - "127.0.0.1:8088:8080"
+    environment:
+      SEARXNG_SECRET: ${SEARXNG_SECRET:?Set a randomly generated SEARXNG_SECRET}
+    volumes:
+      - ./deploy/searxng/settings.yml:/etc/searxng/settings.yml:ro
+    restart: unless-stopped

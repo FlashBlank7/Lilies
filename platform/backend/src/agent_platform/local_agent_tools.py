@@ -11,7 +11,7 @@ from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .requirement_discussion import load_discussion, save_discussion
-from .workflow_models import DraftOperation, EdgeSpec, NodeSpec, WorkflowRunRequest, WorkflowTestCase
+from .workflow_models import DraftOperation, EdgeSpec, NodeSpec, WorkflowSpec, WorkflowRunRequest, WorkflowTestCase
 
 
 class Arguments(BaseModel):
@@ -29,6 +29,8 @@ class ProjectFile(Arguments):
 class Catalog(Arguments):
     block_type: str = ""
     tool_name: str = ""
+    view: Literal['compact', 'full'] = 'full'
+    schema_type: Literal['node', 'edge', 'test', 'workflow'] | None = None
 
 
 class Draft(Arguments):
@@ -36,6 +38,12 @@ class Draft(Arguments):
 
     @model_validator(mode='after')
     def update_shape(self):
+        if self.operation and self.operation.op in {'add_node', 'add_edge', 'add_test'}:
+            key = self.operation.op.removeprefix('add_')
+            if not isinstance(self.operation.data.get(key), dict):
+                raise ValueError(f'{self.operation.op} 需要 data={{"{key}":{{...}}}}；'
+                                 f'将完整{key}配置放进 data.{key}，不要直接放在 data 中。'
+                                 '批量 operations 与单次 operation 使用相同结构；保存未生效，可修正后重试。')
         if self.operation and self.operation.op == 'update_node':
             data = self.operation.data
             if not data.get('node_id') or not isinstance(data.get('changes'), dict) or not data['changes']:
@@ -128,6 +136,12 @@ class ProjectTools:
             return await asyncio.to_thread(self.file, args)
         if name == "block_catalog":
             blocks = await self.services.projects.blocks_for(self.application_id)
+            if args.schema_type or args.block_type == 'workflow':
+                # A workflow describes a graph, not a registered block. Generic
+                # graph schemas are independent of optional project capabilities.
+                kind = args.schema_type or 'workflow'
+                model = {'node': NodeSpec, 'edge': EdgeSpec, 'test': WorkflowTestCase, 'workflow': WorkflowSpec}[kind]
+                return {'schema_type': kind, 'schema': model.model_json_schema()}
             if args.tool_name:
                 definition = next((t for t in self.tool_definitions() if t['name'] == args.tool_name), None)
                 if definition:
@@ -153,10 +167,14 @@ class ProjectTools:
                                        'If a required dependency is missing, report the required environment change '
                                        'instead of silently reducing the requested solution.'}
             if args.block_type:
-                return {"manual": blocks.manual(args.block_type),
-                        "node_schema": NodeSpec.model_json_schema(),
-                        "edge_schema": EdgeSpec.model_json_schema(),
-                        "test_schema": WorkflowTestCase.model_json_schema()}
+                result = {"manual": blocks.manual(args.block_type)}
+                if args.view == 'full':
+                    result.update(node_schema=NodeSpec.model_json_schema(),
+                                  edge_schema=EdgeSpec.model_json_schema(),
+                                  test_schema=WorkflowTestCase.model_json_schema())
+                else:
+                    result['detail'] = 'Generic schema: block_catalog(schema_type="node"|"edge"|"test"|"workflow"). view="full" includes all legacy schemas.'
+                return result
             return [{"type": b.type, "title": b.title, "description": b.description}
                     for b in blocks.list()]
         if name == "workflow_draft":
@@ -245,10 +263,20 @@ class ProjectTools:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(args.content, encoding="utf-8")
             return {"path": args.path, "bytes": path.stat().st_size}
+        if not path.is_file():
+            # Imported files retain unique directories. Show possible exact
+            # paths, never silently pick a same-named file or leave the project.
+            listing = self.file(ProjectFile(action='list'))
+            matches = [f['path'] for f in listing['files'] if Path(f['path']).name == path.name][:5]
+            detail = ('；同名资料：' + '、'.join(matches)) if matches else ''
+            detail += '；请用 project_file(action="list") 取得完整 path（含上传目录编号）'
+            raise ValueError('未找到项目资料：' + args.path + detail)
         if args.action == "profile":
             if path.suffix.lower() not in {".csv", ".tsv"}:
-                raise ValueError("字段统计支持 CSV/TSV；其他文本请使用 read")
+                raise ValueError('project_file profile 只支持 CSV/TSV；XLSX 请用 project_modeling(action="register_dataset", dataset={"source_path":"' + args.path + '","mapping":{"sheet":0}})，再用返回的 dataset_id 调用 profile；普通文本用 read，DOCX/PDF 用 project_code 提取')
             return profile_csv(path)
+        if path.suffix.lower() in {'.xlsx', '.xls', '.docx', '.pdf', '.pptx'}:
+            raise ValueError('project_file read 读取 UTF-8 文本；此文件是二进制文档。XLSX 用 project_modeling register_dataset/profile；文档用 project_code 从 /workspace/' + args.path + ' 提取内容')
         lines, size = [], 0
         with path.open(encoding="utf-8-sig") as reader:
             for index, line in enumerate(reader):

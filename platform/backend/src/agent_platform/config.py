@@ -16,6 +16,10 @@ class Settings(BaseSettings):
 
     app_name: str = "Agent Platform"
     api_token: str = "change-me"
+    auth_session_days: int = Field(default=7, ge=1, le=90)
+    auth_register_per_hour: int = Field(default=20, ge=1)
+    auth_login_failures_per_15m: int = Field(default=10, ge=1)
+    auth_proxy_secret: str = Field(default='', repr=False, exclude=True, pattern=r'^(?:[A-Za-z0-9_-]{32,})?$')
     # 绑定地址读 API_HOST 优先；泛用 HOST 常被外壳污染（conda 会设
     # HOST=x86_64-conda-linux-gnu），解析不了的值一律回落回环，服务不裸奔也不崩。
     host: str = Field(default="127.0.0.1", validation_alias=AliasChoices("API_HOST", "HOST"))
@@ -41,6 +45,9 @@ class Settings(BaseSettings):
     deepseek_runtime_model: str = "deepseek-v4-flash"
     deepseek_timeout_seconds: float = 600.0
     model_egress_enabled: bool = False
+    # Unset preserves the existing shared switch; an explicit value controls
+    # subscription-backed official sessions without changing API model access.
+    official_agent_egress_enabled: bool | None = None
     # 本地小模型端点（vLLM/SGLang/Ollama 的 OpenAI 兼容 /v1）。设了就注册 local/ 前缀。
     local_model_base_url: str | None = None
     local_model_api_key: str | None = Field(default=None, repr=False)
@@ -57,7 +64,7 @@ class Settings(BaseSettings):
     )
 
     sandbox_image: str = "agent-platform-sandbox:latest"
-    modeling_image: str = "lilies-modeling:20260914"
+    modeling_image: str = "lilies-modeling:20260922-feature-tables"
     sandbox_uid: int = 10001
     sandbox_gid: int = 10001
     sandbox_cpus: float = 2.0
@@ -68,7 +75,13 @@ class Settings(BaseSettings):
 
     max_parallel_tools: int = 4
     max_subagent_depth: int = 2
+    # Restored copies may be inspected and run manually without replaying old
+    # queues, starting timers/subscriptions or deleting historical artifacts.
+    automatic_tasks_enabled: bool = True
     scheduler_poll_seconds: float = 30.0
+    project_agent_max_model_calls: int = Field(default=32, ge=1, le=200)
+    project_agent_max_output_tokens: int = Field(default=8192, ge=128, le=16384)
+    searxng_url: str = ''
     scheduler_worker_offload_enabled: bool = False
     templates_dir: Path | None = None
     platform_harness_max_active_tasks: int = 100

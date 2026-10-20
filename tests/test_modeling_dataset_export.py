@@ -82,14 +82,14 @@ print(json.dumps({'ids':[r['id'] for r in rows], 'sum':sum(float(r['x']) for r i
     assert copy.read_text() == 'edited'
 
 
-def test_export_is_project_scoped_and_requires_build_phase(configured):
+def test_export_is_project_scoped_and_remains_available_after_workflow_call(configured):
     client, manager, pid, base, dataset, _ = upload(configured)
     other = client.post('/api/v1/projects', json={'name': 'other'}).json()['id']
     prepare((client, configured[1], {'id': other}, configured[3]))
     assert export(client, '/api/v1/projects/' + other, dataset['id']).status_code == 404
     state = manager.load(pid); state.update(phase='operate'); manager.save(pid, state)
-    assert export(client, base, dataset['id']).status_code == 422
-    assert not (configured[3].workspace_root / pid / 'results/datasets').exists()
+    assert export(client, base, dataset['id']).status_code == 200
+    assert (configured[3].workspace_root / pid / 'results/datasets').exists()
 
 
 @pytest.mark.parametrize('where', ['results', 'dataset', 'file', 'source'])

@@ -44,6 +44,8 @@ def test_use_channel_access_and_table_parse(tmp_path: Path) -> None:
         SilentProvider(),
     )
     with TestClient(app) as client:
+        # v0.6: legacy link behavior is exercised by an authenticated caller.
+        client.headers["Authorization"] = "Bearer workflow-test"
         application_id = client.post(
             "/api/v1/applications", headers=HEADERS,
             json={"name": "对账（使用者通道测试）", "requirement": "两个表对起来，给普通用户用。"},
@@ -135,6 +137,8 @@ def test_repair_auto_replays_run_with_same_inputs(tmp_path: Path) -> None:
         SilentProvider(),
     )
     with TestClient(app) as client:
+        # v0.6: legacy link behavior is exercised by an authenticated caller.
+        client.headers["Authorization"] = "Bearer workflow-test"
         application_id = client.post(
             "/api/v1/applications", headers=HEADERS,
             json={"name": "复现测试", "requirement": "对账流程。"},

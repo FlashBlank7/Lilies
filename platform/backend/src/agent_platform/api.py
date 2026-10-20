@@ -532,6 +532,11 @@ class Services:
     local_agents: Any | None = None
     projects: Any | None = None
     modeling: Any | None = None
+    accounts: Any | None = None
+    project_sessions: Any | None = None
+    official_agent: Any | None = None
+    product_usage: Any | None = None
+    usage_learning: Any | None = None
 
 
 class ResumeBuildRequest(BaseModel):
@@ -1950,6 +1955,16 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
     services.workflow_runtime.modeling = services.modeling
     services.builders.register("codex", services.local_agents)
     services.builders.register("lilies", services.local_agents)
+    from .auth import Accounts
+    services.accounts = Accounts(services.storage, settings)
+    from .project_sessions import ProjectSessions
+    services.project_sessions = ProjectSessions(services)
+    from .official_agent import OfficialAgent
+    services.official_agent = OfficialAgent(services)
+    from .product_usage import ProductUsage
+    services.product_usage = ProductUsage(services)
+    from .usage_learning import UsageLearning
+    services.usage_learning = UsageLearning(services)
     discussion_locks: dict[str, asyncio.Lock] = {}
 
     @asynccontextmanager
@@ -1961,8 +1976,19 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         await services.event_automation.initialize()
         await services.workflow_store.initialize()
         await services.projects.initialize()
+        await services.accounts.initialize()
+        await services.project_sessions.initialize()
         await services.modeling.initialize()
+        from .shared_methods import initialize as initialize_shared_methods
+        initialize_shared_methods(services.projects.store.db_path)
+        services.product_usage.initialize()
+        services.usage_learning.initialize()
+        from .user_feedback import initialize as initialize_feedback
+        initialize_feedback(services.projects.store.db_path)
+        await services.official_agent.initialize()
         await services.local_agents.initialize()
+        if settings.automatic_tasks_enabled:
+            await services.official_agent.recover()
         await services.durable_jobs.initialize()
         await services.connectors.initialize()
         await services.openapi_connectors.initialize()
@@ -2074,23 +2100,29 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             if purged or failed:
                 logger.info("运行产物清理：删掉 %s 个过期目录，%s 个删不掉", purged, failed)
 
-        maintenance_task = asyncio.create_task(_event_maintenance())
-        artifacts_task = asyncio.create_task(_purge_run_artifacts())
-        services.scheduler.start()
-        await services.event_automation.start()
+        automatic_tasks: list[asyncio.Task[Any]] = []
+        if settings.automatic_tasks_enabled:
+            automatic_tasks = [asyncio.create_task(_event_maintenance()),
+                               asyncio.create_task(_purge_run_artifacts()),
+                               asyncio.create_task(services.usage_learning.run())]
+            services.scheduler.start()
+            await services.event_automation.start()
+        else:
+            logger.info("自动任务已暂停：不恢复排队请求，不启动定时/事件订阅、自动改进及产物维护；仍可手动运行")
 
         local_lilies_recovery_task: asyncio.Task[Any] | None = None
         lifespan_ready = asyncio.Event()
         adaptive_refresh_task: asyncio.Task[Any] | None = None
         lifespan_ready.set()
         yield
+        for task in automatic_tasks:
+            task.cancel()
+        await asyncio.gather(*automatic_tasks, return_exceptions=True)
+        services.official_agent.shutting_down = True
         await services.local_agents.close()
+        await services.official_agent.close()
         await services.projects.close()
         await services.modeling.close()
-        # 维护可能还在跑（真机上一次要几十分钟）：关停时取消，别拖着不退。
-        # 产物清理同理——新起的后台任务忘了取消的话，关服会挂在那儿等它。
-        maintenance_task.cancel()
-        artifacts_task.cancel()
         if (
             services.worker_process_manager is not None
             and services.worker_process_manager.is_running
@@ -2119,34 +2151,36 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
 
     app = FastAPI(title=settings.app_name, version=__version__, lifespan=lifespan)
     app.state.services = services
+    from fastapi.exceptions import RequestValidationError
+    from fastapi.exception_handlers import request_validation_exception_handler
+    from fastapi.responses import JSONResponse
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_error(request: Request, error: RequestValidationError):
+        if request.url.path.startswith(('/api/v1/auth/', '/api/v1/users')):
+            # Pydantic's default missing-field error embeds the entire request,
+            # including a password supplied in a different field.
+            return JSONResponse(status_code=422, content={
+                'detail': '请检查用户名和密码，密码至少八位，且不能超过 1024 位',
+                'fields': [list(item['loc']) for item in error.errors()],
+            })
+        return await request_validation_exception_handler(request, error)
     bearer = HTTPBearer(auto_error=False)
 
     async def require_token(
         request: Request,
         credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
     ) -> None:
-        supplied = credentials.credentials if credentials else request.query_params.get("token")
-        # 这两句是**客户端会原样印给用户**的（guanjia 把 detail 取出来直接显示）。
-        # 之前是 "invalid API token"——用户看到的就是这句英文。
-        # 「没带令牌」和「令牌不对」分开说：前者是还没登录，后者是登录过但失效了，
-        # 下一步不一样。
-        if not supplied:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
-                                detail="这个请求没带访问令牌——先登录再试")
-        if supplied == settings.api_token:
-            request.state.user = {"id": "root", "name": "管理员", "role": "admin"}
-            return
-        import hashlib
-        user = await services.storage.user_by_token_hash(
-            hashlib.sha256(supplied.encode("utf-8")).hexdigest()
-        )
-        if not user or user.get("status") != "active":
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
-                                detail="令牌不对或已失效——重新登录一次")
-        request.state.user = user
+        from .project_access import request_token
+        supplied = request_token(request)
+        request.state.user = await services.accounts.authenticate(supplied)
+        request.state.auth_token = supplied
+
+    from .project_access import authorization_dependency, authorized_stream
+    app.router.dependencies.append(Depends(authorization_dependency(services)))
 
     def _current_user(request: Request) -> dict[str, Any]:
-        return getattr(request.state, "user", {"id": "root", "name": "管理员", "role": "admin"})
+        return request.state.user
 
     def _require_admin(request: Request) -> dict[str, Any]:
         user = _current_user(request)
@@ -2222,6 +2256,8 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             },
             "deepseek_configured": bool(settings.deepseek_api_key),
             "model_egress_enabled": settings.model_egress_enabled,
+            "official_agent_egress_enabled": settings.official_agent_egress_enabled if settings.official_agent_egress_enabled is not None else settings.model_egress_enabled,
+            "automatic_tasks_enabled": settings.automatic_tasks_enabled,
             "docker_available": shutil.which("docker") is not None,
             "provider": services.provider.name,
             "tools": services.tools.names(),
@@ -5372,7 +5408,24 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             items.sort(key=lambda item: item["path"])
             return items[:2000]
 
-        return await asyncio.to_thread(_collect)
+        files = await asyncio.to_thread(_collect)
+        return await services.projects.store.annotate_files(application_id, files)
+
+    @app.get(
+        "/api/v1/applications/{application_id}/workspace/table-columns",
+        dependencies=[Depends(require_token)],
+    )
+    async def workspace_table_columns(application_id: str, path: str, sheet: str = '') -> dict[str, Any]:
+        from .project_table_columns import table_columns
+        from .sandbox import SandboxError
+        from .table_intake import TableIntakeError
+        try:
+            root = await asyncio.to_thread(services.sandboxes.resolve_workspace, application_id)
+            return await asyncio.to_thread(table_columns, root, path, sheet)
+        except (FileNotFoundError, SandboxError) as error:
+            raise HTTPException(404, '文件不存在') from error
+        except TableIntakeError as error:
+            raise HTTPException(422, str(error)) from error
 
     @app.get(
         "/api/v1/applications/{application_id}/workspace/files/{file_path:path}",
@@ -6042,107 +6095,16 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             raise HTTPException(404, _plain_key_error(error)) from error
         return {"application_id": application_id, "notes": notes}
 
-    def _hash_password(password: str, salt: bytes | None = None) -> str:
-        import hashlib as _h
-        import os as _os
-        salt = salt or _os.urandom(16)
-        digest = _h.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, 200_000)
-        return f"pbkdf2${salt.hex()}${digest.hex()}"
-
-    def _verify_password(password: str, stored: str | None) -> bool:
-        import hashlib as _h
-        import hmac as _hmac
-        try:
-            _, salt_hex, digest_hex = (stored or "").split("$")
-        except ValueError:
-            return False
-        digest = _h.pbkdf2_hmac("sha256", password.encode("utf-8"), bytes.fromhex(salt_hex), 200_000)
-        return _hmac.compare_digest(digest.hex(), digest_hex)
-
-    def _issue_token() -> tuple[str, str]:
-        import hashlib as _h
-        import secrets as _s
-        token = f"lil_{_s.token_urlsafe(24)}"
-        return token, _h.sha256(token.encode("utf-8")).hexdigest()
-
-    @app.post("/api/v1/auth/register")
-    async def auth_register(body: dict[str, Any]) -> dict[str, Any]:
-        """注册 = 共享注册令牌 + 自己起用户名密码。首个注册者自动成为管理员。"""
-
-        if str(body.get("register_token") or "") != settings.api_token:
-            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "注册令牌不正确")
-        name = str(body.get("name") or "").strip()
-        password = str(body.get("password") or "")
-        if not (1 <= len(name) <= 40):
-            raise HTTPException(400, "用户名需 1-40 字")
-        if len(password) < 6:
-            raise HTTPException(400, "密码至少 6 位")
-        if await services.storage.user_by_name(name):
-            raise HTTPException(409, "用户名已存在")
-        role = "admin" if await services.storage.count_users() == 0 else "member"
-        token, token_hash = _issue_token()
-        user = await services.storage.create_user(
-            name, token_hash, role, password_hash=_hash_password(password)
-        )
-        await services.storage.append_event("system", "user.registered", {"name": name, "role": role})
-        return {"user": {k: user[k] for k in ("id", "name", "role", "status")}, "token": token}
-
-    @app.post("/api/v1/auth/login")
-    async def auth_login(body: dict[str, Any]) -> dict[str, Any]:
-        """登录换会话令牌；每次登录轮换（旧令牌即刻失效）。"""
-
-        name = str(body.get("name") or "").strip()
-        user = await services.storage.user_by_name(name)
-        if not user or user.get("status") != "active" or not _verify_password(
-            str(body.get("password") or ""), user.get("password_hash")
-        ):
-            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "用户名或密码不正确")
-        token, token_hash = _issue_token()
-        await services.storage.rotate_user_token(user["id"], token_hash)
-        await services.storage.append_event("system", "user.logged_in", {"name": name})
-        return {"user": {k: user[k] for k in ("id", "name", "role", "status")}, "token": token}
-
-    @app.get("/api/v1/me", dependencies=[Depends(require_token)])
-    async def whoami(request: Request) -> dict[str, Any]:
-        return {"user": _current_user(request)}
-
-    @app.post("/api/v1/users", dependencies=[Depends(require_token)])
-    async def create_user(request: Request, body: dict[str, Any]) -> dict[str, Any]:
-        _require_admin(request)
-        import hashlib
-        import secrets
-        name = str(body.get("name") or "").strip()
-        if not (1 <= len(name) <= 40):
-            raise HTTPException(400, "用户名不能为空，且不超过 40 个字")
-        role = "admin" if body.get("role") == "admin" else "member"
-        token = f"lil_{secrets.token_urlsafe(24)}"
-        try:
-            user = await services.storage.create_user(
-                name, hashlib.sha256(token.encode("utf-8")).hexdigest(), role
-            )
-        except Exception as error:
-            # 原先把 error 原样拼进 detail。它多半是
-            # "UNIQUE constraint failed: users.name"——
-            # 等于把库表结构回给调用方，而调用方看了也做不了什么。
-            # 真正的原因照常进日志，给人看的只留一句人话。
-            logger.warning("建用户失败：%s", error)
-            raise HTTPException(409, "这个用户名已经有人用了，换一个吧") from error
-        await services.storage.append_event("system", "user.created", {"name": name, "role": role})
-        # 令牌只在创建响应里出现一次，服务端只存哈希
-        return {"user": {k: user[k] for k in ("id", "name", "role", "status")}, "token": token}
-
-    @app.get("/api/v1/users", dependencies=[Depends(require_token)])
-    async def list_users(request: Request) -> list[dict[str, Any]]:
-        _require_admin(request)
-        return await services.storage.list_users()
-
-    @app.post("/api/v1/users/{user_id}/status", dependencies=[Depends(require_token)])
-    async def set_user_status(request: Request, user_id: str, body: dict[str, Any]) -> dict[str, Any]:
-        _require_admin(request)
-        status_value = "disabled" if body.get("status") == "disabled" else "active"
-        await services.storage.set_user_status(user_id, status_value)
-        await services.storage.append_event("system", "user.status_changed", {"user_id": user_id, "status": status_value})
-        return {"ok": True, "status": status_value}
+    from .auth import account_router
+    app.include_router(account_router(services.accounts, require_token))
+    from .official_agent import official_router
+    app.include_router(official_router(services))
+    from .product_usage import install_usage
+    install_usage(app, services)
+    from .user_feedback import router as feedback_router
+    app.include_router(feedback_router(services))
+    from .usage_learning import router as usage_learning_router
+    app.include_router(usage_learning_router(services))
 
     @app.get("/api/v1/overview", dependencies=[Depends(require_token)])
     async def platform_overview() -> dict[str, Any]:
@@ -6546,6 +6508,18 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         except KeyError as error:
             raise HTTPException(404, _plain_key_error(error)) from error
 
+    @app.get("/api/v1/runs/{run_id}/steps", dependencies=[Depends(require_token)])
+    async def get_run_steps(
+        run_id: str,
+        offset: int = Query(default=0, ge=0),
+        limit: int = Query(default=100, ge=1, le=200),
+    ) -> dict[str, Any]:
+        from .run_steps import run_steps
+        try:
+            return await run_steps(services, run_id, offset=offset, limit=limit)
+        except KeyError as error:
+            raise HTTPException(404, _plain_key_error(error)) from error
+
     @app.post("/api/v1/runs/{run_id}/resume", dependencies=[Depends(require_token)])
     async def resume_workflow_run(run_id: str, body: ResumeRunRequest) -> dict[str, Any]:
         try:
@@ -6695,7 +6669,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         if header and header.isdigit():
             after = max(after, int(header))
         return StreamingResponse(
-            sse_stream(stream_id, after),
+            authorized_stream(sse_stream(stream_id, after), request, services.accounts),
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
@@ -6706,7 +6680,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         if header and header.isdigit():
             after = max(after, int(header))
         return StreamingResponse(
-            sse_stream(build_id, after),
+            authorized_stream(sse_stream(build_id, after), request, services.accounts),
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
@@ -6742,7 +6716,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         if header and header.isdigit():
             after = max(after, int(header))
         return StreamingResponse(
-            sse_stream(run_id, after),
+            authorized_stream(sse_stream(run_id, after), request, services.accounts),
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )

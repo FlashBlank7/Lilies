@@ -1,12 +1,13 @@
 'use client'
 
 /**
- * 使用页：普通用户的全部世界。
- * 一个链接 + 一个访问码；填表（Excel/粘贴/格子，永不写 JSON）→ 点一下 → 看得懂的结果。
- * 页面不出现任何 Studio 痕迹；鉴权只有应用级访问码。
+ * 项目工作流链接进入统一项目运行页；未迁移应用的旧界面仅供管理员使用。
  */
 
 import { use as usePromise, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { api } from '@/lib/platform'
+import { useAccount } from '@/app/components/AuthBoundary'
+import { useRouter } from 'next/navigation'
 import OutputView from '@/app/components/OutputView'
 import styles from './use.module.css'
 
@@ -85,6 +86,28 @@ function coerceCell(value: string): unknown {
 
 export default function UsePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = usePromise(params)
+  const router = useRouter()
+  const account = useAccount()
+  const [state, setState] = useState<'loading' | 'legacy' | 'error'>('loading')
+  const [error, setError] = useState('')
+  const [retry, setRetry] = useState(0)
+  useEffect(() => {
+    let active = true
+    setState('loading')
+    void api<{ project_id: string | null }>(`/api/v1/applications/${id}/project`).then(result => {
+      if (!active) return
+      if (result.project_id) router.replace(`/projects/${result.project_id}?run=${id}`)
+      else setState('legacy')
+    }).catch(cause => { if (active) { setError(String(cause)); setState('error') } })
+    return () => { active = false }
+  }, [id, router, retry])
+  if (state === 'loading') return <main><p role="status">正在打开工作流…</p></main>
+  if (state === 'error') return <main><p role="alert">{error}</p><button onClick={() => setRetry(value => value + 1)}>重新读取</button></main>
+  if (account?.role !== 'admin') return <main><p>此工作流尚未分配到项目，请联系管理员。</p></main>
+  return <LegacyUsePage id={id} />
+}
+
+function LegacyUsePage({ id }: { id: string }) {
   const [code, setCode] = useState('')
   const [codeInput, setCodeInput] = useState('')
   const [definition, setDefinition] = useState<Definition | null>(null)

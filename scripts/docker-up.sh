@@ -1,136 +1,84 @@
 #!/usr/bin/env bash
-# =============================================================================
-# Lilies — Docker Compose 一键部署
-#
-# 前置条件: 只安装 Docker（不需要 Python/Node.js）
-# 首次运行会自动构建镜像（约 3-5 分钟）
-#
-# 用法:
-#   ./scripts/docker-up.sh             启动全部服务
-#   ./scripts/docker-up.sh --build     强制重新构建镜像
-#   ./scripts/docker-up.sh --down      停止并清理
-#   ./scripts/docker-up.sh --logs      查看实时日志
-# =============================================================================
+# 启动独立的 Lilies Compose 实例；恢复时将 LILIES_STATE_DIR 指向恢复目录。
+# 可设置 LILIES_API_PORT、LILIES_WEB_PORT 和 LILIES_DOCKER_SOCKET。
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 cd "$ROOT"
 
-# ── 前置检查 ──────────────────────────────────────────────────
+fail() { echo "错误：$*" >&2; exit 1; }
+case "${1:-}" in
+  ""|--build|--down|--logs|--status) ;;
+  *) fail "用法：$0 [--build|--down|--logs|--status]" ;;
+esac
+[[ $# -le 1 ]] || fail "只接受一个操作参数。"
 
-check_prereqs() {
-  local missing=()
+# 相对路径始终相对于源码目录，与调用脚本时所在的目录无关。
+mkdir -p "${LILIES_STATE_DIR:-$ROOT}"
+export LILIES_STATE_DIR="$(cd "${LILIES_STATE_DIR:-$ROOT}" && pwd -P)"
+export LILIES_DATA_DIR="$LILIES_STATE_DIR/data"
+export LILIES_WORKSPACE_DIR="$LILIES_STATE_DIR/workspaces"
+mkdir -p "$LILIES_DATA_DIR" "$LILIES_WORKSPACE_DIR"
+for directory in "$LILIES_DATA_DIR" "$LILIES_WORKSPACE_DIR"; do
+  [[ -r "$directory" && -w "$directory" && -x "$directory" ]] ||
+    fail "当前用户无法读写 ${directory}；请核对恢复目录的所有者和权限。"
+done
 
-  if ! command -v docker &>/dev/null; then
-    echo "❌ Docker is not installed."
-    echo "   Install: https://docs.docker.com/engine/install/"
-    missing+=("docker")
-  fi
+export LILIES_UID="$(id -u)" LILIES_GID="$(id -g)"
+export LILIES_API_PORT="${LILIES_API_PORT:-8000}"
+export LILIES_WEB_PORT="${LILIES_WEB_PORT:-3000}"
+for port in "$LILIES_API_PORT" "$LILIES_WEB_PORT"; do
+  [[ "$port" =~ ^[0-9]{1,5}$ ]] && (( 10#$port >= 1 && 10#$port <= 65535 )) ||
+    fail "端口必须是 1 至 65535 的整数：$port"
+done
 
-  if command -v docker &>/dev/null && ! docker info &>/dev/null; then
-    echo "❌ Docker daemon is not running."
-    echo "   Linux:   sudo systemctl start docker"
-    echo "   macOS:   open -a Docker"
-    missing+=("docker-daemon")
-  fi
-
-  if command -v docker &>/dev/null && ! docker ps &>/dev/null; then
-    echo "❌ Cannot access Docker. Add your user to the docker group:"
-    echo "   sudo usermod -aG docker \$USER"
-    echo "   Then log out and back in."
-    missing+=("docker-permission")
-  fi
-
-  if [[ ! -f .env ]]; then
-    echo "❌ .env file is missing."
-    echo "   cp .env.example .env && chmod 600 .env"
-    echo "   Then edit .env and set DEEPSEEK_API_KEY"
-    missing+=("dotenv")
+command -v docker >/dev/null || fail "未安装 Docker。"
+docker info >/dev/null 2>&1 || fail "无法连接 Docker daemon；请检查 Docker 是否启动及当前用户权限。"
+export LILIES_DOCKER_SOCKET="${LILIES_DOCKER_SOCKET:-/var/run/docker.sock}"
+[[ "$LILIES_DOCKER_SOCKET" = /* ]] || fail "LILIES_DOCKER_SOCKET 必须是绝对路径。"
+[[ -S "$LILIES_DOCKER_SOCKET" ]] || fail "找不到 Docker socket：$LILIES_DOCKER_SOCKET"
+if [[ -z "${LILIES_DOCKER_GID:-}" ]]; then
+  if [[ "$(uname -s)" = Darwin ]]; then
+    # Docker Desktop 将挂载后的 socket 映射为容器内的 root 组。
+    LILIES_DOCKER_GID=0
   else
-    # Quick check if API key is set
-    if ! grep -q "DEEPSEEK_API_KEY=sk-" .env 2>/dev/null; then
-      echo "⚠️  DEEPSEEK_API_KEY does not look configured in .env"
-      echo "   Edit .env and set a valid API key from https://platform.deepseek.com"
-    fi
+    LILIES_DOCKER_GID="$(stat -L -c '%g' "$LILIES_DOCKER_SOCKET" 2>/dev/null || stat -L -f '%g' "$LILIES_DOCKER_SOCKET")"
   fi
+fi
+[[ "$LILIES_DOCKER_GID" =~ ^[0-9]+$ ]] || fail "无法读取 Docker socket 所属组。"
+export LILIES_DOCKER_GID
 
-  if [[ ${#missing[@]} -gt 0 ]]; then
-    echo ""
-    echo "Fix the issues above and re-run: ./scripts/docker-up.sh"
-    exit 1
-  fi
+# 实例和基础镜像均按数据目录区分，构建不会覆盖其他实例使用的镜像标签。
+PROJECT="lilies-$(printf '%s' "$LILIES_STATE_DIR" | cksum | awk '{print $1}')"
+export LILIES_BASE_SANDBOX_IMAGE="$PROJECT:sandbox"
+export LILIES_BASE_MODELING_IMAGE="$PROJECT:modeling"
+CONFIG="$LILIES_STATE_DIR/.env"
+[[ ! -e "$CONFIG" || -r "$CONFIG" ]] || fail "无法读取恢复配置：$CONFIG"
+[[ -f "$CONFIG" ]] || CONFIG=/dev/null
+COMPOSE=(docker compose --project-name "$PROJECT" --env-file "$CONFIG" -f "$ROOT/compose.yaml")
+
+show_urls() {
+  echo "数据目录：$LILIES_STATE_DIR"
+  echo "API：http://127.0.0.1:$LILIES_API_PORT"
+  echo "Studio：http://127.0.0.1:$LILIES_WEB_PORT"
 }
-
-# ── 命令处理 ──────────────────────────────────────────────────
-
 case "${1:-}" in
   --down)
-    echo "Stopping and removing containers..."
-    docker compose down
-    echo "Done. Data in ./data and ./workspaces is preserved."
-    exit 0
+    "${COMPOSE[@]}" down
+    echo "已停止实例；数据保留在 ${LILIES_STATE_DIR}。"
     ;;
-  --logs)
-    docker compose logs -f --tail=100
-    exit 0
+  --logs) "${COMPOSE[@]}" logs -f --tail=100 ;;
+  --status)
+    "${COMPOSE[@]}" ps
+    show_urls
     ;;
   --build)
-    echo "Rebuilding all images..."
-    docker compose build --no-cache
-    echo "Starting..."
-    docker compose up -d
-    ;;
-  --status)
-    docker compose ps
-    echo ""
-    echo "API:    http://localhost:8000"
-    echo "Studio: http://localhost:3000"
-    echo "Swagger: http://localhost:8000/docs"
-    echo "Debug:   http://localhost:8000/debug"
-    exit 0
+    "${COMPOSE[@]}" build --no-cache
+    "${COMPOSE[@]}" up -d --wait --wait-timeout 60
+    show_urls
     ;;
   "")
-    check_prereqs
-    echo "Building and starting Lilies..."
-    echo "(First run may take 3-5 minutes to build images)"
-    echo ""
-    docker compose up -d --build
-
-    echo ""
-    echo "Waiting for API to be ready..."
-    for i in $(seq 1 30); do
-      if curl -sf http://localhost:8000/health >/dev/null 2>&1; then
-        echo ""
-        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-        echo "  Lilies is running!"
-        echo ""
-        echo "  API:      http://localhost:8000"
-        echo "  Studio:   http://localhost:3000"
-        echo "  Swagger:  http://localhost:8000/docs"
-        echo "  Debug:    http://localhost:8000/debug"
-        echo ""
-        echo "  Status:   ./scripts/docker-up.sh --status"
-        echo "  Logs:     ./scripts/docker-up.sh --logs"
-        echo "  Stop:     ./scripts/docker-up.sh --down"
-        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-        exit 0
-      fi
-      sleep 2
-      echo -n "."
-    done
-    echo ""
-    echo "⚠️  API did not become ready in 60s. Check logs:"
-    echo "   ./scripts/docker-up.sh --logs"
-    exit 1
-    ;;
-  *)
-    echo "Usage: $0 [--build|--down|--logs|--status]"
-    echo ""
-    echo "  (no args)   Build and start all services"
-    echo "  --build     Force rebuild images"
-    echo "  --down      Stop and remove containers"
-    echo "  --logs      View real-time logs"
-    echo "  --status    Show container status and URLs"
-    exit 1
+    "${COMPOSE[@]}" up -d --build --wait --wait-timeout 60
+    show_urls
     ;;
 esac

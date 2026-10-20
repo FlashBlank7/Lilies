@@ -7,6 +7,7 @@ from uuid import uuid4
 
 from pydantic import Field, model_validator
 
+from .blocks import InputField
 from .local_agent_tools import Arguments, ProjectTools
 from .project_store import ProjectConflict
 from .requirement_discussion import load_discussion
@@ -121,6 +122,7 @@ class ProgressTool(Arguments):
 
 
 class ConversationMessage(Arguments):
+    request_key: str = Field(default='', max_length=100)
     message: str = Field(default='', max_length=8000)
     item_id: str = ''
     question_id: str = ''
@@ -294,6 +296,8 @@ class ProjectConversation:
         from .project_activity import latest_operations, project_activity
         state = self.manager.load(project_id)
         all_events = state.pop('events')
+        if kind != 'messages' or (request_id and (state.get('streaming_message') or {}).get('request_id') != request_id):
+            state.pop('streaming_message', None)
         chosen = [(index, event) for index, event in enumerate(all_events)
                   if (bool(event.get('operation_id')) if kind == 'activity' else
                       (event['kind'] in {'user', 'assistant'} or (event['kind'] == 'result' and bool(event.get('request_id')) and event.get('purpose') != 'build_test')) == (kind == 'messages'))
@@ -326,7 +330,7 @@ class ProjectConversation:
         if not state.get('conversation_enabled'):
             raise ValueError('请从项目统一对话入口发起处理')
         item = await self.item(project_id, args.item_id) if args.item_id else None
-        if args.action in {'build', 'trial', 'operate', 'wait'} and not item:
+        if (args.action == 'build' or args.action == 'wait' and not args.task_id) and not item:
             raise ValueError('此动作需要关联业务事项')
         if args.task_id:
             await self.projects.store.get_task(project_id, args.task_id)
@@ -337,8 +341,6 @@ class ProjectConversation:
         if args.action in {'inspect', 'finish'}:
             ready = await self.ready(project_id)
             state = self.manager.load(project_id)
-            if args.action == 'finish' and state.get('continue_work') and ready:
-                raise ValueError('仍有已授权可推进事项，请继续处理或记录具体阻塞')
             state.update(phase='coordinate')
             if args.action == 'finish':
                 state['continue_work'] = False
@@ -350,6 +352,14 @@ class ProjectConversation:
             self.manager.save(project_id, state)
             return {'phase': 'discuss', 'instruction': '仅确有需求变更时通过requirements_submit完整修订文档；本动作不撤销确认。'}
         if args.action == 'wait':
+            if args.task_id:
+                # Waiting observes an existing task; it neither creates a business
+                # item nor restarts a stopped task. asyncio.wait also lets us return
+                # an interrupted worker's saved status without cancelling the caller.
+                worker = self.projects.active.get(args.task_id)
+                if worker:
+                    await asyncio.wait({worker})
+                return await self.projects.task(project_id, args.task_id)
             if not (item['blocker'] or any(not q['answer'] for q in item['questions'])):
                 raise ValueError('请先登记具体问题或实际阻塞及恢复动作')
             await self.patch_item(project_id, item['id'], status='waiting')
@@ -358,10 +368,6 @@ class ProjectConversation:
             self.manager.save(project_id, state)
             return {'waiting_item': item['id'], 'ready_items': await self.ready(project_id)}
         if args.action == 'build':
-            if load_discussion(self.projects.workspace(project_id))['status'] != 'confirmed':
-                raise ValueError('请先完成现有需求文档确认')
-            if item['id'] in state.get('blocked_this_request', []):
-                raise ValueError('此事项连续失败，已保留恢复动作；先处理其他事项，或由用户继续后重试')
             delivery = {'delivery_request_id': state.get('request_id', '')}
             if args.deliverable:
                 delivery['deliverable'] = args.deliverable
@@ -394,7 +400,7 @@ class ProjectConversation:
         else:
             task = await self.projects.start(project_id, request_key=args.request_key or 'conversation-' + str(uuid4()),
                 workflow_id=args.workflow_id or project_id, inputs=args.inputs, message=args.message,
-                purpose='customer_trial' if args.action == 'trial' else 'business', item_id=item['id'],
+                purpose='customer_trial' if args.action == 'trial' else 'business', item_id=item['id'] if item else '',
                 feedback_task_id=args.feedback_task_id or state.get('conversation_context', {}).get('task_id', ''))
         state = self.manager.load(project_id)
         state.update(phase='operate', active_item_id=(item or {}).get('id', task.get('item_id', '')),
@@ -437,9 +443,14 @@ class ProjectConversation:
         calls, flows = [], {}
         for workflow_id, draft in frozen.items():
             graph = draft['snapshot']['workflow']
-            nodes = []
+            nodes, outputs = [], []
             for node in graph['nodes']:
-                target = node.get('config', {}).get('tool_name', '')
+                config = node.get('config', {})
+                if node['type'] == 'end':
+                    outputs.extend(config.get('outputs', {}))
+                elif node['type'] == 'answer':
+                    outputs.append('answer')
+                target = config.get('tool_name', '')
                 member_id = target.removeprefix('workflow:') if isinstance(target, str) and target.startswith('workflow:') else ''
                 nodes.append({'id': node['id'], 'type': node['type'], 'title': node.get('title') or node['id'],
                               'workflow_id': member_id,
@@ -448,7 +459,17 @@ class ProjectConversation:
                 if isinstance(target, str) and target.startswith('workflow:'):
                     calls.append({'source': workflow_id, 'target': target.removeprefix('workflow:'),
                                   'node_id': node['id'], 'label': node.get('title', node['id'])})
+            inputs = [
+                InputField.model_validate(field).model_dump(include={'name', 'label', 'type', 'required', 'description'})
+                for node in graph['nodes'] if node['type'] in {'start', 'event_subscription_trigger'}
+                for field in node.get('config', {}).get('inputs', [])
+            ]
+            endings = [node for node in graph['nodes'] if node['type'] == 'end']
             flows[workflow_id] = {'revision': draft['revision'], 'nodes': nodes,
+                                 'description': draft['snapshot'].get('description', ''),
+                                 'inputs': inputs,
+                                 'outputs': list(dict.fromkeys(outputs)),
+                                 'output_description': '\n'.join(node.get('description', '') for node in endings if node.get('description')),
                                  'edges': [{'source': e['source'], 'target': e['target'], 'branch': e.get('branch')}
                                            for e in graph['edges']]}
         return {'members': project['members'], 'calls': calls, 'flows': flows}

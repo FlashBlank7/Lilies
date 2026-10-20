@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from uuid import uuid4
 
 from .agent_core import collect_model_stream
@@ -10,8 +11,10 @@ from .models import ChatMessage, ContentBlock, ToolDefinition
 
 
 class ModelSession:
-    def __init__(self, provider, runtime_dir):
+    def __init__(self, provider, runtime_dir, *, max_model_calls=32, max_output_tokens=8192):
         self.provider, self.runtime_dir = provider, runtime_dir
+        self.max_model_calls, self.max_output_tokens = max_model_calls, max_output_tokens
+        self.model_calls = 0
         self.thread_id = None
         self.turn_id = None
         self.pending = []
@@ -42,6 +45,25 @@ class ModelSession:
         temp.chmod(0o600)
         temp.replace(self.path)
 
+    def reset_budget(self):
+        """Only a new user request resets the allowance, not background results."""
+        self.model_calls = 0
+
+    def inference_messages(self):
+        """Expose the actual allowance without inserting stale counts into history."""
+        remaining = self.max_model_calls - self.model_calls
+        guidance = '按剩余调用安排工作，复用已读资料；用户要求的工作流可在分析步骤确定后保存。'
+        if remaining <= 3:
+            guidance += '请优先保存已有结果并向用户说明完成项、失败和未完成部分；已提交的训练不等于已成功。'
+        notice = ContentBlock(type='text', text=json.dumps({'platform_runtime': {
+            'model_call_limit': self.max_model_calls, 'current_model_call': self.model_calls,
+            'remaining_model_calls_after_this': remaining}, 'guidance': guidance}, ensure_ascii=False))
+        messages = list(self.messages)
+        # A turn always ends in user input or tool results at this point. Keep
+        # the stable history prefix available to provider prompt caching.
+        messages[-1] = messages[-1].model_copy(update={'content': [*messages[-1].content, notice]})
+        return messages
+
     async def turn(self, message, on_event, on_tool, *, timeout=900):
         self.turn_id = str(uuid4())
         if self.pending:
@@ -50,14 +72,18 @@ class ModelSession:
         self.messages.append(ChatMessage(role="user", content=[ContentBlock(type="text", text=message)]))
         self.save()
         try:
-            for _ in range(200):
+            while self.model_calls < self.max_model_calls:
                 if self.pending:
                     self.messages.append(ChatMessage(role="user", content=[ContentBlock(type="text", text="\n".join(self.pending))]))
                     self.pending.clear()
                     self.save()
+                started = time.perf_counter()
+                self.model_calls += 1
                 response = await collect_model_stream(self.provider.stream(model="project", system=self.instructions,
-                    messages=self.messages, tools=self.tools, max_output_tokens=16_384,
+                    messages=self.inference_messages(), tools=self.tools, max_output_tokens=self.max_output_tokens,
                     thinking_enabled=True, effort="medium"), timeout_seconds=timeout, expose_thinking=True)
+                await on_event('model_usage', {'usage': response.usage.model_dump(mode='json'),
+                    'seconds': time.perf_counter() - started})
                 self.messages.append(ChatMessage(role="assistant", content=response.blocks))
                 calls = [b for b in response.blocks if b.type == "tool_use"]
                 text = "".join(b.text or "" for b in response.blocks if b.type == "text")
@@ -94,7 +120,7 @@ class ModelSession:
                     if response.stop_reason == "max_tokens":
                         raise RuntimeError("模型输出达到长度限制，请压缩本轮任务后继续")
                     return {"status": "completed"}
-            raise RuntimeError("本轮已执行 200 次模型调用，进展已保留，可继续")
+            raise RuntimeError(f"本次请求已达到 {self.max_model_calls} 次对话模型调用上限，进展已保留；需要继续时请发送新消息")
         finally:
             self.turn_id = None
 

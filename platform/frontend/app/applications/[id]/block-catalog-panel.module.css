@@ -69,6 +69,8 @@
   border-bottom: 1px solid var(--line);
 }
 
+.heading > div { padding-left:20px; }
+
 .heading div {
   display: flex;
   align-items: baseline;

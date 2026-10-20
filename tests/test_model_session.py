@@ -13,6 +13,44 @@ async def event(*args):
 
 
 @pytest.mark.asyncio
+async def test_request_budget_survives_background_turns_and_preserves_results(tmp_path):
+    seen, writes, budgets = [], [], []
+
+    async def stream(**kwargs):
+        seen.append(kwargs['max_output_tokens'])
+        budgets.append(json.loads(kwargs['messages'][-1].content[-1].text)['platform_runtime'])
+        for item in completion_events([{'type': 'tool_use', 'id': str(len(seen)),
+                'name': 'write', 'input': {}}], stop_reason='tool_use'):
+            yield item
+
+    async def tool(*args):
+        writes.append(len(writes) + 1)
+        return {'written': writes[-1]}
+
+    session = ModelSession(SimpleNamespace(stream=stream), tmp_path,
+                           max_model_calls=2, max_output_tokens=192)
+    await session.start([{'name': 'write', 'description': 'write', 'inputSchema': {'type': 'object'}}], 'test')
+    with pytest.raises(RuntimeError, match='2 次对话模型调用上限'):
+        await session.turn('work', event, tool)
+    with pytest.raises(RuntimeError, match='2 次对话模型调用上限'):
+        await session.turn('background result', event, tool)
+    assert seen == [192, 192] and writes == [1, 2]
+    assert budgets == [
+        {'model_call_limit': 2, 'current_model_call': 1, 'remaining_model_calls_after_this': 1},
+        {'model_call_limit': 2, 'current_model_call': 2, 'remaining_model_calls_after_this': 0}]
+    saved = json.loads((tmp_path / 'conversation.json').read_text())
+    results = [b for m in saved['messages'] for b in m['content'] if b['type'] == 'tool_result']
+    assert [json.loads(b['content']) for b in results] == [{'written': 1}, {'written': 2}]
+    texts = [b['text'] for m in saved['messages'] for b in m['content'] if b['type'] == 'text']
+    assert texts == ['work', 'background result']
+    session.reset_budget()
+    with pytest.raises(RuntimeError, match='2 次对话模型调用上限'):
+        await session.turn('user continues', event, tool)
+    assert seen == [192] * 4 and writes == [1, 2, 3, 4]
+    assert budgets[2:] == budgets[:2]
+
+
+@pytest.mark.asyncio
 async def test_abrupt_tool_exit_preserves_completed_unknown_and_unstarted_results(tmp_path):
     class ProcessExit(BaseException):
         """Skip the normal cancellation/error cleanup, like process termination."""
@@ -42,7 +80,9 @@ async def test_abrupt_tool_exit_preserves_completed_unknown_and_unstarted_result
             raise ProcessExit()
         return {'written': arguments['name']}
 
-    specs = [{'name': 'write', 'description': 'write', 'inputSchema': {'type': 'object'}}]
+    # API-backed sessions expose the complete tool even when the Codex adapter
+    # would load its schema on demand.
+    specs = [{'name': 'write', 'description': 'write', 'inputSchema': {'type': 'object'}, 'deferLoading': True}]
     provider = SimpleNamespace(stream=stream)
     session = ModelSession(provider, tmp_path)
     thread = await session.start(specs, 'test')
@@ -88,7 +128,8 @@ async def test_supplement_survives_provider_failure_and_restart(tmp_path, fail_b
 
     async def resumed_stream(**kwargs):
         texts = [b.text for m in kwargs['messages'] if m.role == 'user' for b in m.content]
-        assert texts == ['original request', 'customer supplement', 'continue']
+        assert texts[:-1] == ['original request', 'customer supplement', 'continue']
+        assert json.loads(texts[-1])['platform_runtime']['current_model_call'] == 1
         for item in completion_events([{'type': 'text', 'text': 'supplement retained'}]):
             yield item
 

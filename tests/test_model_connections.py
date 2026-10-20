@@ -48,7 +48,7 @@ async def test_api_protocol_key_thinking_and_real_tool_response(tmp_path, protoc
             assert body['output_config'] == {'effort': 'high'}
         return httpx.Response(200, json={'content': [{'type': 'tool_use', 'id': 't1', 'name': 'read', 'input': {'path': 'input.txt'}}],
             'stop_reason': 'tool_use', 'usage': {'input_tokens': 10, 'output_tokens': 20}})
-    model = ConnectedModel(connection(protocol=protocol, thinking=thinking), tmp_path, transport=httpx.MockTransport(respond))
+    model = ConnectedModel(connection(protocol=protocol, thinking=thinking), tmp_path, egress_enabled=True, transport=httpx.MockTransport(respond))
     result = await complete(model, [ToolDefinition(name='read', description='read', input_schema={'type': 'object'})])
     assert result.stop_reason == 'tool_use'
     assert result.blocks[-1].input == {'path': 'input.txt'}
@@ -116,7 +116,7 @@ def test_project_runtime_enabled_explicitly_and_isolated(configured, monkeypatch
         calls.append(body)
         return httpx.Response(200, json={'choices': [{'message': {'content': body['messages'][-1]['content']}, 'finish_reason': 'stop'}]})
     store = app.state.services.local_agents.connections
-    monkeypatch.setattr(ModelConnections, 'provider', lambda self, pid: ConnectedModel(self.load(pid), self.root / 'test', transport=httpx.MockTransport(respond)))
+    monkeypatch.setattr(ModelConnections, 'provider', lambda self, pid: ConnectedModel(self.load(pid), self.root / 'test', egress_enabled=True, transport=httpx.MockTransport(respond)))
     base = '/api/v1/projects/' + project['id']
     data = {'provider': 'api', 'base_url': 'https://example.test/v1', 'model': 'selected-model',
             'api_key': 'key', 'thinking': 'high', 'runtime_enabled': False}
@@ -158,7 +158,7 @@ def test_llm_output_limit_is_discoverable_and_reaches_model_http(configured, mon
         return httpx.Response(200, json={'content': [{'type': 'text', 'text': '{"ok":true}'}], 'stop_reason': 'end_turn'})
 
     monkeypatch.setattr(ModelConnections, 'provider', lambda self, pid: ConnectedModel(self.load(pid),
-        self.root / 'test', transport=httpx.MockTransport(respond)))
+        self.root / 'test', egress_enabled=True, transport=httpx.MockTransport(respond)))
     base = '/api/v1/projects/' + project['id']
     assert client.put(base + '/agent-session', json={'provider': 'api', 'protocol': protocol,
         'base_url': 'https://example.test/v1', 'model': 'test', 'api_key': 'test',
@@ -204,7 +204,7 @@ def test_api_structured_failure_exposes_bounded_diagnostics_to_project_tools(con
         return httpx.Response(200, json={'content': [{'type': 'text', 'text': text}], 'stop_reason': stop_reason})
 
     monkeypatch.setattr(ModelConnections, 'provider', lambda self, pid: ConnectedModel(self.load(pid),
-        self.root / 'test', transport=httpx.MockTransport(respond)))
+        self.root / 'test', egress_enabled=True, transport=httpx.MockTransport(respond)))
     base = '/api/v1/projects/' + project['id']
     assert client.put(base + '/agent-session', json={'provider': 'api', 'protocol': 'anthropic',
         'base_url': 'https://example.test/v1', 'model': 'test', 'api_key': 'private-key',
@@ -245,7 +245,7 @@ def test_api_builder_invokes_platform_tool_and_keeps_session(configured, monkeyp
             assert any(m['role'] == 'tool' for m in body['messages'])
             message, reason = {'content': '已查看项目进度。'}, 'stop'
         return httpx.Response(200, json={'choices': [{'message': message, 'finish_reason': reason}]})
-    monkeypatch.setattr(ModelConnections, 'provider', lambda self, pid: ConnectedModel(self.load(pid), self.root / 'test', transport=httpx.MockTransport(respond)))
+    monkeypatch.setattr(ModelConnections, 'provider', lambda self, pid: ConnectedModel(self.load(pid), self.root / 'test', egress_enabled=True, transport=httpx.MockTransport(respond)))
     base = '/api/v1/projects/' + project['id']
     data = {'provider': 'api', 'base_url': 'https://example.test/v1', 'model': 'selected-model', 'api_key': 'private-key'}
     assert client.put(base + '/agent-session', json=data).status_code == 200
@@ -336,7 +336,18 @@ def test_platform_loop_builds_runs_reads_failure_and_repairs_via_model_api(confi
         body = json.loads(request.content)
         requests.append(body)
         step = len(requests)
-        result = json.loads(body['messages'][-1]['content']) if body['messages'][-1]['role'] == 'tool' else None
+        # Runtime guidance follows tool results in the OpenAI wire format.
+        # Read the actual result by role instead of assuming it is last.
+        latest_tool = next((m for m in reversed(body['messages']) if m['role'] == 'tool'), None)
+        result = json.loads(latest_tool['content']) if latest_tool else None
+        assert body['messages'][-1]['role'] == 'user'
+        budget = json.loads(body['messages'][-1]['content'].splitlines()[-1])['platform_runtime']
+        current_call = step if step <= 2 else step - 2  # The second user request starts at step 3.
+        assert budget == {'model_call_limit': 32, 'current_model_call': current_call,
+            'remaining_model_calls_after_this': 32 - current_call}
+        if step not in {1, 3}:
+            assert body['messages'][-2] == latest_tool
+            assert latest_tool['tool_call_id'] == f'call-{step - 1}'
         if step == 1:
             message = tool('requirements_submit', {'understanding': '读取记录并返回是否存在。',
                 'document': '# 测试需求\n读取 items 中的 absent 记录；不存在时返回 exists=false。'})
@@ -380,7 +391,7 @@ def test_platform_loop_builds_runs_reads_failure_and_repairs_via_model_api(confi
         return httpx.Response(200, json={'choices': [{'message': message,
             'finish_reason': 'tool_calls' if 'tool_calls' in message else 'stop'}]})
     monkeypatch.setattr(ModelConnections, 'provider', lambda self, pid: ConnectedModel(
-        self.load(pid), self.root / 'test', transport=httpx.MockTransport(respond)))
+        self.load(pid), self.root / 'test', egress_enabled=True, transport=httpx.MockTransport(respond)))
     def no_external_agent(*args, **kwargs):
         raise AssertionError('platform must own the agent loop')
     monkeypatch.setattr(app.state.services.local_agents, 'client_factory', no_external_agent)
@@ -417,7 +428,7 @@ async def test_model_adapter_rejects_agent_sessions_before_starting_a_process(tm
 
 @pytest.mark.asyncio
 async def test_api_errors_do_not_leak_echoed_credentials(tmp_path):
-    model = ConnectedModel(connection(), tmp_path, transport=httpx.MockTransport(
+    model = ConnectedModel(connection(), tmp_path, egress_enabled=True, transport=httpx.MockTransport(
         lambda request: httpx.Response(401, text=request.headers['authorization'])))
     with pytest.raises(Exception, match='HTTP 401') as error:
         await complete(model)
@@ -474,7 +485,7 @@ async def test_concurrent_projects_keep_distinct_models_and_keys(tmp_path, monke
         model = json.loads(request.content)['model']
         seen.append((model, request.headers['authorization']))
         return httpx.Response(200, json={'choices': [{'message': {'content': model}, 'finish_reason': 'stop'}]})
-    monkeypatch.setattr(store, 'provider', lambda pid: ConnectedModel(store.load(pid), tmp_path, transport=httpx.MockTransport(respond)))
+    monkeypatch.setattr(store, 'provider', lambda pid: ConnectedModel(store.load(pid), tmp_path, egress_enabled=True, transport=httpx.MockTransport(respond)))
     routed = ProjectModelProvider(None, store)
     async def run(pid):
         token = project_model.set(pid)
@@ -502,7 +513,7 @@ async def test_anthropic_thinking_signature_survives_tool_roundtrip(tmp_path):
         assert assistant['content'][:2] == [thinking, redacted]
         assert body['messages'][-1]['content'][0]['content'] == '{"text": "input"}'
         return httpx.Response(200, json={'content': [{'type': 'text', 'text': 'done'}], 'stop_reason': 'end_turn'})
-    provider = ConnectedModel(connection(protocol='anthropic', thinking='high'), tmp_path, transport=httpx.MockTransport(respond))
+    provider = ConnectedModel(connection(protocol='anthropic', thinking='high'), tmp_path, egress_enabled=True, transport=httpx.MockTransport(respond))
     session = ModelSession(provider, tmp_path / 'conversation')
     await session.start([{'name': 'read', 'description': 'read', 'inputSchema': {'type': 'object'}}], 'test')
     async def tool(name, arguments):
@@ -511,3 +522,34 @@ async def test_anthropic_thinking_signature_survives_tool_roundtrip(tmp_path):
         pass
     assert (await session.turn('read', event, tool))['status'] == 'completed'
     assert len(calls) == 2
+
+
+def test_project_request_limits_reach_provider_and_new_message_can_continue(configured, monkeypatch):
+    client, app, project, settings = configured
+    settings.project_agent_max_model_calls = 1
+    settings.project_agent_max_output_tokens = 192
+    base = '/api/v1/projects/' + project['id']
+    requests = []
+
+    def respond(request):
+        payload = json.loads(request.content)
+        requests.append(payload)
+        assert payload['max_tokens'] == 192
+        message = {'content': '继续完成。'} if len(requests) > 1 else {'content': '', 'tool_calls': [
+            {'id': 'discover', 'type': 'function', 'function': {'name': 'project_workflows',
+             'arguments': json.dumps({'action': 'list'})}}]}
+        return httpx.Response(200, json={'choices': [{'message': message,
+            'finish_reason': 'tool_calls' if 'tool_calls' in message else 'stop'}]})
+
+    monkeypatch.setattr(ModelConnections, 'provider', lambda self, pid: ConnectedModel(
+        self.load(pid), self.root / 'test', egress_enabled=True, transport=httpx.MockTransport(respond)))
+    client.put(base + '/agent-session', json={'provider': 'api', 'model': 'test-model',
+        'base_url': 'https://example.test/v1', 'api_key': 'test'}).raise_for_status()
+    client.post(base + '/agent-session/messages', json={'message': '查看流程'}).raise_for_status()
+    state = agent_settled(client, base)
+    assert '1 次对话模型调用上限' in state['error'] and len(requests) == 1
+    client.post(base + '/agent-session/messages', json={'message': '请继续完成'}).raise_for_status()
+    state = agent_settled(client, base)
+    assert state['status'] == 'idle' and not state['error'] and len(requests) == 2
+    assert any(b.get('role') == 'tool' and b.get('tool_call_id') == 'discover'
+               for b in requests[-1]['messages'])

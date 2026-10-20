@@ -1,5 +1,5 @@
 # CI：每次 push/PR 跑后端全量回归 + 前端类型检查。
-# 测试全部使用桩 provider，不需要任何模型密钥或网络出口。
+# 模型调用使用桩 provider；工作流代码测试需要真实 Docker 沙箱，无需模型密钥。
 name: ci
 
 on:
@@ -18,7 +18,12 @@ jobs:
       fail-fast: false
       matrix:
         python-version: ["3.12", "3.14"]
-    timeout-minutes: 20
+    # 全量回归已接近 5000 项；Linux runner 上 20 分钟只能完成约八成。
+    timeout-minutes: 45
+    env:
+      MODEL_EGRESS_ENABLED: "false"
+      OFFICIAL_AGENT_EGRESS_ENABLED: "false"
+      SANDBOX_IMAGE: agent-platform-sandbox:ci
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -28,6 +33,16 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
+      # 后端全量测试包含实际前端环境探测和 lint/tsc；独立 frontend job
+      # 的 node_modules 不会出现在此 runner，须在这里按同一锁文件安装。
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: platform/frontend/package-lock.json
+      - name: 准备前端验证环境
+        working-directory: platform/frontend
+        run: npm ci
       # 只开 F 类（pyflakes）：算了没用的变量、没引用的导入、
       # 重复定义、没有占位符的 f-string。这些是"代码在说谎"的信号，
       # 不是格式偏好——2026-08-29 靠它在产品代码里挖出 9 处，
@@ -36,8 +51,29 @@ jobs:
       # 格式类规则（E5xx 行宽之类）故意不开，那些是口味。
       - name: Ruff（只查真 bug 类）
         run: ruff check platform/backend/src --select F
+      - name: 准备工作流代码沙箱
+        run: |
+          docker build -f Dockerfile.sandbox -t "$SANDBOX_IMAGE" \
+            --build-arg SANDBOX_UID="$(id -u)" \
+            --build-arg SANDBOX_GID="$(id -g)" .
+          echo "SANDBOX_UID=$(id -u)" >> "$GITHUB_ENV"
+          echo "SANDBOX_GID=$(id -g)" >> "$GITHUB_ENV"
+      - name: 准备数据分析环境
+        # 使用默认镜像名；全局 MODELING_IMAGE 会覆盖恢复与配置文件测试。
+        run: docker build -f Dockerfile.modeling -t lilies-modeling:20260922-feature-tables .
       - name: Pytest（全量回归）
-        run: pytest tests/ -q
+        run: pytest tests/ -q --durations=20 --junitxml=test-results/backend.xml
+      - name: 数据工作空间真实计算与换表
+        env:
+          MODEL_TEST_DOCKER: "1"
+        run: pytest tests/test_data_workspace.py tests/test_imported_models.py -q -k "real_selection or saved_excel or real_pipeline"
+      - name: 保存后端测试结果
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-tests-${{ matrix.python-version }}
+          path: test-results/backend.xml
+          if-no-files-found: ignore
 
   frontend:
     runs-on: ubuntu-latest

@@ -89,3 +89,27 @@ def test_honest_empty_without_truncation_passes_through() -> None:
     )
     assert text == ""
     assert len(stub.stream_calls) == 1
+
+
+def test_project_truncation_keeps_config_and_explains_actual_limit() -> None:
+    from agent_platform.model_connections import project_model
+
+    stub = _StubSelf([_resp("", "max_tokens")])
+    async def call():
+        token = project_model.set("employee-project")
+        try:
+            return await WorkflowRuntime._model_text(
+                stub, "run-1", "configured-model", "sys", "prompt", "analyze",
+                max_output_tokens=2200,
+            )
+        finally:
+            project_model.reset(token)
+
+    with pytest.raises(RuntimeError) as error:
+        asyncio.run(call())
+    assert len(stub.stream_calls) == 1
+    assert stub.stream_calls[0]["model"] == "configured-model"
+    assert stub.stream_calls[0]["max_output_tokens"] == 2200
+    assert not stub.emitted
+    assert "analyze" in str(error.value) and "2200" in str(error.value)
+    assert "项目模型设置" in str(error.value) and "降低/关闭思考" in str(error.value)

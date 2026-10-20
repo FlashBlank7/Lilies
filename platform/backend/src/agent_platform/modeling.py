@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 import asyncio
+from copy import deepcopy
+import csv
 import hashlib
 import json
+import logging
 import os
 from pathlib import Path
 import shutil
@@ -12,11 +15,17 @@ from uuid import uuid4
 
 from .db import connect
 from .models import utc_now
-from .modeling_models import DatasetRequest, StudyRequest, CandidateRequest, FeaturePlan, AideSearch
+from .modeling_models import DataMapping, DatasetRequest, StudyRequest, CandidateRequest, FeaturePlan, TrainingPreprocessing, AideSearch, DataAnalysisPlan
 from .modeling_search import choose_step
+from .modeling_summary import split_summary
 from .project_store import ProjectConflict, encode
 from .workspace_copy import copy_workspace_file
 from .training_notes import make_note, render_note
+
+
+logger = logging.getLogger(__name__)
+ENVIRONMENT_TIMEOUT_SECONDS = 20
+CONTAINER_CLEANUP_TIMEOUT_SECONDS = 5
 
 
 class Modeling:
@@ -100,7 +109,8 @@ class Modeling:
                         for key in ('request', 'profile', 'preview', 'features_result'):
                             value.pop(key, None)
                         if value.get('split'):
-                            value['split'] = {k: v for k, v in value['split'].items() if k in {'missing_labels', 'evaluation_label'}}
+                            value['split'] = (split_summary(value['split'], study=value) if kind == 'study' else
+                                              {k: v for k, v in value['split'].items() if k in {'missing_labels', 'evaluation_label'}})
                         for trial in value.get('trials', []):
                             for key in ('prediction_preview', 'group_errors', 'importance', 'fold_metrics', 'feature_columns', 'effective_model', 'search', 'requested_parameters'):
                                 trial.pop(key, None)
@@ -183,6 +193,7 @@ class Modeling:
             if kind == 'candidate':
                 saved_request.setdefault('search_space', {})
                 saved_request.setdefault('autogluon_hyperparameters', None)
+                saved_request['features'] = FeaturePlan.model_validate(saved_request.get('features') or {}).model_dump()
             if kind == 'study':
                 saved_request.setdefault('search_strategy', 'codex')
                 saved_request.setdefault('aide', AideSearch().model_dump())
@@ -194,7 +205,7 @@ class Modeling:
         root = self.services.projects.workspace(project_id)
         path = root / relative
         if Path(relative).is_absolute() or '..' in Path(relative).parts or not Path(relative).parts or Path(relative).parts[0] not in {'requirement-package', 'solution', 'results'}:
-            raise ValueError('数据／特征代码只能来自当前项目 requirement-package、solution 或 results')
+            raise ValueError('数据／特征代码只能来自当前项目 requirement-package、solution 或 results，使用项目相对路径；例如沙盒写入 /workspace/results/data.csv 后，source_path 返回 results/data.csv，不能返回 /workspace/ 绝对路径')
         if any(p.is_symlink() for p in [path, *path.parents] if p != root.parent):
             # Checking parents outside root is unnecessary and can reject a symlinked home.
             if path.resolve() != path.absolute():
@@ -224,51 +235,132 @@ class Modeling:
                 else:
                     await asyncio.to_thread(copy_workspace_file, self.source(project_id, relative), dest)
                 doc['files'][key] = {'name': dest.name, 'sha256': hashlib.sha256(dest.read_bytes()).hexdigest(), 'bytes': dest.stat().st_size, 'original': relative}
+            state_path = body.state_path
+            if not state_path and upload is None and Path(body.source_path).name == 'processed.csv':
+                companion = Path(body.source_path).with_name('data-state.json')
+                if (self.services.projects.workspace(project_id) / companion).is_file():
+                    state_path = companion.as_posix()
+            if state_path:
+                dest = folder / 'data-state.json'
+                await asyncio.to_thread(copy_workspace_file, self.source(project_id, state_path), dest)
+                state = json.loads(dest.read_text())
+                supplied = body.mapping.model_dump(exclude_unset=True)
+                saved_mapping = state.get('mapping', {'field_rules': state.get('rules', {})})
+                for key in ('sheet', 'header_row', 'skip_after_header'):
+                    if key in supplied and key in saved_mapping and supplied[key] != saved_mapping[key]:
+                        raise ValueError('中间表读取布局与保存状态不一致；请直接使用返回的数据集，或省略 mapping 继承处理后的布局')
+                doc['mapping'] = DataMapping.model_validate({**saved_mapping, **supplied}).model_dump()
+                if state.get('rules') != doc['mapping']['field_rules']:
+                    raise ValueError('数据状态的字段规则与 mapping.field_rules 不一致')
+                if state.get('table_sha256') and state['table_sha256'] != doc['files']['source']['sha256']:
+                    raise ValueError('处理后的表格已改变，请从原始表重新处理，不能沿用旧状态')
+                doc['files']['state'] = {'name': dest.name, 'sha256': hashlib.sha256(dest.read_bytes()).hexdigest(), 'bytes': dest.stat().st_size, 'original': state_path}
+            if upload is None and Path(body.source_path).name in {'processed.csv', 'predictions.csv'}:
+                companion = Path(body.source_path).with_name('source-rows.json')
+                if (self.services.projects.workspace(project_id) / companion).is_file():
+                    dest = folder / 'source-rows.json'
+                    await asyncio.to_thread(copy_workspace_file, self.source(project_id, companion.as_posix()), dest)
+                    doc['files']['origins'] = {'name': dest.name, 'sha256': hashlib.sha256(dest.read_bytes()).hexdigest(), 'bytes': dest.stat().st_size}
             return await self.put(project_id, 'dataset', doc)
         except BaseException:
             shutil.rmtree(folder)
             raise
 
-    async def image(self):
-        image = self.services.settings.modeling_image
-        process = await asyncio.create_subprocess_exec('docker', 'image', 'inspect', '--format', '{{.Id}}', image, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+    async def image(self, requested=''):
+        image = requested or self.services.settings.modeling_image
+        process = None
         try:
-            out, err = await asyncio.wait_for(process.communicate(), 20)
-        except BaseException:
-            process.kill(); await process.wait(); raise
+            process = await asyncio.create_subprocess_exec('docker', 'image', 'inspect', '--format', '{{.Id}}', image, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+            out, err = await asyncio.wait_for(process.communicate(), ENVIRONMENT_TIMEOUT_SECONDS)
+        except TimeoutError as error:
+            raise RuntimeError(f'检查建模环境 {image} 超时（{ENVIRONMENT_TIMEOUT_SECONDS:g} 秒）；请维护方检查 Docker 服务是否正常后重试') from error
+        except OSError as error:
+            raise RuntimeError(f'无法检查建模环境 {image}：无法启动 Docker 命令；请维护方检查 Docker 安装与服务。{error}') from error
+        finally:
+            if process and process.returncode is None:
+                process.kill(); await process.communicate()
         if process.returncode:
-            raise RuntimeError(f'建模环境 {image} 尚未就绪，请维护方执行 docker build -f Dockerfile.modeling -t {image} .；{err.decode()[-300:]}')
+            raise RuntimeError(f'建模环境 {image} 不可用；请维护方检查 Docker 服务与镜像是否存在。{err.decode(errors="replace")[-500:]}')
         return out.decode().strip()
 
     async def snapshot_environment(self, image):
         folder = self.root / '_environments' / image.replace(':', '-')
         if (folder / 'worker.py').exists():
             return folder
-        script = "import json,pathlib,importlib.metadata,platform; print(json.dumps({'worker':pathlib.Path('/opt/modeling/worker.py').read_text(),'requirements':'\\n'.join(sorted(d.metadata['Name']+'=='+d.version for d in importlib.metadata.distributions())),'python':platform.python_version(),'machine':platform.machine()}))"
-        process = await asyncio.create_subprocess_exec('docker', 'run', '--rm', '--network', 'none', '--read-only', '--entrypoint', 'python', image, '-c', script,
-                                                       stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+        script = "import json,pathlib,importlib.metadata,platform,runpy; root=pathlib.Path('/opt/modeling'); print(json.dumps({'worker':(root/'worker.py').read_text(),'capabilities':runpy.run_path(str(root/'worker.py')).get('CAPABILITIES',[]),'support_files':{name:(root/name).read_text() for name in ['modeling_preprocessing.py', 'table_selection.py'] if (root/name).is_file()},'requirements':'\\n'.join(sorted(d.metadata['Name']+'=='+d.version for d in importlib.metadata.distributions())),'python':platform.python_version(),'machine':platform.machine()}))"
+        name = 'lilies-modeling-environment-' + str(uuid4())
+        self.containers.add(name)
+        process = None
         try:
-            output, error = await asyncio.wait_for(process.communicate(), 20)
-        except BaseException:
-            process.kill(); await process.wait(); raise
-        if process.returncode:
-            raise RuntimeError('无法固定建模环境：' + error.decode()[-500:])
-        metadata = json.loads(output)
+            process = await asyncio.create_subprocess_exec('docker', 'run', '--rm', '--name', name,
+                '--label', 'lilies.modeling.owner=' + self.owner_label, '--network', 'none', '--read-only', '--entrypoint', 'python', image, '-c', script,
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+            output, error = await asyncio.wait_for(process.communicate(), ENVIRONMENT_TIMEOUT_SECONDS)
+            if process.returncode:
+                raise RuntimeError(f'读取建模环境 {image} 失败：' + (error.decode(errors='replace')[-500:] or f'Docker 命令退出码 {process.returncode}'))
+        except TimeoutError as error:
+            raise RuntimeError(f'读取建模环境 {image} 超时（{ENVIRONMENT_TIMEOUT_SECONDS:g} 秒）；请维护方检查 Docker 服务及容器启动状态后重试') from error
+        except OSError as error:
+            raise RuntimeError(f'无法读取建模环境 {image}：无法启动 Docker 命令；请维护方检查 Docker 安装与服务。{error}') from error
+        finally:
+            if process and process.returncode is None:
+                process.kill(); await process.communicate()
+            await asyncio.shield(self.remove_container(name))
+        try:
+            metadata = json.loads(output)
+            worker = metadata.pop('worker')
+            requirements = metadata.pop('requirements')
+            support = metadata.pop('support_files', {})
+            if not isinstance(worker, str) or not worker.strip() or not isinstance(requirements, str):
+                raise ValueError('缺少 worker 或依赖信息')
+            if not isinstance(support, dict) or set(support) - {'modeling_preprocessing.py', 'table_selection.py'} or any(not isinstance(value, str) or not value.strip() for value in support.values()):
+                raise ValueError('预处理代码不完整')
+        except (ValueError, TypeError, KeyError, AttributeError) as error:
+            raise RuntimeError(f'建模环境 {image} 返回的代码或依赖信息不完整；请维护方检查建模镜像') from error
         folder.mkdir(parents=True, exist_ok=True)
-        (folder / 'requirements.lock').write_text(metadata.pop('requirements'))
-        worker = metadata.pop('worker')
+        (folder / 'requirements.lock').write_text(requirements)
+        for name, content in support.items():
+            (folder / name).write_text(content)
         metadata.update(image=image, worker_sha256=hashlib.sha256(worker.encode()).hexdigest())
+        if support:
+            metadata['support_files_sha256'] = {name: hashlib.sha256(content.encode()).hexdigest() for name, content in support.items()}
         (folder / 'environment.json').write_text(encode(metadata))
         (folder / 'worker.py').write_text(worker)
         return folder
 
     async def remove_container(self, name):
-        process = await asyncio.create_subprocess_exec('docker', 'rm', '-f', name, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL)
-        await process.wait()
-        self.containers.discard(name)
+        process = None
+        try:
+            process = await asyncio.create_subprocess_exec('docker', 'rm', '-f', name, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE)
+            _, error = await asyncio.wait_for(process.communicate(), CONTAINER_CLEANUP_TIMEOUT_SECONDS)
+            detail = error.decode(errors='replace')[-500:]
+            if process.returncode and 'No such container' not in detail:
+                logger.warning('无法清理建模容器 %s：%s', name, detail or f'退出码 {process.returncode}')
+                return False
+            self.containers.discard(name)
+            return True
+        except (OSError, TimeoutError) as error:
+            # Keep ownership so close()/the next startup can retry. Cleanup must
+            # not hide the computation error or wait forever on an unhealthy daemon.
+            logger.warning('无法确认建模容器 %s 已清理：%s；请维护方检查 Docker 服务', name, str(error) or '清理超时')
+            return False
+        finally:
+            if process and process.returncode is None:
+                process.kill(); await process.communicate()
 
     async def compute(self, project_id, dataset, config, folder, *, image='', on_event=None, timeout=1800, extra_mounts=None, writable_mounts=None):
         """Only this transport knows Docker; tests may use a real local worker instead."""
+        if dataset['mapping'].get('field_rules') or config.get('analysis', {}).get('operation') in {'prepare', 'select'}:
+            environment = await self.snapshot_environment(image or await self.image())
+            capabilities = json.loads((environment / 'environment.json').read_text()).get('capabilities', [])
+            if config.get('analysis', {}).get('operation') == 'prepare' and 'table_prepare_v1' not in capabilities:
+                raise ValueError('该建模环境不支持保留字段含义的表格整理，请选择新版建模环境')
+            if config.get('analysis', {}).get('operation') == 'select' and 'table_selection_v1' not in capabilities:
+                raise ValueError('该建模环境不支持数据选择，请使用支持 table_selection_v1 的镜像')
+            if 'field_semantics_v1' not in capabilities:
+                raise ValueError('该建模环境不支持字段含义规则，请选择新版建模环境；不能忽略规则继续计算')
+            if any(r.get('category_labels') for r in dataset['mapping']['field_rules'].values()) and 'field_reporting_v1' not in capabilities:
+                raise ValueError('该建模环境不支持类别业务名称，请选择新版建模环境；不能忽略类别定义继续计算')
         folder.mkdir(parents=True, exist_ok=True)
         output = folder / 'output'; output.mkdir(exist_ok=True)
         data = self.path(project_id, dataset['id'])
@@ -280,7 +372,10 @@ class Modeling:
         deadline = time.monotonic() + timeout
         if on_event and self.slots.locked():
             await on_event({'kind': 'queued'})
-        await asyncio.wait_for(self.slots.acquire(), timeout)
+        try:
+            await asyncio.wait_for(self.slots.acquire(), timeout)
+        except TimeoutError as error:
+            raise TimeoutError('等待计算资源时已用尽预算') from error
         try:
             if on_event:
                 await on_event({'kind': 'compute_started'})
@@ -328,6 +423,8 @@ class Modeling:
                 if process.returncode or result is None:
                     raise RuntimeError(failure or log[-1200:] or '建模计算未返回结果')
                 return result
+            except TimeoutError as error:
+                raise TimeoutError('计算运行时已用尽预算') from error
             finally:
                 await asyncio.shield(self.remove_container(name))
                 if process and process.returncode is None:
@@ -348,6 +445,62 @@ class Modeling:
             await self.put(project_id, 'dataset', dataset)
             return result
 
+    async def analyze(self, project_id, dataset_id, plan: DataAnalysisPlan):
+        if plan.operation == 'profile':
+            return {'dataset_id': dataset_id, **await self.profile(project_id, dataset_id)}
+        dataset = await self.get(project_id, 'dataset', dataset_id)
+        operation_id = str(uuid4())
+        folder = self.path(project_id, dataset_id) / 'analysis' / operation_id
+        image = await self.image()
+        result = await self.compute(project_id, dataset, {'action': 'analyze', 'analysis': plan.model_dump()}, folder, image=image)
+        root = self.services.projects.workspace(project_id)
+        relative = Path('results/data-analysis') / operation_id
+        destination = root / relative
+
+        def export():
+            for path in (root, root / 'results', root / 'results/data-analysis', destination):
+                if path.is_symlink():
+                    raise ValueError('分析结果路径不能包含符号链接')
+            destination.mkdir(parents=True, exist_ok=False)
+            names = ['analysis.json']
+            names += {'spearman': ['correlations.csv'], 'outliers': ['outliers.csv', 'source-rows.csv'],
+                      'numeric': ['conversions.csv', 'source-rows.csv'], 'prepare': ['source-rows.csv'], 'select': ['source-rows.json']}[plan.operation]
+            if (folder / 'output/source-rows.json').is_file() and 'source-rows.json' not in names:
+                names.append('source-rows.json')
+            if (folder / 'output/data-state.json').is_file():
+                names.append('data-state.json')
+            if (folder / 'output/data-summary.md').is_file():
+                names.append('data-summary.md')
+            if plan.operation in {'numeric', 'prepare', 'select'} or (plan.operation == 'outliers' and plan.handling != 'flag'):
+                names.append('processed.csv')
+            artifacts = []
+            for name in names:
+                copy_workspace_file(folder / 'output' / name, destination / name)
+                artifacts.append({'label': name, 'file_path': (relative / name).as_posix()})
+            return artifacts
+
+        artifacts = await asyncio.to_thread(export)
+        result.update(dataset_id=dataset_id, source_dataset_id=dataset_id, operation_id=operation_id,
+                      analysis=plan.model_dump(), image=image, artifacts=artifacts)
+        if plan.operation in {'numeric', 'prepare', 'select'} or (plan.operation == 'outliers' and plan.handling != 'flag'):
+            derived = await self.dataset(project_id, DatasetRequest(
+                name=dataset['name'] + {'numeric': ' · 数值整理', 'prepare': ' · 表格整理', 'outliers': ' · 异常值处理', 'select': ' · 所选数据'}[plan.operation],
+                source_path=(relative / 'processed.csv').as_posix(),
+                state_path=(relative / 'data-state.json').as_posix() if (destination / 'data-state.json').is_file() else '',
+                mapping={**dataset['mapping'], 'sheet': 0, 'header_row': 0, 'skip_after_header': 0}))
+            if (destination / 'source-rows.json').is_file():
+                origin_path = self.path(project_id, derived['id']) / 'source-rows.json'
+                copy_workspace_file(destination / 'source-rows.json', origin_path)
+                derived['files']['origins'] = {'name': origin_path.name, 'sha256': hashlib.sha256(origin_path.read_bytes()).hexdigest(), 'bytes': origin_path.stat().st_size}
+            derived.update(derived_from=dataset_id, transformation={'operation_id': operation_id,
+                           'analysis': plan.model_dump(), 'image': image})
+            await self.put(project_id, 'dataset', derived)
+            result['dataset_id'] = derived['id']
+            result['mapping'] = derived['mapping']
+            result['source_path'] = (relative / 'processed.csv').as_posix()
+            result['state_path'] = (relative / 'data-state.json').as_posix() if derived['files'].get('state') else ''
+        return result
+
     @staticmethod
     def elapsed(study):
         return study.get('used_seconds', 0) + (time.time() - study['active_since'] if study.get('active_since') else 0)
@@ -367,6 +520,21 @@ class Modeling:
                 await self.get(project_id, 'study', body.parent_study_id)
             if body.item_id:
                 await self.services.projects.conversation.item(project_id, body.item_id)
+            # Reuse a completed scan to report an already-known split conflict
+            # before creating a study or starting either candidate. Unscanned and
+            # historical datasets still receive the authoritative worker check.
+            profile = dataset.get('profile') or {}
+            if dataset['files'].get('labels'):
+                profile = profile.get('labels') or {}
+            structure = profile.get('sample_structure') or {}
+            group = dataset['mapping'].get('group_column') or dataset['mapping'].get('id_column')
+            if (not profile.get('sampled', True) and body.evaluation.split == 'random'
+                    and structure.get('target') == dataset['mapping'].get('target')
+                    and structure.get('group_column') == group and structure.get('repeated_groups', 0)):
+                raise ValueError(f'有标签数据的 {group} 含 {structure["repeated_groups"]} 个重复组'
+                    f'（涉及 {structure["rows_in_repeated_groups"]} 行），不能使用随机划分。'
+                    '请改为 evaluation.split="group"；只有预测时点明确时才选择 "time"。'
+                    '尚未创建研究或启动训练，可以修改划分后重试。')
             ident = str(uuid4())
             doc = {**request, 'id': ident, 'request': request, 'status': 'ready', 'created_at': utc_now(), 'image': await self.image(),
                    'active_since': time.time(), 'used_seconds': (dataset.get('profile') or {}).get('runtime', {}).get('seconds', 0),
@@ -398,8 +566,13 @@ class Modeling:
         return choose_step(study, candidates)
 
     async def candidate(self, project_id, study_id, body: CandidateRequest, *, submission=None):
+        request = body.model_dump()
+        # Reading an existing request must not wait for its running computation.
+        # Mutating a workflow submission still uses the study lock below.
+        if submission is None:
+            if previous := await self.duplicate(project_id, 'candidate', study_id, request):
+                return previous
         async with self.locks.setdefault(study_id, asyncio.Lock()):
-            request = body.model_dump()
             if previous := await self.duplicate(project_id, 'candidate', study_id, request):
                 if submission is not None:
                     saved = previous.get('submission')
@@ -431,6 +604,14 @@ class Modeling:
                 await self.services.projects.store.get_task(project_id, body.feedback_task_id)
             if body.engine == 'autogluon' and (body.features.transformer_path or body.features.select_k):
                 raise ValueError('AutoGluon 对照当前接受相同原始特征方案；不支持自定义拟合转换或 select_k')
+            if body.features.preprocessing != TrainingPreprocessing():
+                environment = await self.snapshot_environment(study['image'])
+                if not (environment / 'modeling_preprocessing.py').is_file():
+                    raise ValueError('该研究固定的建模环境不支持可选训练预处理；请使用更新的建模镜像创建新研究，已有记录保留')
+                if body.features.preprocessing.categorical_missing == 'preserve':
+                    capabilities = json.loads((environment / 'environment.json').read_text()).get('capabilities', [])
+                    if 'categorical_missing_preserve' not in capabilities:
+                        raise ValueError('该研究固定的建模环境不支持保留类别缺失；请使用更新的建模镜像创建新研究，已有记录保留')
             dataset = await self.get(project_id, 'dataset', study['dataset_id'])
             gap = study['evaluation'].get('gap_seconds', 0)
             if dataset['mapping']['kind'] == 'timeseries' and study['evaluation']['split'] == 'time' and gap:
@@ -450,7 +631,7 @@ class Modeling:
                 doc['code_sha256'] = hashlib.sha256((folder / 'transformer.py').read_bytes()).hexdigest()
             return await self.put(project_id, 'candidate', doc)
 
-    async def run_candidate(self, project_id, study_id, candidate_id, task_id, run_id):
+    async def run_candidate(self, project_id, study_id, candidate_id, task_id, run_id, *, pause_when_done=False):
         async with self.locks.setdefault(study_id, asyncio.Lock()):
             study = await self.get(project_id, 'study', study_id)
             candidate = await self.get(project_id, 'candidate', candidate_id)
@@ -470,6 +651,8 @@ class Modeling:
                 if features.exists():
                     candidate['features_result'] = json.loads(features.read_text())
                 self.finish_batch(study, candidate)
+                if pause_when_done:
+                    self.pause_clock(study)
                 await self.put(project_id, 'study', study)
                 return await self.put(project_id, 'candidate', candidate)
             dataset = await self.get(project_id, 'dataset', study['dataset_id'])
@@ -487,9 +670,14 @@ class Modeling:
             folder = self.path(project_id, candidate_id)
             study_folder = self.path(project_id, study_id)
             split_path = study_folder / 'output' / 'split.json'
+            compute_phase = '准备数据划分'
             async def event(event):
                 if event['kind'] in {'queued', 'compute_started'}:
                     candidate['status'] = 'queued' if event['kind'] == 'queued' else 'running'
+                    study.update(status=candidate['status'], next_action=(
+                        f'等待计算资源，之后{compute_phase}' if event['kind'] == 'queued'
+                        else f'正在{compute_phase}'))
+                    await self.put(project_id, 'study', study)
                 elif event['kind'] == 'trial_started':
                     candidate['current'] = event
                 elif event['kind'] == 'trial':
@@ -513,8 +701,9 @@ class Modeling:
                     await self.save_training_note(project_id, study_id, candidate_id, event['slot'])
             try:
                 if not split_path.exists():
-                    study['split'] = await self.compute(project_id, dataset, {'action': 'prepare', 'evaluation': study['evaluation']}, study_folder, image=study['image'], timeout=remaining)
+                    study['split'] = await self.compute(project_id, dataset, {'action': 'prepare', 'evaluation': study['evaluation'], 'features': candidate['features']}, study_folder, image=study['image'], on_event=event, timeout=remaining)
                     await self.put(project_id, 'study', study)
+                compute_phase = '训练模型'
                 config = {**candidate['request'], 'action': 'train', 'evaluation': study['evaluation'], 'split': '/split.json',
                           'remaining_seconds': max(1, study['budget']['seconds'] - self.elapsed(study)), 'trial_seconds': study['budget']['trial_seconds'], 'batch_size': min(slots, candidate['batch_size'])}
                 mounts = [(split_path, '/split.json')]
@@ -537,12 +726,16 @@ class Modeling:
                 candidate.update(status=result['status'], features_result=result['features'], runtime=result.get('runtime'), current=None)
                 if candidate['status'] == 'completed':
                     self.finish_batch(study, candidate)
+                    if pause_when_done:
+                        self.pause_clock(study)
                 else:
                     study.update(status='budget_exhausted', next_action='预算已用尽，已完成试验保留；增加预算后继续原任务')
                     self.pause_clock(study)
             except BaseException as error:
                 candidate.update(status='interrupted' if isinstance(error, (asyncio.CancelledError, TimeoutError)) else 'failed', error=str(error) or '用户停止或服务中断', current=None)
-                study.update(status='interrupted', error=candidate['error'], next_action='继续原项目任务，已完成试验不会重跑')
+                study.update(status='interrupted', error=candidate['error'], next_action=(
+                    '任务已中断；等待用户要求继续原任务，已完成试验不会重跑'
+                    if isinstance(error, asyncio.CancelledError) else '继续原项目任务，已完成试验不会重跑'))
                 self.pause_clock(study)
                 raise
             finally:
@@ -581,6 +774,32 @@ class Modeling:
 
     async def run_block(self, project, kind, args, run_id, node_id=''):
         project_id = project['project_id']
+        # The task identifies a retry; a new task always gets new data and experiments.
+        key = 'workflow-' + hashlib.sha256(encode([project.get('task_id', run_id), node_id]).encode()).hexdigest()
+        if kind in {'data_analysis', 'model_predict'} and args.get('source_path'):
+            body = DatasetRequest(source_path=args['source_path'], labels_path=args.get('labels_path', ''), state_path=args.get('state_path', ''), mapping=args.get('mapping') or {})
+            async with self.locks.setdefault(key, asyncio.Lock()):
+                record = await self.services.projects.store.get_record(project_id, 'workflow_datasets', key)
+                saved = record['value']
+                if saved:
+                    if saved['request'] != body.model_dump():
+                        raise ProjectConflict('原运行的数据配置已固定；修改配置后请创建新运行')
+                    dataset_id = saved['dataset_id']
+                else:
+                    dataset = await self.dataset(project_id, body)
+                    dataset_id = dataset['id']
+                    await self.services.projects.store.put_record(project_id, 'workflow_datasets', key,
+                        {'dataset_id': dataset_id, 'request': body.model_dump()}, 0)
+                args = {**args, 'dataset_id': dataset_id}
+        if kind == 'model_predict' and not args.get('model_ref') and not (args.get('study_id') and args.get('candidate_id')):
+            raise ValueError('模型预测节点尚未选择模型，请配置模型引用后重新运行')
+        if kind == 'model_predict' and args.get('model_ref'):
+            from .project_resources import binding_from_context
+            binding = binding_from_context(project, args['model_ref'])
+            if binding.get('import_id'):
+                from .imported_models import predict_import
+                return await predict_import(self, project_id, args, binding, run_id, node_id)
+            args = {**args, **{k: binding[k] for k in ('study_id', 'candidate_id', 'slot')}}
         if project.get('record_scope') and kind == 'model_train':
             if args.get('finalize'):
                 study = await self.get(project_id, 'study', args['study_id'])
@@ -594,18 +813,31 @@ class Modeling:
                     return candidate
             raise ValueError('请先在研究任务中完成候选训练或最终评价；保存用例只回放已固定实验，并可真实运行预测')
         if kind == 'data_analysis':
-            return {'dataset_id': args['dataset_id'], **await self.profile(project_id, args['dataset_id'])}
+            if not args.get('dataset_id'):
+                raise ValueError('数据分析节点尚未选择项目文件或数据集')
+            return await self.analyze(project_id, args['dataset_id'], DataAnalysisPlan.model_validate(args.get('analysis') or {}))
         if kind == 'model_train':
             if args.get('finalize'):
                 return await self.finalize(project_id, args['study_id'], run_id)
+            if not args.get('study_id') and not args.get('candidate_id'):
+                if not args.get('dataset_id'):
+                    raise ValueError('训练节点缺少数据集，请连接数据分析节点的 output.dataset_id')
+                study = await self.study(project_id, StudyRequest(dataset_id=args['dataset_id'], request_key=key,
+                    evaluation=args.get('evaluation') or {}, budget=args.get('budget') or {}))
+                candidate = await self.candidate(project_id, study['id'], CandidateRequest.model_validate({
+                    **(args.get('candidate') or {}), 'features': args.get('features') or {}, 'request_key': key}))
+                args = {**args, 'study_id': study['id'], 'candidate_id': candidate['id']}
             study = await self.get(project_id, 'study', args['study_id'])
             if args.get('dataset_id') and args['dataset_id'] != study['dataset_id']:
                 raise ValueError('上游数据集与研究固定版本不一致，请创建新研究')
             if args.get('features'):
                 candidate = await self.get(project_id, 'candidate', args['candidate_id'])
-                if FeaturePlan.model_validate(args['features']).model_dump() != candidate['features']:
+                if FeaturePlan.model_validate(args['features']) != FeaturePlan.model_validate(candidate['features']):
                     raise ValueError('上游特征方案已改变，请提交关联新候选后运行')
-            return await self.run_candidate(project_id, args['study_id'], args['candidate_id'], project['task_id'], run_id)
+            result = await self.run_candidate(project_id, args['study_id'], args['candidate_id'], project['task_id'], run_id, pause_when_done=True)
+            if not any(t['status'] == 'completed' for t in result.get('trials', [])):
+                raise ValueError('本批没有可用模型：' + str(result.get('error') or [t.get('error') for t in result.get('trials', [])]))
+            return result
         dataset = await self.get(project_id, 'dataset', args['dataset_id'])
         folder = self.path(project_id, dataset['id']) / ('run-' + run_id + '-' + hashlib.sha256(node_id.encode()).hexdigest()[:10])
         if kind == 'feature_extract':
@@ -620,6 +852,8 @@ class Modeling:
             if not cache.exists():
                 cache.parent.mkdir(exist_ok=True)
                 copy_workspace_file(folder / 'output/features.joblib', cache)
+            if result.get('stage') == 'before_fold_preprocessing':
+                result['artifacts'] = self.export_feature_files(project_id, dataset, folder)
             return {'dataset_id': dataset['id'], 'feature_plan': plan.model_dump(), **result}
         study = await self.get(project_id, 'study', args['study_id'])
         candidate = await self.get(project_id, 'candidate', args['candidate_id'])
@@ -629,18 +863,137 @@ class Modeling:
         if not good:
             raise ValueError('候选没有可用模型')
         metric = study['evaluation']['metric']
-        best = sorted(good, key=lambda t: t['metrics'][metric], reverse=metric not in {'mae', 'rmse'})[0]
+        best = (next((t for t in good if t['slot'] == args['slot']), None) if args.get('slot') is not None
+                else sorted(good, key=lambda t: t['metrics'][metric], reverse=metric not in {'mae', 'rmse'})[0])
+        if best is None:
+            raise ValueError('指定模型版本不可用，请重新绑定')
         original = await self.get(project_id, 'dataset', study['dataset_id'])
-        # Only file location changes at inference; preserve trained field semantics.
-        dataset = {**dataset, 'mapping': original['mapping']}
+        incoming_rules = dataset['mapping'].get('field_rules', {})
+        if incoming_rules and incoming_rules != original['mapping'].get('field_rules', {}):
+            raise ValueError('新数据字段规则与模型训练时不同；请沿用模型规则，或从原始数据训练新版本')
+        # Preserve trained field semantics; file layout belongs to the new input.
+        layout = {key: dataset['mapping'].get(key, 0) for key in ('sheet', 'header_row', 'skip_after_header')}
+        dataset = {**dataset, 'mapping': {**original['mapping'], **layout}}
         model = self.path(project_id, candidate['id']) / 'output' / f'trial-{best["slot"]}'
-        config = {'action': 'predict', 'features': candidate['features'], 'engine': candidate['engine'], 'model': '/model', 'feature_columns': best['feature_columns']}
+        config = {'action': 'predict', 'features': candidate['features'], 'engine': candidate['engine'], 'model': '/model', 'feature_columns': best['feature_columns'], 'classes': best.get('classes')}
+        group = original['mapping'].get('group_column')
+        if original['mapping']['kind'] == 'tabular' and group:
+            # Grouping is for evaluation, not a prediction input. Adapt the job
+            # contract so previously saved worker images also accept new rows
+            # without this column; exclude it if the caller does provide it.
+            dataset = {**dataset, 'mapping': {**dataset['mapping'], 'group_column': ''}}
+            config['features'] = {**candidate['features'], 'exclude': list(dict.fromkeys(
+                [*candidate['features'].get('exclude', []), group]))}
         mounts = [(model, '/model')]
         if candidate.get('code_sha256'):
             config['transformer'] = '/transformer.py'; mounts.append((model.parent.parent / 'transformer.py', '/transformer.py'))
         result = await self.compute(project_id, dataset, config, folder, image=candidate['image'], extra_mounts=mounts)
+        result['model_version'] = {'study_id': study['id'], 'candidate_id': candidate['id'], 'slot': best['slot'], 'image': candidate['image']}
+        return self.export_prediction(project_id, dataset, folder, result)
+
+    def export_prediction(self, project_id, dataset, folder, result):
+        # Existing model versions keep their pinned worker image. Describe only
+        # correspondence that worker actually wrote; never infer it from the
+        # current input file or the position of an old preview row.
+        prediction_file = folder / 'output/predictions.csv'
+        if prediction_file.is_symlink():
+            raise ValueError('预测导出文件必须位于当前项目内')
+        mapping = dataset['mapping']
+        with prediction_file.open(newline='', encoding='utf-8') as source:
+            reader = csv.DictReader(source)
+            columns = reader.fieldnames or []
+            id_column = mapping.get('id_column')
+            reserved = {'_sample', 'prediction', 'decision', *result.get('probability_columns', {}).values()}
+            if id_column not in columns or id_column in reserved:
+                id_column = None
+            record_column = None
+            # _sample is captured before feature extraction, from the parsed
+            # source/labels table. Gaps must stay gaps; it is not a file line.
+            if '_sample' in columns and mapping.get('id_column') in (None, '', '_sample'):
+                valid = True
+                count = 0
+                for row in reader:
+                    sample = row.get('_sample', '')
+                    valid = valid and sample.isascii() and sample.isdecimal()
+                    count += 1
+                if valid and count == result.get('rows'):
+                    record_column = 'input_record'
+                    while record_column in columns:
+                        record_column += '_'
+        if record_column:
+            temporary = prediction_file.with_name('predictions-source-' + str(uuid4()) + '.tmp')
+            try:
+                with prediction_file.open(newline='', encoding='utf-8') as source, temporary.open('x', newline='', encoding='utf-8') as destination:
+                    reader = csv.DictReader(source)
+                    writer = csv.DictWriter(destination, fieldnames=[record_column, *columns])
+                    writer.writeheader()
+                    preview = result.get('preview', [])
+                    for index, row in enumerate(reader):
+                        record = int(row['_sample']) + 1
+                        writer.writerow({record_column: record, **row})
+                        if index < len(preview):
+                            preview[index] = {record_column: record, **preview[index]}
+                temporary.replace(prediction_file)
+            finally:
+                temporary.unlink(missing_ok=True)
+        if record_column or id_column:
+            table = 'labels' if dataset['files'].get('labels') else 'source'
+            file = dataset['files'][table]
+            result['input_source'] = {'dataset_id': dataset['id'], 'path': file['original'], 'table': table}
+            if record_column:
+                result['input_source']['record_column'] = record_column
+            if id_column:
+                result['input_source']['id_column'] = id_column
+            if Path(file['name']).suffix.lower() == '.xlsx':
+                result['input_source']['sheet'] = mapping.get('sheet', 0)
         result['artifact'] = f'datasets/{dataset["id"]}/files/{folder.name}/output/predictions.csv'
+        relative = Path('results/predictions') / dataset['id'] / folder.name / 'predictions.csv'
+        workspace = self.services.projects.workspace(project_id).resolve()
+        destination = workspace / relative
+        if any((workspace / Path(*relative.parts[:i])).is_symlink() for i in range(1, len(relative.parts) + 1)):
+            raise ValueError('预测导出目录不支持符号链接')
+        if not destination.resolve().is_relative_to(workspace) or (folder / 'output/predictions.csv').is_symlink():
+            raise ValueError('预测导出文件必须位于当前项目内')
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        copy_workspace_file(folder / 'output/predictions.csv', destination)
+        result['project_path'] = relative.as_posix()
+        # Predictions are another table input. Preserve original positions when
+        # the result is filtered or passed to the next workflow.
+        with destination.open(newline='') as stream:
+            rows = csv.DictReader(stream)
+            if {'source_row', 'source_line'} <= set(rows.fieldnames or []):
+                origins = {str(i): {'source_row': int(row['source_row']), 'source_line': int(row['source_line'])} for i,row in enumerate(rows)}
+                destination.with_name('source-rows.json').write_text(json.dumps(origins))
+        state = folder / 'output/data-state.json'
+        if state.is_file():
+            copy_workspace_file(state, destination.with_name('data-state.json'))
+            result['data_state_path'] = relative.with_name('data-state.json').as_posix()
+        summary = folder / 'output/data-summary.md'
+        if summary.is_file():
+            copy_workspace_file(summary, destination.with_name(summary.name))
+            result['data_summary_path'] = relative.with_name(summary.name).as_posix()
         return result
+
+    def export_feature_files(self, project_id, dataset, folder):
+        workspace = self.services.projects.workspace(project_id).resolve()
+        relative = Path('results/features') / dataset['id'] / folder.name
+        artifacts = []
+        files = [('features.csv', '下载完整特征表 CSV'),
+                                ('samples.csv', '下载样本标识与标签 CSV'),
+                                ('feature-summary.json', '下载特征定义与处理说明 JSON')]
+        if (folder / 'output/data-state.json').is_file():
+            files.append(('data-state.json', '下载原值与处理原因'))
+        for filename, label in files:
+            target = relative / filename
+            if any((workspace / Path(*target.parts[:i])).is_symlink() for i in range(1, len(target.parts) + 1)):
+                raise ValueError('特征导出目录不支持符号链接')
+            destination = workspace / target
+            if not destination.resolve().is_relative_to(workspace):
+                raise ValueError('特征导出文件必须位于当前项目内')
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            copy_workspace_file(folder / 'output' / filename, destination)
+            artifacts.append({'file_path': target.as_posix(), 'label': label})
+        return artifacts
 
     async def budget(self, project_id, study_id, budget):
         async with self.locks.setdefault(study_id, asyncio.Lock()):
@@ -674,6 +1027,11 @@ class Modeling:
             candidate = await self.get(project_id, 'candidate', study['best']['candidate_id'])
             dataset = await self.get(project_id, 'dataset', study['dataset_id'])
             trial = next(t for t in candidate['trials'] if t['slot'] == study['best']['slot'])
+            evaluated_model = {
+                'study_id': study_id, 'dataset_id': dataset['id'], 'dataset_name': dataset.get('name'),
+                'candidate_id': candidate['id'], 'slot': trial['slot'], 'model': trial.get('model'),
+                'validation_metrics': deepcopy(trial.get('metrics')),
+            }
             folder = self.path(project_id, candidate['id'])
             config = {'action': 'holdout', 'features': candidate['features'], 'evaluation': study['evaluation'], 'engine': candidate['engine'],
                       'feature_columns': trial['feature_columns'], 'classes': trial['classes'], 'model': '/model', 'split': '/split.json'}
@@ -684,6 +1042,7 @@ class Modeling:
             study.update(status='sealed', next_action='使用固定最佳模型预测；保留测试集已用于最终评价，不能再参与搜索')
             self.pause_clock(study); await self.put(project_id, 'study', study)
             result = await self.compute(project_id, dataset, config, self.path(project_id, study_id) / 'holdout', image=study['image'], extra_mounts=mounts)
+            result = {**result, 'evaluated_model': evaluated_model}
             study.update(test_result=result, final_run_id=run_id)
             await self.put(project_id, 'study', study)
             await self.save_training_note(project_id, study_id, candidate['id'], trial['slot'])
@@ -739,7 +1098,8 @@ class Modeling:
                         shutil.rmtree(temporary)
             return {'dataset_id': dataset_id, 'files': files,
                     'source_path': files['source']['path'],
-                    'labels_path': files.get('labels', {}).get('path', '')}
+                    'labels_path': files.get('labels', {}).get('path', ''),
+                    **({'state_path': files['state']['path']} if 'state' in files else {})}
 
         async with self.locks.setdefault('export/' + dataset_id, asyncio.Lock()):
             return await asyncio.to_thread(export)
@@ -779,6 +1139,8 @@ class Modeling:
             return await self.export_dataset(project_id, args.dataset_id)
         if action == 'profile':
             return await self.profile(project_id, args.dataset_id, args.sampled)
+        if action == 'analyze':
+            return await self.analyze(project_id, args.dataset_id, args.analysis)
         if action == 'studies':
             return await self.list(project_id, 'study', offset=args.offset, limit=args.limit)
         if action == 'create_study':

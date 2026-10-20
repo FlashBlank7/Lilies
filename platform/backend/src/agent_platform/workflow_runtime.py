@@ -9,8 +9,10 @@ import os
 import re
 import shutil
 import stat
+import time
 from collections import defaultdict, deque
 from collections.abc import Awaitable, Callable, Collection
+from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -357,6 +359,7 @@ class WorkflowRuntime:
         allow_published_authority_rebind: bool = False,
         triggered_by: str = "",
         project_context: dict[str, Any] | None = None,
+        reuse_source_run_id: str | None = None,
     ) -> dict[str, Any]:
         ancestor_chain = [str(value) for value in (application_call_chain or ())]
         if application_id in ancestor_chain:
@@ -675,6 +678,9 @@ class WorkflowRuntime:
             session_id=session_id,
             application_call_chain=current_call_chain,
         )
+        if reuse_source_run_id:
+            from .workflow_reuse import seed
+            await seed(self, state, reuse_source_run_id)
         await self.workflow_store.create_run(
             state, version=version, draft_revision=draft_revision,
             triggered_by=triggered_by,
@@ -1541,6 +1547,18 @@ class WorkflowRuntime:
             logging.getLogger("agent_platform.alerts").warning(
                 "告警 webhook 投递失败（不影响运行）：%s", alert_error)
 
+    def _graph_inputs(self, workflow: WorkflowSpec, inputs: dict[str, Any]) -> dict[str, Any]:
+        """Resolve public defaults without changing supplied inputs or child scopes."""
+        defaults: dict[str, Any] = {}
+        for node in workflow.nodes:
+            if node.type in {'start', 'event_subscription_trigger', 'schedule_trigger'}:
+                config = self.blocks.validate_node(node)
+                defaults = (config.inputs if node.type == 'schedule_trigger' else
+                            {field.name: field.default for field in config.inputs})
+                break
+        # Internal presets and authority are supplied by the host, never a form.
+        return {**deepcopy({key: value for key, value in defaults.items() if not key.startswith('__')}), **inputs}
+
     async def _run_graph(
         self,
         snapshot: ApplicationSnapshot,
@@ -1552,6 +1570,7 @@ class WorkflowRuntime:
         prefix: str,
         top_state: WorkflowRunState | None = None,
     ) -> dict[str, dict[str, Any]]:
+        resolved_inputs = self._graph_inputs(workflow, inputs)
         node_map = {node.id: node for node in workflow.nodes}
         incoming: dict[str, list[Any]] = defaultdict(list)
         outgoing: dict[str, list[str]] = defaultdict(list)
@@ -1573,10 +1592,26 @@ class WorkflowRuntime:
         outputs = top_state.outputs if top_state and not prefix else {}
         completed = set(top_state.completed if top_state and not prefix else [])
         skipped = set(top_state.skipped if top_state and not prefix else [])
+        nested_progress = None
+        if top_state and prefix:
+            nested_progress = top_state.nested_progress.setdefault(prefix, {
+                'inputs': inputs, 'outputs': {}, 'completed': [], 'skipped': []})
+            if nested_progress['inputs'] != inputs:
+                raise ValueError('循环恢复的输入与原步骤不同，请创建新运行')
+            outputs = nested_progress['outputs']
+            completed = set(nested_progress['completed'])
+            skipped = set(nested_progress['skipped'])
+        from .workflow_reuse import blocked_nodes, reuse_step, source_state
+        reuse_source = (await source_state(self, top_state, top_state.reuse_source_run_id)
+                        if top_state and not prefix and top_state.reuse_source_run_id else None)
+        reuse_blocked = blocked_nodes(workflow) if reuse_source else set()
         for node_id in order:
             node = node_map[node_id]
             scoped_id = f"{prefix}{node_id}"
             if node_id in completed or node_id in skipped:
+                if top_state and node_id in top_state.reused_nodes:
+                    await self._emit(run_id, 'node.reused', {'node_id': scoped_id, 'title': node.title,
+                        'source_run_id': top_state.reuse_source_run_id})
                 continue
             edges = incoming[node_id]
             if edges and not any(self._edge_active(edge, outputs, skipped) for edge in edges):
@@ -1584,7 +1619,17 @@ class WorkflowRuntime:
                 if top_state and not prefix:
                     top_state.skipped = list(skipped)
                     await self.workflow_store.update_run(run_id, status="running", state=top_state)
+                elif nested_progress is not None:
+                    nested_progress['skipped'] = list(skipped)
+                    await self.workflow_store.update_run(run_id, status="running", state=top_state)
                 await self._emit(run_id, "node.skipped", {"node_id": scoped_id})
+                continue
+            if (reuse_source and node_id not in reuse_blocked
+                    and await reuse_step(self, top_state, node, reuse_source)):
+                completed.add(node_id)
+                await self.workflow_store.update_run(run_id, status="running", state=top_state)
+                await self._emit(run_id, 'node.reused', {'node_id': scoped_id, 'title': node.title,
+                    'source_run_id': top_state.reuse_source_run_id})
                 continue
             if top_state and not prefix:
                 await self.harness.record_usage(
@@ -1593,6 +1638,8 @@ class WorkflowRuntime:
                     metadata={"node_id": scoped_id, "type": node.type, "title": node.title},
                 )
             await self._emit(run_id, "node.started", {"node_id": scoped_id, "type": node.type, "title": node.title})
+            from .workflow_reuse import checkpoint
+            before = await checkpoint(self, top_state, node) if top_state and not prefix else None
             try:
                 output = await self._execute_with_retry(
                     snapshot,
@@ -1603,6 +1650,7 @@ class WorkflowRuntime:
                     run_id,
                     scoped_id,
                     top_state,
+                    resolved_inputs=resolved_inputs,
                 )
             except HumanInputPause:
                 raise
@@ -1640,10 +1688,16 @@ class WorkflowRuntime:
             outputs[node_id] = output
             completed.add(node_id)
             if top_state and not prefix:
+                after = await checkpoint(self, top_state, node, output) if before else None
+                if after and before['environment'] == after['environment'] and all(after['files'].get(p) == h for p, h in before['files'].items()):
+                    top_state.reuse_checkpoints[node_id] = after
                 top_state.outputs = outputs
                 top_state.completed = list(completed)
                 top_state.waiting_node_id = None
                 top_state.resumed_values = None
+                await self.workflow_store.update_run(run_id, status="running", state=top_state)
+            elif nested_progress is not None:
+                nested_progress['completed'] = list(completed)
                 await self.workflow_store.update_run(run_id, status="running", state=top_state)
             await self._emit(run_id, "node.completed", {"node_id": scoped_id, "outputs": self._redact(output)})
         return outputs
@@ -1658,12 +1712,15 @@ class WorkflowRuntime:
         run_id: str,
         scoped_id: str,
         state: WorkflowRunState | None,
+        *,
+        resolved_inputs: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         attempts = node.retry.max_attempts if node.retry.enabled else 1
         for attempt in range(1, attempts + 1):
             try:
                 return await self._execute_node(
-                    snapshot, node, inputs, outputs, workspace_path, run_id, scoped_id, state
+                    snapshot, node, inputs, outputs, workspace_path, run_id, scoped_id, state,
+                    resolved_inputs=resolved_inputs,
                 )
             except HumanInputPause:
                 raise
@@ -1676,6 +1733,8 @@ class WorkflowRuntime:
 
     @staticmethod
     def _retryable_execution_error(error: Exception) -> bool:
+        if isinstance(error, WorkflowReferenceResolutionError):
+            return False  # Retrying an unchanged graph cannot repair a reference.
         if isinstance(error, ProviderError):
             return error.retryable
         if isinstance(error, WorkflowHTTPError):
@@ -1695,6 +1754,8 @@ class WorkflowRuntime:
         run_id: str,
         scoped_id: str,
         state: WorkflowRunState | None,
+        *,
+        resolved_inputs: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """按积木类型派发到执行器。
 
@@ -1733,7 +1794,7 @@ class WorkflowRuntime:
                     snapshot=snapshot,
                     node=node,
                     config=self.blocks.validate_node(node),
-                    context={"inputs": inputs, "nodes": outputs, "run": {
+                    context={"inputs": resolved_inputs if resolved_inputs is not None else inputs, "nodes": outputs, "run": {
                         "run_id": run_id,
                         **({'project_id': state.project_context['project_id'],
                             'project_task_id': state.project_context['task_id']}
@@ -1789,8 +1850,14 @@ class WorkflowRuntime:
                 "Do not return Markdown, prose, XML, comments, or a fenced code block. "
                 "This runtime instruction overrides any earlier output-format instruction."
             )
+            required = config.structured_output.get('required', [])
+            if required:
+                prompt += ('\n\nOutput JSON must include every required field: '
+                           + json.dumps(required, ensure_ascii=False)
+                           + '. Do not omit fields after a long explanation. Unknown facts must remain unknown; '
+                           'use an empty array or null only where the schema allows it.')
         diagnostics: dict[str, Any] = {}
-        from .model_connections import project_model, project_model_role
+        from .model_connections import project_model, project_model_role, project_model_override
         from .model_images import image_blocks
         images = self._resolve(config.images, context)
         if not isinstance(images, list):
@@ -1801,15 +1868,23 @@ class WorkflowRuntime:
             raise ValueError('包含图片时请选择 vision 模型用途并配置视觉连接')
         blocks = image_blocks(self.sandboxes.resolve_workspace(run.workspace_path), images) if images else []
         role_token = project_model_role.set(config.model_role)
+        model_token = project_model_override.set(config.model or None)
+        started = time.perf_counter()
         try:
             text, usage = await self._model_text(
                 run_id, config.model or self.runtime_model, system, prompt, scoped_id,
                 diagnostics=diagnostics, max_output_tokens=config.max_output_tokens,
+                **({'output_schema': config.structured_output} if config.structured_output is not None else {}),
                 **({'images': blocks} if blocks else {}),
             )
         finally:
+            project_model_override.reset(model_token)
             project_model_role.reset(role_token)
-        result = {"text": text, "usage": usage.model_dump(mode="json")}
+        result = {"text": text, "usage": usage.model_dump(mode="json"),
+                  "model": diagnostics.get('model', config.model or self.runtime_model),
+                  "seconds": time.perf_counter() - started,
+                  "input_sha256": hashlib.sha256(json.dumps({'system': system, 'prompt': prompt,
+                      'images': [b.model_dump(mode='json') for b in blocks]}, ensure_ascii=False, sort_keys=True).encode()).hexdigest()}
         if config.structured_output is not None:
             result["structured"] = self._json_from_text(text, stop_reason=diagnostics.get("stop_reason"))
             from jsonschema.exceptions import ValidationError
@@ -1820,7 +1895,8 @@ class WorkflowRuntime:
                 path = json.dumps(list(error.absolute_path), ensure_ascii=False)
                 raise ValueError(
                     "model did not return valid JSON for structured output schema; "
-                    f"path={path}; {error.message[:500]}"
+                    f"path={path}; {error.message[:500]}; "
+                    f"节点 {scoped_id} 的输出未通过校验，未交给后续步骤。可继续原运行，重试此失败节点。"
                 ) from error
         return result
 
@@ -1913,6 +1989,13 @@ class WorkflowRuntime:
             state=state,
         )
 
+    @_node_executor('code')
+    async def _exec_code(self, run: NodeRun) -> dict[str, Any]:
+        from .python_execution import execute_function
+        self._validate_runtime_tool_target('Bash', self._runtime_tool_allowlists.get(run.run_id))
+        return await execute_function(self.sandboxes, run.workspace_path, run.config,
+                                      self._resolve(run.config.inputs, run.context))
+
     @_node_executor('data_analysis', 'feature_extract', 'model_train', 'model_predict')
     async def _exec_modeling(self, run: NodeRun) -> dict[str, Any]:
         project = run.state.project_context if run.state else None
@@ -1921,6 +2004,19 @@ class WorkflowRuntime:
         args = self._resolve(run.config.model_dump(), run.context)
         result = await self.modeling.run_block(project, run.node.type, args, run.run_id, run.scoped_id)
         return {'output': result}
+
+    @_node_executor('knowledge_search')
+    async def _exec_project_knowledge_search(self, run: NodeRun) -> dict[str, Any]:
+        from .project_knowledge import KnowledgeSearch
+        project = run.state.project_context if run.state else None
+        if not project:
+            raise ValueError('知识检索积木需要从项目运行')
+        config = run.config
+        result = await self.projects.knowledge.search(project['project_id'], config.knowledge_ref,
+            KnowledgeSearch(query=self._resolve(config.query, run.context), top_k=config.top_k,
+                            minimum_score=config.minimum_score),
+            version_id=project.get('knowledge_resources', {}).get(config.knowledge_ref, ''))
+        return {'output': result, **result}
 
     @_node_executor('project_record')
     async def _exec_project_record(self, run: NodeRun) -> dict[str, Any]:
@@ -2042,7 +2138,11 @@ class WorkflowRuntime:
     @_node_executor("variable_aggregator")
     async def _exec_variable_aggregator(self, run: NodeRun) -> dict[str, Any]:
         config, context, state = run.config, run.context, run.state
-        skipped_nodes = set(state.skipped if state else [])
+        skipped_nodes = set()
+        if state:
+            # Each nested occurrence owns its branch decisions, including after resume.
+            scope = run.scoped_id[:-len(run.node.id)]
+            skipped_nodes = set(state.nested_progress.get(scope, {}).get('skipped', []) if scope else state.skipped)
         values = []
         for variable in config.variables:
             try:
@@ -2812,6 +2912,7 @@ class WorkflowRuntime:
 
     @_node_executor("human_input")
     async def _exec_human_input(self, run: NodeRun) -> dict[str, Any]:
+        from .blocks import validate_human_values
         node, config, inputs, run_id, scoped_id, state = run.node, run.config, run.inputs, run.run_id, run.scoped_id, run.state
         preset = inputs.get("__human__", {}).get(node.id) if isinstance(inputs.get("__human__"), dict) else None
         if preset is not None:
@@ -2824,25 +2925,25 @@ class WorkflowRuntime:
             and state.waiting_node_id in {node.id, scoped_id}
             and state.resumed_values is not None
         ):
-            values = dict(state.resumed_values)
-            for field in config.fields:
-                if field.required and values.get(field.name) is None:
-                    raise ValueError(f"missing required human input: {field.name}")
+            values = validate_human_values(config, dict(state.resumed_values))
             state.human_input_values[scoped_id] = values
             state.waiting_node_id = None
+            state.waiting_form = None
             state.resumed_values = None
             await self.workflow_store.update_run(run_id, status="running", state=state)
             return {"output": values, **values}
         if not state:
             raise RuntimeError("human input is only supported in persisted top-level runs")
         state.waiting_node_id = scoped_id
-        await self._emit(run_id, "human_input.required", {
+        state.waiting_form = {
             "node_id": scoped_id,
             "block_node_id": node.id,
             "title": config.title,
             "description": config.description,
+            "context": self._resolve(config.context, run.context),
             "fields": [field.model_dump(mode="json") for field in config.fields],
-        })
+        }
+        await self._emit(run_id, "human_input.required", state.waiting_form)
         raise HumanInputPause()
 
     @_node_executor("end")
@@ -3816,9 +3917,12 @@ class WorkflowRuntime:
         *, diagnostics: dict[str, Any] | None = None,
         max_output_tokens: int = 16_384,
         images: list[ContentBlock] | None = None,
+        output_schema: dict[str, Any] | None = None,
     ) -> tuple[str, Usage]:
         if hasattr(self.provider, 'selected_model'):
             model = self.provider.selected_model(model)
+        if diagnostics is not None:
+            diagnostics['model'] = model
         await self.harness.record_usage(
             run_id,
             "model_call",
@@ -3828,8 +3932,15 @@ class WorkflowRuntime:
         # 有些模型在逐条评分类任务上思考失控（idol 工作流：16k 预算全烧思考、正文为空），
         # 所以截断出空正文时自动关思考重试一次——自愈优先，还不行才诚实失败。
         from .model_connections import project_model
+        # Older/custom providers remain compatible; never silently switch
+        # endpoint, provider or retry a rejected request with weaker settings.
+        import inspect
+        stream_fn = self.provider.stream
+        extra = {}
+        if output_schema is not None and 'output_schema' in inspect.signature(stream_fn).parameters:
+            extra['output_schema'] = output_schema
         for thinking_enabled in ((True,) if project_model.get() else (True, False)):
-            stream = self.provider.stream(
+            stream = stream_fn(
                 model=model,
                 system=system,
                 messages=[ChatMessage(role="user", content=[ContentBlock(type="text", text=prompt), *(images or [])])],
@@ -3838,6 +3949,7 @@ class WorkflowRuntime:
                 thinking_enabled=thinking_enabled,
                 effort="medium" if thinking_enabled else "low",
                 user_id=run_id,
+                **extra,
             )
             response = await self.agent_runtime._collect_stream(
                 run_id, stream, f"node.{node_id}.model", model
@@ -3861,7 +3973,9 @@ class WorkflowRuntime:
                 })
         raise RuntimeError(
             f"模型环节「{node_id}」输出预算已耗尽，正文为空。"
-            "请压缩这一环节的输入（例如只保留必要字段）或拆分任务后重试。"
+            f"当前输出上限为 {max_output_tokens} token，服务可能将思考计入此上限。"
+            "可在积木配置提高输出上限，或在项目模型设置降低/关闭思考后重试；"
+            "输入较长时也可只保留必要字段或拆分任务。"
         )
 
     async def _model_turn_with_tools(
@@ -5206,65 +5320,62 @@ class WorkflowRuntime:
                 )
                 if isinstance(current, list):
                     detail += f"; container_length={len(current)}"
+                if node_id == '$inputs':
+                    detail += (
+                        f"; 可用输入字段：{list(context.get('inputs', {}))[:20]!r}。"
+                        "引用在节点代码执行前解析；检查入口声明与引用路径。"
+                        "确为可选且未声明的输入可在 $ref 内设置 optional=true；"
+                        "只改代码内的默认值不会修复该引用。"
+                    )
                 # 拒绝即教学：把该节点真实可用的路径摆出来。实测同一个坑
                 # （variable_assigner 的产出包在 output 下）把 32B 和人类
                 # 作者双双绊倒——只报"解析不了"等于让人猜。
                 available = context.get("nodes", {}).get(node_id)
                 if isinstance(available, dict):
-                    hints = []
-                    # 提示必须用**真实输入语法**（分段数组），不能用点号显示形式：
-                    # 模型会照抄提示。此前提示写 output.by_store，模型就写成
-                    # path: ["output.by_store"]，永远解析不了（真机 881d90a6）。
+                    hint_paths = []
                     for key, item in list(available.items())[:6]:
-                        if isinstance(item, dict):
-                            hints.extend(
-                                f'["{key}", "{sub}"]' for sub in list(item.keys())[:6]
-                            )
+                        if isinstance(item, dict) and item:
+                            hint_paths.extend([key, sub] for sub in list(item)[:6])
                         else:
-                            hints.append(f'["{key}"]')
-                    if hints:
-                        detail += f"; 该节点可用路径：{hints[:12]}"
-                        # 该修哪一端，按"想要的路径是不是已有路径的近亲"来判：
-                        #  · 近亲（写法/拼写差一点）→ 十有八九是引用写错了，先改引用方；
-                        #  · 八竿子打不着 → 被引用节点确实没产出这个字段，改产出方。
-                        # 一刀切两次都翻过车：先是协调者 61 次只改引用方（真正缺的是
-                        # 产出），后是修理手 4 轮只改产出方（真正错的是引用路径写法，
-                        # 真机 881d90a6）。把判断做出来，别把两条路并列丢给模型。
-                        wanted = [str(segment) for segment in path]
-                        flat_wanted = ".".join(wanted)
-                        flat_hints = [
-                            hint.replace('["', "").replace('"]', "")
-                                .replace('", "', ".")
-                            for hint in hints
-                        ]
-                        near = difflib.get_close_matches(
-                            flat_wanted, flat_hints, n=2, cutoff=0.6
-                        )
-                        if near:
-                            detail += (
-                                f"；你写的 {path!r} 和已有的 "
-                                f"{['[\"' + n.replace('.', '\", \"') + '\"]' for n in near]!r} "
-                                "很接近——**多半是这里的引用写错了**（注意路径要按层分段，"
-                                '["output", "字段名"]，不是 ["output.字段名"]），'
-                                "先改引用方；确认无误再去看被引用节点的产出。"
-                            )
+                            hint_paths.append([key])
+                    # Code/tool outputs wrap their values in output. Check the
+                    # requested path there even when the displayed keys are
+                    # truncated; rows vs output.rows is not a spelling match.
+                    if path and "output" in available:
+                        probe = available["output"]
+                        try:
+                            for key in path:
+                                probe = probe[int(key)] if isinstance(probe, list) else probe[key]
+                        except (KeyError, IndexError, TypeError, ValueError):
+                            pass
                         else:
-                            detail += (
-                                f"；已有路径里没有和 {flat_wanted} 沾边的——"
-                                f"多半是节点 {node_id!r} 根本没产出这个字段，"
-                                "去它的 assignments/config 里补上；"
-                                "只改引用方是修不好的。"
-                            )
-                        # 指明该修哪一端：实测协调者拿到"解析不了"后 61 次去改
-                        # 引用方（模板节点），而真正缺的是被引用节点没产出该字段。
-                        # （这一段原来**连着写了两遍**，于是每条解析失败的报错
-                        #   都把同一句话说两次——真机上这是第二大的失败族。）
-                        wanted = ".".join(str(segment) for segment in path)
+                            wrapped_path = ["output", *path]
+                            if wrapped_path in hint_paths:
+                                hint_paths.remove(wrapped_path)
+                            hint_paths.insert(0, wrapped_path)
+                    # Show actual segmented paths, including escaped field names;
+                    # these suggestions never silently change reference resolution.
+                    if hint_paths:
+                        detail += "; 该节点可用路径：" + json.dumps(hint_paths[:12], ensure_ascii=False)
+                    same_field = [hint for hint in hint_paths if path and hint[-1] == path[-1]]
+                    flat_hints = {".".join(map(str, hint)): hint for hint in hint_paths}
+                    near = difflib.get_close_matches(".".join(map(str, path)), flat_hints, n=2, cutoff=0.6)
+                    if same_field:
                         detail += (
-                            f"；要么让节点 {node_id!r} 真正产出 {wanted}"
-                            f"（例如在它的 assignments/config 里补上），"
-                            "要么把这里的引用改成上面已有的路径之一——"
-                            "改引用方而不改产出方是修不好的。"
+                            "；节点已产出同名字段，可核对后将这里的引用 path 改为 "
+                            + json.dumps(same_field[:2], ensure_ascii=False)
+                            + " 中对应的分段路径；先改引用方，无需仅为这个路径错误修改产出代码。"
+                        )
+                    elif near:
+                        detail += (
+                            f"；你写的 {path!r} 和已有的 "
+                            + json.dumps([flat_hints[item] for item in near], ensure_ascii=False)
+                            + " 很接近——多半是这里的引用写错了；先改引用方，路径按层分段。"
+                        )
+                    else:
+                        detail += (
+                            "；当前展示路径中未找到匹配项，请先核对字段名称和节点的完整输出；"
+                            "若所需字段确实未产出，再调整该节点的配置或代码。"
                         )
                 raise WorkflowReferenceResolutionError(detail) from error
         if isinstance(value, dict):

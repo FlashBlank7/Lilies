@@ -1,7 +1,18 @@
 'use client'
 
+import { containerWorkflow as containerInnerWorkflow, workflowAtPath, scopedMutation, scopedFieldNodes } from '@/lib/workflow-scope'
+import { outputPaths, isWorkflowFieldVisible } from '@/lib/workflow-fields'
+import { blockPortType } from '@/lib/block-display'
+import BlockOptionField from '@/app/components/BlockOptionField'
+import ProjectWorkflowChecks from '@/app/components/ProjectWorkflowChecks'
+import WorkflowComposer from '@/app/components/WorkflowComposer'
+import { workflowFieldLabels, workflowModelHelp } from '@/lib/workflow-fields'
+import { useAccount } from '@/app/components/AuthBoundary'
 import '@xyflow/react/dist/style.css'
 import Link from 'next/link'
+import WorkflowImageFields from '@/app/components/WorkflowImageFields'
+import WorkflowConditionFields from '@/app/components/WorkflowConditionFields'
+import { WorkflowValueField, WorkflowObjectFields, WorkflowInputFields, WorkflowArrayFields } from '@/app/components/WorkflowValueField'
 import { useRouter } from 'next/navigation'
 import { Play } from 'lucide-react'
 import {
@@ -28,6 +39,7 @@ import {
   getClientToken,
   idempotency,
   isAuthError,
+  PlatformApiError,
   saveClientToken,
   type AcceptanceRepairPreview,
   type Block,
@@ -73,6 +85,7 @@ type StudioPort = {
   value_type: string
 }
 type StudioNode = Node<{
+  locale: Locale
   title: string
   blockType: string
   description: string
@@ -98,6 +111,7 @@ const VISIBLE_STUDIO_TABS = [...CORE_STUDIO_TABS, 'integrations'] as const
 const STUDIO_TABS = [...VISIBLE_STUDIO_TABS, 'run'] as const
 type StudioTab = typeof STUDIO_TABS[number]
 type ConfigEditorMode = 'form' | 'json'
+type ManualSaveUndo = { workflow: Draft['snapshot']['workflow']; revision: number; title: string }
 const STUDIO_CHROME_STORAGE_KEY = 'lilies.studio.chrome.v1'
 const BLOCK_DRAG_MIME = 'application/x-lilies-block-type'
 const DEFAULT_STUDIO_CHROME: StudioChromePreferences = {
@@ -178,8 +192,8 @@ function BrickNode({ data, selected }: NodeProps<StudioNode>) {
     style={{ '--accent': accent, minHeight: nodeHeight } as React.CSSProperties}
   >
     {inputPorts.map((port, index) => <div className="brick-port brick-port-input" data-node-input-port={port.name} key={`input-${port.name}`} style={{ top: portTop(index) }}>
-      <Handle id={port.name} title={`${port.name}: ${port.value_type}`} type="target" position={Position.Left} />
-      <span>{port.name}</span><small>{port.value_type}</small>
+      <Handle id={port.name} title={`${port.name}: ${blockPortType(port.value_type, data.locale)}`} type="target" position={Position.Left} />
+      <span>{port.name}</span><small>{blockPortType(port.value_type, data.locale)}</small>
     </div>)}
     <div className="brick-type">{blockType.replaceAll('_', ' ')}</div>
     <strong>{title}</strong>
@@ -190,8 +204,8 @@ function BrickNode({ data, selected }: NodeProps<StudioNode>) {
     </div>}
     {data.status && <span className={`node-status ${data.status}`}>{data.status}</span>}
     {outputPorts.map((port, index) => <div className="brick-port brick-port-output" data-node-output-port={port.name} key={`output-${port.name}`} style={{ top: portTop(index) }}>
-      <span>{port.name}</span><small>{port.value_type}</small>
-      <Handle id={port.name} title={`${port.name}: ${port.value_type}`} type="source" position={Position.Right} />
+      <span>{port.name}</span><small>{blockPortType(port.value_type, data.locale)}</small>
+      <Handle id={port.name} title={`${port.name}: ${blockPortType(port.value_type, data.locale)}`} type="source" position={Position.Right} />
     </div>)}
   </div>
 }
@@ -201,6 +215,10 @@ const CANVAS_LAYOUT_ORIGIN = { x: 90, y: 110 }
 const CANVAS_LAYOUT_COLUMN_WIDTH = 300
 const CANVAS_LAYOUT_ROW_HEIGHT = 150
 const CANVAS_PAN_STEP = 80
+// React Flow's 50% default clips wide workflows in the embedded canvas.
+// Allow an overview while retaining the same limit for fitting and manual zoom.
+const CANVAS_MIN_ZOOM = 0.05
+const CANVAS_FIT_VIEW_OPTIONS = { padding: 0.22 }
 
 function safeCanvasPosition(value: unknown, fallback: CanvasPoint = CANVAS_LAYOUT_ORIGIN): CanvasPoint {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return fallback
@@ -225,6 +243,7 @@ function safeStudioNodeData(
     ? config.operation_id
     : undefined
   return {
+    locale,
     title,
     blockType,
     description: safeText(node.description, fallbackDescription),
@@ -468,14 +487,15 @@ function schemaFieldControl(path: string, schema: Record<string, unknown>): Bloc
 function editorFieldsForBlock(block: Block | undefined): BlockEditorField[] {
   if (!block) return []
   const hints = block.editor?.fields
-  if (hints?.length) return hints
   const schema = asRecord(block.config_schema)
   const properties = asRecord(schema.properties)
+  if (hints?.length) return hints.map(field => ({ ...field, default_value: field.default_value ?? asRecord(properties[field.path]).default }))
   const required = new Set(asStringArray(schema.required))
   return Object.entries(properties).map(([path, raw]) => {
     const fieldSchema = asRecord(raw)
     return {
       path,
+      default_value: fieldSchema.default,
       label: safeText(fieldSchema.title, path.replaceAll('_', ' ')),
       description: safeText(fieldSchema.description),
       control: schemaFieldControl(path, fieldSchema),
@@ -502,7 +522,7 @@ function serializeConfigEditorValue(field: BlockEditorField, value: unknown): Co
 }
 
 function configEditorValues(fields: BlockEditorField[], config: Record<string, unknown>): ConfigEditorValues {
-  return Object.fromEntries(fields.map(field => [field.path, serializeConfigEditorValue(field, configValueAtPath(config, field.path))]))
+  return Object.fromEntries(fields.map(field => [field.path, serializeConfigEditorValue(field, configValueAtPath(config, field.path) === undefined ? field.default_value : configValueAtPath(config, field.path))]))
 }
 
 function cloneConfig(config: Record<string, unknown>): Record<string, unknown> {
@@ -611,66 +631,6 @@ function panCanvasViewport(instance: ReactFlowInstance<StudioNode, Edge> | null,
 
 function workflowRef(nodeId: string, sourcePort = 'output') {
   return { $ref: { node_id: nodeId, path: [sourcePort || 'output'] } }
-}
-
-type InnerWorkflow = { nodes: WorkflowNode[]; edges: Draft['snapshot']['workflow']['edges'] }
-
-function containerInnerWorkflow(container: WorkflowNode | undefined | null): InnerWorkflow | null {
-  const config = container?.config as Record<string, unknown> | undefined
-  const workflow = config?.workflow as InnerWorkflow | undefined
-  if (!workflow || !Array.isArray(workflow.nodes)) return null
-  return { nodes: workflow.nodes, edges: Array.isArray(workflow.edges) ? workflow.edges : [] }
-}
-
-/** 容器作用域内的图操作 → 重写容器完整配置（原子、单一 update_node）。 */
-function applyInnerOp(
-  container: WorkflowNode,
-  op: string,
-  data: Record<string, unknown>,
-): Record<string, unknown> {
-  const config = JSON.parse(JSON.stringify(container.config || {})) as Record<string, unknown>
-  const workflow = (config.workflow || { nodes: [], edges: [] }) as {
-    nodes: Array<Record<string, unknown>>
-    edges: Array<Record<string, unknown>>
-  }
-  workflow.nodes = Array.isArray(workflow.nodes) ? workflow.nodes : []
-  workflow.edges = Array.isArray(workflow.edges) ? workflow.edges : []
-  config.workflow = workflow
-
-  if (op === 'add_node') {
-    const node = data.node as Record<string, unknown>
-    if (workflow.nodes.some(item => item.id === node.id)) {
-      throw new Error(`容器内已有同名节点：${String(node.id)}`)
-    }
-    workflow.nodes.push(node)
-  } else if (op === 'update_node') {
-    const node = workflow.nodes.find(item => item.id === data.node_id)
-    if (!node) throw new Error(`容器内找不到节点：${String(data.node_id)}`)
-    const changes = (data.changes || {}) as Record<string, unknown>
-    for (const [key, value] of Object.entries(changes)) {
-      if (key === 'config') {
-        node.config = data.merge_config === false
-          ? value
-          : { ...((node.config as Record<string, unknown>) || {}), ...(value as Record<string, unknown>) }
-      } else {
-        node[key] = value
-      }
-    }
-  } else if (op === 'remove_node') {
-    workflow.nodes = workflow.nodes.filter(item => item.id !== data.node_id)
-    workflow.edges = workflow.edges.filter(
-      item => item.source !== data.node_id && item.target !== data.node_id,
-    )
-  } else if (op === 'add_edge') {
-    const edge = data.edge as Record<string, unknown>
-    workflow.edges.push({
-      id: edge.id, source: edge.source, target: edge.target,
-      source_port: edge.source_port || 'output', target_port: edge.target_port || 'input',
-    })
-  } else if (op === 'remove_edge') {
-    workflow.edges = workflow.edges.filter(item => item.id !== data.edge_id)
-  }
-  return config
 }
 
 function referencedNodeIds(value: unknown) {
@@ -883,16 +843,21 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   const t = messages[locale]
   const [draft, setDraft] = useState<Draft | null>(null)
   const [projectContext, setProjectContext] = useState<{ id: string; name: string; members: { id: string; name: string }[] } | null>(null)
+  const [projectLookup, setProjectLookup] = useState<'loading' | 'ready' | 'error'>('loading')
+  const [projectLookupError, setProjectLookupError] = useState('')
+  const [projectRetry, setProjectRetry] = useState(0)
   useEffect(() => {
     let active = true
+    setProjectLookup('loading'); setProjectContext(null)
     void api<{ project_id: string | null }>(`/api/v1/applications/${id}/project`).then(async value => {
       if (value.project_id) {
         const project = await api<{ id: string; name: string; members: { id: string; name: string }[] }>(`/api/v1/projects/${value.project_id}`)
         if (active) setProjectContext(project)
       }
-    }).catch(() => {})
+      if (active) setProjectLookup('ready')
+    }).catch(cause => { if (active) { setProjectLookupError(String(cause)); setProjectLookup('error') } })
     return () => { active = false }
-  }, [id])
+  }, [id, projectRetry])
 
   const [blocks, setBlocks] = useState<Block[]>([])
   const [versions, setVersions] = useState<Version[]>([])
@@ -903,9 +868,13 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   const [embedded, setEmbedded] = useState(false)
   useEffect(() => { setEmbedded(new URLSearchParams(window.location.search).get('embedded') === '1') }, [])
   const [configText, setConfigText] = useState('{}')
-  const [configEditorMode, setConfigEditorMode] = useState<ConfigEditorMode>('json')
+  const [configEditorMode, setConfigEditorMode] = useState<ConfigEditorMode>('form')
   const [configFieldValues, setConfigFieldValues] = useState<ConfigEditorValues>({})
   const [configEditorBase, setConfigEditorBase] = useState<Record<string, unknown>>({})
+  const [manualSaveUndo, setManualSaveUndo] = useState<ManualSaveUndo | null>(null)
+  const [manualSaveBusy, setManualSaveBusy] = useState(false)
+  const [manualSaveMessage, setManualSaveMessage] = useState('')
+  const manualSaveBusyRef = useRef(false)
   const [build, setBuild] = useState<Build | null>(null)
   const [transcript, setTranscript] = useState<BuildTranscript | null>(null)
   const [transcriptOpen, setTranscriptOpen] = useState(true)
@@ -917,11 +886,13 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   const [publicationDecision, setPublicationDecision] = useState<PublicationDecision | null>(null)
   const [publicationBusy, setPublicationBusy] = useState(false)
   const [testReport, setTestReport] = useState<Record<string, unknown> | null>(null)
+  const account = useAccount()
   const [capabilityModules, setCapabilityModules] = useState<CapabilityModule[]>([])
   const [capabilityModulesLoading, setCapabilityModulesLoading] = useState(false)
   const [capabilityModulesError, setCapabilityModulesError] = useState('')
   const [insertingModuleRef, setInsertingModuleRef] = useState('')
   const [patchInstruction, setPatchInstruction] = useState('')
+  const [projectEditRequest, setProjectEditRequest] = useState(0)
   const [workflowEditReferenceIds, setWorkflowEditReferenceIds] = useState<string[]>([])
   const [workflowEditReferenceEdgeIds, setWorkflowEditReferenceEdgeIds] = useState<string[]>([])
   const [workflowEditContextMenu, setWorkflowEditContextMenu] = useState<WorkflowEditContextMenu | null>(null)
@@ -949,8 +920,8 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   const configDirtyRef = useRef(false)
   const configEditVersionRef = useRef(0)
   // 容器子画布：非空时，画布投影/图操作全部作用于该容器的内部子流程
-  const [containerScope, setContainerScope] = useState<string | null>(null)
-  const containerScopeRef = useRef<string | null>(null)
+  const [containerScope, setContainerScope] = useState<string[]>([])
+  const containerScopeRef = useRef<string[]>([])
   const selectedEdgeId = useRef<string | null>(null)
   const flowRef = useRef<ReactFlowInstance<StudioNode, Edge> | null>(null)
   const canvasWrapRef = useRef<HTMLElement>(null)
@@ -965,6 +936,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   const detailBuildRequirementRef = useRef<HTMLTextAreaElement>(null)
   const acceptanceRepairRef = useRef<HTMLElement>(null)
   const initialLoadStartedRef = useRef(false)
+  const initialRunNodeFocusedRef = useRef(false)
   const latestRevision = useRef(0)
   const lastFitSignature = useRef('')
   const buildPoll = useRef<number | null>(null)
@@ -1049,7 +1021,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     lastFitSignature.current = signature
     window.requestAnimationFrame(() => {
       window.requestAnimationFrame(() => {
-        flowRef.current?.fitView({ padding: 0.22, duration: 250 })
+        flowRef.current?.fitView({ ...CANVAS_FIT_VIEW_OPTIONS, duration: 250 })
       })
     })
   }
@@ -1065,20 +1037,12 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     draftRef.current = next
     setDraft(next)
     setRequirement(next.snapshot.requirement)
-    // 容器作用域：投影容器内部子流程；容器被删则自动退出
-    let activeNodes = next.snapshot.workflow.nodes
-    let activeEdges = next.snapshot.workflow.edges
-    if (containerScopeRef.current) {
-      const container = next.snapshot.workflow.nodes.find(item => item.id === containerScopeRef.current)
-      const inner = containerInnerWorkflow(container)
-      if (inner) {
-        activeNodes = inner.nodes
-        activeEdges = inner.edges
-      } else {
-        containerScopeRef.current = null
-        setContainerScope(null)
-      }
+    let activeGraph = workflowAtPath(next.snapshot.workflow, containerScopeRef.current)
+    if (!activeGraph) {
+      containerScopeRef.current = []; setContainerScope([])
+      activeGraph = next.snapshot.workflow
     }
+    const activeNodes = activeGraph.nodes, activeEdges = activeGraph.edges
     const workflowEdges = validWorkflowEdges(activeNodes, activeEdges)
     const workflowEditSelection = normalizeWorkflowEditSelection(
       workflowEditSelectionRef.current,
@@ -1176,6 +1140,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   }, [refresh])
 
   const refreshCapabilityModules = useCallback(async () => {
+    if (account?.role !== 'admin') { setCapabilityModules([]); return [] }
     setCapabilityModulesLoading(true)
     setCapabilityModulesError('')
     try {
@@ -1190,7 +1155,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     } finally {
       setCapabilityModulesLoading(false)
     }
-  }, [id])
+  }, [id, account?.role])
 
   useEffect(() => {
     if (initialLoadStartedRef.current) return
@@ -1219,6 +1184,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   }, [acceptanceRepairPreview])
   useEffect(() => {
     syncStudioTabFromLocation()
+    if (projectLookup !== 'ready' || projectContext) return
     const query = new URLSearchParams(window.location.search)
     const buildId = query.get('build')
     if (buildId) watchBuild(buildId)
@@ -1240,32 +1206,47 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [projectLookup, projectContext?.id])
 
-  function mutation(op: string, data: Record<string, unknown>) {
+  function activeWorkflow(current = draftRef.current, scope = containerScopeRef.current) {
+    return workflowAtPath(current?.snapshot.workflow, scope)
+  }
+
+  useEffect(() => {
+    if (!draft || !blocks.length || initialRunNodeFocusedRef.current) return
+    const raw = new URLSearchParams(window.location.search).get('node_path')
+    if (!raw) return
+    initialRunNodeFocusedRef.current = true
+    try {
+      const path: unknown = JSON.parse(raw)
+      if (!Array.isArray(path) || !path.length || path.length > 32 || !path.every(part => typeof part === 'string' && part.length > 0)) throw new Error('invalid node path')
+      const scope = path.slice(0, -1) as string[]
+      const graph = workflowAtPath(draft.snapshot.workflow, scope)
+      const node = graph?.nodes.find(item => item.id === path.at(-1))
+      if (!node) { setNotice('当前草稿中已找不到本次运行的这个步骤。原运行记录仍保留，可返回结果查看。'); return }
+      containerScopeRef.current = scope; setContainerScope(scope)
+      workflowEditSelectionRef.current = {nodeIds:[node.id],edgeIds:[]}
+      setSelectedNode(node)
+      setStudioChrome(current => ({...current, leftPanelExpanded:true}))
+      syncCanvas(draft)
+      setStudioTab('edit', {replace:true})
+      setNotice('已定位到当前草稿中的对应积木。这里的修改仅影响后续运行，原运行记录保持不变。')
+    } catch {
+      setNotice('无法定位这个步骤，请在画布中选择积木。')
+    }
+  // Only select once after the graph loads; later refreshes must preserve manual edits.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft, blocks])
+
+  function mutation(op: string, data: Record<string, unknown>, scope = [...containerScopeRef.current]) {
     const queued = mutationQueueRef.current.then(async (): Promise<Draft | null> => {
       const current = draftRef.current
       if (!current) return null
-      // 容器作用域翻译：内部图操作 → 原子重写容器配置（同一后端漏斗，天然并发安全）
-      const scope = containerScopeRef.current
-      if (scope && ['add_node', 'update_node', 'remove_node', 'add_edge', 'remove_edge'].includes(op)) {
-        const container = current.snapshot.workflow.nodes.find(item => item.id === scope)
-        const targetsContainerItself = (data.node_id === scope)
-        if (container && !targetsContainerItself) {
-          try {
-            const rewritten = applyInnerOp(container, op, data)
-            op = 'update_node'
-            data = { node_id: scope, changes: { config: rewritten }, merge_config: false }
-          } catch (error) {
-            setNotice(String(error instanceof Error ? error.message : error))
-            return current
-          }
-        }
-      }
       try {
+        const edit = scopedMutation(current.snapshot.workflow, scope, op, data)
         await api(`/api/v1/applications/${id}/draft`, {
           method: 'POST',
-          body: JSON.stringify({ expected_revision: current.revision, idempotency_key: idempotency(), op, data }),
+          body: JSON.stringify({ expected_revision: current.revision, idempotency_key: idempotency(), ...edit }),
         })
         const next = await refresh()
         setNotice(t.savedDraft)
@@ -1280,46 +1261,28 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     return queued
   }
 
-  function enterContainerScope(nodeId: string) {
-    const container = draftRef.current?.snapshot.workflow.nodes.find(item => item.id === nodeId)
-    if (!container || !containerInnerWorkflow(container)) return
-    containerScopeRef.current = nodeId
-    setContainerScope(nodeId)
-    selectedId.current = null
-    setSelected(null)
-    setSelectedNode(null)
+  function changeContainerScope(path: string[]) {
+    if (configDirtyRef.current) { setNotice('请先保存当前积木配置，再切换画布'); return }
+    containerScopeRef.current = path; setContainerScope(path)
+    setSelectedNode(null); setSelectedWorkflowEdge(null)
+    workflowEditSelectionRef.current = { nodeIds: [], edgeIds: [] }
     lastFitSignature.current = ''
     if (draftRef.current) syncCanvas(draftRef.current)
-    setNotice(locale === 'zh'
-      ? `已进入容器「${container.title || nodeId}」内部；这里的改动都保存在该容器里。`
-      : `Editing inside container "${container.title || nodeId}".`)
+  }
+
+  function enterContainerScope(nodeId: string) {
+    const container = activeWorkflow()?.nodes.find(item => item.id === nodeId)
+    if (!containerInnerWorkflow(container)) return
+    changeContainerScope([...containerScopeRef.current, nodeId])
   }
 
   function exitContainerScope() {
-    containerScopeRef.current = null
-    setContainerScope(null)
-    selectedId.current = null
-    setSelected(null)
-    setSelectedNode(null)
-    lastFitSignature.current = ''
-    if (draftRef.current) syncCanvas(draftRef.current)
+    changeContainerScope(containerScopeRef.current.slice(0, -1))
   }
 
   const onConnect = useCallback(async (connection: Connection) => {
-    if (containerScopeRef.current) {
-      // 容器内直连：结构校验交给后端对容器的整体校验
-      const edgeId = idempotency()
-      setEdges(current => addEdge({
-        id: edgeId, source: connection.source || '', target: connection.target || '',
-        sourceHandle: connection.sourceHandle, targetHandle: connection.targetHandle,
-      }, current))
-      await mutation('add_edge', { edge: {
-        id: edgeId, source: connection.source, target: connection.target,
-        source_port: connection.sourceHandle || 'output', target_port: connection.targetHandle || 'input',
-      } })
-      return
-    }
-    const contract = resolveConnectionContract(connection, draftRef.current?.snapshot.workflow, blocks)
+    const scope = [...containerScopeRef.current]
+    const contract = resolveConnectionContract(connection, activeWorkflow(), blocks)
     if (contract.error) {
       setNotice(connectionErrorMessage(contract, locale))
       return
@@ -1336,25 +1299,26 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     const next = await mutation('add_edge', { edge: {
       id: edgeId, source: contract.sourceNode.id, target: contract.targetNode.id,
       source_port: contract.sourcePort.name, target_port: contract.targetPort.name,
-    } })
-    const target = next?.snapshot.workflow.nodes.find(item => item.id === contract.targetNode.id)
+    } }, scope)
+    const target = activeWorkflow(next, scope)?.nodes.find(item => item.id === contract.targetNode.id)
     if (target) {
       const config = configAfterConnect(target, contract.sourceNode.id, contract.sourcePort.name)
       if (config !== target.config) {
-        await mutation('update_node', { node_id: target.id, changes: { config }, merge_config: false })
+        await mutation('update_node', { node_id: target.id, changes: { config }, merge_config: false }, scope)
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [blocks, locale])
 
   async function addBlock(block: Block, requestedPosition?: CanvasPoint) {
-    if (containerScopeRef.current && (block.type === 'iteration' || block.type === 'loop')) {
+    const scope = [...containerScopeRef.current]
+    if (containerScopeRef.current.length >= 2 && (block.type === 'iteration' || block.type === 'loop')) {
       setNotice(locale === 'zh'
         ? '容器里不能再放循环类积木（嵌套上限 2 层）——先返回上层。'
         : 'Containers cannot nest further loop blocks.')
       return
     }
-    const index = draftRef.current?.snapshot.workflow.nodes.length || 0
+    const index = activeWorkflow()?.nodes.length || 0
     const nodeId = `${block.type}-${Date.now()}`
     const position = requestedPosition || { x: 120 + index * 55, y: 120 + (index % 4) * 90 }
     const next = await mutation('add_node', { node: {
@@ -1362,10 +1326,8 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
       description: blockDescription(block), config: block.default_config || {}, position,
       retry: { enabled: false, max_attempts: 1, delay_seconds: 0.5 }, error_strategy: 'fail',
     } })
-    const scopeId = containerScopeRef.current
-    const activeList = scopeId
-      ? containerInnerWorkflow(next?.snapshot.workflow.nodes.find(item => item.id === scopeId))?.nodes || []
-      : next?.snapshot.workflow.nodes || []
+    if (JSON.stringify(scope) !== JSON.stringify(containerScopeRef.current)) return
+    const activeList = activeWorkflow(next, scope)?.nodes || []
     const added = activeList.find(item => item.id === nodeId)
     if (!added) return
     setSelectedNode(added)
@@ -1430,13 +1392,16 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   }
 
   async function arrangeCanvasNodes() {
+    const scope = [...containerScopeRef.current]
+    await mutationQueueRef.current
+    if (JSON.stringify(scope) !== JSON.stringify(containerScopeRef.current)) return
     const current = draftRef.current
-    const workflowNodes = current?.snapshot.workflow.nodes || []
+    const workflowNodes = activeWorkflow(current)?.nodes || []
     if (!current || !workflowNodes.length) {
       setNotice(t.canvasArrangeEmpty)
       return
     }
-    const workflowEdges = validWorkflowEdges(workflowNodes, current.snapshot.workflow.edges)
+    const workflowEdges = validWorkflowEdges(workflowNodes, activeWorkflow(current)?.edges || [])
     const positions = arrangedCanvasPositions(workflowNodes, workflowEdges)
     const changedNodes = workflowNodes.filter(node => {
       const position = positions.get(node.id)
@@ -1445,32 +1410,18 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     })
     setNodes(renderNodes => renderNodes.map(node => ({ ...node, position: positions.get(node.id) || safeCanvasPosition(node.position) })))
     canvasWrapRef.current?.focus({ preventScroll: true })
-    window.setTimeout(() => flowRef.current?.fitView({ padding: 0.24, duration: 260 }), 30)
+    window.setTimeout(() => flowRef.current?.fitView({ ...CANVAS_FIT_VIEW_OPTIONS, duration: 260 }), 30)
     if (!changedNodes.length) {
       setNotice(t.canvasArrangeDone)
       return
     }
     setCanvasArranging(true)
     try {
-      let expectedRevision = current.revision
-      for (const node of changedNodes) {
-        const position = positions.get(node.id)
-        if (!position) continue
-        const next = await api<Draft>(`/api/v1/applications/${id}/draft`, {
-          method: 'POST',
-          body: JSON.stringify({
-            expected_revision: expectedRevision,
-            idempotency_key: idempotency(),
-            op: 'update_node',
-            data: { node_id: node.id, changes: { position } },
-          }),
-        })
-        expectedRevision = next.revision
-        draftRef.current = next
-      }
-      await refresh()
+      const graph = activeWorkflow(current)!
+      const arranged = { ...graph, nodes: graph.nodes.map(node => ({ ...node, position: positions.get(node.id) || node.position })) }
+      if (!await mutation('replace_workflow', { workflow: arranged }, scope)) return
       setNotice(t.canvasArrangeDone)
-      window.setTimeout(() => flowRef.current?.fitView({ padding: 0.24, duration: 260 }), 40)
+      window.setTimeout(() => flowRef.current?.fitView({ ...CANVAS_FIT_VIEW_OPTIONS, duration: 260 }), 40)
     } catch (error) {
       setNotice(String(error))
       await refresh().catch(() => undefined)
@@ -1501,12 +1452,13 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   }
 
   function chooseNode(node: StudioNode) {
-    const value = draft?.snapshot.workflow.nodes.find(item => item.id === node.id) || null
+    const value = activeWorkflow()?.nodes.find(item => item.id === node.id) || null
     setSelectedNode(value)
     setStudioTab('edit')
   }
 
   function chooseEdge(edge: Edge) {
+    setSelectedNode(null)
     setSelectedWorkflowEdge(edge)
   }
 
@@ -1514,7 +1466,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     selection: WorkflowEditSelection,
     options: { selectCanvas?: boolean; invalidatePreview?: boolean } = {},
   ) {
-    const workflow = draftRef.current?.snapshot.workflow
+    const workflow = activeWorkflow()
     const availableNodes = workflow?.nodes.map(node => node.id) || flowRef.current?.getNodes().map(node => node.id) || []
     const availableEdges = workflow?.edges || flowRef.current?.getEdges().map(edge => ({
       id: edge.id,
@@ -1569,7 +1521,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   function removeWorkflowEditReference(nodeId: string) {
     const current = workflowEditSelectionRef.current
     const nextNodeIds = current.nodeIds.filter(item => item !== nodeId)
-    const workflowEdges = draftRef.current?.snapshot.workflow.edges || []
+    const workflowEdges = activeWorkflow()?.edges || []
     const next = selectionForRightDrag(nextNodeIds, workflowEdges)
     updateWorkflowEditSelection(next, { selectCanvas: true })
   }
@@ -1582,7 +1534,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   function setWorkflowEditReferencesFromSelection(selectedNodes: StudioNode[], selectedEdges: Edge[]) {
     const nodeSelection = selectionForRightDrag(
       selectedNodes.map(node => node.id),
-      draftRef.current?.snapshot.workflow.edges || [],
+      activeWorkflow()?.edges || [],
     )
     updateWorkflowEditSelection({
       nodeIds: nodeSelection.nodeIds,
@@ -1593,7 +1545,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   function openWorkflowEditContextMenu(clientX: number, clientY: number, selection: WorkflowEditSelection) {
     const normalized = updateWorkflowEditSelection(selection, { selectCanvas: true })
     const selectedWorkflowNode = normalized.nodeIds.length === 1
-      ? draftRef.current?.snapshot.workflow.nodes.find(node => node.id === normalized.nodeIds[0]) || null
+      ? activeWorkflow()?.nodes.find(node => node.id === normalized.nodeIds[0]) || null
       : null
     setSelectedNode(selectedWorkflowNode)
     const bounds = canvasWrapRef.current?.getBoundingClientRect()
@@ -1610,6 +1562,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   function openWorkflowEditPanel() {
     setWorkflowEditContextMenu(null)
     setStudioTab('edit')
+    if (projectContext) { setProjectEditRequest(value => value + 1); return }
     window.requestAnimationFrame(() => {
       window.requestAnimationFrame(() => {
         workflowEditInputRef.current?.focus({ preventScroll: true })
@@ -1621,7 +1574,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   function handleNodeContextMenu(event: MouseEvent<Element>, node: StudioNode) {
     event.preventDefault()
     event.stopPropagation()
-    const workflowEdges = draftRef.current?.snapshot.workflow.edges || []
+    const workflowEdges = activeWorkflow()?.edges || []
     const selection = selectionForNodeContextMenu(node.id, workflowEditSelectionRef.current, workflowEdges)
     setNotice(t.workflowEditReferenceAdded(safeText(node.data?.title, node.id)))
     openWorkflowEditContextMenu(event.clientX, event.clientY, selection)
@@ -1640,7 +1593,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   function handleSelectionContextMenu(event: MouseEvent<Element>, selectedNodes: StudioNode[]) {
     event.preventDefault()
     event.stopPropagation()
-    const workflowEdges = draftRef.current?.snapshot.workflow.edges || []
+    const workflowEdges = activeWorkflow()?.edges || []
     const nodeIds = selectedNodes.map(node => node.id)
     const selection = selectionForRightDrag(nodeIds, workflowEdges)
     openWorkflowEditContextMenu(event.clientX, event.clientY, selection)
@@ -1711,7 +1664,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
       }, true)
       const selection = selectionForRightDrag(
         selectedNodes.map(node => node.id),
-        draftRef.current?.snapshot.workflow.edges || [],
+        activeWorkflow()?.edges || [],
       )
       if (!selection.nodeIds.length) {
         clearWorkflowEditReferences()
@@ -1746,21 +1699,91 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   }
 
   async function saveConfig() {
-    if (!selected) return
+    if (!selected || manualSaveBusyRef.current) return
     const editVersion = configEditVersionRef.current
+    const scope = [...containerScopeRef.current]
+    const nodeId = selected.id
+    let config: Record<string, unknown>
     try {
       const fields = editorFieldsForBlock(blocks.find(block => block.type === selected.type))
-      const config = configEditorMode === 'form' && fields.length
+      config = configEditorMode === 'form' && fields.length
         ? configFromEditorValues(configEditorBase, fields, configFieldValues)
         : parseConfigObject(configText)
-      setConfigText(JSON.stringify(config, null, 2))
-      setConfigEditorBase(config)
-      const next = await mutation('update_node', { node_id: selected.id, changes: { config }, merge_config: false })
-      await reconcileIncomingEdges(selected.id, config, next)
-      if (next && selectedId.current === selected.id && configEditVersionRef.current === editVersion) configDirtyRef.current = false
     } catch (error) {
       setNotice(configEditorMode === 'form' ? t.configFieldInvalid(String(error)) : t.invalidJson(String(error)))
+      return
     }
+    setConfigText(JSON.stringify(config, null, 2))
+    setConfigEditorBase(config)
+    manualSaveBusyRef.current = true; setManualSaveBusy(true); setManualSaveMessage('')
+    const queued = mutationQueueRef.current.then(async () => {
+      const current = draftRef.current
+      const graph = activeWorkflow(current, scope)
+      const node = graph?.nodes.find(item => item.id === nodeId)
+      if (!current || !graph || !node) throw new Error('当前积木已被修改或删除，请重新打开。')
+      let edit = scopedMutation(current.snapshot.workflow, scope, 'update_node', { node_id: nodeId, changes: { config }, merge_config: false })
+      // Save aggregator connections with its config, so one manual save has one revision to undo.
+      if (node.type === 'variable_aggregator') {
+        const sources = referencedNodeIds(config)
+        const edges = graph.edges.filter(edge => edge.target !== nodeId || edge.branch || sources.has(edge.source))
+        for (const source of sources) {
+          if (source !== nodeId && graph.nodes.some(item => item.id === source) && !edges.some(edge => edge.target === nodeId && edge.source === source && !edge.branch)) {
+            edges.push({ id: idempotency(), source, target: nodeId, source_port: 'output', target_port: 'input' })
+          }
+        }
+        edit = scopedMutation(current.snapshot.workflow, scope, 'replace_workflow', { workflow: {
+          ...graph, nodes: graph.nodes.map(item => item.id === nodeId ? { ...item, config } : item), edges,
+        } })
+      }
+      const previousWorkflow = structuredClone(current.snapshot.workflow)
+      const saved = await api<Pick<Draft, 'revision'>>(`/api/v1/applications/${id}/draft`, {
+        method: 'POST', body: JSON.stringify({ expected_revision: current.revision, idempotency_key: idempotency(), ...edit }),
+      })
+      setManualSaveUndo({ workflow: previousWorkflow, revision: saved.revision, title: node.title || node.id })
+      if (selectedId.current === nodeId && configEditVersionRef.current === editVersion) configDirtyRef.current = false
+      setNotice(t.savedDraft)
+      setManualSaveMessage(locale === 'zh' ? '配置已保存，可撤销这次手动保存。' : 'Configuration saved. You can undo this manual save.')
+      await refresh().catch(error => {
+        setNotice(String(error))
+        setManualSaveMessage(locale === 'zh' ? '配置已保存，但读取最新草稿失败，请刷新后查看。' : 'Configuration saved, but the latest draft could not be loaded. Refresh to view it.')
+      })
+    })
+    mutationQueueRef.current = queued.then(() => undefined, () => undefined)
+    try { await queued } catch (error) {
+      setManualSaveMessage(locale === 'zh' ? `保存失败：${String(error)}` : `Save failed: ${String(error)}`)
+      await refresh().catch(() => undefined)
+    } finally { manualSaveBusyRef.current = false; setManualSaveBusy(false) }
+  }
+
+  async function undoManualSave() {
+    if (!manualSaveUndo || manualSaveBusyRef.current) return
+    if (configDirtyRef.current) {
+      setManualSaveMessage(locale === 'zh' ? '当前还有未保存的配置，请先保存或重新选择积木放弃编辑，再撤销。' : 'Save the current configuration or select the brick again to discard unsaved edits before undoing.')
+      return
+    }
+    manualSaveBusyRef.current = true; setManualSaveBusy(true); setManualSaveMessage('')
+    const queued = mutationQueueRef.current.then(async () => {
+      const current = await api<Draft>(`/api/v1/applications/${id}/draft`)
+      syncCanvas(current)
+      if (current.revision !== manualSaveUndo.revision) throw new PlatformApiError(409, 'Conflict', 'draft revision changed')
+      if (configDirtyRef.current) throw new Error(locale === 'zh' ? '当前有未保存的配置，请处理后重试。' : 'There are unsaved configuration edits. Resolve them and retry.')
+      await api(`/api/v1/applications/${id}/draft`, {
+        method: 'POST', body: JSON.stringify({ expected_revision: manualSaveUndo.revision, idempotency_key: idempotency(), op: 'replace_workflow', data: { workflow: manualSaveUndo.workflow } }),
+      })
+      setManualSaveUndo(null)
+      setManualSaveMessage(locale === 'zh' ? '已撤销上次手动保存，配置及关联连线已恢复。' : 'Last manual save undone. Configuration and its connections have been restored.')
+      await refresh().catch(error => {
+        setNotice(String(error))
+        setManualSaveMessage(locale === 'zh' ? '撤销已保存，但读取最新草稿失败，请刷新后查看。' : 'Undo saved, but the latest draft could not be loaded. Refresh to view it.')
+      })
+    })
+    mutationQueueRef.current = queued.then(() => undefined, () => undefined)
+    try { await queued } catch (error) {
+      setManualSaveMessage(error instanceof PlatformApiError && error.status === 409
+        ? locale === 'zh' ? '无法撤销：草稿已有后续修改，未覆盖这些修改。请查看最新配置后手动调整。' : 'Cannot undo: the draft has newer changes. They were preserved. Review the latest configuration and edit it manually.'
+        : locale === 'zh' ? `撤销失败：${String(error)}` : `Undo failed: ${String(error)}`)
+      await refresh().catch(() => undefined)
+    } finally { manualSaveBusyRef.current = false; setManualSaveBusy(false) }
   }
 
   async function previewDraftPatch() {
@@ -1912,25 +1935,12 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     }
   }
 
-  async function reconcileIncomingEdges(nodeId: string, config: Record<string, unknown>, next: Draft | null) {
-    const current = next || draftRef.current
-    const node = current?.snapshot.workflow.nodes.find(item => item.id === nodeId)
-    if (!current || node?.type !== 'variable_aggregator') return
-    const desiredSources = referencedNodeIds(config)
-    const availableSources = new Set(current.snapshot.workflow.nodes.map(item => item.id))
-    const incoming = current.snapshot.workflow.edges.filter(edge => edge.target === nodeId && !edge.branch)
-    for (const edge of incoming) {
-      if (!desiredSources.has(edge.source)) await mutation('remove_edge', { edge_id: edge.id })
-    }
-    const refreshed = draftRef.current || current
-    const existingSources = new Set(refreshed.snapshot.workflow.edges.filter(edge => edge.target === nodeId && !edge.branch).map(edge => edge.source))
-    for (const source of desiredSources) {
-      if (source !== nodeId && availableSources.has(source) && !existingSources.has(source)) {
-        await mutation('add_edge', { edge: {
-          id: idempotency(), source, target: nodeId, source_port: 'output', target_port: 'input',
-        } })
-      }
-    }
+  async function setEdgeBranch(edgeId: string, branch: string) {
+    const scope = [...containerScopeRef.current]
+    await mutationQueueRef.current
+    const graph = activeWorkflow(draftRef.current, scope)
+    if (!graph) return
+    await mutation('replace_workflow', { workflow: { ...graph, edges: graph.edges.map(edge => edge.id === edgeId ? { ...edge, branch: branch || null } : edge) } }, scope)
   }
 
   async function deleteSelectedNode() {
@@ -1941,17 +1951,19 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   }
 
   async function persistDeletedNodes(deleted: StudioNode[]) {
+    const scope = [...containerScopeRef.current]
     for (const node of deleted) {
       if (selectedId.current === node.id) setSelectedNode(null)
-      await mutation('remove_node', { node_id: node.id })
+      await mutation('remove_node', { node_id: node.id }, scope)
     }
   }
 
   async function persistDeletedEdges(deleted: Edge[]) {
+    const scope = [...containerScopeRef.current]
     for (const edge of deleted) {
       const before = draftRef.current
-      const actual = before?.snapshot.workflow.edges.find(item => item.id === edge.id)
-        || before?.snapshot.workflow.edges.find(item => item.source === edge.source && item.target === edge.target)
+      const actual = activeWorkflow(before, scope)?.edges.find(item => item.id === edge.id)
+        || activeWorkflow(before, scope)?.edges.find(item => item.source === edge.source && item.target === edge.target)
       if (!actual) {
         setNotice(t.edgeAlreadyRemoved)
         await refresh().catch(() => undefined)
@@ -1961,16 +1973,16 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
         selectedEdgeId.current = null
         setSelectedEdge(null)
       }
-      const target = before?.snapshot.workflow.nodes.find(item => item.id === actual.target)
+      const target = activeWorkflow(before, scope)?.nodes.find(item => item.id === actual.target)
       if (target) {
         const config = configAfterDisconnect(target, actual.source)
         await mutation('update_node', {
           node_id: target.id,
           changes: { config },
           merge_config: false,
-        })
+        }, scope)
       }
-      await mutation('remove_edge', { edge_id: actual.id })
+      await mutation('remove_edge', { edge_id: actual.id }, scope)
     }
   }
 
@@ -2049,8 +2061,8 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
       const result = await api<{ passed: boolean } & Record<string, unknown>>(projectContext ? `/api/v1/projects/${projectContext.id}/members/${id}/tests/run` : `/api/v1/applications/${id}/tests/run`, { method: 'POST' })
       setTestReport(result)
       setPublicationDecision(null)
-      setNotice(result.passed ? t.testsPassed : t.testsFailed)
-      if (!result.passed) await previewAcceptanceRepair(result)
+      setNotice(projectContext ? result.passed ? '测试通过' : '部分测试未通过，请查看结果' : result.passed ? t.testsPassed : t.testsFailed)
+      if (!result.passed && !projectContext) await previewAcceptanceRepair(result)
       await refresh()
     } catch (error) {
       setTestReport(acceptanceRunErrorReport(draftRef.current, error))
@@ -2167,24 +2179,31 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     })
   }
   const workflowEditReferenceNodes = useMemo(() => {
-    const workflow = draft?.snapshot.workflow
+    const workflow = workflowAtPath(draft?.snapshot.workflow, containerScope)
     if (!workflow) return []
     const byId = new Map(workflow.nodes.map(node => [node.id, node]))
     return workflowEditReferenceIds.map(nodeId => byId.get(nodeId)).filter(Boolean) as WorkflowNode[]
-  }, [draft, workflowEditReferenceIds])
+  }, [draft, containerScope, workflowEditReferenceIds])
   const workflowStepSummaryItems = useMemo(() => {
-    const workflow = draft?.snapshot.workflow
+    const workflow = workflowAtPath(draft?.snapshot.workflow, containerScope)
     if (!workflow) return []
     return workflow.nodes.map((node, index) => ({
       id: node.id,
       title: `${index + 1}. ${safeText(node.title, node.id)}`,
       detail: safeText(node.description, t.nodeInspectorNoDescription),
     }))
-  }, [draft, t.nodeInspectorNoDescription])
+  }, [draft, containerScope, t.nodeInspectorNoDescription])
   const workflowPurposeSummary = useMemo(
     () => readableWorkflowPurpose(draft?.snapshot, t.fallbackDescription),
     [draft, t.fallbackDescription],
   )
+  const fieldNodes = scopedFieldNodes(draft?.snapshot.workflow, containerScope)
+  const fieldEdges = workflowAtPath(draft?.snapshot.workflow, containerScope)?.edges || []
+  const selectedInner = containerInnerWorkflow(selected)
+  const innerFieldNodes = selected ? scopedFieldNodes(draft?.snapshot.workflow, [...containerScope, selected.id]) : []
+  const innerFieldEdges = innerFieldNodes.map(node => ({ source: node.id, target: '$container-result' }))
+  const edgeSource = fieldNodes.find(node => node.id === selectedEdge?.source)
+  const edgeBranches = edgeSource?.type === 'if_else' ? [...(Array.isArray(edgeSource.config.cases) ? edgeSource.config.cases.map(item => String(item.id)) : []), String(edgeSource.config.default_branch || 'else')] : []
   const selectedBlockDefinition = blocks.find(block => block.type === selected?.type)
   const selectedEditorFields = editorFieldsForBlock(selectedBlockDefinition)
   const selectedEditorNotices = selectedBlockDefinition?.editor?.notices || []
@@ -2196,15 +2215,18 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   ] : []
   const businessDefinitionMissing = Boolean(draft && !draft.snapshot.requirement.trim() && !projectContext)
 
-  return <main className="studio-shell" data-studio-chrome="collapsible" data-embedded={embedded}>
+  if (projectLookup === 'loading') return <main><p role="status">正在打开工作流…</p></main>
+  if (projectLookup === 'error') return <main><p role="alert">{projectLookupError}</p><button onClick={() => setProjectRetry(value => value + 1)}>重新读取</button></main>
+
+  return <main className="studio-shell" data-studio-chrome="collapsible" data-embedded={embedded} data-project-editor={Boolean(projectContext)}>
     <header className="studio-header" data-collapsed={studioChrome.headerExpanded ? 'false' : 'true'} id="studio-header">
       <Link href={projectContext ? `/projects/${projectContext.id}` : "/"} target={projectContext ? "_top" : undefined} className="back">←</Link>
-      <div className="studio-title"><b className={surfaceStyles.studioLabel}>Engineer Studio</b><strong>{draft?.snapshot.name || t.loading}</strong><span>{draft?.snapshot.mode === 'chat' ? t.modeChat : t.modeWorkflow} · {t.draft} r{draft?.revision ?? 0}</span></div>
-      <div className="header-center"><span className={`evidence-state ${evidenceState}`} data-evidence-state={evidenceState}>{evidenceStateLabel}</span>{activeVersion && <span>{t.activeVersion(activeVersion)}</span>}<span className={`runtime-chip ${runtimeStatus}`} data-runtime-status={runtimeStatus} title={runtimeStatusDetail}>{runtimeStatusText}</span></div>
+      <div className="studio-title"><b className={surfaceStyles.studioLabel}>{projectContext ? '工作流画布' : 'Engineer Studio'}</b><strong>{draft?.snapshot.name || t.loading}</strong><span>{draft?.snapshot.mode === 'chat' ? t.modeChat : t.modeWorkflow} · {t.draft} r{draft?.revision ?? 0}</span></div>
+      {!projectContext && <div className="header-center"><span className={`evidence-state ${evidenceState}`} data-evidence-state={evidenceState}>{evidenceStateLabel}</span>{activeVersion && <span>{t.activeVersion(activeVersion)}</span>}<span className={`runtime-chip ${runtimeStatus}`} data-runtime-status={runtimeStatus} title={runtimeStatusDetail}>{runtimeStatusText}</span></div>}
       <div className={`header-actions ${surfaceStyles.studioActions}`}>
         <button className="lang-toggle" onClick={toggleLocale}>{t.switchLabel}</button>
-        <Link className={surfaceStyles.surfaceLink} href={projectContext ? `/projects/${projectContext.id}?run=${id}` : `/runtime/${id}`} target={projectContext ? "_top" : undefined}><Play size={14} /><span>{t.debugDraft}</span></Link>
-        <button data-publication-action="open" onClick={() => void publish()} disabled={publicationBusy}>{publicationBusy ? t.publicationChecking : t.publishVersion}</button>
+        <Link className={surfaceStyles.surfaceLink} href={projectContext ? `/projects/${projectContext.id}?run=${id}` : `/runtime/${id}`} target={projectContext ? "_top" : undefined}><Play size={14} /><span>{projectContext ? '运行工作流' : t.debugDraft}</span></Link>
+        {!projectContext && <button data-publication-action="open" onClick={() => void publish()} disabled={publicationBusy}>{publicationBusy ? t.publicationChecking : t.publishVersion}</button>}
         <button
           aria-controls="studio-header"
           aria-expanded={studioChrome.headerExpanded}
@@ -2222,7 +2244,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
       nodeCount={draft?.snapshot.workflow.nodes.length || 0}
       onToggle={() => toggleStudioChrome('undefinedBusinessExpanded')}
     />}
-    {publicationDecision && (publicationDecision.requires_confirmation || publicationDecision.blocked) && <section className={`publication-decision-banner ${publicationDecision.blocked ? 'blocked' : 'warning'}`} data-publication-decision={publicationDecision.blocked ? 'blocked' : 'confirmation'}>
+    {!projectContext && publicationDecision && (publicationDecision.requires_confirmation || publicationDecision.blocked) && <section className={`publication-decision-banner ${publicationDecision.blocked ? 'blocked' : 'warning'}`} data-publication-decision={publicationDecision.blocked ? 'blocked' : 'confirmation'}>
       <div><strong>{publicationDecision.blocked ? t.publicationBlockedTitle : t.publicationConfirmationTitle}</strong><span>{publicationDecision.evidence_state === 'stale' ? t.publicationStaleDetail : t.publicationMissingDetail}</span></div>
       <ul>{publicationDecision.warnings.map(warning => <li key={warning.code}>{warning.message}</li>)}</ul>
       <div className="publication-decision-actions">
@@ -2247,7 +2269,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
           title={studioChrome.leftPanelExpanded ? (locale === 'zh' ? '收起工作区' : 'Collapse workspace') : (locale === 'zh' ? '展开工作区' : 'Expand workspace')}
           type="button"
         ><span aria-hidden="true">{studioChrome.leftPanelExpanded ? '‹' : '›'}</span><b>{locale === 'zh' ? '工作区' : 'Workspace'}</b></button>
-        <div className={`panel-tabs ${surfaceStyles.threeTabs}`} data-detail-tab-url-state="synced">{VISIBLE_STUDIO_TABS.map(item => <button aria-pressed={tab === item} className={tab === item ? 'active' : ''} data-studio-tab={item} onClick={() => setStudioTab(item)} key={item} type="button">{item === 'build' ? t.buildTab : item === 'edit' ? t.editTab : item === 'test' ? t.testTab : item === 'automation' ? locale === 'zh' ? '自动化' : 'Automation' : locale === 'zh' ? '集成' : 'Integrations'}</button>)}</div>
+        <div className={`panel-tabs ${surfaceStyles.threeTabs}`} data-detail-tab-url-state="synced">{(projectContext ? (['edit','test'] as const) : VISIBLE_STUDIO_TABS).map(item => <button aria-pressed={tab === item} className={tab === item ? 'active' : ''} data-studio-tab={item} onClick={() => setStudioTab(item)} key={item} type="button">{item === 'build' ? t.buildTab : item === 'edit' ? (projectContext && locale === 'zh' ? '配置' : t.editTab) : item === 'test' ? (projectContext && locale === 'zh' ? '测试' : t.testTab) : item === 'automation' ? locale === 'zh' ? '自动化' : 'Automation' : locale === 'zh' ? '集成' : 'Integrations'}</button>)}</div>
         {tab === 'build' && projectContext && <div className="panel-body"><h2>项目工作流</h2><p>在画布中添加节点、配置输入和代码，再直接试运行。也可以在项目会话中与 Lilies 协作。</p><Link target="_top" href={`/projects/${projectContext.id}?run=${id}`}>运行这条工作流</Link></div>}
         {tab === 'build' && !projectContext && <div className="panel-body">
           <div className="panel-kicker">{locale === 'zh' ? '莉莉丝 Builder' : 'Lilies Builder'}</div><h2>{t.continueBuild}</h2>
@@ -2342,13 +2364,13 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
           <div className="event-log">{events.map((event, index) => <div key={index}><span>{event.type}</span><pre>{JSON.stringify(event.data, null, 2)}</pre></div>)}</div>
         </div>}
         {tab === 'edit' && <div className="panel-body">
-          <div className="panel-kicker">{t.workflowEditKicker}</div><h2>{t.patchPreviewTitle}</h2>
-          <section className="workflow-readable-summary" data-workflow-readable-summary="natural-language">
+          <div className="panel-kicker">{projectContext ? '工作流' : t.workflowEditKicker}</div><h2>{projectContext ? '节点配置' : t.patchPreviewTitle}</h2>
+          {!projectContext && <section className="workflow-readable-summary" data-workflow-readable-summary="natural-language">
             <div className="workflow-readable-head"><strong>{t.workflowReadableTitle}</strong><small>{t.workflowReadableHelp}</small></div>
             <p data-workflow-readable-purpose="true"><b>{t.workflowReadablePurpose}</b>{workflowPurposeSummary}</p>
             <div className="workflow-readable-steps">{workflowStepSummaryItems.length ? workflowStepSummaryItems.map(item => <article key={item.id}><strong>{item.title}</strong><small>{item.detail}</small></article>) : <p className="muted">{t.nodeInspectorNoConfig}</p>}</div>
-          </section>
-          {projectContext && <p><Link target="_top" href={`/projects/${projectContext.id}`}>返回项目，与 Lilies 协作</Link></p>}
+          </section>}
+          {projectContext && <><p><Link target="_top" href={`/projects/${projectContext.id}`}>返回项目，与 Lilies 协作</Link></p><WorkflowComposer projectId={projectContext.id} workflowId={id} revision={draft?.revision} nodes={draft?.snapshot.workflow.nodes || []} selectedNodeIds={workflowEditReferenceIds} selectionPath={containerScope} editRequest={projectEditRequest} disabled={configDirtyRef.current} onChanged={() => { void refresh() }} /></>}
           {!projectContext && <>          <section
             className="workflow-edit-dialog"
             data-application-id={id}
@@ -2388,16 +2410,26 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
             </div>}
           </section>
 </>}
+          <section className="node-inspector-guide" aria-label={locale === 'zh' ? '手动保存恢复' : 'Manual save recovery'}>
+            <button type="button" disabled={!manualSaveUndo || manualSaveBusy} onClick={() => void undoManualSave()}>{locale === 'zh' ? '撤销上次手动保存' : 'Undo last manual save'}</button>
+            <small>{locale === 'zh' ? '仅撤销本页最近一次“保存配置”及其连线调整。刷新或离开页面后不可用；后续修改会阻止撤销。AI 修改使用独立的 AI 撤销。' : 'Undoes only this page’s last Save configuration and its connection changes. Unavailable after refreshing or leaving this page; newer changes prevent undo. AI changes have their own undo.'}</small>
+            {manualSaveUndo && <small>{locale === 'zh' ? `待撤销：${manualSaveUndo.title} · r${manualSaveUndo.revision}` : `Saved: ${manualSaveUndo.title} · r${manualSaveUndo.revision}`}</small>}
+            {manualSaveMessage && <p role="status">{manualSaveMessage}</p>}
+          </section>
           <h3>{t.nodeInspector}</h3>
           <section className="node-inspector-guide" data-node-inspector={selected ? 'selection-summary' : selectedEdge ? 'edge-summary' : 'empty-selection'}>
             <div className="node-inspector-guide-head"><strong>{selected ? t.nodeInspectorSummaryTitle : selectedEdge ? t.nodeInspectorEdgeTitle : t.nodeInspectorNoSelectionTitle}</strong><small>{selected ? t.nodeInspectorSummaryHelp : selectedEdge ? t.nodeInspectorEdgeHelp : t.nodeInspectorNoSelectionHelp}</small></div>
-            {selected && <><div className="node-summary-grid">{selectedNodeSummary.map(item => <article key={item.label}><span>{item.label}</span><b>{item.value}</b><small>{item.detail}</small></article>)}</div><button type="button" className="ghost" data-workflow-edit-reference-action="add-selected" onClick={() => addWorkflowEditReference(selected.id)}>{t.workflowEditReferenceAddSelected}</button></>}
-            {selectedEdge && <div className="edge-summary"><code>{selectedEdge.source} → {selectedEdge.target}</code>{selectedEdge.label && <span>{selectedEdge.label}</span>}</div>}
+            {selected && !projectContext && <><div className="node-summary-grid">{selectedNodeSummary.map(item => <article key={item.label}><span>{item.label}</span><b>{item.value}</b><small>{item.detail}</small></article>)}</div><button type="button" className="ghost" data-workflow-edit-reference-action="add-selected" onClick={() => addWorkflowEditReference(selected.id)}>{t.workflowEditReferenceAddSelected}</button></>}
+            {selectedEdge && <div className="edge-summary"><code>{selectedEdge.source} → {selectedEdge.target}</code>{selectedEdge.label && <span>{selectedEdge.label}</span>}
+              {edgeBranches.length > 0 && <label>分支条件<select aria-label="连线分支条件" value={String(selectedEdge.label || '')} onChange={event => void setEdgeBranch(selectedEdge.id, event.target.value)}><option value="">不限制分支</option>{edgeBranches.map(branch => <option key={branch} value={branch}>{branch === String(edgeSource?.config.default_branch || 'else') ? '其他情况' : branch}</option>)}</select></label>}
+              <button type="button" onClick={() => void persistDeletedEdges([selectedEdge])}>删除此连线</button>
+            </div>}
           </section>
           {selected ? <>
+            {selectedInner && <button type="button" className="wide" onClick={() => enterContainerScope(selected.id)}>进入循环内部编辑</button>}
             {selectedBlockDefinition && <BlockPurpose block={selectedBlockDefinition} locale={locale} />}
             <BlockInstanceDetails locale={locale} node={selected} />
-            <section className="safe-edit-guide" data-node-inspector="safe-edit-guide"><strong>{t.nodeInspectorSafeEditTitle}</strong><span>{t.nodeInspectorSafeEditHelp}</span></section>
+            {!projectContext && <section className="safe-edit-guide" data-node-inspector="safe-edit-guide"><strong>{t.nodeInspectorSafeEditTitle}</strong><span>{t.nodeInspectorSafeEditHelp}</span></section>}
             <div className="config-editor-heading"><strong>{t.configLabel}</strong><div className="config-editor-tabs" role="tablist">
               <button type="button" role="tab" aria-selected={configEditorMode === 'form'} data-config-editor-mode="form" disabled={!selectedEditorFields.length} onClick={() => switchConfigEditorMode('form')}>{t.configFormTab}</button>
               <button type="button" role="tab" aria-selected={configEditorMode === 'json'} data-config-editor-mode="json" onClick={() => switchConfigEditorMode('json')}>{t.configJsonTab}</button>
@@ -2411,7 +2443,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
                   configDirtyRef.current = true
                   configEditVersionRef.current += 1
                   setConfigText(JSON.stringify({ ...config, tool_name: event.target.value, input: config.input || {} }, null, 2))
-                  setConfigEditorMode('json')
+                  if (configEditorMode === 'form') setConfigFieldValues(previous => ({...previous, tool_name: event.target.value}))
                 }}>
                 <option value="">选择成员工作流</option>
                 {projectContext.members.filter(m => m.id !== id).map(m => <option key={m.id} value={'workflow:' + m.id}>{m.name}</option>)}
@@ -2421,28 +2453,43 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
             </label>}
             {configEditorMode === 'form' ? <div className="config-form" data-config-editor="schema-form">
               {selectedEditorFields.length ? selectedEditorFields.map(field => {
-                const label = locale === 'zh' ? field.label_zh || field.label : field.label
-                const description = locale === 'zh' ? field.description_zh || field.description : field.description
+                if (!isWorkflowFieldVisible(field, configFieldValues)) return null
+                const label = locale === 'zh' ? (selectedInner && field.path === 'output_node_id' ? '输出积木' : selectedInner && field.path === 'output_path' ? '输出字段路径' : selected.type === 'llm' && field.path === 'model' ? '调用模型' : field.label_zh || workflowFieldLabels[field.path] || field.label) : field.label
+                const description = locale === 'zh' ? field.description_zh || (selected.type === 'llm' ? workflowModelHelp[field.path] : field.description) : field.description
                 const value = configFieldValues[field.path]
+                const outputValue = field.control === 'string_list' ? JSON.stringify(String(value || '').split('\n').filter(Boolean)) : String(value || '[]')
+                const outputChoices = selectedInner ? outputPaths(selectedInner.nodes.find(node => node.id === configFieldValues.output_node_id), blocks) : []
                 const update = (next: ConfigEditorValue) => {
                   configDirtyRef.current = true
                   configEditVersionRef.current += 1
                   setConfigFieldValues(current => ({ ...current, [field.path]: next }))
                 }
-                return <label className={`config-form-field ${field.control === 'boolean' ? 'boolean' : ''}`} data-config-field={field.path} key={field.path}>
+                return <div role="group" aria-label={label} className={`config-form-field ${field.control === 'boolean' ? 'boolean' : ''}`} data-config-field={field.path} key={`${selected.id}:${field.path}`}>
                   <span className="config-form-label"><b>{label}</b>{field.required && <em>{t.configRequired}</em>}</span>
                   {description && <small>{description}</small>}
-                  {field.control === 'boolean' ? <input type="checkbox" checked={value === true} onChange={event => update(event.target.checked)} />
-                    : field.control === 'enum' ? <select value={String(value ?? '')} onChange={event => update(event.target.value)}>{!field.required && <option value="" />}{field.options?.map(option => <option key={option} value={option}>{option}</option>)}</select>
-                      : ['textarea', 'json', 'reference_or_text', 'string_list'].includes(field.control) ? <textarea className={field.control === 'json' ? 'config-json-field' : ''} spellCheck={field.control !== 'json'} value={String(value ?? '')} onChange={event => update(event.target.value)} />
-                        : <input type={field.control === 'number' ? 'number' : 'text'} readOnly={field.control === 'readonly'} min={field.minimum} max={field.maximum} step={field.step} value={String(value ?? '')} onChange={event => update(event.target.value)} />}
-                </label>
+                  {selectedInner && field.path === 'workflow' ? <button type="button" onClick={() => enterContainerScope(selected.id)}>打开内部画布（{selectedInner.nodes.length} 个积木）</button>
+                    : selectedInner && field.path === 'output_node_id' ? <select aria-label={label} value={String(value ?? '')} onChange={event => update(event.target.value)}><option value="">选择内部输出积木</option>{value && !selectedInner.nodes.some(node => node.id === value) && <option value={String(value)}>{String(value)} · 已失效</option>}{selectedInner.nodes.map(node => <option key={node.id} value={node.id}>{node.title || node.id}</option>)}</select>
+                    : selectedInner && field.path === 'output_path' ? <select aria-label={label} value={outputValue} onChange={event => update(field.control === 'string_list' ? JSON.parse(event.target.value).join('\n') : event.target.value)}><option value="[]">整个输出</option>{outputValue !== '[]' && !outputChoices.some(path => JSON.stringify(path) === outputValue) && <option value={outputValue}>当前路径：{String(value)}</option>}{outputChoices.map(path => <option key={JSON.stringify(path)} value={JSON.stringify(path)}>{path.join('.')}</option>)}</select>
+                    : selectedInner && ['state_update', 'feedback_value', 'break_value', 'cancel_value', 'break_condition.expected', 'cancel_condition.expected'].includes(field.path) ? <WorkflowValueField projectId={projectContext?.id} nodes={innerFieldNodes} edges={innerFieldEdges} blocks={blocks} nodeId="$container-result" label={label} value={String(value ?? '')} onChange={update} />
+                    : selected.type === 'human_input' && field.path === 'fields' ? <WorkflowInputFields human value={String(value ?? '[]')} onChange={update} />
+                    : selected.type === 'start' && field.path === 'inputs' ? <WorkflowInputFields value={String(value ?? '[]')} onChange={update} />
+                    : selected.type === 'llm' && field.path === 'images' ? <WorkflowImageFields projectId={projectContext?.id} nodes={fieldNodes} edges={fieldEdges} blocks={blocks} nodeId={selected.id} label={label} value={String(value ?? '[]')} onChange={update} />
+                    : selected.type === 'if_else' && field.path === 'cases' ? <WorkflowConditionFields projectId={projectContext?.id} nodes={fieldNodes} edges={fieldEdges} blocks={blocks} nodeId={selected.id} label={label} value={String(value ?? '[]')} onChange={update} />
+                    : selected.type === 'variable_aggregator' && field.path === 'variables' ? <WorkflowArrayFields projectId={projectContext?.id} nodes={fieldNodes} edges={fieldEdges} blocks={blocks} nodeId={selected.id} label={label} value={String(value ?? '[]')} onChange={update} />
+                    : ['outputs', 'input', 'variables', 'inputs', 'assignments', 'headers', 'query'].includes(field.path) && field.control === 'json' ? <WorkflowObjectFields projectId={projectContext?.id} nodes={fieldNodes} edges={fieldEdges} blocks={blocks} modelRole={String(configFieldValues.model_role || selected.config.model_role || 'main')} nodeId={selected.id} label={label} field={field.path} value={String(value ?? '{}')} onChange={update} />
+                    : (field.control === 'reference_or_text' || ['model_ref', 'knowledge_ref', 'dataset_id', 'file_path'].includes(field.path) || (selected.type === 'llm' && field.path === 'model')) ? <WorkflowValueField projectId={projectContext?.id} nodes={fieldNodes} edges={fieldEdges} blocks={blocks} modelRole={String(configFieldValues.model_role || selected.config.model_role || 'main')} allowReference={field.path !== 'model'} nodeId={selected.id} label={label} field={field.path} value={String(value ?? '')} onChange={update} />
+                    : field.control === 'boolean' ? <input aria-label={label} type="checkbox" checked={value === true} onChange={event => update(event.target.checked)} />
+                    : (field.control === 'enum' || (field.control === 'string_list' && field.options?.length)) ? <BlockOptionField field={selected.type === 'llm' && field.path === 'model_role' ? { ...field, option_labels_zh: { main: '主模型', vision: '视觉模型' } } : field} label={label} locale={locale} value={String(value ?? '')} onChange={update} />
+                      : ['textarea', 'json', 'reference_or_text', 'string_list'].includes(field.control) ? <textarea aria-label={label} className={field.control === 'json' ? 'config-json-field' : ''} spellCheck={field.control !== 'json'} value={String(value ?? '')} onChange={event => update(event.target.value)} />
+                        : <input aria-label={label} type={field.control === 'number' ? 'number' : 'text'} readOnly={field.control === 'readonly'} min={field.minimum} max={field.maximum} step={field.step} value={String(value ?? '')} onChange={event => update(event.target.value)} />}
+                </div>
               }) : <p className="muted">{t.configFormNoFields}</p>}
             </div> : <div className="config-expert" data-config-editor="expert-json"><p className="muted">{t.configExpertHelp}</p><textarea className="json-editor" value={configText} onChange={event => { configDirtyRef.current = true; configEditVersionRef.current += 1; setConfigText(event.target.value) }} /></div>}
-            <button className="wide" data-config-editor-action="save" onClick={saveConfig}>{t.saveConfig}</button><button className="danger-link" onClick={deleteSelectedNode}>{t.deleteNode}</button>
+            <button className="wide" data-config-editor-action="save" disabled={manualSaveBusy} onClick={saveConfig}>{t.saveConfig}</button><button className="danger-link" onClick={deleteSelectedNode}>{t.deleteNode}</button>
           </> : <p className="muted">{selectedEdge ? t.edgeSelectedHint : t.nodeHelp}</p>}
         </div>}
-        {tab === 'test' && <div className="panel-body">
+        {tab === 'test' && projectContext && <div className="panel-body"><ProjectWorkflowChecks projectId={projectContext.id} workflowId={id} cases={acceptanceCaseViews} report={displayedTestReport} running={testsRunning} dirty={configDirtyRef.current} onRun={() => void runTests()} />{versions.length > 0 && <details><summary>已保存版本（{versions.length}）</summary>{versions.map(version => <div className="version-row" key={version.version}><span>v{version.version}</span><button onClick={async () => { try { await api(`/api/v1/applications/${id}/versions/${version.version}/restore`, { method: 'POST' }); await refresh() } catch (cause) { setNotice(String(cause)) } }}>恢复为当前草稿</button></div>)}</details>}</div>}
+        {tab === 'test' && !projectContext && <div className="panel-body">
           <section className={`draft-evidence-panel ${evidenceState}`} data-draft-evidence={evidenceState}>
             <div><strong>{t.evidenceStateTitle}: {evidenceStateLabel}</strong><small>{evidenceState === 'current' ? t.evidenceCurrentDetail : evidenceState === 'stale' ? t.evidenceStaleDetail : t.evidenceMissingDetail}</small></div>
             {draft?.evidence?.change_summary?.length ? <ul>{draft.evidence.change_summary.slice(-3).map((item, index) => <li key={`${String(item.revision || '')}-${index}`}>{String(item.operation || t.evidenceChanged)} · r{String(item.revision || '?')}</li>)}</ul> : null}
@@ -2600,11 +2647,11 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
           <input type="password" value={tokenInput} placeholder={t.authPlaceholder} onChange={event => setTokenInput(event.target.value)} />
           <div className="auth-actions"><button>{t.authSave}</button><button type="button" className="ghost" onClick={() => { clearClientToken(); setTokenInput('') }}>{t.authClear}</button></div>
         </form>}
-        {containerScope && <div className="container-scope-bar" data-container-scope={containerScope}>
-          <button onClick={exitContainerScope} type="button">← {locale === 'zh' ? '返回工作流' : 'Back to workflow'}</button>
+        {containerScope.length > 0 && <div className="container-scope-bar" data-container-scope={containerScope.join("/")}>
+          <button onClick={exitContainerScope} type="button">← {locale === 'zh' ? '返回上层' : 'Back to parent'}</button>
           <strong>
             {locale === 'zh' ? '容器内部：' : 'Inside container: '}
-            {draft?.snapshot.workflow.nodes.find(item => item.id === containerScope)?.title || containerScope}
+            {containerScope.map((value, index) => workflowAtPath(draft?.snapshot.workflow, containerScope.slice(0, index))?.nodes.find(node => node.id === value)?.title || value).join(' / ')}
           </strong>
           <span>{locale === 'zh' ? '这里的增删连线都保存在该容器里；双击外层容器节点即可进入。' : 'Edits here are saved inside this container.'}</span>
         </div>}
@@ -2633,7 +2680,8 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
           deleteKeyCode={['Backspace', 'Delete']}
           edges={edges}
           fitView
-          fitViewOptions={{ padding: 0.22 }}
+          fitViewOptions={CANVAS_FIT_VIEW_OPTIONS}
+          minZoom={CANVAS_MIN_ZOOM}
           nodeTypes={nodeTypes}
           nodes={nodes}
           onConnect={onConnect}
@@ -2645,8 +2693,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
           onNodeClick={(_, node) => chooseNode(node)}
           onNodeContextMenu={handleNodeContextMenu}
           onNodeDoubleClick={(_, node) => {
-            if (containerScopeRef.current) return
-            const spec = draftRef.current?.snapshot.workflow.nodes.find(item => item.id === node.id)
+            const spec = activeWorkflow()?.nodes.find(item => item.id === node.id)
             if (spec && (spec.type === 'iteration' || spec.type === 'loop')) enterContainerScope(spec.id)
           }}
           onNodeDragStop={(_, node) => mutation('update_node', { node_id: node.id, changes: { position: safeCanvasPosition(node.position) } })}
@@ -2663,7 +2710,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
           selectionMode={SelectionMode.Partial}
           selectionOnDrag
         >
-          <Background color="#d9e1eb" gap={24} size={1}/><MiniMap pannable zoomable nodeColor={node => accents[(node.data as { blockType?: string } | undefined)?.blockType || ''] || '#64748b'}/><Controls/>
+          <Background color="#d9e1eb" gap={24} size={1}/><MiniMap pannable zoomable nodeColor={node => accents[(node.data as { blockType?: string } | undefined)?.blockType || ''] || '#64748b'}/><Controls fitViewOptions={CANVAS_FIT_VIEW_OPTIONS}/>
         </ReactFlow>
         {canvasSelectionBox && <div
           aria-hidden="true"

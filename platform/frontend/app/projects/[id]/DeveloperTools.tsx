@@ -1,5 +1,7 @@
 'use client'
 
+import { clientId } from '@/lib/client-id'
+
 import Link from 'next/link'
 import { useCallback, useEffect, useState } from 'react'
 import { api } from '@/lib/platform'
@@ -69,7 +71,7 @@ export default function DeveloperTools({ id, initialWorkflowId = '', initialTask
     setBusy(true); setError('')
     try { await fn(); await refresh(); await refreshData() } catch (e) { setError(String(e)) } finally { setBusy(false) }
   }
-  function prepareRun(next: 'workflow' | 'agent') { setMode(next); setTab('tasks'); setRequestKey(crypto.randomUUID()); setRunMember(id) }
+  function prepareRun(next: 'workflow' | 'agent') { setMode(next); setTab('tasks'); setRequestKey(clientId()); setRunMember(id) }
   async function openTask(t: Task) { setTask(await api<Task>(base + '/tasks/' + t.id)); setTaskError(''); setSupplement(''); setSupplementInputs('{}') }
   function editRecord(row?: RecordRow) {
     setCollection(row?.collection || ''); setKey(row?.key || ''); setRevision(row?.revision || 0)

@@ -33,6 +33,8 @@
 .experiment details { margin-top: 15px; color: #697b90; }
 .error { color: #a14444; overflow-wrap: anywhere; }
 .note { min-width: 0; overflow-wrap: anywhere; }
+.failure { margin: 14px 0; padding: 12px 14px; border: 1px solid #e4cccc; border-radius: 8px; background: #fff7f7; color: #873939; }
+.failure p { margin: 6px 0 0; }
 .note pre { overflow: auto; max-height: 280px; padding: 14px; background: #F5F7FA; font-size: 12px; }
 .note table { display: block; overflow: auto; max-width: 100%; font-size: 12px; border-collapse: collapse; }
 .note td, .note th { padding: 8px 10px; border-bottom: 1px solid #E4EAF2; white-space: nowrap; }

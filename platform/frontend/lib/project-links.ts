@@ -1,23 +1,39 @@
 import { withFrontendToken } from './platform'
 
 export function resolveProjectLink(projectId: string, href: string): string {
-  const relative = href.trim().replace(/^\.\//, '')
+  const target = href.trim()
+  const workspaceLink = /^(?:sandbox:)?\/workspace\//.test(target)
+  const relative = target.replace(/^(?:sandbox:)?\/workspace\//, '').replace(/^\.\//, '')
+  if (relative.startsWith('workflow://')) {
+    const id = relative.slice('workflow://'.length)
+    return /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(id) ? `/applications/${id}?tab=edit` : ''
+  }
   if (relative.startsWith(`/api/v1/projects/${encodeURIComponent(projectId)}/`))
     return withFrontendToken(`/api/platform${relative}`)
-  if (!/^(results|solution|requirement-package|requirements)\//.test(relative)) return href
+  if (!/^(results|solution|requirement-package|requirements)\//.test(relative)) return workspaceLink ? '' : href
   let path: string
   try { path = decodeURIComponent(relative) } catch { return '' }
   if (/[\\\u0000-\u001f]/.test(path) || path.split('/').some(part => part === '..' || part === '.')) return ''
   return withFrontendToken(`/api/platform/api/v1/applications/${encodeURIComponent(projectId)}/workspace/files/${path.split('/').map(encodeURIComponent).join('/')}`)
 }
 
-export function projectFileFromLink(projectId: string, href: string): string | null {
+export function projectFilePathFromLink(projectId: string, href: string): string | null {
   const prefix = `/api/platform/api/v1/applications/${encodeURIComponent(projectId)}/workspace/files/`
   if (!href.startsWith(prefix)) return null
   let path: string
   try { path = decodeURIComponent(href.slice(prefix.length).split('?')[0]) } catch { return null }
   if (!/^(results|solution|requirement-package|requirements)\//.test(path) || /[\\\u0000-\u001f]/.test(path) || path.split('/').some(p => p === '..' || p === '.')) return null
-  return /\.(md|txt|csv|json|html?)$/i.test(path) ? path : null
+  return path
+}
+
+export function projectFileFromLink(projectId: string, href: string): string | null {
+  const path = projectFilePathFromLink(projectId, href)
+  return path && /\.(md|txt|csv|json|html?)$/i.test(path) ? path : null
+}
+
+export function projectPreviewFromLink(projectId: string, href: string): string | null {
+  const path=projectFilePathFromLink(projectId,href)
+  return path&&/\.(md|txt|csv|json|html?|png|jpe?g|webp|svg)$/i.test(path)?path:null
 }
 
 export function resolveProjectFileLink(projectId: string, sourcePath: string, href: string): string {

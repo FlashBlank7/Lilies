@@ -51,7 +51,7 @@ it('sends the viewed record revision and retains edits when an update conflicts'
   }))
   expect(await screen.findByRole('alert')).toHaveTextContent('记录已更新')
   expect(screen.getByLabelText('记录内容')).toHaveValue('{"owner":""}')
-  await act(async () => { (intervals.mock.calls.at(-1)![0] as () => void)() })
+  await act(async () => { (intervals.mock.calls.filter(([, delay]) => delay === 1500).at(-1)![0] as () => void)() })
   expect(screen.getByRole('alert')).toHaveTextContent('记录已更新')
 })
 
@@ -67,10 +67,10 @@ it.each(['/records', '/tasks/t1'])('clears a transient %s polling failure after 
     if (offline && path.endsWith(failedPath)) throw new Error('暂时无法连接')
     return healthy(path, options)
   })
-  await act(async () => { (intervals.mock.calls.at(-1)![0] as () => void)() })
+  await act(async () => { (intervals.mock.calls.filter(([, delay]) => delay === 1500).at(-1)![0] as () => void)() })
   expect(screen.getByRole('alert')).toHaveTextContent('暂时无法连接')
   offline = false
-  await act(async () => { (intervals.mock.calls.at(-1)![0] as () => void)() })
+  await act(async () => { (intervals.mock.calls.filter(([, delay]) => delay === 1500).at(-1)![0] as () => void)() })
   expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   expect(screen.getByRole('button', { name: '补充并继续' })).toBeEnabled()
 })

@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import { Suspense } from 'react'
 import PlatformLayout from './components/PlatformLayout'
+import AuthBoundary from './components/AuthBoundary'
 import './globals.css'
 import './theme.css'
 
@@ -12,7 +13,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="zh-CN">
-      <body><Suspense fallback={<div aria-label="正在打开页面" /> }><PlatformLayout>{children}</PlatformLayout></Suspense></body>
+      <body><Suspense fallback={<div aria-label="正在打开页面" /> }><AuthBoundary><PlatformLayout>{children}</PlatformLayout></AuthBoundary></Suspense></body>
     </html>
   )
 }

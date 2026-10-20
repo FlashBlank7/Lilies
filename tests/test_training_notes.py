@@ -1,4 +1,4 @@
-from agent_platform.training_notes import make_note, render_note, comparison, curve_svg
+from agent_platform.training_notes import make_note, render_note, comparison, comparison_csv, curve_svg
 
 
 def test_comparison_keeps_failed_and_worse_models_and_metric_direction():
@@ -25,3 +25,22 @@ def test_legacy_note_discloses_missing_fields_and_never_borrows_another_model_te
     assert note['trial'] == trial
     assert '不猜测默认参数' in render_note(note)
     assert '尚无结果' not in render_note(note).split('## 本次改动')[0]
+    assert note['comparison'][0]['peak_rss_bytes'] is None
+    assert note['comparison'][0]['model_bytes'] is None
+    assert '| 未记录 | 未记录 |' in render_note(note)
+
+
+def test_resource_comparison_keeps_measured_bytes_and_missing_records_distinct():
+    import csv
+    import io
+    resources = {'peak_rss_bytes': 256 * 1024 ** 2, 'model_bytes': 5120}
+    candidates = [{'id': 'c', 'created_at': '2026-10-17', 'trials': [
+        {'slot': 0, 'model': 'linear', 'status': 'completed', 'metrics': {'mae': 1}, 'seconds': 2, 'resources': resources},
+        {'slot': 1, 'model': 'forest', 'status': 'failed', 'seconds': 3}]}]
+    rows = comparison({'evaluation': {'metric': 'mae'}}, candidates)
+    assert rows[0]['peak_rss_bytes'] == resources['peak_rss_bytes']
+    assert rows[0]['model_bytes'] == resources['model_bytes']
+    assert rows[1]['peak_rss_bytes'] is None and rows[1]['model_bytes'] is None
+    exported = list(csv.DictReader(io.StringIO(comparison_csv({'comparison': rows}).lstrip('\ufeff'))))
+    assert int(exported[0]['model_bytes']) == 5120
+    assert exported[1]['peak_rss_bytes'] == exported[1]['model_bytes'] == ''

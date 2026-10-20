@@ -4,6 +4,7 @@ MODEL_TEST_PYTHON=/path/to/locked/env/bin/python selects a real-library worker.
 MODEL_TEST_DOCKER=1 validates the production container transport instead.
 """
 import asyncio
+import csv
 import importlib.util
 import io
 import json
@@ -24,15 +25,17 @@ from tests.test_projects import graph, node, edge, ref, start
 def modeling(configured, monkeypatch):
     client, app, project, settings = configured
     service = app.state.services.modeling
-    async def image():
+    async def image(reference=None):
         return 'test-real-worker-environment'
     if not os.environ.get('MODEL_TEST_DOCKER'):
         monkeypatch.setattr(service, 'image', image)
         async def snapshot_environment(image):
             folder = settings.data_dir / 'test-environment'; folder.mkdir(exist_ok=True)
             (folder / 'worker.py').write_text(Path(modeling_worker.__file__).read_text())
+            (folder / 'modeling_preprocessing.py').write_text(Path(modeling_worker.__file__).with_name('modeling_preprocessing.py').read_text())
+            (folder / 'table_selection.py').write_text(Path(modeling_worker.__file__).with_name('table_selection.py').read_text())
             (folder / 'requirements.lock').write_text('Real worker dependencies installed in MODEL_TEST_PYTHON')
-            (folder / 'environment.json').write_text(json.dumps({'image': image}))
+            (folder / 'environment.json').write_text(json.dumps({'image': image, 'capabilities': modeling_worker.CAPABILITIES}))
             return folder
         monkeypatch.setattr(service, 'snapshot_environment', snapshot_environment)
     yield configured, service
@@ -53,13 +56,14 @@ def real_compute(modeling, monkeypatch):
         folder.mkdir(parents=True, exist_ok=True)
         output = folder / 'output'; output.mkdir(exist_ok=True)
         replacements = {target: str(host) for host, target in (extra_mounts or []) + (writable_mounts or [])}
+        replacements.update({'/data/' + host.name: str(host) for host in service.path(project_id, dataset['id']).iterdir() if host.is_file()})
         replacements.update({target + '/optuna.db': str(host / 'optuna.db') for host, target in writable_mounts or []})
         config = {k: replacements.get(v, v) if isinstance(v, str) else v for k, v in config.items()}
         config.update(mapping=dataset['mapping'], output=str(output), **{k: str(service.path(project_id, dataset['id']) / v['name']) for k, v in dataset['files'].items()})
         path = folder / 'job.json'; path.write_text(json.dumps(config))
         env = {**os.environ, 'OMP_NUM_THREADS': '1', 'OPENBLAS_NUM_THREADS': '1', 'MKL_NUM_THREADS': '1'}
         async with service.slots:
-            process = await asyncio.create_subprocess_exec(executable, modeling_worker.__file__, str(path), stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, env=env, start_new_session=True)
+            process = await asyncio.create_subprocess_exec(executable, modeling_worker.__file__, str(path), stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, limit=8 * 1024 * 1024, env=env, start_new_session=True)
             service.test_pid = process.pid
             logs = asyncio.create_task(process.stderr.read())
             result = None; failure = ''
@@ -87,7 +91,7 @@ def real_compute(modeling, monkeypatch):
     return configured, service
 
 
-def setup(client, project, settings, batch_size=2, transformer=''):
+def setup(client, project, settings, batch_size=2, transformer='', features=None):
     pid = project['id']; base = '/api/v1/projects/' + pid
     package = settings.workspace_root / pid / 'requirement-package'; package.mkdir(exist_ok=True)
     (package / 'data.csv').write_text('id,x,category,y\n' + '\n'.join(f'{i:04d},{i/10},{"a" if i%2 else "b"},{i/5}' for i in range(60)))
@@ -98,7 +102,7 @@ def setup(client, project, settings, batch_size=2, transformer=''):
     response = client.post(base + '/modeling/studies', json=study_request)
     assert response.status_code == 201, response.text
     study = response.json()
-    response = client.post(base + '/modeling/studies/' + study['id'] + '/candidates', json={'request_key': 'first', 'batch_size': batch_size, 'models': ['linear'], 'features': {'transformer_path': transformer}})
+    response = client.post(base + '/modeling/studies/' + study['id'] + '/candidates', json={'request_key': 'first', 'batch_size': batch_size, 'models': ['linear'], 'features': {'transformer_path': transformer, **(features or {})}})
     assert response.status_code == 201, response.text
     candidate = response.json()
     graph(client, pid, [node('start', 'start', inputs=[]), node('train', 'model_train', study_id=study['id'], candidate_id=candidate['id']),
@@ -136,11 +140,65 @@ def test_dataset_readonly_versions_scope_and_idempotency(modeling):
     assert client.get(base + '/modeling/studies?after=9999').json() == []
 
 
-def test_actual_workflow_training_prediction_download_and_repeat(real_compute):
+@pytest.mark.parametrize('table,extension,sheet', [('source', 'csv', 0), ('labels', 'xlsx', '预测清单')])
+def test_prediction_export_preserves_saved_sample_correspondence(modeling, table, extension, sheet):
+    (client, app, project, settings), service = modeling
+    original = settings.workspace_root / project['id'] / 'requirement-package/input.csv'
+    original.parent.mkdir(exist_ok=True)
+    original.write_text('x\n10\n\n20\n')
+    dataset = {'id': 'prediction-data', 'mapping': {'sheet': sheet}, 'files': {
+        'source': {'name': 'source.csv', 'original': 'requirement-package/input.csv'},
+        table: {'name': f'{table}.{extension}', 'original': f'requirement-package/{table}.{extension}'},
+    }}
+    folder = service.path(project['id'], dataset['id']) / 'run-export'
+    (folder / 'output').mkdir(parents=True)
+    artifact = folder / 'output/predictions.csv'
+    # The saved sample indices may have gaps or differ from result order. Never
+    # replace them with the preview index, or overwrite a similarly named column.
+    artifact.write_text('_sample,input_record,prediction,probability_yes\n4,keep-a,0.123456789,0.999999999\n1,keep-b,2.5,0.2\n')
+    result = {'rows': 2, 'preview': [{'_sample': 4, 'input_record': 'keep-a', 'prediction': .123456789},
+                                    {'_sample': 1, 'input_record': 'keep-b', 'prediction': 2.5}],
+              'probability_columns': {'yes': 'probability_yes'}}
+    output = service.export_prediction(project['id'], dataset, folder, result)
+    assert output['input_source'] == {'dataset_id': dataset['id'], 'path': f'requirement-package/{table}.{extension}',
+                                     'table': table, 'record_column': 'input_record_',
+                                     **({'sheet': sheet} if extension == 'xlsx' else {})}
+    assert [row['input_record_'] for row in output['preview']] == [5, 2]
+    exported = list(csv.DictReader(io.StringIO(artifact.read_text())))
+    assert exported == [{'input_record_': '5', '_sample': '4', 'input_record': 'keep-a', 'prediction': '0.123456789', 'probability_yes': '0.999999999'},
+                        {'input_record_': '2', '_sample': '1', 'input_record': 'keep-b', 'prediction': '2.5', 'probability_yes': '0.2'}]
+    assert (settings.workspace_root / project['id'] / output['project_path']).read_bytes() == artifact.read_bytes()
+    assert original.read_text() == 'x\n10\n\n20\n'
+
+
+@pytest.mark.parametrize('id_column,header,preview,expected_id', [
+    ('sample_id', 'sample_id,prediction\n000012345678901,1.25\n', {'sample_id': '000012345678901', 'prediction': 1.25}, 'sample_id'),
+    ('', 'prediction\n1.25\n', {'prediction': 1.25}, None),
+    ('prediction', 'prediction\n1.25\n', {'prediction': 1.25}, None),
+    ('', '_sample,prediction\ninvalid,1.25\n', {'_sample': 'invalid', 'prediction': 1.25}, None),
+])
+def test_prediction_export_does_not_invent_missing_source_fields(modeling, id_column, header, preview, expected_id):
+    (_, _, project, _), service = modeling
+    dataset = {'id': 'prediction-data', 'mapping': {'id_column': id_column},
+               'files': {'source': {'name': 'source.csv', 'original': 'requirement-package/predict.csv'}}}
+    folder = service.path(project['id'], dataset['id']) / 'run-export'
+    (folder / 'output').mkdir(parents=True)
+    artifact = folder / 'output/predictions.csv'; artifact.write_text(header)
+    output = service.export_prediction(project['id'], dataset, folder, {'rows': 1, 'preview': [dict(preview)]})
+    if expected_id:
+        assert output['input_source'] == {'dataset_id': dataset['id'], 'path': 'requirement-package/predict.csv', 'table': 'source', 'id_column': expected_id}
+    else:
+        assert 'input_source' not in output
+    assert output['preview'] == [preview]
+    assert artifact.read_text() == header
+
+
+@pytest.mark.parametrize('categorical_missing', ['auto', 'preserve'])
+def test_actual_workflow_training_prediction_download_and_repeat(real_compute, categorical_missing):
     (client, app, project, settings), service = real_compute
-    base, dataset, study, candidate = setup(client, project, settings)
+    base, dataset, study, candidate = setup(client, project, settings, features={'preprocessing': {'categorical_missing': categorical_missing}})
     graph(client, project['id'], [node('start', 'start', inputs=[]), node('analysis', 'data_analysis', dataset_id=dataset['id']),
-        node('features', 'feature_extract', dataset_id=ref('analysis', 'output', 'dataset_id'), features={}),
+        node('features', 'feature_extract', dataset_id=ref('analysis', 'output', 'dataset_id'), features=candidate['features']),
         node('train', 'model_train', dataset_id=ref('features', 'output', 'dataset_id'), features=ref('features', 'output', 'feature_plan'), study_id=study['id'], candidate_id=candidate['id']),
         node('end', 'end', outputs={'result': ref('train', 'output')})], [edge('start', 'analysis'), edge('analysis', 'features'), edge('features', 'train'), edge('train', 'end')])
     task = start(client, base, 'train', purpose='build_test')
@@ -166,6 +224,10 @@ def test_actual_workflow_training_prediction_download_and_repeat(real_compute):
         assert response.status_code == 200, response.text
         note = response.json()['note']
         assert note['trial']['metrics'] == trial['metrics']
+        resources = trial['resources']
+        assert resources['peak_rss_bytes'] > 1024 ** 2 and resources['memory_scope'] == 'trial_process'
+        assert note['trial']['resources'] == resources
+        assert note['comparison'][slot]['model_bytes'] == resources['model_bytes']
         assert note['trial']['effective_model']['parameters']['alpha'] == trial['parameters']['regularization']
         assert len(note['comparison']) == 2
         assert note['task_id'] == task['id']
@@ -175,6 +237,9 @@ def test_actual_workflow_training_prediction_download_and_repeat(real_compute):
         with zipfile.ZipFile(io.BytesIO(client.get(path + f'/download?slot={slot}').content)) as archive:
             assert json.loads(archive.read('configuration.json'))['selected_trial_slot'] == slot
             assert json.loads(archive.read('training-note.json'))['trial']['metrics'] == trial['metrics']
+            assert resources['model_bytes'] == archive.getinfo('model/model.joblib').file_size
+            assert json.loads(archive.read('training-note.json'))['trial']['resources'] == resources
+            assert 'peak_rss_bytes,model_bytes' in archive.read('comparison.csv').decode('utf-8-sig')
     other = client.post('/api/v1/projects', json={'name': '其他项目'}).json()['id']
     assert client.get(path.replace(project['id'], other) + '/trials/0/note').status_code == 404
     assert client.get(path + '/trials/999/note').status_code == 404
@@ -187,7 +252,11 @@ def test_actual_workflow_training_prediction_download_and_repeat(real_compute):
     output = prediction['outputs']['result']
     assert output['rows'] == 2
     assert output['preview'][0]['id'] == '0101'
-    assert client.get(base + '/' + output['artifact']).status_code == 200
+    assert output['input_source'] == {'dataset_id': new['id'], 'path': new['files']['source']['original'], 'table': 'source', 'id_column': 'id'}
+    downloaded = client.get(base + '/' + output['artifact'])
+    assert downloaded.status_code == 200
+    assert list(csv.DictReader(io.StringIO(downloaded.text)))[0]['id'] == '0101'
+    assert client.get(base + '/tasks/' + prediction['id']).json()['outputs']['result']['input_source'] == output['input_source']
     assert output['artifact'] != prediction['outputs']['again']['artifact']
     draft_path = f'/api/v1/applications/{project["id"]}/draft'
     draft = client.get(draft_path).json()
@@ -276,6 +345,7 @@ def test_old_candidate_request_remains_idempotent_after_optional_search_fields(m
     async def legacy_request():
         candidate['request'].pop('search_space')
         candidate['request'].pop('autogluon_hyperparameters')
+        candidate['request']['features'].pop('preprocessing')
         await service.put(project['id'], 'candidate', candidate)
     asyncio.run(legacy_request())
     reply = client.post(base + '/modeling/studies/' + study['id'] + '/candidates', json=candidate['request'])

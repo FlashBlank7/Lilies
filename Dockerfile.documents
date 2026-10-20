@@ -1,12 +1,19 @@
 ARG BASE_IMAGE=agent-platform-sandbox:latest
+FROM node:24.15.0-bookworm-slim AS presentation_dependencies
+WORKDIR /opt/platform/documents
+COPY runtime/documents/package.json runtime/documents/package-lock.json ./
+RUN npm ci --omit=dev --ignore-scripts
+
 FROM ${BASE_IMAGE}
 USER root
 ARG DEBIAN_MIRROR=https://deb.debian.org
 RUN sed -i "s|http://deb.debian.org|${DEBIAN_MIRROR}|g" /etc/apt/sources.list.d/debian.sources && \
     apt-get update && apt-get install -y --no-install-recommends \
-    poppler-utils poppler-data libreoffice-writer tesseract-ocr tesseract-ocr-chi-sim \
+    poppler-utils poppler-data libreoffice-writer libreoffice-impress tesseract-ocr tesseract-ocr-chi-sim \
     fonts-noto-cjk && rm -rf /var/lib/apt/lists/*
 COPY requirements-documents.txt /opt/platform/requirements-documents.txt
 RUN pip install --no-cache-dir --only-binary=:all: -r /opt/platform/requirements-documents.txt && pip check
+COPY --from=presentation_dependencies /opt/platform/documents/node_modules /opt/platform/documents/node_modules
+ENV NODE_PATH=/opt/platform/documents/node_modules
 USER agent
 WORKDIR /workspace

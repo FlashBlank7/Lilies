@@ -20,6 +20,12 @@ def cell(value):
     return str(value if value is not None else '未记录').replace('|', '\\|').replace('\n', ' ')
 
 
+def size(value):
+    if value is None:
+        return '未记录'
+    return f'{value / 1024 ** 2:.2f} MiB' if value >= 1024 ** 2 else f'{value / 1024:.2f} KiB'
+
+
 def comparison(study, candidates):
     metric = study['evaluation']['metric']
     trials = [(c, t) for c in candidates for t in c.get('trials', [])]
@@ -32,6 +38,8 @@ def comparison(study, candidates):
         seconds += t.get('seconds', 0)
         rows.append({'sequence': len(rows) + 1, 'candidate_id': c['id'], 'slot': t['slot'], 'model': t['model'],
                      'status': t['status'], 'score': score, 'best_score': best, 'seconds': t.get('seconds'),
+                     'peak_rss_bytes': (t.get('resources') or {}).get('peak_rss_bytes'),
+                     'model_bytes': (t.get('resources') or {}).get('model_bytes'),
                      'cumulative_seconds': seconds, 'completed_at': t.get('completed_at'),
                      'parameters': t.get('parameters', {}), 'hypothesis': c.get('hypothesis', ''),
                      'task_id': t.get('task_id') or c.get('task_id'), 'run_id': t.get('run_id') or c.get('run_id')})
@@ -70,6 +78,36 @@ def make_note(project_id, dataset, study, candidate, trial, split, candidates, f
             'scope': '同研究的固定数据和评价划分；验证指标用于搜索。不同研究不混排，未登记的外部 benchmark 不自动合并。'}
 
 
+def classification_markdown(result):
+    if not result:
+        return ''
+    baseline = {row['label']: row for row in result.get('baseline', {}).get('classes', [])}
+    def metric(value):
+        return '无法计算' if value is None else cell(value)
+    def label(row):
+        return cell(row['label']) + (f"（{cell(row['name'])}）" if row.get('name') else '')
+    parts = ['### 各类别验证结果', '',
+             '每条预测来自未用该样本训练的模型。召回率说明实际属于这一类的样本找回了多少；精确率说明判为这一类的结果有多少正确。',
+             '',
+             '| 类别 | 开发样本 | 验证样本 | 预测为此类 | 精确率 | 召回率 | F1 | 基线召回率 |\n|---|---:|---:|---:|---:|---:|---:|---:|',
+             *['| ' + ' | '.join([label(row), cell(row.get('development_samples')), cell(row['samples']),
+                                cell(row.get('predicted_samples')), metric(row['precision']), metric(row['recall']),
+                                metric(row['f1']), metric(baseline.get(row['label'], {}).get('recall'))]) + ' |'
+               for row in result['classes']]]
+    if result.get('folds'):
+        parts += ['\n### 各次验证的类别分布\n', '| 折 | 类别 | 训练样本 | 验证样本 |\n|---|---|---:|---:|',
+                  *[f'| {fold["fold"]} | {label(row)} | {row["train_samples"]} | {row["validation_samples"]} |'
+                    for fold in result['folds'] for row in fold['classes']]]
+    if result.get('confusion_matrix') is not None:
+        labels = [label(row) for row in result['classes']]
+        parts += ['\n### 验证混淆矩阵\n', '行表示实际类别，列表示预测类别。\n',
+                  '| 实际 / 预测 | ' + ' | '.join(labels) + ' |', '|---|' + '---:|' * len(labels),
+                  *['| ' + label + ' | ' + ' | '.join(str(n) for n in row) + ' |'
+                    for label, row in zip(labels, result['confusion_matrix'])]]
+    parts += ['\n' + result.get('note', '')]
+    return '\n'.join(parts)
+
+
 def render_note(note):
     t, rule, split = note['trial'], note['evaluation'], note['split'] or {}
     metric = rule['metric']
@@ -79,24 +117,28 @@ def render_note(note):
              '## 本次改动', note['hypothesis'] or '未提供改动说明。',
              f"父候选：{note['parent_candidate_id'] or '无'}；反馈任务：{note['feedback_task_id'] or '无'}。",
              '## 数据与划分', f"数据集：{note['dataset']['name']}（{note['dataset']['id']}）。",
-             f"划分方式：{dict(random='随机划分', group='按组隔离', time='时间向前验证').get(rule['split'], rule['split'])}；随机种子：{rule['seed']}；开发样本：{len(split.get('development', [])) if note['split'] is not None else '未记录'}；保留测试：{len(split.get('holdout', [])) if note['split'] is not None else '未记录'}；缺失标签：{split.get('missing_labels', '未记录')}。",
+             f"划分方式：{dict(random='随机划分', group='按组隔离', time='时间向前验证').get(rule['split'], rule['split'])}；随机种子：{rule['seed']}；开发样本：{len(split.get('development', [])) if note['split'] is not None else '未记录'}；保留测试：{len(split.get('holdout', [])) if note['split'] is not None else '未记录'}；不可用标签合计：{split.get('missing_labels', '未记录')}。",
+             *(['标签状态分别计数（原始输入，先于特征排除）：\n\n```json\n' + pretty(split['label_state_counts']) + '\n```'] if 'label_state_counts' in split else []),
              '划分索引指向 split.json 的 samples；samples 保存源数据行号，不能将时序清洗后的索引直接当作原 CSV 行号。',
+             *([f"按字段规则排除的特征待确认／无效记录：{split['excluded_data_rows']} 条；缺失标签另计，未用估算值替代标签。"] if 'excluded_data_rows' in split else []),
              '| 折 | 训练样本 | 验证样本 |\n|---|---:|---:|\n' + '\n'.join(f'| {i+1} | {len(a)} | {len(b)} |' for i, (a, b) in enumerate(split.get('folds', []))),
              '字段映射、数据版本与文件散列：\n\n```json\n' + pretty(note['dataset']) + '\n```',
              '评价规则：\n\n```json\n' + pretty(rule) + '\n```',
              '## 特征与预处理', '训练规则：需要拟合的预处理仅在训练折内拟合；成功模型最终在开发数据上重拟合。',
-             '```json\n' + pretty({'plan': note['features'], 'columns': t.get('feature_columns'), 'descriptions': note['feature_descriptions'], 'code_sha256': note['code_sha256']}) + '\n```',
+             '```json\n' + pretty({'plan': note['features'], 'fitted_preprocessing': t.get('preprocessing'), 'columns': t.get('feature_columns'), 'descriptions': note['feature_descriptions'], 'code_sha256': note['code_sha256']}) + '\n```',
              '## 实际模型与超参数', '实际模型参数来自本次拟合对象；搜索值与完整参数分别保存。' if t['status'] == 'completed' else '训练未成功，未产出可用模型。保留传入参数、搜索值和失败原因。',
              '```json\n' + pretty({'effective_model': t.get('effective_model'), 'requested_parameters': note['requested_parameters'], 'search_space': note.get('search_space'), 'autogluon_hyperparameters': note.get('autogluon_hyperparameters'), 'searched_parameters': t.get('parameters'), 'search': t.get('search')}) + '\n```',
              '## 预测检查', '\n\n'.join(t.get('warnings', [])) or ('各折未发现对不同实测值始终给出相同预测。' if 'diagnostics' in t else '本次没有保存逐折预测检查。'),
-             '## 评价结果', '```json\n' + pretty({k: t.get(k) for k in ('metrics', 'baseline', 'fold_metrics', 'diagnostics', 'group_errors', 'importance', 'error')}) + '\n```',
+             '## 评价结果', classification_markdown(t.get('classification')),
+             '```json\n' + pretty({k: t.get(k) for k in ('metrics', 'baseline', 'fold_metrics', 'diagnostics', 'group_errors', 'importance', 'error')}) + '\n```',
              '模型内部重要性不表示因果关系。',
              '保留测试结果（仅属于被最终选定的这个模型，不参与搜索曲线）：\n\n```json\n' + pretty(note['test_result']) + '\n```' if note['test_result'] else '这个模型没有已保存的最终测试结果；上面的指标为验证结果。',
              '## 同条件模型比较与改进曲线', note['scope'],
              f"指标 {metric} {'越低越好' if metric in {'mae', 'rmse'} else '越高越好'}。curve.svg 按实际试验展示，comparison.csv 保存完整数值；没有逐 epoch 曲线时不生成。耗时累计只相加试验秒数，不含 Agent 等待。",
-             '| 序号 | 候选／试验 | 模型 | 状态 | 指标 | 历次最佳 | 秒 |\n|---|---|---|---|---:|---:|---:|\n' + '\n'.join(
-                 '| ' + ' | '.join(cell(v) for v in [r['sequence'], f"{r['candidate_id']} / {r['slot'] + 1}", r['model'], r['status'], r['score'], r['best_score'], r['seconds']]) + ' |' for r in note['comparison']),
-             '## 运行与环境', '```json\n' + pretty({'project_id': note['project_id'], 'study_id': note['study_id'], 'candidate_id': note['candidate_id'], 'slot': note['slot'], 'task_id': note['task_id'], 'run_id': note['run_id'], 'image': note['image'], 'started_at': t.get('started_at'), 'completed_at': t.get('completed_at'), 'seconds': t.get('seconds'), 'budget': note['budget']}) + '\n```',
+             '内存为每次试验主进程的峰值，包含数据、依赖、各折及最终拟合，不含其他进程，不能当作部署内存需求。模型大小为最终保存的预测目录和预处理文件，不含折模型、日志与运行环境；AutoGluon 目录含其内部保存的数据。不同计算环境的数值不宜直接比较。未记录表示旧版本或本次未取得测量值。',
+             '| 序号 | 候选／试验 | 模型 | 状态 | 指标 | 历次最佳 | 秒 | 试验内存峰值 | 模型文件大小 |\n|---|---|---|---|---:|---:|---:|---:|---:|\n' + '\n'.join(
+                 '| ' + ' | '.join(cell(v) for v in [r['sequence'], f"{r['candidate_id']} / {r['slot'] + 1}", r['model'], r['status'], r['score'], r['best_score'], r['seconds'], size(r.get('peak_rss_bytes')), size(r.get('model_bytes'))]) + ' |' for r in note['comparison']),
+             '## 运行与环境', '```json\n' + pretty({'project_id': note['project_id'], 'study_id': note['study_id'], 'candidate_id': note['candidate_id'], 'slot': note['slot'], 'task_id': note['task_id'], 'run_id': note['run_id'], 'image': note['image'], 'started_at': t.get('started_at'), 'completed_at': t.get('completed_at'), 'seconds': t.get('seconds'), 'resources': t.get('resources'), 'budget': note['budget']}) + '\n```',
              '记录包包含固定划分、可用的验证预测、参数与环境；模型下载包同时包含此笔记。源数据按数据集版本保存，记录包不重复打包源数据。',
              '## 记录缺口', '\n'.join('- ' + gap for gap in note['gaps']) if note['gaps'] else ('本次试验的参数、划分、指标与起止时间均已记录。' if t['status'] == 'completed' else '失败原因、传入参数、划分与起止时间已记录；没有生成成功指标或模型。')]
     if note.get('search_decision'):

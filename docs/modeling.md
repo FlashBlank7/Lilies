@@ -1,6 +1,8 @@
 # 项目内数据分析与自主建模
 
-2026-09-14 实现。范围是表格、工艺时序、传统机器学习和本机 CPU。使用现有项目、统筹对话、成员画布与运行记录；原工业工作流和运行镜像保留。
+v0.6（2026-09-20）已将独立训练与工作流分开：可以先保存未绑定模型的预测草稿，也可以不创建训练工作流直接启动建模。新页面操作见 [v0.6 试用说明](V06_TRYOUT.md)。
+
+2026-09-14 起实现的建模内核范围是表格、工艺时序、传统机器学习和本机 CPU。使用现有项目、统筹对话、成员画布与运行记录；原工业工作流和运行镜像保留。
 
 ## 客户使用路径
 
@@ -24,7 +26,7 @@
 
 `modeling_objects` 在平台 SQLite 中保存摘要；输入、缓存与产物在 `data/modeling/`。计算容器不挂载平台数据库、项目凭证或其他项目文件。Optuna 使用独立 SQLite 文件，在同研究、同特征与模型方向下延续参数历史。
 
-上传文件需要交给已有文件型准备流程时，统筹在建设阶段调用 `project_modeling(action="export_dataset", dataset_id)`。平台校验当前项目的数据版本并导出独立副本到固定的 `results/datasets/{dataset_id}/`，返回 `source_path`、可选 `labels_path`、各文件字节数及 SHA-256；将返回路径交给工作流输入即可。重复调用复用内容一致的副本；副本被修改或不完整时明确冲突，不静默覆盖。原始数据集不变，需求包不变，不开放任意目标路径。此操作不运行分析或训练。
+上传文件需要交给已有文件型准备流程时，项目智能体调用 `project_modeling(action="export_dataset", dataset_id)`。平台校验当前项目的数据版本并导出独立副本到固定的 `results/datasets/{dataset_id}/`，返回 `source_path`、可选 `labels_path`、各文件字节数及 SHA-256；将返回路径交给工作流输入即可。重复调用复用内容一致的副本；副本被修改或不完整时明确冲突，不静默覆盖。原始数据集不变，需求包不变，不开放任意目标路径。此操作不运行分析或训练。
 
 ### 每个模型的训练笔记（2026-09-15）
 
@@ -49,15 +51,23 @@
 | 数据分析 `data_analysis` | `dataset_id` | 质量统计、分布、时序抽样、数据集标识 |
 | 特征提取 `feature_extract` | `dataset_id`, `features` | 字段来源、窗口与计算方式、可传递特征方案 |
 | 训练评估 `model_train` | `study_id`, `candidate_id` | 已持久化试验、指标、模型与运行关联 |
-| 模型预测 `model_predict` | 无标签 `dataset_id`, `study_id`, `candidate_id` | 预测预览和可下载 CSV |
+| 模型预测 `model_predict` | 无标签 `dataset_id`, `model_ref`（兼容旧 study/candidate） | 预测预览和可下载 CSV |
 
 积木结果位于 `output`。`model_train` 的 `finalize=true` 在选模结束后评价保留测试集；评价前固定最佳候选，此研究随后禁止继续搜索。没有保留测试样本时仅交付验证结果。保存的画布测试可以回放已完成训练并真实执行预测，不额外改动研究。
 
-## 精简的建模工具（2026-09-16）
+## 独立训练（v0.6）
+
+页面“模型”可选择数据、目标列及算法并启动任务；停止和继续使用原任务编号。API 为 `POST /api/v1/projects/{id}/modeling/studies/{study_id}/train`，请求体沿用 CandidateRequest，不要求 `workflow_id`。项目对话使用 `project_modeling(action="train", study_id, candidate)`，重复的候选 request_key 和相同内容返回原任务。
+
+“可调用模型”创建稳定 `model_ref`，通过已完成的候选和 trial slot 绑定版本。模型、预处理及镜像由运行时校验；缺少资源时失败，不自动换模型。工作流或独立预测任务启动时固定版本，重新绑定只影响后续运行。
+
+## 旧训练工作流兼容路径（2026-09-16）
+
+以下 submit_and_run 用于已有训练工作流。新项目无需创建这类工作流。
 
 `project_modeling` 默认 `view="summary"`：保留指标方向、最佳/参照、剩余预算、改动、错误、各折诊断和最差5个分组；省略的分组数明确返回。完整参数、划分、预测和训练笔记仍保存在原处，用返回的 `detail` 工具参数读取 `view="full"`。`candidates` 可用 `candidate_id` 精确读取一个候选，列表继续支持 `offset/limit`。已有HTTP详情接口语义不变。
 
-首次搭建时，用 `block_catalog(tool_name="project_modeling")` 读取完整说明、输入契约和可直接编辑的画布示例。训练流程声明 `study_id`、`candidate_id` 两个字符串输入；唯一的 `model_train` 节点分别配置为 `{"$ref":{"node_id":"$inputs","path":["study_id"]}}` 和对应的 `candidate_id` 引用。后续复用该流程，无需每轮改节点。
+需要维护旧训练工作流时，可以用 `block_catalog(tool_name="project_modeling")` 读取完整说明、输入契约和可直接编辑的画布示例。训练流程声明 `study_id`、`candidate_id` 两个字符串输入；唯一的 `model_train` 节点分别配置为 `{"$ref":{"node_id":"$inputs","path":["study_id"]}}` 和对应的 `candidate_id` 引用。后续复用该流程，无需每轮改节点。
 
 ```json
 {"action":"submit_and_run","study_id":"当前研究","workflow_id":"当前项目训练成员",
@@ -142,3 +152,17 @@ COPYFILE_DISABLE=1 tar --no-xattrs -cf - Dockerfile.modeling requirements-modeli
 ## 验证边界
 
 自动测试覆盖训练、预测、数据隔离和停止恢复。客户实际指标与训练笔记保留在本地项目，未纳入公开仓库。AIDE 目前是可选搜索策略适配，并非完整上游智能体。
+
+## 字段含义与数据状态
+
+表格数据可在 `mapping.field_rules` 按列声明 `dtype`（number/category/text）、业务说明、单位、`pending_tokens`、`missing_tokens`（符号到原因的映射）和 `allow_missing`（允许模型处理的缺失原因）。空白默认是原因未知的缺失；格式错误、待确认符号和未定义类别不会作为普通空值填补。数字类别默认无序，只有明确的 `ordered_values` 才用于秩相关。区间默认待确认，明确业务含义后才配置 midpoint/lower/upper。`lower`/`upper` 是业务范围，不是统计异常阈值。
+
+原文、源行、解析值、状态和原因在 `data-state.json` 保存。标准分析直接读取带规则的数据集，Spearman 仅用有效观测并输出实际样本数；异常默认只标记。数值整理和异常删除/截断产生的新数据集自动携带状态，后续操作保留原行位置。重新登记导出的 processed.csv 应同时提供 state_path；标准结果目录自动识别同目录状态文件。表格或规则改变不能沿用旧状态，须从原始表重新处理。
+
+训练默认提示待确认/无效记录；设置 `mapping.invalid_rows="exclude"` 后在固定划分之前排除，`split.excluded_data_rows` 返回排除数量。此选择针对候选实际使用的特征，未用字段的状态保留但不阻止训练；修改特征导致样本集合改变时须创建新研究，旧研究的固定划分不变。缺失或未判定标签始终不参加监督训练。预测按模型实际使用的字段检查，原行保留，`source_row` 对应原始数据行（从 0 开始）、`source_line` 对应原表行（从 1 开始，含表头），筛行后的中间表不重置这两个位置；返回 `prediction_status`、`prediction_reason`、`predicted_rows` 和 `unavailable_rows`；未提供标签不影响预测。允许的缺失才交给模型保存的填补/编码流程，训练统计不在新表重算。 即使各列允许缺失，选用特征全部没有有效观测的行仍不能训练或预测；保留原行并说明原因，不仅依赖填补值给出结论。
+
+字段规则随模型包保存，平台预测继承训练定义；新输入若携带不同规则会明确报错。旧镜像不支持该能力时拒绝忽略规则计算，历史无规则数据/模型继续按旧行为运行。可随时保存含待确认规则的工作流草稿。当前支持单张表格，不扩展时序语义。
+
+自定义 Python 整理必须保留测量原文和行对应，或同时传递状态文件；已经被任意代码擦除的业务含义无法从空白 CSV 恢复。界面提供规则高级配置和训练问题行处理选择；智能体参考 `field-rules.json`，业务未知只询问必要信息，用户已答不知道时保持待确认并继续独立可做的工作。
+
+类别的业务名称通过 `category_labels` 显式绑定原编码，随模型、评价明细、训练笔记和预测的 `prediction_name` 保存；编码仍保留，未定义名称不推断。概况每列及分析 `data_state.columns` 分开提供五种互斥状态计数与缺失原因，`missing`/`missing_counts` 仅计已识别缺失，`parsed_unavailable`/`parsed_unavailable_counts` 计解析后不可用值。后者不可写成缺失数。标签同样返回 `label_state_counts` 与 `unavailable_labels`；兼容字段 `missing_labels` 仍是历史不可用标签合计。分析和预测附带可下载 `data-summary.md`，直接列出状态数和类别定义。

@@ -71,16 +71,20 @@ def test_aide_actual_workflow_repairs_and_records_selection(real_compute):
     assert client.post(path + '/candidates', json={**body, 'request_key': 'premature'}).status_code == 409
     assert client.post(path + '/candidates', json=body).json()['id'] == c['id']
 
-    def run(candidate, key):
+    def run(candidate, key, expected_status='succeeded'):
         graph(client, project['id'], [node('start', 'start', inputs=[]),
               node('train', 'model_train', study_id=s['id'], candidate_id=candidate['id']),
               node('end', 'end', outputs={'result': ref('train', 'output')})], [edge('start', 'train'), edge('train', 'end')])
         task = start(client, base, key)
-        assert wait_task(client, base, task)['status'] == 'succeeded'
+        finished = wait_task(client, base, task)
+        assert finished['status'] == expected_status, finished
+        if expected_status == 'failed':
+            assert '本批没有可用模型' in finished['error']
         return client.get(path + '/candidates/' + candidate['id']).json()
 
-    broken = run(c, 'broken')
+    broken = run(c, 'broken', 'failed')
     assert broken['trials'][0]['status'] == 'failed'
+    assert 'does_not_exist' in broken['trials'][0]['error']
     selection = client.get(path + '/next-step').json()
     assert (selection['stage'], selection['parent_id']) == ('debug', c['id'])
     assert client.post(path + '/candidates', json={**body, 'request_key': 'wrong-parent', 'parameters': {}}).status_code == 409
@@ -93,10 +97,10 @@ def test_aide_actual_workflow_repairs_and_records_selection(real_compute):
     note = client.get(path + f'/candidates/{fixed["id"]}/trials/0/note').json()
     assert note['note']['search_decision']['stage'] == 'debug'
     assert '修复失败方案' in note['markdown'] and '搜索策略' in note['markdown']
-    # An actual service restart pauses this study; a budget resume preserves
-    # completed trials and yields the same branch without another training run.
+    # Completed workflow batches already stopped their budget clock. Restarting
+    # preserves this idle study and its next choice without another training run.
     asyncio.run(service.close()); asyncio.run(service.initialize())
-    assert client.get(path + '/next-step').json()['stage'] == 'stop'
+    assert client.get(path + '/next-step').json() == selection
     assert client.patch(path + '/budget', json=s['budget']).status_code == 200
     assert client.get(path + '/next-step').json() == selection
     assert client.get(path).json()['trials_used'] == 2

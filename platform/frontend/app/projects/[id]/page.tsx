@@ -1,33 +1,52 @@
 'use client'
 
+import DataWorkspace from '@/app/components/DataWorkspace'
+import {FeedbackButton} from '@/app/components/UserFeedback'
 import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
 import { MessageSquare, Workflow, Files, Wrench, ChartNoAxesCombined, ArrowUpRight, X } from 'lucide-react'
 import AppShell from '@/app/components/AppShell'
+import { useOnboarding, type GuideStep } from '@/app/components/Onboarding'
 import ProjectFileReader from '@/app/components/ProjectFileReader'
 import ProjectWorkflowOverview from '@/app/components/ProjectWorkflowOverview'
 import ReadingDialog from '@/app/components/ReadingDialog'
-import { use, useCallback, useEffect, useState } from 'react'
+import { use, useCallback, useEffect, useRef, useState } from 'react'
 import { api, withFrontendToken } from '@/lib/platform'
 import { MarkdownDocument } from '@/lib/markdown'
-import { projectFileFromLink, resolveProjectLink } from '@/lib/project-links'
-import { availabilityNames, workNames, taskNames, type ProjectProgress, type ProjectMember, type ProjectTask, type ConversationFocus, type ProgressItem, type ProjectTopology } from '@/lib/project-progress'
-import ProjectConversation from '@/app/components/ProjectConversation'
+import { projectPreviewFromLink, resolveProjectLink } from '@/lib/project-links'
+import { availabilityNames, workNames, taskNames, taskInputFileNames, type ProjectProgress, type ProjectMember, type ProjectTask, type ConversationFocus, type ProgressItem, type ProjectTopology } from '@/lib/project-progress'
+import ProjectConversations from '@/app/components/ProjectConversations'
 import ProjectMaterials from '@/app/components/ProjectMaterials'
+import ProjectSpace from '@/app/components/ProjectSpace'
+import ExampleProjectGuide from '@/app/components/ExampleProjectGuide'
 import ProjectRunPanel, { ProjectTaskOutput, ProjectRunEvents } from '@/app/components/ProjectRunPanel'
 import ModelConnectionPanel from '@/app/components/ModelConnectionPanel'
+import AssistantSourcePanel from '@/app/components/AssistantSourcePanel'
 import ProjectCapabilities from '@/app/components/ProjectCapabilities'
+import ProjectAccessMembers from '@/app/components/ProjectAccessMembers'
 import DeveloperTools from './DeveloperTools'
+import WorkflowComposer from '@/app/components/WorkflowComposer'
+import ProjectModels from '@/app/components/ProjectModels'
+import ProjectSkills from '@/app/components/ProjectSkills'
+import ProjectKnowledge from '@/app/components/ProjectKnowledge'
 import styles from '../projects.module.css'
 
-type Project = { id: string; name: string; members: ProjectMember[]; agent_modules_enabled: boolean }
+type Project = { id: string; name: string; members: ProjectMember[]; agent_modules_enabled: boolean; access_role: 'admin' | 'owner' | 'collaborator' }
 const emptyProgress: ProjectProgress = { revision: 0, value: { goal: '', summary: '', items: [] }, updated_at: null }
 
 export default function ProjectPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
+  const query = useSearchParams()
+  const selectedTask = query?.get('task')
+  const selectedTab = query?.get('tab')
+  const taskRequest = useRef(0)
+  const guide = useOnboarding()
   const base = '/api/v1/projects/' + id
   const [project, setProject] = useState<Project | null>(null)
   const [progress, setProgress] = useState<ProjectProgress>(emptyProgress)
   const [tasks, setTasks] = useState<ProjectTask[]>([])
+  const [pendingTasks, setPendingTasks] = useState<ProjectTask[]>([])
+  const [morePending, setMorePending] = useState(false)
   const [task, setTask] = useState<ProjectTask | null>(null)
   const [file, setFile] = useState('')
   const [fileTaskId, setFileTaskId] = useState('')
@@ -37,52 +56,102 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
   const [focus, setFocus] = useState<ConversationFocus>()
   const [topology, setTopology] = useState<ProjectTopology | null>(null)
   const [workflowId, setWorkflowId] = useState('')
+  const [canvasRevision, setCanvasRevision] = useState(0)
   const [editingFlow, setEditingFlow] = useState(false)
   const [flowItemId, setFlowItemId] = useState('')
   const [requirements, setRequirements] = useState<string | null>(null)
   const [developerTaskId, setDeveloperTaskId] = useState('')
   const [error, setError] = useState('')
+  const [taskLinkError, setTaskLinkError] = useState('')
+  const [taskLoading, setTaskLoading] = useState(false)
   const [moreResults, setMoreResults] = useState(false)
   const [runWorkflowId, setRunWorkflowId] = useState(id)
+  const [reuseTask, setReuseTask] = useState<ProjectTask | undefined>()
+  const [reuseCompletedSteps, setReuseCompletedSteps] = useState(false)
   const [memberName, setMemberName] = useState('')
   const [creatingMember, setCreatingMember] = useState(false)
   const [stopping, setStopping] = useState(false)
-  const download = (path: string) => withFrontendToken(`/api/platform/api/v1/applications/${id}/workspace/files/${path.split('/').map(encodeURIComponent).join('/')}`)
+  const download = (path: string) => withFrontendToken(`/api/platform/api/v1/applications/${id}/workspace/files/${path.split('/').map(encodeURIComponent).join('/')}?download=1`)
 
   const refresh = useCallback(async () => {
     try {
-      const [p, nextProgress, trials, business] = await Promise.all([
+      const [p, nextProgress, trials, business, pending] = await Promise.all([
         api<Project>(base), api<ProjectProgress>(base + '/progress'),
         api<ProjectTask[]>(base + '/tasks?purpose=customer_trial&compact=true&limit=20'),
-        api<ProjectTask[]>(base + '/tasks?purpose=business&compact=true&limit=20'),
+        api<ProjectTask[]>(base + '/tasks?compact=true&limit=20'),
+        api<ProjectTask[]>(base + '/tasks?compact=true&status=waiting_input&limit=100'),
       ])
       setProject(p); setProgress(nextProgress)
-      setTasks(previous => [...new Map([...previous, ...trials, ...business].map(t => [t.id, t])).values()].sort((a, b) => b.created_at.localeCompare(a.created_at)))
+      setTasks(previous => [...new Map([...previous, ...trials, ...business, ...pending].map(t => [t.id, t])).values()].sort((a, b) => b.created_at.localeCompare(a.created_at)))
+      setPendingTasks(pending); setMorePending(pending.length===100)
       setMoreResults(trials.length === 20 || business.length === 20); setError('')
-    } catch (cause) { setError(String(cause)) }
-  }, [base])
+    } catch (cause) { setError(String(cause)); if (cause && typeof cause === 'object' && 'status' in cause && cause.status === 404) guide.unavailable() }
+  }, [base, guide.unavailable])
   useEffect(() => { void refresh() }, [refresh])
-  useEffect(() => { const selected = new URLSearchParams(window.location.search).get('run'); if (selected) { setRunWorkflowId(selected); setTab('run') } }, [id])
-  const updateManualTask = useCallback((next: ProjectTask) => setTasks(previous => [next, ...previous.filter(item => item.id !== next.id)]), [])
+  useEffect(() => {
+    if (tab !== 'results') return
+    void refresh()
+    const visible = () => { if (document.visibilityState === 'visible') void refresh() }
+    document.addEventListener('visibilitychange', visible)
+    return () => document.removeEventListener('visibilitychange', visible)
+  }, [tab, refresh])
+  useEffect(() => { if (project && guide.active) guide.mark('project', id) }, [project?.id, guide.active, guide.mark, id])
+  useEffect(() => {
+    const navigate = (step: string) => {
+      const tabs: Record<string, string> = { materials: 'space', workflow: 'space', conversation: 'space', results: 'results', next: 'overview', settings: 'settings' }
+      if (tabs[step]) { setTab(tabs[step]); setReader(false) }
+    }
+    const requested = new URLSearchParams(window.location.search).get('guide')
+    if (requested) navigate(requested)
+    const listener = (event: Event) => navigate((event as CustomEvent<GuideStep>).detail)
+    window.addEventListener('lilies:guide-navigate', listener)
+    return () => window.removeEventListener('lilies:guide-navigate', listener)
+  }, [id])
+  useEffect(() => { if (['settings','models','materials','flow','space','workspace'].includes(selectedTab || '')) setTab(selectedTab as typeof tab) }, [id, selectedTab])
+  useEffect(() => { const selected = new URLSearchParams(window.location.search).get('run'); if (selected) { setReuseTask(undefined); setRunWorkflowId(selected); setTab('run') } }, [id])
+  useEffect(() => {
+    const request = ++taskRequest.current
+    setTaskLinkError(''); setTaskLoading(false); setReader(false); setTask(null)
+    if (selectedTask) {
+      setTaskLoading(true)
+      void api<ProjectTask>(base + '/tasks/' + encodeURIComponent(selectedTask)).then(next => {
+        if (request === taskRequest.current) { setTask(next); setReader(true) }
+      }).catch(cause => {
+        if (request === taskRequest.current) setTaskLinkError('无法打开这次运行结果：' + String(cause))
+      }).finally(() => { if (request === taskRequest.current) setTaskLoading(false) })
+    }
+    return () => { taskRequest.current += 1 }
+  }, [base, selectedTask])
+  const updateManualTask = useCallback((next: ProjectTask) => {
+    setTasks(previous => [next, ...previous.filter(item => item.id !== next.id)])
+    setPendingTasks(previous => [...(next.status==='waiting_input'?[next]:[]), ...previous.filter(item => item.id !== next.id)])
+  }, [])
   useEffect(() => {
     if (!task || !reader || (!['running', 'queued'].includes(task.status) && (task.mode === 'workflow' || task.presentation?.markdown))) return
-    const timer = window.setInterval(() => { void api<ProjectTask>(base + '/tasks/' + task.id).then(setTask).catch(e => setError(String(e))) }, 1500)
-    return () => window.clearInterval(timer)
+    let active = true
+    const timer = window.setInterval(() => { void api<ProjectTask>(base + '/tasks/' + task.id).then(next => { if (active) setTask(next) }).catch(e => { if (active) setError(String(e)) }) }, 1500)
+    return () => { active = false; window.clearInterval(timer) }
   }, [base, reader, task?.id, task?.mode, task?.status, task?.presentation?.markdown]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { try { const saved = sessionStorage.getItem('lilies:project:' + id + ':focus'); if (saved) setFocus({ ...JSON.parse(saved), message: undefined }) } catch {} }, [id])
   const clearFocus = useCallback(() => { setFocus(undefined); try { sessionStorage.removeItem('lilies:project:' + id + ':focus') } catch {} }, [id])
-  function talk(item?: ProgressItem, message = '', taskId = '', questionId = '') {
-    const next = { nonce: Date.now(), label: item?.title || '业务结果', item_id: item?.id, task_id: taskId, question_id: questionId, message: message || undefined }
+  function talk(item?: ProgressItem, message = '', taskId = '', questionId = '', mode?: 'task' | 'workflow', modeling?: ConversationFocus['modeling']) {
+    const next = { nonce: Date.now(), label: item?.title || '业务结果', item_id: item?.id, task_id: taskId, question_id: questionId, message: message || undefined, mode, modeling }
     setFocus(next); try { sessionStorage.setItem('lilies:project:' + id + ':focus', JSON.stringify(next)) } catch {}; setTab('overview'); setReader(false); setProgressOpen(false)
   }
   async function showTask(taskId: string) {
-    try { setTask(await api<ProjectTask>(base + '/tasks/' + taskId)); setReader(true) } catch (cause) { setError(String(cause)) }
+    const request = ++taskRequest.current
+    setTaskLinkError(''); setTaskLoading(true)
+    try {
+      const next = await api<ProjectTask>(base + '/tasks/' + encodeURIComponent(taskId))
+      if (request === taskRequest.current) { setTask(next); setReader(true); guide.mark('results', id) }
+    } catch (cause) { if (request === taskRequest.current) setTaskLinkError(String(cause)) }
+    finally { if (request === taskRequest.current) setTaskLoading(false) }
   }
   function showFile(path: string, taskId = '') {
     setFile(path); setFileTaskId(taskId)
   }
   async function showFlow(item?: ProgressItem, selectedId?: string) {
-    try { setTopology(await api<ProjectTopology>(base + '/topology')); setWorkflowId(selectedId || item?.workflow_ids[0] || id); setEditingFlow(false); setFlowItemId(item?.id || ''); setTab('flow') } catch (cause) { setError(String(cause)) }
+    try { setTopology(await api<ProjectTopology>(base + '/topology')); setWorkflowId(selectedId || item?.workflow_ids[0] || id); setEditingFlow(true); setCanvasRevision(n=>n+1); setFlowItemId(item?.id || ''); setTab('flow'); guide.mark('workflow', id) } catch (cause) { setError(String(cause)) }
   }
   async function showRequirements() {
     try { const doc = await api<{ document: string }>(base + '/requirements'); setRequirements(doc.document) } catch (cause) { setError(String(cause)) }
@@ -98,37 +167,56 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
     } catch (cause) { setError(String(cause)) }
   }
   const items = progress.value.items
-  const taskTitle = (value: ProjectTask) => items.find(item => item.id === value.item_id)?.title || value.presentation?.message || project?.members.find(member => member.id === value.workflow_id)?.name || '业务处理'
+  const taskTitle = (value: ProjectTask) => items.find(item => item.id === value.item_id)?.title || value.presentation?.message || project?.members.find(member => member.id === value.workflow_id)?.name || ({training:'模型训练',prediction:'模型预测'} as Record<string,string>)[value.mode] || '业务处理'
   const questions = items.flatMap(item => item.questions.filter(q => !q.answer).map(question => ({ item, question })))
   const actionable = items.filter(i => ['planned', 'working'].includes(i.status) && !i.blocker && !i.questions.some(q => !q.answer))
   const ready = items.filter(i => i.availability !== 'not_ready')
+  const workflowCount = project?.members.filter(member=>member.purpose==='business').length || 0
   const activeMember = project?.members.find(m => m.id === workflowId)
   return <AppShell projectName={project?.name} navigation={<nav className={styles.projectNav} role="tablist" aria-label="项目页面">
-      {([['overview', '项目进展与对话', MessageSquare], ['run', '运行工作流', Workflow], ['results', '业务结果', ChartNoAxesCombined], ['flow', '业务流程', Workflow], ['materials', '项目资料', Files], ['development', '开发详情', Wrench]] as const).map(([key, label, Icon]) =>
+      {([['overview', '对话', MessageSquare], ['workspace', '数据工作空间', Files], ['space', '项目空间', Files], ['flow', '工作流', Workflow], ['materials', '资料与知识', Files], ['models', '模型', ChartNoAxesCombined], ['results', '运行记录', ChartNoAxesCombined], ['settings', '设置', Wrench]] as const).map(([key, label, Icon]) =>
         <button key={key} role="tab" aria-label={label} title={label} aria-selected={tab === key} onClick={() => key === 'flow' ? void showFlow() : setTab(key)}><Icon size={17} /><span>{label}</span></button>)}
     </nav>}><main className={styles.page} onClickCapture={event => {
       const anchor = (event.target as HTMLElement).closest('a')
       if (!anchor || anchor.hasAttribute('download') || event.ctrlKey || event.metaKey || event.shiftKey) return
-      const path = projectFileFromLink(id, anchor.getAttribute('href') || '')
+      const path = projectPreviewFromLink(id, anchor.getAttribute('href') || '')
       if (path) { event.preventDefault(); showFile(path, file ? fileTaskId : reader ? task?.id : '') }
     }}>
     <header className={styles.header}><div><span className={styles.eyebrow}>项目工作空间</span><h1>{project?.name || '正在读取项目…'}</h1>
-      <p>手动搭建、直接运行，也可以与统筹一起改进。</p></div><ModelConnectionPanel base={base} role="vision" connected={false} running={false} onSaved={refresh} /></header>
-    {project && <section className={styles.panel}><ProjectCapabilities projectId={id} enabled={Boolean(project.agent_modules_enabled)} onSaved={() => { setEditingFlow(false); void refresh() }} /></section>}
+      <p>独立解决任务，随时生成和使用工作流。</p></div></header>
+    {project && (tab === 'overview' || tab === 'space') && <ExampleProjectGuide projectId={id} onTalk={message=>{setFocus({nonce:Date.now(),label:'项目空间',message});setTab('overview');setReader(false)}} onFile={showFile} onWorkflow={workflow=>void showFlow(undefined,workflow)} onRun={workflow=>{setReuseTask(undefined);setRunWorkflowId(workflow);setTab('run')}} onSettings={()=>setTab('settings')} />}
+    {tab === 'settings' && project && <section className={styles.panel}>
+      <ProjectAccessMembers projectId={id} canManage={project.access_role !== 'collaborator'} onChanged={() => void refresh()} />
+      {project.access_role !== 'collaborator' && <><AssistantSourcePanel base={base} running={false} onSaved={refresh} /><ModelConnectionPanel base={base} connected={true} running={false} onSaved={refresh} /><ModelConnectionPanel base={base} role="generation" connected={false} running={false} onSaved={refresh} /><ModelConnectionPanel base={base} role="vision" connected={false} running={false} onSaved={refresh} /></>}
+      {project.access_role === 'collaborator' && <p>模型连接由项目负责人配置。你可以在工作流中使用项目已配置的模型。</p>}
+      {project.access_role === 'admin' && <ProjectCapabilities projectId={id} enabled={Boolean(project.agent_modules_enabled)} onSaved={() => { setEditingFlow(false); void refresh() }} />}
+    </section>}
     {error && <p role="alert" className={styles.error}>{error}</p>}
-    {tab === 'run' && project && <ProjectRunPanel key={runWorkflowId} projectId={id} members={project.members} initialWorkflowId={runWorkflowId} onTask={updateManualTask} />}
+    {taskLoading && <p role="status">正在读取运行结果…</p>}
+    {taskLinkError && <p role="alert" className={styles.error}>{taskLinkError}</p>}
+    {tab==='workspace' && <DataWorkspace projectId={id} onWorkflow={workflow=>{void refresh();void showFlow(undefined,workflow)}} />}
+    {tab==='space' && <ProjectSpace projectId={id} onWorkflow={workflow=>{void refresh();void showFlow(undefined,workflow)}} onFile={showFile} onChanged={refresh} onTalk={(message,mode='task')=>{setFocus({nonce:Date.now(),label:'项目空间',message,mode});setTab('overview');setReader(false)}} />}
+    {tab === 'models' && <ProjectModels projectId={id} onWorkflow={workflow => { void refresh(); void showFlow(undefined, workflow); setEditingFlow(true) }} onTask={taskId => { void refresh(); void showTask(taskId) }} onTalk={(message,mode,context) => talk(undefined, message, '', '', mode, context)} />}
+    <div hidden={tab !== 'flow'}><WorkflowComposer projectId={id} workflowId={workflowId} onChanged={workflow => { void refresh(); void showFlow(undefined, workflow); setEditingFlow(true) }} /></div>
+    {tab === 'run' && project && <ProjectRunPanel key={runWorkflowId + (reuseTask?.id || "")} reuseTask={reuseTask} reuseCompletedSteps={reuseCompletedSteps} projectId={id} canConfigureModel={project.access_role !== 'collaborator'} members={project.members} initialWorkflowId={runWorkflowId} onTask={updateManualTask} />}
     <div hidden={tab !== 'overview'} className={styles.projectHome}>
-      <div><div className={styles.mobileProgress}><span>{ready.length} 项可试用 · {questions.length} 个待回答问题</span><button onClick={() => setProgressOpen(true)}>查看进展</button></div>
-        <ProjectConversation id={id} projectName={project?.name} items={items} tasks={tasks} members={project?.members} focus={focus} onUpdated={refresh} onSent={clearFocus} onTask={taskId => void showTask(taskId)} onWorkflow={workflow => void showFlow(undefined, workflow)} onFeedback={(itemId, taskId) => talk(items.find(i => i.id === itemId), '', taskId)} />
+      <div><div className={styles.mobileProgress}><span>{workflowCount} 条工作流 · {pendingTasks.length}{morePending?'+':''} 次运行等待补充</span><button onClick={() => setProgressOpen(true)}>查看进展</button></div>
+        <ProjectConversations id={id} canConfigureModel={Boolean(project && project.access_role !== 'collaborator')} projectName={project?.name} items={items} tasks={tasks} members={project?.members} focus={focus} onUpdated={refresh} onSent={clearFocus} onTask={taskId => void showTask(taskId)} onWorkflow={workflow => void showFlow(undefined, workflow)} onFeedback={(itemId, taskId) => talk(items.find(i => i.id === itemId), '', taskId)} />
       </div>
       <aside className={styles.progressRail} data-open={progressOpen} aria-label="项目进展摘要">
         <div className={styles.mobileProgress}><strong>项目进展</strong><button aria-label="关闭进展面板" onClick={() => setProgressOpen(false)}><X size={16} /></button></div>
-        <section className={styles.panel} aria-label="当前项目进展"><h2>项目目标</h2><p>{progress.value.goal || '等待与你一起明确目标'}</p><h2>当前进展</h2>
-          <p>{progress.value.summary || '尚未整理进展。可以直接问统筹“目前做到哪了”，由它读取本项目材料和已有结果。'}</p>
-          <div className={styles.overviewFacts}><div><strong>{ready.length}</strong><span>项能力可以试用</span></div><div><strong>{actionable.length}</strong><span>项工作可继续推进</span></div><div><strong>{questions.length}</strong><span>个问题需要你的回答</span></div></div>
+        <section className={styles.panel} aria-label="当前项目进展"><h2>项目目标</h2><p>{progress.value.goal || '可以直接在对话中提出任务，或使用项目工作流。'}</p><h2>当前进展</h2>
+          <p>{progress.value.summary || '从工作流查看已有流程，从运行记录查看实际结果。'}</p>
+          <div className={styles.overviewFacts}><div><strong>{workflowCount}</strong><span>条项目工作流</span></div><div><strong>{pendingTasks.length}{morePending?'+':''}</strong><span>次运行等待补充</span></div></div>
+          <p>工作流可查看和编辑，运行时会检查所需资料与模型。</p>
+          {!!items.length && <p>事项记录：{ready.length}项标记可试用，{actionable.length}项可推进，{questions.length}个待确认问题。</p>}
           {actionable.length > 0 && <p>下一步：{actionable[0].next_action}</p>}
-          <button onClick={() => void showFlow()}>查看能力与需求对照</button>
+          <button onClick={() => void showFlow()}>查看项目工作流</button><button onClick={() => void refresh()}>刷新状态</button>
         </section>
+        {!!pendingTasks.length && <section className={styles.panel} aria-label="等待补充的运行"><h2>运行等待补充</h2>
+          {pendingTasks.map(t=><p key={t.id}><button onClick={()=>void showTask(t.id)}>补充：{taskTitle(t)}</button><small className={styles.taskTime}>{new Date(t.created_at).toLocaleString()}</small></p>)}
+          {morePending && <button onClick={async()=>{try{const page=await api<ProjectTask[]>(base+'/tasks?compact=true&status=waiting_input&limit=100&before='+pendingTasks.at(-1)!.id);setPendingTasks(previous=>[...new Map([...previous,...page].map(t=>[t.id,t])).values()]);setMorePending(page.length===100)}catch(cause){setError(String(cause))}}}>加载更早的待补充运行</button>}
+        </section>}
         {!!questions.length && <section className={styles.panel}><h2>待回答 · {questions.length}</h2>{questions.map(({ item, question }) => <details key={item.id + ':' + question.id} open={questions.length === 1 || undefined} className={styles.pendingQuestion}><summary>{question.text}</summary><small>{item.title} · {question.impact}</small><p>回答后：{question.next_action}</p><button onClick={() => talk(item, '', '', question.id)}>回答这个问题</button></details>)}</section>}
         {items.map(item => <section key={item.id} className={styles.capability} aria-label={item.title}>
           <div className={styles.capabilityHeading}><h2>{item.title}</h2><span className={styles.tag}>{availabilityNames[item.availability]}</span><span className={styles.tag}>{workNames[item.status]}</span></div>
@@ -142,41 +230,47 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
             <button onClick={() => talk(item, '', '', question.id)}>{question.answer ? '补充回答' : '回答这个问题'}</button></div>)}
           <div className={styles.actions}>{item.availability !== 'not_ready' && <button className={styles.primary} onClick={() => talk(item, `我想试用「${item.title}」，请说明需要哪份业务输入，并使用已有工作流处理。`)}>试用</button>}
             {tasks.some(t => t.item_id === item.id) && <button onClick={() => void showTask(tasks.find(t => t.item_id === item.id)!.id)}>查看结果</button>}
-            <button onClick={() => talk(item, '')}>反馈问题</button>{!!item.workflow_ids.length && <button onClick={() => void showFlow(item)}>查看业务流程</button>}</div>
-          {!!item.results.length && <details><summary>相关结果与资料（{item.results.length}）</summary><div className={styles.resultLinks}>{item.results.map((result, index) => result.file_path && projectFileFromLink(id, resolveProjectLink(id, result.file_path))
+            <button onClick={() => talk(item, '')}>让智能体继续完善</button>{!!item.workflow_ids.length && <button onClick={() => void showFlow(item)}>查看业务流程</button>}</div>
+          {!!item.results.length && <details><summary>相关结果与资料（{item.results.length}）</summary><div className={styles.resultLinks}>{item.results.map((result, index) => result.file_path && projectPreviewFromLink(id, resolveProjectLink(id, result.file_path))
             ? <button key={index} onClick={() => showFile(result.file_path, result.task_id)}>{result.label} ↗</button>
             : result.file_path
             ? <a key={index} href={download(result.file_path)} download>{result.label} ↓</a>
             : <button key={index} onClick={() => void showTask(result.task_id)}>{result.label} ↗</button>)}</div></details>}
         </section>)}
-        <section className={styles.panel}><h2>最近结果</h2>{tasks.length ? tasks.slice(0, 3).map(t => <div key={t.id} className={styles.resultLinks}><button onClick={() => void showTask(t.id)}>{taskTitle(t)} · {taskNames[t.status] || t.status}</button></div>) : <p>试用后，结果会保留在这里。</p>}</section>
+        <section className={styles.panel} aria-label="最近结果"><h2>最近结果</h2>{tasks.length ? tasks.slice(0, 3).map(t => <div key={t.id} className={styles.resultLinks}><button onClick={() => void showTask(t.id)}>{taskTitle(t)} · {taskNames[t.status] || t.status}
+          {!!taskInputFileNames(t).length && <small className={styles.taskTime}>输入：{taskInputFileNames(t).slice(0, 3).join('、')}</small>}
+          {!!t.input_parameters?.length && <small className={`${styles.taskTime} ${styles.taskParameters}`}>{t.input_parameters.slice(0, 3).map(p => `${p.label}：${p.value}`).join(' · ')}</small>}
+        </button><small className={styles.taskTime}>{new Date(t.created_at).toLocaleString()}</small></div>) : <p>试用后，结果会保留在这里。</p>}</section>
       </aside>
     </div>
-    {tab === 'results' && <div>
-      <section className={styles.panel}><h2>试用与业务处理</h2><p>选择一次处理查看结果，或把结果反馈给统筹。</p>
-        <ul className={styles.list}>{tasks.map(t => <li key={t.id}><button onClick={() => void showTask(t.id)}>{taskTitle(t)} · {taskNames[t.status] || t.status}<small className={styles.taskTime}>{new Date(t.created_at).toLocaleString()}</small></button></li>)}</ul>
-        {!tasks.length && <p>还没有客户试用结果。在业务能力卡片中选择“试用”，或直接与统筹对话。</p>}{moreResults && <button onClick={() => void olderResults()}>加载更早的结果</button>}
+    {tab === 'results' && <div tabIndex={-1} data-guide="results">
+      <section className={styles.panel} aria-label="运行记录"><h2>运行记录</h2><p>查看训练、预测和工作流的结果，也可以停止或继续原任务。</p>
+        <button onClick={() => void refresh()}>刷新运行记录</button>
+        <ul className={styles.list}>{tasks.map(t => {const inputFiles=taskInputFileNames(t);return <li key={t.id}><button onClick={() => void showTask(t.id)}>{taskTitle(t)} · {taskNames[t.status] || t.status}{!!inputFiles.length&&<small className={styles.taskTime}>输入：{inputFiles.join('、')}</small>}{!!t.input_parameters?.length&&<small className={`${styles.taskTime} ${styles.taskParameters}`}>{t.input_parameters.map(parameter=>`${parameter.label}：${parameter.value}`).join(' · ')}</small>}<small className={styles.taskTime}>{new Date(t.created_at).toLocaleString()}</small></button></li>})}</ul>
+        {!tasks.length && <p>尚无运行记录。可以开始训练、运行工作流，或通过对话执行任务。</p>}{moreResults && <button onClick={() => void olderResults()}>加载更早的结果</button>}
       </section>
     </div>}
     {reader && task && <ReadingDialog wide title={items.find(i => i.id === task.item_id)?.title || task.presentation?.message || '业务结果'} onClose={() => setReader(false)}>      <div className={styles.readerBody}>{task ? <><span className={styles.tag}>{taskNames[task.status] || task.status}</span>
-        {task.error && <p className={styles.error}>{task.error}</p>}
-        <ProjectTaskOutput projectId={id} task={task} />
-        <div className={styles.actions}>{['running', 'queued'].includes(task.status) ? <button disabled={stopping} onClick={async () => { setStopping(true); try { const next = await api<ProjectTask>(`${base}/tasks/${task.id}/stop`, { method: 'POST' }); setTask(next); updateManualTask(next) } catch (cause) { setError(String(cause)) } finally { setStopping(false) } }}>{stopping ? '正在停止…' : '停止运行'}</button> : task.mode === 'workflow' && <button onClick={() => { setRunWorkflowId(task.workflow_id || id); setReader(false); setTab('run') }}>再次运行此工作流</button>}
-          <button onClick={() => talk(items.find(i => i.id === task.item_id), '', task.id)}>反馈这个结果</button>{task.mode !== 'workflow' && ['waiting_input', 'interrupted', 'failed'].includes(task.status) && <button onClick={() => talk(items.find(i => i.id === task.item_id), '继续这个任务，请先检查已有结果和待补条件。', task.id)}>继续处理</button>}</div>
+        <ProjectTaskOutput projectId={id} task={task} canConfigureModel={Boolean(project && project.access_role !== 'collaborator')} onTask={next=>{setTask(next);updateManualTask(next)}} />
+        <div className={styles.actions}>{['running', 'queued', 'waiting_input'].includes(task.status) ? <button disabled={stopping} onClick={async () => { setStopping(true); try { const next = await api<ProjectTask>(`${base}/tasks/${task.id}/stop`, { method: 'POST' }); setTask(next); updateManualTask(next) } catch (cause) { setError(String(cause)) } finally { setStopping(false) } }}>{stopping ? '正在停止…' : '停止运行'}</button> : task.mode === 'workflow' && <button onClick={() => { setReuseTask(task); setReuseCompletedSteps(false); setRunWorkflowId(task.workflow_id || id); setReader(false); setTab('run') }}>再次运行此工作流</button>}
+          {task.mode === 'workflow' && ['succeeded','failed','interrupted'].includes(task.status) && <button onClick={() => {setReuseTask(task); setReuseCompletedSteps(true); setRunWorkflowId(task.workflow_id || id); setReader(false); setTab('run')}}>按当前配置重算</button>}
+          <button onClick={() => talk(items.find(i => i.id === task.item_id), '', task.id)}>让智能体修改</button>{['workflow','training','prediction'].includes(task.mode) && ['waiting_input','interrupted','failed'].includes(task.status) && !(task.status === 'waiting_input' && task.runs?.some(run => run.waiting_input)) && <button disabled={stopping} onClick={async()=>{setStopping(true);try{const next=await api<ProjectTask>(`${base}/tasks/${task.id}/resume`,{method:'POST',body:JSON.stringify({message:'继续原任务'})});setTask(next);updateManualTask(next)}catch(cause){setError(String(cause))}finally{setStopping(false)}}}>继续原运行</button>}{task.mode === 'agent' && ['waiting_input', 'interrupted', 'failed'].includes(task.status) && <button onClick={() => talk(items.find(i => i.id === task.item_id), '继续这个任务，请先检查已有结果和待补条件。', task.id)}>继续处理</button>}</div>
         {task.feedback_task_id && <button onClick={() => void showTask(task.feedback_task_id)}>查看修改前的结果</button>}
         <details><summary>实际运行与原始输入输出</summary><p>请求标识：{task.request_key}</p><pre>{JSON.stringify({ inputs: task.inputs, outputs: task.outputs }, null, 2)}</pre>{task.runs?.map(run => <p key={run.id}>{project?.members.find(m => m.id === run.application_id)?.name} · r{run.draft_revision} · {taskNames[run.status] || run.status}</p>)}
           <ProjectRunEvents key={task.id} runs={task.runs} members={project?.members || []} />
-          <button onClick={() => { setDeveloperTaskId(task.id); setTab('development'); setReader(false) }}>打开运行详情</button></details></> : <p>选择一次业务处理，查看结果。</p>}</div>
+          <button onClick={() => { setDeveloperTaskId(task.id); setTab('development'); setReader(false) }}>查看开发详情</button></details></> : <p>选择一次业务处理，查看结果。</p>}</div>
 </ReadingDialog>}
-    {tab === 'flow' && topology && <><section className={styles.flowBar}><div className={styles.flowMembers}>{topology.members.filter(m => m.purpose === 'business').map(member => <button key={member.id} aria-label={member.name} title={member.name} aria-selected={workflowId === member.id} onClick={() => { setWorkflowId(member.id); setEditingFlow(false) }}>{member.id === id ? '主流程' : member.name}</button>)}</div></section>
+    {tab === 'flow' && topology && <><section className={styles.flowBar}><div className={styles.flowMembers}>{topology.members.filter(m => m.purpose === 'business').map(member => <button key={member.id} aria-label={member.display_name || member.name} title={member.display_name || member.name} aria-selected={workflowId === member.id} onClick={() => { setWorkflowId(member.id); setEditingFlow(true) }}>{member.id === id ? '主流程' : member.display_name || member.name}</button>)}</div></section>
       <div className={styles.actions}><input aria-label="新工作流名称" value={memberName} onChange={event => setMemberName(event.target.value)} placeholder="新工作流名称" />
         <button disabled={creatingMember || !memberName.trim()} onClick={async () => { setCreatingMember(true); try { const member = await api<ProjectMember>(base + '/members', { method: 'POST', body: JSON.stringify({ name: memberName.trim() }) }); setMemberName(''); await refresh(); await showFlow(undefined, member.id); setEditingFlow(true) } catch (cause) { setError(String(cause)) } finally { setCreatingMember(false) } }}>添加空白工作流</button>
-        <button onClick={() => { setRunWorkflowId(workflowId || id); setTab('run') }}>运行此工作流</button></div>
-      {editingFlow ? <><div className={styles.canvasHeading}><button onClick={() => setEditingFlow(false)}>返回业务说明与需求对照</button><h2>{activeMember?.name || '工作流画布'}</h2><Link href={`/applications/${workflowId}?tab=edit`} target="_blank">打开完整编辑器 <ArrowUpRight size={13} /></Link></div><iframe key={workflowId} title="业务工作流画布" className={styles.canvas} src={`/applications/${workflowId}?tab=edit&embedded=1`} /></>
+        <button onClick={() => { setReuseTask(undefined); setRunWorkflowId(workflowId || id); setTab('run') }}>运行此工作流</button><FeedbackButton source={{project_id:id,workflow_id:workflowId||id,page:"workflow"}} category="usability"/></div>
+      {editingFlow ? <><div className={styles.canvasHeading} data-guide-anchor="workflow-canvas"><button onClick={() => setEditingFlow(false)}>查看工作流说明</button><h2>{activeMember?.name || '工作流画布'}</h2><Link href={`/applications/${workflowId}?tab=edit`} target="_blank">打开完整编辑器 <ArrowUpRight size={13} /></Link></div><iframe key={workflowId+canvasRevision} title="业务工作流画布" className={styles.canvas} src={`/applications/${workflowId}?tab=edit&embedded=1`} /></>
         : <ProjectWorkflowOverview key={workflowId + flowItemId} initialItemId={flowItemId} projectId={id} selectedId={workflowId} progress={progress} topology={topology} onWorkflow={selected => { setWorkflowId(selected); setEditingFlow(false); window.scrollTo(0, 0) }} onTalk={talk} onTask={taskId => void showTask(taskId)} onFile={showFile} onRequirements={() => void showRequirements()} onEdit={() => setEditingFlow(true)} />}
     </>}
     {requirements !== null && <ReadingDialog wide title="当前需求文档" onClose={() => setRequirements(null)}><div className={styles.readerBody}><MarkdownDocument source={requirements} resolveLink={href => resolveProjectLink(id, href)} emptyLabel="尚未形成需求文档" /></div></ReadingDialog>}
-    {tab === 'materials' && <section className={styles.panel}><h2>项目需求资料</h2><ProjectMaterials onOpenFile={showFile} id={id} /></section>}
+    {tab === 'materials' && <section className={styles.panel}><h2>项目需求资料</h2><ProjectMaterials onOpenFile={showFile} id={id} expanded /></section>}
+    {tab === 'materials' && project && <ProjectKnowledge key={id} projectId={id} canManage={project.access_role !== 'collaborator'} onFile={showFile} onWorkflow={workflow => { void refresh(); void showFlow(undefined, workflow); setEditingFlow(true) }} />}
+    {tab === 'materials' && <ProjectSkills projectId={id} />}
     {tab === 'development' && <><p>成员草稿、建设测试、共享记录及完整运行历史。这里保留所有开发工具。</p><DeveloperTools id={id} initialTaskId={developerTaskId} /></>}
     {file && <ProjectFileReader projectId={id} path={file} onClose={() => setFile('')} onTask={fileTaskId ? () => { setFile(''); void showTask(fileTaskId) } : undefined} />}
   </main></AppShell>

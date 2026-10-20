@@ -29,6 +29,60 @@ def setup_split(config):
     return split
 
 
+def test_macro_f1_keeps_absent_training_classes_visible():
+    result = worker.scores([0, 0], [0, 0], 'classification', classes=[0, 1])
+    assert result['accuracy'] == 1
+    assert result['macro_f1'] == .5
+    details = worker.classification_details([0, 0], [0, 0], [0, 1])
+    assert details['classes'][1]['samples'] == 0
+    assert details['confusion_matrix'] == [[2, 0], [0, 0]]
+
+
+def test_classification_distinguishes_missed_classes_from_undefined_metrics():
+    result = worker.classification_details(['a', 'a', 'b'], ['a', 'a', 'a'], ['a', 'b', 'c'])
+    a, b, c = result['classes']
+    assert a['precision'] == pytest.approx(2/3) and a['recall'] == 1 and a['f1'] == .8
+    assert b['samples'] == 1 and b['predicted_samples'] == 0
+    assert b['recall'] == b['f1'] == 0 and b['precision'] is None
+    assert c['samples'] == c['predicted_samples'] == 0
+    assert c['precision'] is c['recall'] is c['f1'] is None
+    assert result['confusion_matrix'] == [[2, 0, 0], [1, 0, 0], [0, 0, 0]]
+    # A class seen for the first time in independent testing remains visible.
+    unseen = worker.classification_details(['new'], ['a'], ['a', 'b'])
+    assert unseen['classes'][-1]['label'] == 'new' and unseen['classes'][-1]['recall'] == 0
+
+
+def test_classification_reports_real_fold_coverage_without_using_holdout_labels(tmp_path):
+    from sklearn.metrics import confusion_matrix
+    config = fixture_data(tmp_path, classification=True)
+    config.update(engine='sklearn', parameters={'n_estimators': 8})
+    x, frame, _ = worker.features(config)
+    frame.loc[0, 'y'] = 'rare'
+    split = {'development': list(range(80)), 'holdout': list(range(80, 100)),
+             'folds': [[list(range(40)), list(range(40, 80))], [list(range(40, 80)), list(range(40))]]}
+    folder = tmp_path / 'trial'; folder.mkdir()
+    result = worker.evaluate(config, x, frame, split, 'forest', folder)
+    details = result['classification']
+    saved = pd.read_csv(folder / 'validation-predictions.csv')
+    labels = [row['label'] for row in details['classes']]
+    assert details['confusion_matrix'] == confusion_matrix(saved.actual, saved.prediction, labels=labels).tolist()
+    assert details['baseline']['confusion_matrix'] == confusion_matrix(saved.actual, saved.baseline_prediction, labels=labels).tolist()
+    assert sum(row['samples'] for row in details['classes']) == result['validation_rows'] == 80
+    rare = next(row for row in details['classes'] if row['label'] == 'rare')
+    assert rare['development_samples'] == rare['samples'] == 1
+    assert next(row for row in details['folds'][0]['classes'] if row['label'] == 'rare') == {
+        'label': 'rare', 'train_samples': 1, 'validation_samples': 0}
+    assert next(row for row in details['folds'][1]['classes'] if row['label'] == 'rare') == {
+        'label': 'rare', 'train_samples': 0, 'validation_samples': 1}
+    assert any('第 2 折' in w and '未见过' in w and 'rare' in w for w in result['warnings'])
+    assert any('第 1 折' in w and '缺少类别' in w and 'rare' in w for w in result['warnings'])
+    frame.loc[80:, 'y'] = 'private-holdout-label'
+    other = tmp_path / 'other'; other.mkdir()
+    again = worker.evaluate(config, x, frame, split, 'forest', other)
+    assert again['classification'] == details
+    assert again['metrics'] == result['metrics'] and again['warnings'] == result['warnings']
+
+
 def test_group_split_no_subject_overlap_and_holdout(tmp_path):
     config = fixture_data(tmp_path)
     split = setup_split(config)
@@ -53,7 +107,12 @@ def test_real_search_persist_resume_and_unlabeled_prediction(tmp_path, classific
     import joblib
     from datetime import datetime
     for t in result['trials']:
-        model = joblib.load(Path(config['output']) / f'trial-{t["slot"]}/model.joblib')
+        model_path = Path(config['output']) / f'trial-{t["slot"]}/model.joblib'
+        model = joblib.load(model_path)
+        assert t['resources']['peak_rss_bytes'] > 1024 ** 2
+        assert t['resources']['model_bytes'] == model_path.stat().st_size
+        assert t['resources']['memory_scope'] == 'trial_process'
+        assert t['resources']['model_paths'] == ['model.joblib']
         assert t['effective_model']['parameters'] == model.named_steps['model'].get_params()
         assert datetime.fromisoformat(t['completed_at']) >= datetime.fromisoformat(t['started_at'])
         assert t['search']['distributions']
@@ -112,6 +171,26 @@ def test_temporal_windows_exclude_future_and_late_arrivals(tmp_path):
         worker.features(config)
 
 
+def test_feature_exports_preserve_source_rows_and_do_not_fit_imputation(tmp_path):
+    config = fixture_data(tmp_path)
+    raw = pd.read_csv(config['source']); raw.loc[5, 'y'] = np.nan
+    raw.to_csv(config['source'], index=False)
+    result = worker.export_features(config)
+    exported = pd.read_csv(Path(config['output']) / 'features.csv')
+    metadata = pd.read_csv(Path(config['output']) / 'samples.csv')
+    x, frame, _ = worker.cached_features(config)
+    assert result['source_rows'] == 100 and result['rows'] == 99
+    assert result['excluded'] == [{'reason': '目标标签缺失', 'rows': 1}]
+    assert exported[result['row_key']].tolist() == frame['_sample'].tolist()
+    assert 5 not in exported[result['row_key']].tolist()
+    assert exported[result['row_key']].tolist() == metadata[result['row_key']].tolist()
+    assert 'y' not in exported and 'y' in metadata
+    assert pd.isna(exported.loc[2, 'x'])  # No global fitting to improve the preview.
+    pd.testing.assert_frame_equal(exported.drop(columns=result['row_key']), x, check_dtype=False)
+    assert result['preview'][2]['x'] is None
+    assert len(result['preview']) == 12
+
+
 def test_preprocessing_fits_only_training_rows(tmp_path):
     from sklearn.linear_model import Ridge
     config = fixture_data(tmp_path)
@@ -122,6 +201,36 @@ def test_preprocessing_fits_only_training_rows(tmp_path):
     fill = pipeline.named_steps['preprocess'].named_transformers_['numeric'].named_steps['fill']
     assert fill.statistics_[0] == pytest.approx(x.x.iloc[:80].median())
     assert abs(fill.statistics_[0]) < 2
+
+
+def test_numeric_rules_precede_fold_fitting_and_survive_saved_prediction(tmp_path):
+    import joblib
+    from sklearn.linear_model import Ridge
+    config = fixture_data(tmp_path)
+    raw = pd.read_csv(config['source'], dtype={'id': str})
+    raw['x'] = [str(i) if i % 5 else '/' for i in range(len(raw))]
+    raw.loc[1, 'x'] = '0-2'
+    raw.loc[80:, 'x'] = '99999'
+    raw.to_csv(config['source'], index=False)
+    config.update(engine='sklearn', models=['linear'], batch_size=1)
+    config['features'] = {'columns': ['x'], 'numeric': {'columns': ['x'], 'missing_tokens': ['/'], 'intervals': 'midpoint'}}
+    x, frame, _ = worker.features(config)
+    assert x.x.iloc[1] == 1 and pd.isna(x.x.iloc[0])
+    model = worker.pipeline(x, config, Ridge()).fit(x.iloc[:80], frame.y.iloc[:80])
+    imputer = model.named_steps['preprocess'].named_transformers_['numeric'].named_steps['fill']
+    assert imputer.statistics_[0] == pytest.approx(x.x.iloc[:80].median())
+    assert imputer.statistics_[0] != x.x.median()
+    folder = tmp_path / 'saved'; folder.mkdir()
+    joblib.dump(model, folder / 'model.joblib')
+    new = tmp_path / 'prediction.csv'
+    pd.DataFrame({'id': ['001', '002', '003'], 'batch': ['a'] * 3, 'x': ['3-5', '4', '/']}).to_csv(new, index=False)
+    result = worker.predict({**config, 'source': str(new), 'model': str(folder), 'feature_columns': ['x']})
+    assert result['rows'] == 3
+    predictions = pd.read_csv(Path(config['output']) / 'predictions.csv')
+    assert predictions.prediction.iloc[0] == predictions.prediction.iloc[1]
+    new.write_text('id,batch,x\n004,a,unknown\n')
+    with pytest.raises(ValueError, match='unknown'):
+        worker.predict({**config, 'source': str(new), 'model': str(folder), 'feature_columns': ['x']})
 
 
 def test_forward_validation_respects_windows_and_label_availability(tmp_path):
@@ -146,6 +255,12 @@ def test_autogluon_compares_on_same_saved_rows(tmp_path, classification):
     config.update(engine='autogluon', batch_size=1, trial_seconds=90)
     result = worker.train(config)
     assert result['best'], result
+    folder = Path(config['output']) / 'trial-0'
+    resources = result['best']['resources']
+    assert resources['peak_rss_bytes'] > 1024 ** 2
+    assert resources['model_paths'] == ['autogluon']
+    assert resources['model_bytes'] == sum(p.stat().st_size for p in (folder / 'autogluon').rglob('*') if p.is_file())
+    assert resources['model_bytes'] < sum(p.stat().st_size for p in folder.rglob('*') if p.is_file())
     predictions = pd.read_csv(Path(config['output']) / 'trial-0' / 'validation-predictions.csv')
     assert predictions['sample'].tolist() == [split['samples'][i] for _, valid in split['folds'] for i in valid]
     import json
@@ -158,6 +273,27 @@ def test_autogluon_compares_on_same_saved_rows(tmp_path, classification):
         predictor = ag.TabularPredictor.load(str(Path(config['output']) / 'trial-0' / name))
         assert predictor.eval_metric.name == expected_metric
         assert predictor.problem_type == ('binary' if classification else 'regression')
+
+
+def test_numeric_rules_apply_to_autogluon_training_and_prediction(tmp_path):
+    ag = pytest.importorskip('autogluon.tabular')
+    config = fixture_data(tmp_path); setup_split(config)
+    raw = pd.read_csv(config['source'], dtype={'id': str})
+    raw['x'] = raw.x.map(lambda v: '/' if pd.isna(v) else f'{v-.01}~{v+.01}')
+    raw.to_csv(config['source'], index=False)
+    config.update(engine='autogluon', batch_size=1, autogluon_hyperparameters={'RF': {'n_estimators': 10}})
+    config['features'] = {'columns': ['x'], 'numeric': {'columns': ['x'], 'missing_tokens': ['/'], 'intervals': 'midpoint'}}
+    result = worker.train(config)
+    assert result['best'], result
+    model_path = Path(config['output']) / 'trial-0'
+    model = ag.TabularPredictor.load(str(model_path / 'autogluon'))
+    assert model.feature_metadata_in.get_feature_type_raw('x') == 'float'
+    new = tmp_path / 'new.csv'
+    new.write_text('id,batch,x\n001,a,1-3\n002,a,2\n003,a,/\n')
+    prediction = worker.predict({**config, 'source': str(new), 'model': str(model_path), 'feature_columns': ['x']})
+    assert prediction['rows'] == 3
+    assert prediction['preview'][0]['prediction'] == prediction['preview'][1]['prediction']
+    assert np.isfinite(prediction['preview'][2]['prediction'])
 
 
 def test_numeric_time_units_are_explicit_and_preview_is_real(tmp_path):

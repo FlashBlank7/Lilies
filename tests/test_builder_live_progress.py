@@ -343,6 +343,7 @@ class ConcurrentAcceptanceProvider(ModelProvider):
     def __init__(self) -> None:
         self.active_calls = 0
         self.max_active_calls = 0
+        self.both_entered = asyncio.Event()
 
     def capabilities(self, model: str) -> ProviderCapabilities:
         return ProviderCapabilities(True, True, True, False, False, 100_000, 8_000)
@@ -362,12 +363,16 @@ class ConcurrentAcceptanceProvider(ModelProvider):
     ) -> AsyncIterator[StreamEvent]:
         self.active_calls += 1
         self.max_active_calls = max(self.max_active_calls, self.active_calls)
+        if self.active_calls >= 2:
+            self.both_entered.set()
         try:
             yield StreamEvent(
                 type="message_start",
                 data={"message": {"usage": {"input_tokens": 1}}},
             )
-            await asyncio.sleep(0.1)
+            # Assert real overlap without depending on a 100 ms scheduling window.
+            # Serialized execution cannot reach this rendezvous and must fail.
+            await asyncio.wait_for(self.both_entered.wait(), timeout=10)
             yield StreamEvent(type="content_block_start", data={
                 "index": 0, "content_block": {"type": "text", "text": ""},
             })

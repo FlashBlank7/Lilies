@@ -1,0 +1,22 @@
+.comparison { min-width: 0; max-width: 100%; }
+.selector { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.selector select { max-width: 100%; min-width: 0; }
+.scroll { max-width: 100%; overflow-x: auto; container-type: inline-size; isolation: isolate; }
+.comparison .scroll table { width: 100%; min-width: 34rem; border-collapse: separate; border-spacing: 0; text-align: left; }
+.scroll th, .scroll td { padding: 10px 12px; border-bottom: 1px solid var(--ui-line); overflow-wrap: anywhere; vertical-align: top; }
+.scroll thead th { background: var(--ui-hover); }
+.scroll th:first-child { position: sticky; left: 0; z-index: 1; width: 1%; background: var(--ui-panel); box-shadow: 1px 0 0 var(--ui-line); }
+.scroll thead th:first-child { z-index: 2; background: var(--ui-hover); }
+.model { display: block; width: max-content; max-width: min(9rem, 35cqw); overflow-wrap: anywhere; }
+.scroll small { display: block; margin-top: 4px; font-weight: normal; }
+
+@container (max-width: 28rem) {
+  .comparison .scroll table { min-width: 0; }
+  .scroll thead { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); }
+  .scroll tbody { display: block; }
+  .scroll tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); margin-bottom: 12px; border: 1px solid var(--ui-line); border-radius: 8px; overflow: hidden; }
+  .scroll th:first-child { position: static; grid-column: 1 / -1; width: auto; box-shadow: none; background: var(--ui-hover); }
+  .scroll .model { width: auto; max-width: none; }
+  .scroll td { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 8px; }
+  .scroll td::before { content: attr(data-label); color: var(--ui-muted); font-size: 12px; }
+}

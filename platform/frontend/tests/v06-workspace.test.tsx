@@ -1,0 +1,267 @@
+import {cleanup,fireEvent,render,screen,waitFor,within} from '@testing-library/react'
+import {afterEach,expect,it,vi} from 'vitest'
+import {api} from '@/lib/platform'
+import WorkflowComposer from '@/app/components/WorkflowComposer'
+import {WorkflowValueField} from '@/app/components/WorkflowValueField'
+import {ProjectTaskOutput} from '@/app/components/ProjectRunPanel'
+import ProjectModels from '@/app/components/ProjectModels'
+import type {ProjectTask} from '@/lib/project-progress'
+vi.mock('@/lib/platform',()=>({api:vi.fn(),withFrontendToken:(p:string)=>p}))
+vi.mock('@/app/components/ModelingPanel',()=>({default:()=>null}))
+afterEach(()=>{cleanup();vi.mocked(api).mockReset();vi.unstubAllGlobals()})
+it('applies one generated graph and undoes against the saved revision without starting a task',async()=>{
+ const before={nodes:[],edges:[]};const onChanged=vi.fn()
+ vi.mocked(api).mockImplementation(async(path)=>path.endsWith('/workflow-generation')?{workflow_id:'w',previous_workflow:before,revision:8,draft:{revision:9}} as never:{revision:7} as never)
+ render(<WorkflowComposer projectId="p" workflowId="w" onChanged={onChanged}/>);
+ fireEvent.change(screen.getByLabelText('工作流描述'),{target:{value:'创建未绑定的预测节点'}});fireEvent.click(screen.getByText('应用修改'))
+ await screen.findByText('已保存到画布，可继续编辑或运行。');expect(onChanged).toHaveBeenCalledWith('w')
+ expect(JSON.parse(vi.mocked(api).mock.calls.find(([p])=>p.endsWith('/workflow-generation'))![1]!.body as string).expected_revision).toBe(7)
+ fireEvent.click(screen.getByText('撤销 AI 修改'))
+ await waitFor(()=>expect(onChanged).toHaveBeenCalledTimes(2))
+ const call=vi.mocked(api).mock.calls.find(([p,o])=>p.endsWith('/workflows/w/draft')&&o?.method==='PUT')!
+ expect(JSON.parse(call[1]!.body as string)).toMatchObject({expected_revision:8,workflow:before})
+ expect(vi.mocked(api).mock.calls.some(([p])=>p.includes('/tasks'))).toBe(false)
+})
+it('preserves a concurrent human edit by displaying the conflict and offering no undo',async()=>{
+ vi.mocked(api).mockImplementation(async(p)=>{if(p.endsWith('/workflow-generation'))throw new Error('画布已被修改');return {revision:2} as never})
+ const changed=vi.fn();render(<WorkflowComposer projectId="p" workflowId="w" onChanged={changed}/>);
+ fireEvent.change(screen.getByLabelText('工作流描述'),{target:{value:'更改输出'}});fireEvent.click(screen.getByText('应用修改'))
+ expect(await screen.findByRole('alert')).toHaveTextContent('画布已被修改');expect(changed).not.toHaveBeenCalled();expect(screen.queryByText('撤销 AI 修改')).not.toBeInTheDocument()
+})
+it('selects a stable model resource without JSON and permits leaving it unconfigured',async()=>{
+ vi.mocked(api).mockResolvedValue([{model_ref:'quality',name:'质量预测',status:'unbound'}] as never)
+ const change=vi.fn();render(<WorkflowValueField projectId="p" field="model_ref" nodeId="predict" nodes={[]} label="预测模型" value="" onChange={change}/>)
+ await screen.findByRole('option',{name:'质量预测 · 待绑定'});fireEvent.change(screen.getByLabelText('预测模型',{selector:'select'}),{target:{value:'quality'}})
+ expect(change).toHaveBeenCalledWith('quality');expect(screen.getByRole('option',{name:'稍后配置'})).toBeInTheDocument()
+})
+it('creates a prediction workflow before training or credentials exist',async()=>{
+ vi.mocked(api).mockImplementation(async(p,o)=>{
+ if(p.endsWith('/members'))return {id:'w'} as never
+ if(p.endsWith('/draft')&&!o)return {revision:0} as never
+ return [] as never
+ });const changed=vi.fn();render(<ProjectModels projectId="p" onWorkflow={changed} onTask={vi.fn()} onTalk={vi.fn()}/>);
+ fireEvent.click(screen.getByRole('button',{name:'创建预测工作流'}));await waitFor(()=>expect(changed).toHaveBeenCalledWith('w'))
+ const call=vi.mocked(api).mock.calls.find(([p,o])=>p.endsWith('/workflows/w/draft')&&o?.method==='PUT')!
+ expect(JSON.parse(call[1]!.body as string).workflow.nodes[1].config.model_ref).toBe('prediction')
+ expect(vi.mocked(api).mock.calls.some(([p])=>p.endsWith('/train'))).toBe(false)
+})
+it('binds an uploaded pipeline to a selected local environment through forms',async()=>{
+ vi.mocked(api).mockImplementation(async(p,o)=>{
+  if(p.endsWith('/model-environments'))return ['lilies-modeling:20260922'] as never
+  if(p.endsWith('/workspace/files'))return [{path:'requirement-package/model.joblib'}] as never
+  if(p.endsWith('/import'))return {revision:1} as never
+  return [] as never
+ });render(<ProjectModels projectId="p" onWorkflow={vi.fn()} onTask={vi.fn()} onTalk={vi.fn()}/>);
+ fireEvent.click(screen.getByText('导入已有模型包'))
+ await screen.findByRole('option',{name:'lilies-modeling:20260922'})
+ await screen.findByRole('option',{name:'requirement-package/model.joblib'})
+ fireEvent.change(screen.getByRole('combobox',{name:'已有模型包'}),{target:{value:'requirement-package/model.joblib'}})
+ fireEvent.change(screen.getByRole('combobox',{name:'模型包计算环境'}),{target:{value:'lilies-modeling:20260922'}})
+ fireEvent.click(screen.getByRole('button',{name:'验证并绑定已有模型包'}))
+ await screen.findByText('模型包与预处理已验证并绑定。已有运行保留原版本，新运行使用本次版本。')
+ const call=vi.mocked(api).mock.calls.find(([p])=>p.endsWith('/models/prediction/import'))!
+ expect(JSON.parse(call[1]!.body as string)).toMatchObject({source_path:'requirement-package/model.joblib',environment:'lilies-modeling:20260922',expected_revision:0})
+ expect(vi.mocked(api).mock.calls.some(([p])=>p.endsWith('/train'))).toBe(false)
+})
+it('downloads prediction output within its project and rejects path traversal',()=>{
+ const task:ProjectTask={id:'t',request_key:'r',purpose:'business',item_id:'',feedback_task_id:'',message:'',error:'',created_at:'',updated_at:'',status:'succeeded',mode:'workflow',outputs:{csv_download:'datasets/d/files/run/output/predictions.csv',result:{artifact:'datasets/d/files/run/output/predictions.csv'},bad:{artifact:'datasets/d/files/../secret'}},presentation:{}}
+ render(<ProjectTaskOutput projectId="p" task={task}/>);
+ expect(screen.getAllByRole('link')).toHaveLength(1);expect(screen.getByRole('link')).toHaveAttribute('href','/api/platform/api/v1/projects/p/datasets/d/files/run/output/predictions.csv')
+})
+
+it.each(['direct','wrapped'])('shows %s prediction values while deduplicating the CSV link',(shape)=>{
+ const result={artifact:'datasets/d/files/run/output/predictions.csv',preview:[{prediction:303.1389},{prediction:306.1019}]}
+ const task:ProjectTask={id:'t',request_key:'r',purpose:'business',item_id:'',feedback_task_id:'',message:'',error:'',created_at:'',updated_at:'',status:'succeeded',mode:'prediction',outputs:shape==='direct'?result:{result,csv_download:result.artifact},presentation:{}}
+ render(<ProjectTaskOutput projectId="p" task={task}/>);
+ expect(screen.getByRole('cell',{name:'303.139'})).toBeInTheDocument();expect(screen.getByRole('cell',{name:'306.102'})).toBeInTheDocument();expect(screen.getAllByRole('link')).toHaveLength(1)
+ expect(screen.getByText('此结果未保存输入对应说明。')).toBeInTheDocument()
+ expect(screen.getAllByRole('columnheader').map(cell=>cell.textContent)).toEqual(['预测值'])
+ expect(screen.getAllByRole('cell')).toHaveLength(2)
+ expect(screen.queryByText(/输入记录序号从 1 起/)).not.toBeInTheDocument()
+})
+
+it.each(['direct','wrapped'])('shows saved input correspondence before probability columns for %s predictions',(shape)=>{
+ const probabilities=Object.fromEntries(Array.from({length:10},(_,i)=>[`probability_${i}`,i/10]))
+ const result={artifact:'datasets/d/files/run/output/predictions.csv',input_source:{dataset_id:'d',path:'requirement-package/new.xlsx',table:shape==='direct'?'source':'labels',sheet:shape==='direct'?0:'待预测样本',record_column:'input_record_',id_column:'sample_id'},preview:[
+  {...probabilities,prediction:303.1389,input_record:'原有业务字段',input_record_:9876543,sample_id:1234567890123},
+  {...probabilities,prediction:306.1019,input_record:'另一业务字段',input_record_:9876544,sample_id:'0000123456789012345'},
+ ]}
+ const task:ProjectTask={id:'t',request_key:'r',purpose:'business',item_id:'',feedback_task_id:'',message:'',error:'',created_at:'',updated_at:'',status:'succeeded',mode:'prediction',outputs:shape==='direct'?result:{result,csv_download:result.artifact},presentation:{}}
+ render(<ProjectTaskOutput projectId="p" task={task}/> )
+ const sourceTable=shape==='direct'?'输入数据表':'待预测样本表'
+ expect(screen.getByText(new RegExp(`输入来源（${sourceTable}）：`))).toHaveTextContent(`requirement-package/new.xlsx · 数据集：d · 工作表：${result.input_source.sheet}`)
+ expect(screen.getByText(`输入记录序号从 1 起，表示${sourceTable}中的数据记录顺序，不是 CSV 或 Excel 的物理行号。`)).toBeInTheDocument()
+ expect(screen.getByText('下载 CSV 包含相同的输入对应列。')).toBeInTheDocument()
+ expect(screen.getByText(/_sample 是从 0 起的同一记录编号/)).toBeInTheDocument()
+ expect(screen.queryByRole('columnheader',{name:'_sample'})).not.toBeInTheDocument()
+ expect(screen.getAllByRole('columnheader').slice(0,3).map(cell=>cell.textContent)).toEqual(['输入记录序号','输入 ID（sample_id）','预测值'])
+ const rows=screen.getAllByRole('row')
+ expect(within(rows[1]).getAllByRole('cell').slice(0,3).map(cell=>cell.textContent)).toEqual(['9876543','1234567890123','303.139'])
+ expect(within(rows[2]).getAllByRole('cell').slice(0,3).map(cell=>cell.textContent)).toEqual(['9876544','0000123456789012345','306.102'])
+ expect(screen.getAllByRole('link')).toHaveLength(1)
+ expect(screen.getByRole('link',{name:'下载预测结果 CSV ↓'})).toHaveAttribute('href','/api/platform/api/v1/projects/p/datasets/d/files/run/output/predictions.csv')
+})
+
+it('shows saved input IDs without inventing record numbers when only IDs are available',()=>{
+ const result={artifact:'datasets/d/files/run/output/predictions.csv',input_source:{dataset_id:'d',path:'requirement-package/new.csv',table:'source',id_column:'sample_id'},preview:[{prediction:303.1389},{prediction:306.1019,sample_id:1234567890123}]}
+ const task:ProjectTask={id:'t',request_key:'r',purpose:'business',item_id:'',feedback_task_id:'',message:'',error:'',created_at:'',updated_at:'',status:'succeeded',mode:'prediction',outputs:result,presentation:{}}
+ render(<ProjectTaskOutput projectId="p" task={task}/> )
+ expect(screen.getAllByRole('columnheader').map(cell=>cell.textContent)).toEqual(['输入 ID（sample_id）','预测值'])
+ expect(screen.getByRole('cell',{name:'1234567890123'})).toBeInTheDocument()
+ expect(screen.queryByRole('columnheader',{name:'输入记录序号'})).not.toBeInTheDocument()
+ expect(screen.queryByText(/输入记录序号从 1 起/)).not.toBeInTheDocument()
+ expect(screen.queryByText('此结果未保存输入对应说明。')).not.toBeInTheDocument()
+})
+
+it('applies the visible canvas revision and sends selection or nested scope in one request',async()=>{
+ const nodes=[{id:'loop',type:'iteration',title:'处理每条数据',block_version:1,description:'',position:{x:0,y:0},retry:{enabled:false,max_attempts:1,delay_seconds:0},error_strategy:'fail' as const,config:{workflow:{nodes:[{id:'inner',type:'loop',title:'内循环',config:{workflow:{nodes:[],edges:[]}}}],edges:[]}}}]
+ vi.mocked(api).mockResolvedValue({workflow_id:'w',previous_workflow:{nodes:[],edges:[]},revision:6,draft:{revision:6}} as never)
+ render(<WorkflowComposer projectId="p" workflowId="w" revision={5} nodes={nodes} selectedNodeIds={['loop']} onChanged={vi.fn()}/>);
+ fireEvent.change(screen.getByLabelText('工作流描述'),{target:{value:'修改结果'}})
+ fireEvent.change(screen.getByLabelText('修改范围'),{target:{value:'selection'}})
+ fireEvent.click(screen.getByText('应用修改'));await screen.findByText('已保存到画布，可继续编辑或运行。')
+ expect(vi.mocked(api)).toHaveBeenCalledTimes(1)
+ expect(JSON.parse(vi.mocked(api).mock.calls[0][1]!.body as string)).toMatchObject({expected_revision:5,node_ids:['loop'],workflow_path:[]})
+ fireEvent.change(screen.getByLabelText('修改范围'),{target:{value:JSON.stringify(['loop','inner'])}})
+ fireEvent.click(screen.getByText('应用修改'));await waitFor(()=>expect(vi.mocked(api)).toHaveBeenCalledTimes(2))
+ expect(JSON.parse(vi.mocked(api).mock.calls[1][1]!.body as string)).toMatchObject({expected_revision:5,node_ids:[],workflow_path:['loop','inner']})
+})
+
+it('opens the selected scope from the canvas action and blocks AI changes while form edits are unsaved',async()=>{
+ const onChanged=vi.fn()
+ const {rerender}=render(<WorkflowComposer projectId="p" workflowId="w" selectedNodeIds={['end']} editRequest={0} disabled onChanged={onChanged}/>);
+ // jsdom has no scrolling implementation; the actual browser path is also exercised.
+ const scroll=vi.fn(); HTMLElement.prototype.scrollIntoView=scroll
+ rerender(<WorkflowComposer projectId="p" workflowId="w" selectedNodeIds={['end']} editRequest={1} disabled onChanged={onChanged}/>);
+ expect(screen.getByLabelText('工作流描述')).toHaveFocus()
+ fireEvent.change(screen.getByLabelText('工作流描述'),{target:{value:'修改输出'}})
+ expect(screen.getByText('应用修改')).toBeDisabled()
+ expect(vi.mocked(api)).not.toHaveBeenCalled()
+ expect(scroll).toHaveBeenCalledOnce()
+})
+
+
+it('keeps the container path when AI edits selected inner nodes',async()=>{
+ vi.mocked(api).mockResolvedValue({workflow_id:'w',previous_workflow:{nodes:[],edges:[]},revision:9,draft:{revision:9}} as never)
+ render(<WorkflowComposer projectId="p" workflowId="w" revision={8} selectedNodeIds={['same']} selectionPath={['outer','inner']} editRequest={1} onChanged={vi.fn()}/>);
+ fireEvent.change(screen.getByLabelText('工作流描述'),{target:{value:'只修改当前循环的这个积木'}})
+ fireEvent.click(screen.getByRole('button',{name:'应用修改'}))
+ await waitFor(()=>expect(api).toHaveBeenCalled())
+ expect(JSON.parse(vi.mocked(api).mock.calls[0][1]!.body as string)).toMatchObject({expected_revision:8,node_ids:['same'],workflow_path:['outer','inner']})
+})
+
+it('distinguishes same-name datasets and submits the chosen training and prediction records',async()=>{
+ const datasets=[
+  {id:'train-v1',name:'quality.csv',mapping:{target:'quality'},created_at:'2026-09-25T01:00:00Z',files:{source:{original:'results/first/quality.csv'}}},
+  {id:'train-v2',name:'quality.csv',mapping:{target:'quality'},created_at:'2026-09-25T01:00:00Z',files:{source:{original:'results/second/quality.csv'}}},
+  {id:'predict1',name:'new.csv',mapping:{target:''},created_at:'2026-09-25T01:00:00Z',files:{source:{original:'results/first/new.csv'}}},
+  {id:'predict2',name:'new.csv',mapping:{target:''},files:{source:{original:'results/second/new.csv'}}},
+ ]
+ vi.mocked(api).mockImplementation(async(path,options)=>{
+  if(path.includes('/datasets?'))return datasets as never
+  if(path.endsWith('/modeling/studies')&&options?.method==='POST')return {id:'chosen-study'} as never
+  if(path.endsWith('/train'))return {id:'training-task'} as never
+  if(path.endsWith('/predict'))return {id:'prediction-task'} as never
+  return [] as never
+ })
+ const onTask=vi.fn()
+ render(<ProjectModels projectId="p" onWorkflow={vi.fn()} onTask={onTask} onTalk={vi.fn()}/> )
+ await screen.findByRole('option',{name:/quality.csv.*编号 train-v2/})
+ expect(screen.getByRole('option',{name:/quality.csv.*编号 train-v1/})).toBeInTheDocument()
+ fireEvent.change(screen.getByRole('combobox',{name:'训练数据集'}),{target:{value:'train-v2'}})
+ expect(screen.getByText('训练数据来源：results/second/quality.csv')).toBeInTheDocument()
+ fireEvent.click(screen.getByRole('button',{name:'开始独立训练'}))
+ await waitFor(()=>expect(onTask).toHaveBeenCalledWith('training-task'))
+ const study=vi.mocked(api).mock.calls.find(([path,options])=>path.endsWith('/modeling/studies')&&options?.method==='POST')!
+ expect(JSON.parse(String(study[1]!.body)).dataset_id).toBe('train-v2')
+ expect(screen.getByRole('option',{name:'new.csv · 编号 predict2'})).toBeInTheDocument()
+ fireEvent.change(screen.getByRole('combobox',{name:'直接预测的数据集'}),{target:{value:'predict2'}})
+ expect(screen.getByText('预测数据来源：results/second/new.csv')).toBeInTheDocument()
+ await waitFor(()=>expect(screen.getByRole('button',{name:'直接预测'})).toBeEnabled())
+ fireEvent.click(screen.getByRole('button',{name:'直接预测'}))
+ await waitFor(()=>expect(onTask).toHaveBeenCalledWith('prediction-task'))
+ const prediction=vi.mocked(api).mock.calls.find(([path])=>path.endsWith('/predict'))!
+ expect(JSON.parse(String(prediction[1]!.body)).dataset_id).toBe('predict2')
+})
+
+it.each([
+ ['group', {group_column:'chip'}, '按「chip」隔离'],
+ ['group', {id_column:'device'}, '按「device」隔离'],
+ ['time', {prediction_time_column:'timestamp'}, '按「timestamp」向前验证'],
+])('submits the selected %s evaluation and fold count for mapped data',async(split,mapping,description)=>{
+ vi.mocked(api).mockImplementation(async(path,options)=>{
+  if(path.includes('/datasets?'))return [{id:'d',name:'samples.csv',mapping:{target:'y',...mapping}}] as never
+  if(path.endsWith('/modeling/studies')&&options?.method==='POST')return {id:'s'} as never
+  if(path.endsWith('/train'))return {id:'t'} as never
+  return [] as never
+ })
+ const onTask=vi.fn()
+ render(<ProjectModels projectId="p" onWorkflow={vi.fn()} onTask={onTask} onTalk={vi.fn()}/> )
+ await screen.findByRole('option',{name:/samples.csv/})
+ fireEvent.change(screen.getByLabelText('训练数据集'),{target:{value:'d'}})
+ fireEvent.change(screen.getByLabelText('评价划分'),{target:{value:split}})
+ expect(screen.getByText(new RegExp(String(description)))).toBeInTheDocument()
+ fireEvent.change(screen.getByLabelText('验证折数'),{target:{value:'2'}})
+ fireEvent.click(screen.getByRole('button',{name:'开始独立训练'}))
+ await waitFor(()=>expect(onTask).toHaveBeenCalledWith('t'))
+ const call=vi.mocked(api).mock.calls.find(([p,o])=>p.endsWith('/modeling/studies')&&o?.method==='POST')!
+ expect(JSON.parse(String(call[1]!.body))).toMatchObject({dataset_id:'d',evaluation:{problem:'regression',metric:'mae',split,folds:2}})
+})
+
+it('explains missing group/time settings without blocking draft creation',async()=>{
+ vi.mocked(api).mockImplementation(async path=>path.includes('/datasets?')?[{id:'d',name:'plain.csv',mapping:{target:'y'}}] as never:[] as never)
+ render(<ProjectModels projectId="p" onWorkflow={vi.fn()} onTask={vi.fn()} onTalk={vi.fn()}/> )
+ await screen.findByRole('option',{name:/plain.csv/})
+ fireEvent.change(screen.getByLabelText('训练数据集'),{target:{value:'d'}})
+ fireEvent.change(screen.getByLabelText('评价划分'),{target:{value:'group'}})
+ expect(screen.getByText(/此数据版本尚未指定分组字段/)).toBeInTheDocument()
+ expect(screen.getByRole('button',{name:'开始独立训练'})).toBeDisabled()
+ fireEvent.change(screen.getByLabelText('评价划分'),{target:{value:'time'}})
+ expect(screen.getByText(/此数据版本尚未指定预测时点/)).toBeInTheDocument()
+ expect(screen.getByRole('button',{name:'开始独立训练'})).toBeDisabled()
+ expect(screen.getByRole('button',{name:'创建预测工作流'})).toBeEnabled()
+ fireEvent.change(screen.getByLabelText('评价划分'),{target:{value:'random'}})
+ fireEvent.change(screen.getByLabelText('验证折数'),{target:{value:'6'}})
+ expect(screen.getByRole('button',{name:'开始独立训练'})).toBeDisabled()
+ fireEvent.change(screen.getByLabelText('验证折数'),{target:{value:'3'}})
+ expect(screen.getByRole('button',{name:'开始独立训练'})).toBeEnabled()
+})
+
+it('preserves a chosen grouping column when importing and clears it for a different file',async()=>{
+ vi.mocked(api).mockResolvedValue([] as never)
+ const upload=vi.fn().mockResolvedValue({ok:true,json:async()=>({id:'uploaded'})})
+ vi.stubGlobal('fetch',upload)
+ render(<ProjectModels projectId="p" onWorkflow={vi.fn()} onTask={vi.fn()} onTalk={vi.fn()}/> )
+ fireEvent.click(screen.getByText('粘贴表格数据'))
+ fireEvent.change(screen.getByLabelText('表格数据'),{target:{value:'chip,x,y\na,1,2\na,2,3\n'}})
+ fireEvent.click(screen.getByRole('button',{name:'使用这份表格'}))
+ fireEvent.change(screen.getByLabelText('预测目标字段'),{target:{value:'y'}})
+ fireEvent.change(screen.getByLabelText('样本分组字段'),{target:{value:'chip'}})
+ fireEvent.click(screen.getByRole('button',{name:'导入数据'}))
+ await screen.findByText('数据已导入，可以开始训练。')
+ const body=upload.mock.calls[0][1].body as FormData
+ expect(JSON.parse(String(body.get('mapping')))).toEqual({kind:'tabular',target:'y',group_column:'chip'})
+ fireEvent.change(screen.getByLabelText('表格数据'),{target:{value:'x,y\n1,2\n'}})
+ fireEvent.click(screen.getByRole('button',{name:'使用这份表格'}))
+ expect(screen.getByLabelText('样本分组字段')).toHaveValue('')
+})
+
+it('identifies same-name training records by source before selecting the model version',async()=>{
+ vi.mocked(api).mockImplementation(async(path)=>{
+  if(path.includes('/datasets?'))return [
+   {id:'d1',name:'data.csv',mapping:{target:'quality'},files:{source:{original:'results/first/data.csv'}}},
+   {id:'d2',name:'data.csv',mapping:{target:'quality'},files:{source:{original:'results/second/data.csv'}}},
+  ] as never
+  if(path.includes('/modeling/studies?'))return [
+   {id:'s1',name:'自主建模',dataset_id:'d1',status:'completed'},
+   {id:'s2',name:'自主建模',dataset_id:'d2',status:'completed'},
+  ] as never
+  return [] as never
+ })
+ render(<ProjectModels projectId="p" onWorkflow={vi.fn()} onTask={vi.fn()} onTalk={vi.fn()}/> )
+ expect(await screen.findByRole('option',{name:'自主建模 · 来源：results/first/data.csv · 已完成'})).toBeInTheDocument()
+ expect(screen.getByRole('option',{name:'自主建模 · 来源：results/second/data.csv · 已完成'})).toBeInTheDocument()
+ fireEvent.change(screen.getByRole('combobox',{name:'绑定训练记录'}),{target:{value:'s2'}})
+ await waitFor(()=>expect(api).toHaveBeenCalledWith('/api/v1/projects/p/modeling/studies/s2/candidates?limit=100'))
+ expect(vi.mocked(api).mock.calls.every(([,options])=>!options?.method||options.method==='GET')).toBe(true)
+})

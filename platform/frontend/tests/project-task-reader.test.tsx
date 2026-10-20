@@ -1,33 +1,239 @@
 import { Suspense, type ReactNode } from 'react'
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import ProjectPage from '@/app/projects/[id]/page'
 import { api } from '@/lib/platform'
 
 vi.mock('@/lib/platform', () => ({ api: vi.fn(), withFrontendToken: (path: string) => path }))
+const navigation = vi.hoisted(() => ({ query: '' }))
+vi.mock('next/navigation', () => ({ useSearchParams: () => new URLSearchParams(navigation.query) }))
 vi.mock('@/app/components/AppShell', () => ({ default: ({ children, navigation }: { children: ReactNode; navigation: ReactNode }) => <>{navigation}{children}</> }))
 vi.mock('@/app/components/ProjectConversation', () => ({ default: () => null }))
 vi.mock('@/app/projects/[id]/DeveloperTools', () => ({ default: () => null }))
-afterEach(() => { cleanup(); vi.mocked(api).mockReset() })
+afterEach(() => { cleanup(); vi.mocked(api).mockReset(); navigation.query = '' })
 
-it('reopens and stops a persisted manual run, then returns to its member input form without starting an agent', async () => {
-  const task = { id: 't', request_key: 'request', status: 'running', mode: 'workflow', workflow_id: 'member', purpose: 'customer_trial', item_id: '', created_at: '2026-09-17T00:00:00Z', presentation: {}, inputs: {}, outputs: {} }
+function projectReads(readTask: (id: string) => Promise<unknown>) {
+  vi.mocked(api).mockImplementation(async path => {
+    if (path.includes('/tasks/')) return await readTask(path.split('/').at(-1)!) as never
+    if (path.endsWith('/example')) return null as never
+    if (path.endsWith('/conversations') || path.includes('/tasks?') || path.endsWith('/workspace/files')) return [] as never
+    if (path.endsWith('/progress')) return { revision: 0, value: { goal: '', summary: '', items: [] } } as never
+    return { id: 'p', name: '项目', members: [] } as never
+  })
+}
+function completedTask(id: string) {
+  return { id, request_key: id, status: 'succeeded', mode: 'workflow', workflow_id: 'member', purpose: 'build_test', item_id: '',
+    created_at: '2026-09-28T00:00:00Z', presentation: { markdown: '保存的结果 ' + id }, inputs: {}, outputs: { quantity: 4 }, runs: [] }
+}
+
+it('refreshes history on entering or returning to the results tab without launching tasks', async () => {
+  projectReads(async id => completedTask(id))
+  const fallback = vi.mocked(api).getMockImplementation()!
+  let latest = [completedTask('first')]
+  vi.mocked(api).mockImplementation(async (path, options) => path.endsWith('/tasks?compact=true&limit=20')
+    ? latest.map(item=>({...item,input_files:[item.id+'.csv']})) as never : fallback(path,options))
+  await act(async()=>{render(<Suspense><ProjectPage params={Promise.resolve({id:'p'})}/></Suspense>)})
+  latest = [...latest,completedTask('second')]
+  fireEvent.click(screen.getByRole('tab',{name:'运行记录'}))
+  expect(await within(screen.getByRole('region',{name:'运行记录'})).findByText('输入：second.csv')).toBeVisible()
+  latest = [...latest,completedTask('third')]
+  await act(async()=>{fireEvent(document,new Event('visibilitychange'))})
+  expect(await within(screen.getByRole('region',{name:'运行记录'})).findByText('输入：third.csv')).toBeVisible()
+  latest = [...latest,completedTask('fourth')]
+  fireEvent.click(screen.getByRole('button',{name:'刷新运行记录'}))
+  expect(await within(screen.getByRole('region',{name:'运行记录'})).findByText('输入：fourth.csv')).toBeVisible()
+  expect(vi.mocked(api).mock.calls.some(([,options])=>options?.method==='POST')).toBe(false)
+})
+
+it('opens the exact linked task on first load and query changes without starting work', async () => {
+  navigation.query = 'task=historical'
+  projectReads(async id => completedTask(id))
+  const params = Promise.resolve({ id: 'p' })
+  const page = await act(async () => render(<Suspense><ProjectPage params={params} /></Suspense>))
+  expect(await screen.findByText('保存的结果 historical')).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: '关闭阅读窗口' }))
+  navigation.query = 'task=another'
+  await act(async () => page.rerender(<Suspense><ProjectPage params={params} /></Suspense>))
+  expect(await screen.findByText('保存的结果 another')).toBeInTheDocument()
+  expect(screen.queryByText('保存的结果 historical')).not.toBeInTheDocument()
+  expect(api).toHaveBeenCalledWith('/api/v1/projects/p/tasks/historical')
+  expect(api).toHaveBeenCalledWith('/api/v1/projects/p/tasks/another')
+  expect(vi.mocked(api).mock.calls.every(([, options]) => !options)).toBe(true)
+})
+
+it('keeps a missing or unauthorized result error visible after the project finishes loading', async () => {
+  navigation.query = 'task=unavailable'
+  projectReads(async () => { throw new Error('任务不存在或无权访问') })
+  await act(async () => render(<Suspense><ProjectPage params={Promise.resolve({ id: 'p' })} /></Suspense>))
+  expect(await screen.findByRole('alert')).toHaveTextContent('无法打开这次运行结果：Error: 任务不存在或无权访问')
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  expect(vi.mocked(api).mock.calls.every(([, options]) => !options)).toBe(true)
+})
+
+it('ignores a previous linked task that returns after navigating to another result', async () => {
+  let finishOld!: (value: unknown) => void
+  navigation.query = 'task=old'
+  projectReads(async id => id === 'old' ? await new Promise(resolve => { finishOld = resolve }) : completedTask(id))
+  const params = Promise.resolve({ id: 'p' })
+  const page = await act(async () => render(<Suspense><ProjectPage params={params} /></Suspense>))
+  navigation.query = 'task=current'
+  await act(async () => page.rerender(<Suspense><ProjectPage params={params} /></Suspense>))
+  expect(await screen.findByText('保存的结果 current')).toBeInTheDocument()
+  await act(async () => finishOld(completedTask('old')))
+  expect(screen.queryByText('保存的结果 old')).not.toBeInTheDocument()
+  expect(screen.getByText('保存的结果 current')).toBeInTheDocument()
+})
+
+it.each(['running','waiting_input'])('reopens and stops a persisted %s run, then returns to its member input form without starting an agent', async status => {
+  let task = { id: 't', request_key: 'request', status, mode: 'workflow', workflow_id: 'member', purpose: 'customer_trial', item_id: '', created_at: '2026-09-17T00:00:00Z', presentation: {}, inputs: {}, outputs: {},
+    runs:status==='waiting_input'?[{id:'r',status:'paused',waiting_input:{node_id:'review.1.ask',title:'复核图片',context:'请补充你的判断',fields:[{name:'label',label:'结论',type:'string'}]}}]:[] }
   vi.mocked(api).mockImplementation(async (path, options) => {
-    if (path.endsWith('/stop')) return { ...task, status: 'interrupted' } as never
+    if (path.endsWith('/example')) return null as never
+    if (path.endsWith('/conversations')) return [] as never
+    if (path.endsWith('/stop')) {task={ ...task, status: 'interrupted' };return task as never}
     if (path.endsWith('/tasks/t')) return task as never
     if (path.includes('/tasks?purpose=customer_trial')) return [task] as never
-    if (path.includes('/tasks?purpose=business') || path.endsWith('/workspace/files')) return [] as never
+    if (path.includes('/tasks?compact=true') || path.endsWith('/workspace/files')) return [] as never
     if (path.endsWith('/progress')) return { revision: 0, value: { goal: '', summary: '', items: [] } } as never
+    if (path.endsWith('/readiness')) return {status:'configured',issues:[],note:'运行时检查'} as never
     if (path.endsWith('/draft')) return { snapshot: { workflow: { nodes: [] } } } as never
     if (options) throw new Error(path)
     return { id: 'p', name: 'Review project', members: [{ id: 'member', name: '设计评审', revision: 1, purpose: 'business' }] } as never
   })
   const params = Promise.resolve({ id: 'p' })
   await act(async () => { render(<Suspense><ProjectPage params={params} /></Suspense>) })
-  fireEvent.click(await screen.findByRole('button', { name: '设计评审 · 处理中' }))
+  fireEvent.click(await screen.findByRole('button', { name: status==='waiting_input'?'设计评审 · 等待补充':'设计评审 · 处理中' }))
+  if(status==='waiting_input')expect(screen.queryByRole('button',{name:'继续原运行'})).not.toBeInTheDocument()
   fireEvent.click(await screen.findByRole('button', { name: '停止运行' }))
   await waitFor(() => expect(api).toHaveBeenCalledWith('/api/v1/projects/p/tasks/t/stop', { method: 'POST' }))
   fireEvent.click(await screen.findByRole('button', { name: '再次运行此工作流' }))
   expect(await screen.findByRole('combobox', { name: '入口工作流' })).toHaveValue('member')
   expect(vi.mocked(api).mock.calls.some(([path]) => path.includes('agent-session/messages'))).toBe(false)
+})
+
+it('shows actual workflows and an older waiting run without legacy progress items, then removes a stopped run',async()=>{
+  let waiting={id:'old',request_key:'r',status:'waiting_input',mode:'workflow',workflow_id:'member',purpose:'customer_trial',item_id:'',created_at:'2026-09-17T00:00:00Z',presentation:{},inputs:{},outputs:{},runs:[{id:'run',status:'paused',waiting_input:{node_id:'ask',title:'这列标签表示什么？',fields:[{name:'answer',label:'标签含义',type:'string'}]}}]}
+  vi.mocked(api).mockImplementation(async(path,options)=>{
+    if(path.endsWith('/example'))return null as never
+    if(path.endsWith('/conversations')||path.endsWith('/workspace/files'))return [] as never
+    if(path.includes('/tasks?compact=true&status=waiting_input'))return waiting.status==='waiting_input'?[waiting] as never:[] as never
+    if(path.includes('/tasks?'))return [] as never
+    if(path.endsWith('/tasks/old/stop')){waiting={...waiting,status:'interrupted'};return waiting as never}
+    if(path.endsWith('/tasks/old'))return waiting as never
+    if(path.endsWith('/progress'))return {revision:0,value:{goal:'',summary:'',items:[]}} as never
+    if(path.endsWith('/readiness'))return {status:'configured',issues:[],note:'运行时检查'} as never
+    if(path.endsWith('/draft'))return {snapshot:{workflow:{nodes:[]}}} as never
+    if(options)throw new Error(path)
+    return {id:'p',name:'已有流程的项目',members:[{id:'p',name:'主流程',purpose:'business'},{id:'member',name:'数据分析',purpose:'business'},{id:'helper',name:'旧开发工具',purpose:'development'}]} as never
+  })
+  await act(async()=>{render(<Suspense><ProjectPage params={Promise.resolve({id:'p'})}/></Suspense>)})
+  const summary=await screen.findByRole('region',{name:'当前项目进展'})
+  expect(summary).toHaveTextContent('2条项目工作流')
+  expect(summary).toHaveTextContent('1次运行等待补充')
+  expect(screen.queryByText('项能力可以试用')).not.toBeInTheDocument()
+  fireEvent.click(within(screen.getByRole('region',{name:'等待补充的运行'})).getByRole('button',{name:'补充：数据分析'}))
+  expect(await screen.findByRole('textbox',{name:'标签含义'})).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button',{name:'停止运行'}))
+  await waitFor(()=>expect(summary).toHaveTextContent('0次运行等待补充'))
+  expect(screen.queryByRole('region',{name:'等待补充的运行'})).not.toBeInTheDocument()
+  expect(vi.mocked(api).mock.calls.some(([path])=>path.includes('agent-session/messages'))).toBe(false)
+})
+
+it('follows a configuration link when only the current project query changes', async () => {
+  projectReads(async id => completedTask(id))
+  const params = Promise.resolve({ id: 'p' })
+  const page = await act(async () => render(<Suspense><ProjectPage params={params} /></Suspense>))
+  expect(screen.getByRole('tab', {name:'对话'})).toHaveAttribute('aria-selected','true')
+  navigation.query = 'tab=settings'
+  await act(async () => page.rerender(<Suspense><ProjectPage params={params} /></Suspense>))
+  expect(screen.getByRole('tab', {name:'设置'})).toHaveAttribute('aria-selected','true')
+  expect(screen.getByRole('button', {name:'模型设置'})).toBeInTheDocument()
+  expect(vi.mocked(api).mock.calls.every(([, options]) => !options)).toBe(true)
+})
+
+it('preserves new manual-run input summaries while refreshing compact history', async () => {
+  navigation.query = 'task=previous'
+  const previous = {...completedTask('previous'), purpose:'customer_trial', input_files:['previous.csv'], inputs:{source_path:'requirement-package/previous.csv',removed_field:'must not carry'}}
+  vi.mocked(api).mockImplementation(async (path, options) => {
+    if (path.endsWith('/tasks/previous')) return previous as never
+    if (path.endsWith('/tasks') && options?.method === 'POST') return {...completedTask('new'), inputs:JSON.parse(options.body as string).inputs,
+      input_parameters:[{name:'group_by',label:'汇总维度',value:'按月、商户和币种'},{name:'mark_duplicates',label:'标记疑似重复',value:'否'}]} as never
+    if (path.includes('/tasks?purpose=customer_trial')) return [previous] as never
+    if (path.endsWith('/conversations') || path.includes('/tasks?') || path.endsWith('/workspace/files')) return [] as never
+    if (path.endsWith('/example')) return null as never
+    if (path.endsWith('/progress')) return {revision:0,value:{goal:'',summary:'',items:[]}} as never
+    if (path.endsWith('/readiness')) return {status:'configured',issues:[],note:'运行时检查'} as never
+    if (path.endsWith('/draft')) return {snapshot:{workflow:{nodes:[{type:'start',config:{inputs:[
+      {name:'source_path',type:'string',default:'requirement-package/original.csv'},
+      {name:'files',type:'array',default:['results/prior/review.csv','requirement-package/notes.txt','requirement-package/new.csv']},
+      {name:'request',type:'string',default:'不得把完整要求展示在历史文件摘要'},
+      {name:'rows',type:'array',default:[{path:'requirement-package/row-data.csv',value:'完整行数据'}]},
+    ]}}]}}} as never
+    if (options) throw new Error(path)
+    return {id:'p',name:'项目',members:[{id:'member',name:'资料整理',revision:1,purpose:'business'}]} as never
+  })
+  await act(async () => {render(<Suspense><ProjectPage params={Promise.resolve({id:'p'})}/></Suspense>)})
+  fireEvent.click(await screen.findByRole('button',{name:'再次运行此工作流'}))
+  expect(await screen.findByRole('textbox',{name:'source_path'})).toHaveValue('requirement-package/previous.csv')
+  fireEvent.change(screen.getByRole('textbox',{name:'source_path'}),{target:{value:'requirement-package/new.csv'}})
+  fireEvent.click(screen.getByRole('button',{name:'启动工作流'}))
+  await screen.findByText('保存的结果 new')
+  await act(async()=>{fireEvent.click(screen.getByRole('tab',{name:'运行记录'}))})
+  const current = screen.getByRole('button',{name:/资料整理 · 运行完成.*输入：new.csv、review.csv、notes.txt/})
+  expect(current).toBeVisible()
+  expect(current).not.toHaveTextContent('requirement-package/')
+  expect(current).not.toHaveTextContent('完整要求')
+  expect(current).not.toHaveTextContent('row-data.csv')
+  expect(current).toHaveTextContent('汇总维度：按月、商户和币种 · 标记疑似重复：否')
+  expect(screen.getByRole('button',{name:/资料整理 · 运行完成.*输入：previous.csv/})).toBeVisible()
+  const submits=vi.mocked(api).mock.calls.filter(([,options])=>options?.method==='POST')
+  expect(submits).toHaveLength(1)
+  const body=JSON.parse(submits[0][1]!.body as string)
+  expect(body.reuse_task_id).toBeUndefined()
+  expect(body.inputs.removed_field).toBeUndefined()
+  expect(body.inputs.files).toHaveLength(3)
+  expect(vi.mocked(api).mock.calls.some(([path])=>path.endsWith('/tasks/new'))).toBe(false)
+})
+
+it('distinguishes same-file runs with saved business parameters without reading the current draft', async () => {
+  const rows = [
+    {...completedTask('category'), input_files:['expenses.csv'], input_parameters:[
+      {name:'group_by',label:'汇总维度',value:'按月、类别和币种'},
+      {name:'mark_duplicates',label:'标记疑似重复',value:'是'},
+    ]},
+    {...completedTask('merchant'), input_files:['expenses.csv'], input_parameters:[
+      {name:'group_by',label:'汇总维度',value:'按月、商户和币种'},
+      {name:'mark_duplicates',label:'标记疑似重复',value:'否'},
+    ]},
+    {...completedTask('older'), input_files:['older.csv']},
+  ]
+  vi.mocked(api).mockImplementation(async path => {
+    if (path.includes('/tasks?purpose=customer_trial')) return rows as never
+    if (path.includes('/tasks?') || path.endsWith('/conversations') || path.endsWith('/workspace/files')) return [] as never
+    if (path.includes('/tasks/')) return rows.find(row=>path.endsWith('/'+row.id)) as never
+    if (path.endsWith('/example')) return null as never
+    if (path.endsWith('/progress')) return {revision:0,value:{goal:'',summary:'',items:[]}} as never
+    if (path.endsWith('/draft')) throw new Error('Run history must not load current draft inputs')
+    return {id:'p',name:'费用归集',members:[{id:'member',name:'费用归集',purpose:'business'}]} as never
+  })
+  await act(async()=>{render(<Suspense><ProjectPage params={Promise.resolve({id:'p'})}/></Suspense>)})
+  fireEvent.click(screen.getByRole('tab',{name:'运行记录'}))
+  fireEvent.click(screen.getByRole('tab',{name:'对话'}))
+  const recent = screen.getByRole('region',{name:'最近结果'})
+  expect(within(recent).getByRole('button',{name:/费用归集.*按月、类别和币种/})).toBeVisible()
+  const recentMerchant = within(recent).getByRole('button',{name:/费用归集.*按月、商户和币种/})
+  expect(recentMerchant).toHaveTextContent('expenses.csv')
+  fireEvent.click(recentMerchant)
+  expect(await screen.findByText('保存的结果 merchant')).toBeVisible()
+  fireEvent.click(screen.getByRole('button',{name:'关闭阅读窗口'}))
+  fireEvent.click(screen.getByRole('tab',{name:'运行记录'}))
+  const category = screen.getByRole('button',{name:/费用归集 · 运行完成.*输入：expenses.csv.*汇总维度：按月、类别和币种.*标记疑似重复：是/})
+  const merchant = screen.getByRole('button',{name:/费用归集 · 运行完成.*输入：expenses.csv.*汇总维度：按月、商户和币种.*标记疑似重复：否/})
+  expect(category).toBeVisible()
+  expect(merchant).toBeVisible()
+  expect(screen.getByRole('button',{name:/费用归集 · 运行完成.*输入：older.csv/})).toBeVisible()
+  fireEvent.click(merchant)
+  expect(await screen.findByText('保存的结果 merchant')).toBeInTheDocument()
+  expect(api).toHaveBeenCalledWith('/api/v1/projects/p/tasks/merchant')
+  expect(vi.mocked(api).mock.calls.some(([path])=>path.endsWith('/draft'))).toBe(false)
 })

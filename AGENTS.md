@@ -3,14 +3,15 @@
 ## What this project is
 
 A Dify-class visual AI workflow platform whose named Builder agent, Lilies,
-turns natural-language requirements into runnable, editable, testable
-workflows. The product authority is `docs/PRODUCT_NORTH_STAR.md`; the working
+solves tasks independently and can generate editable workflows at any time,
+even before models or runtime resources exist. The product authority is `docs/PRODUCT_NORTH_STAR.md`; the working
 product description is `docs/BUSINESS_LOGIC.md`. Everything under
 `docs/archive/` is history — read it for context, never for task sequencing.
 
 ## The one rule that outranks the rest
 
-The platform exists to *generate workflows that work*. Prefer the change that
+The platform supports independent agent tasks and reusable visual workflows.
+Draft creation must not depend on task completion or runtime resource readiness. Prefer the change that
 makes building, editing, running, or fixing a workflow simpler and more
 observable. Do not add review gates, evidence ledgers, claim ceilings,
 authority chains, or completion audits — that machinery was removed
@@ -41,6 +42,14 @@ function. If a governance-shaped feature seems necessary, ask the user first.
   HTTP or spend tokens without explicit user authorization in this session.
 - Preserve unrelated user changes in the dirty worktree. Never use
   destructive git commands to simplify a task.
+- Feedback-driven platform source improvements are collected and organized
+  into batches, then developed and tested on a dedicated branch in a separate
+  worktree. Do not edit the serving checkout or replace its build artifacts.
+  Completing tests, pushing a branch, or opening a PR must not deploy those
+  changes to the employee-facing service. Release is eligible only after the
+  changes are merged into `main`; repair completion does not authorize an
+  automatic merge. This concerns platform source releases, not customer
+  workflow generation or execution.
 - Keep the current week in `docs/WEEKLY_LOG.md` updated when development
   makes progress: briefly record actual changes, validation, and the next
   unfinished action. Preserve earlier weeks; keep proposals separate from

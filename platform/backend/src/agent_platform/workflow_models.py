@@ -433,8 +433,14 @@ class WorkflowRunState(BaseModel):
     application_call_chain: list[str] = Field(default_factory=list, max_length=16)
     outputs: dict[str, dict[str, Any]] = Field(default_factory=dict)
     completed: list[str] = Field(default_factory=list)
+    reuse_checkpoints: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    reuse_source_run_id: str | None = None
+    reused_nodes: list[str] = Field(default_factory=list)
     skipped: list[str] = Field(default_factory=list)
+    # Each loop/iteration occurrence keeps its own completed steps on resume.
+    nested_progress: dict[str, dict[str, Any]] = Field(default_factory=dict)
     waiting_node_id: str | None = None
+    waiting_form: dict[str, Any] | None = None
     resumed_values: dict[str, Any] | None = None
     human_input_values: dict[str, dict[str, Any]] = Field(
         default_factory=dict,

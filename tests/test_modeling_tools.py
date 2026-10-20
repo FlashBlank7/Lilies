@@ -9,7 +9,7 @@ import time
 import pytest
 
 from agent_platform.modeling_models import ModelingTool
-from agent_platform.modeling_summary import study_summary, candidate_summary, note_summary, profile_summary
+from agent_platform.modeling_summary import study_summary, candidate_summary, note_summary, profile_summary, split_summary
 from agent_platform.project_agent_tools import WorkspaceProjectTools, project_tool_specs
 from tests.test_modeling import modeling, real_compute, setup, wait_task  # noqa: F401
 from tests.test_projects import configured, graph, node, edge, ref  # noqa: F401
@@ -42,12 +42,15 @@ def test_summary_keeps_diagnostics_and_full_records_are_unmodified():
     trial = {'slot': 0, 'model': 'svm', 'status': 'completed', 'metrics': {'mae': .3}, 'baseline': {'mae': .5},
         'fold_metrics': [{'mae': .4}], 'diagnostics': [{'constant_prediction': True}], 'warnings': ['常数预测'],
         'group_errors': [{'group': str(i), 'error': 10-i} for i in range(10)],
-        'effective_model': {'many': list(range(1000))}, 'prediction_preview': [1]*100, 'seconds': 1}
+        'effective_model': {'many': list(range(1000))}, 'prediction_preview': [1]*100, 'seconds': 1,
+        'resources': {'peak_rss_bytes': 200000000, 'memory_scope': 'trial_process', 'model_bytes': 12345,
+                      'model_paths': ['model.joblib'], 'model_scope': 'saved_prediction_files'}}
     candidate = {'id': 'c', 'study_id': 's', 'trials': [trial], 'features': {'columns': ['x']}, 'hypothesis': '试验窗口',
         'error': '失败原因', 'task_id': 't', 'parent_id': 'old', 'parameters': {'large': 'x'*4000}}
     before = deepcopy(candidate); result = candidate_summary(candidate)
     assert result['trials'][0]['diagnostics'] == trial['diagnostics']
     assert result['trials'][0]['warnings'] == ['常数预测']
+    assert result['trials'][0]['resources'] == trial['resources']
     assert result['trials'][0]['group_errors_omitted'] == 5
     assert result['error'] == '失败原因' and result['task_id'] == 't'
     assert len(json.dumps(result)) < len(json.dumps(candidate)) / 2
@@ -75,14 +78,54 @@ def test_tool_help_and_default_summary_with_full_and_http_compatibility(modeling
     assert len(spec['description']) < len(help['description']) / 3
     example = help['workflow_example']
     graph(client, project['id'], example['nodes'], example['edges'])
-    example_args = next(e for e in help['examples'] if e['action']=='submit_and_run')
+    example_args = next(e for e in help['examples'] if e['action']=='train')
     assert ModelingTool.model_validate(example_args).wait is True
+
+
+def test_split_summary_distinguishes_reserved_unevaluated_absent_and_unknown():
+    split = {'samples': list(range(10)), 'development': list(range(8)), 'holdout': [8, 9], 'folds': []}
+    assert split_summary(split)['holdout_status'] == 'not_evaluated'
+    assert split_summary(split)['holdout_samples'] == 2
+    assert split_summary(split)['development_samples'] == 8
+    assert split_summary(split, {'metrics': {'mae': 1}})['holdout_status'] == 'evaluated'
+    assert split_summary({**split, 'holdout': []})['holdout_status'] == 'not_reserved'
+    assert split_summary({})['holdout_status'] == 'unknown'
+    assert 'holdout_samples' not in split_summary({})
+    assert split_summary(None) is None
+
+
+def test_register_help_creates_grouped_study_and_rejects_ignored_mapping(modeling):
+    config, _ = modeling
+    client, app, project, settings = config
+    prepare(config)
+    base = '/api/v1/projects/' + project['id']
+    root = settings.workspace_root / project['id']
+    (root / 'results').mkdir(exist_ok=True)
+    (root / 'results/data.csv').write_text('row_id,group_id,label,x\n' + '\n'.join(
+        f'{i},g{i//2},{i%2},{i}' for i in range(60)))
+    help = client.post(base + '/agent-tools', json={'name': 'block_catalog', 'arguments': {'tool_name': 'project_modeling'}}).json()
+    register = next(e for e in help['examples'] if e['action'] == 'register_dataset')
+    misplaced = deepcopy(register)
+    misplaced['mapping'] = misplaced['dataset'].pop('mapping')
+    rejected = call(client, base, **misplaced)
+    assert rejected.status_code == 422 and 'dataset.mapping' in rejected.text
+    assert client.get(base + '/datasets').json() == []
+    created = call(client, base, **register)
+    assert created.status_code == 200, created.text
+    dataset = created.json()
+    assert dataset['mapping']['target'] == 'label' and dataset['mapping']['group_column'] == 'group_id'
+    study = next(e for e in help['examples'] if e['action'] == 'create_study')
+    study['study']['dataset_id'] = dataset['id']
+    result = call(client, base, **study)
+    assert result.status_code == 200, result.text
+    full = call(client, base, action='read_study', study_id=result.json()['id'], view='full').json()
+    assert full['request']['evaluation']['split'] == 'group'
 
 
 @pytest.mark.parametrize('change,match', [
     ('literal', '必须引用'), ('finalize', '留出集'), ('missing', '声明字符串'),
     ('extra_input', '必填字段'), ('type', '类型不匹配'), ('reserved', '由平台绑定'),
-    ('foreign', '当前项目'), ('phase', '绑定建设事项'), ('nested_finalize', '留出集')])
+    ('foreign', '当前项目'), ('nested_finalize', '留出集')])
 def test_preflight_rejects_invalid_inputs_and_graphs_without_creating_candidate(modeling, change, match):
     client, app, project, base, study, args, service = prepared(modeling)
     draft = client.get('/api/v1/applications/'+project['id']+'/draft').json()['snapshot']['workflow']
@@ -98,16 +141,13 @@ def test_preflight_rejects_invalid_inputs_and_graphs_without_creating_candidate(
     elif change == 'reserved': args['inputs'] = {'candidate_id': 'injected'}
     elif change == 'foreign':
         args['workflow_id'] = client.post('/api/v1/projects', json={'name': 'other'}).json()['id']
-    elif change == 'phase':
-        manager = app.state.services.local_agents; state = manager.load(project['id'])
-        state['phase'] = 'operate'; manager.save(project['id'], state)
     elif change == 'nested_finalize':
         member = client.post(base+'/members', json={'name': 'nested', 'purpose': 'test'}).json()['id']
         graph(client, member, [node('start','start'), node('final','model_train',study_id=study['id'],finalize=True),
               node('end','end')], [edge('start','final'),edge('final','end')])
         draft['nodes'].insert(2, node('nested','tool',tool_name='workflow:'+member,input={}))
         draft['edges'] = [edge('start','train'),edge('train','nested'),edge('nested','end')]
-    if change not in {'reserved', 'foreign', 'phase'}:
+    if change not in {'reserved', 'foreign'}:
         graph(client, project['id'], draft['nodes'], draft['edges'])
     response = call(client, base, **args)
     assert response.status_code == 422, response.text

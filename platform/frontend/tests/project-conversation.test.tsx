@@ -24,12 +24,14 @@ const task = { id: 't1', request_key: 'trial-1', mode: 'workflow', purpose: 'cus
 const session = { provider: 'api', status: 'idle', error: '', revision: 1, events: [{ id: 'm1', kind: 'assistant', text: '可以先试用申请分配。', time: '' }],
   has_more: false, first_cursor: 'm1', last_cursor: 'm1', requirements: { status: 'confirmed', document: '# 当前需求', revision: 2 } }
 
-async function setup(sessionOverride: Record<string, unknown> = {}, currentProgress = progress) {
+async function setup(sessionOverride: Record<string, unknown> = {}, currentProgress = progress, example: unknown = null) {
   vi.mocked(api).mockImplementation(async (path, options) => {
+    if (path.endsWith('/example')) return example as never
+    if (path.endsWith('/conversations')) return [{ id: 'chat', title: '我的会话', status: 'idle' }] as never
     if (path.endsWith('/progress')) return currentProgress as never
     if (path.endsWith('/topology')) return { members: project.members, calls: [] } as never
-    if (path.includes('/conversation?kind=tools')) return { ...session, events: [{ id: 'tool1', kind: 'tool', text: 'workflow_run', success: true, result: '真实结果' }] } as never
-    if (path.includes('/conversation')) return { ...session, ...sessionOverride, events: path.includes('after=') || options?.method === 'POST' ? [] : sessionOverride.events || session.events } as never
+    if (path.includes('/conversations/chat?kind=tools')) return { ...session, events: [{ id: 'tool1', kind: 'tool', text: 'workflow_run', success: true, result: '真实结果' }] } as never
+    if (path.includes('/conversations/chat')) return { ...session, ...sessionOverride, events: path.includes('after=') || options?.method === 'POST' ? [] : sessionOverride.events || session.events } as never
     if (path.endsWith('/tasks/t1')) return task as never
     if (path.includes('/tasks?purpose=customer_trial')) return [task] as never
     if (path.includes('/tasks')) return [] as never
@@ -38,26 +40,62 @@ async function setup(sessionOverride: Record<string, unknown> = {}, currentProgr
   await act(async () => { render(<Suspense fallback="加载"><ProjectPage params={Promise.resolve({ id: 'p' })} /></Suspense>) })
 }
 
+it('preserves a rejected shutdown message and its context and request key for retry', async () => {
+  await setup({ provider: 'official' })
+  const healthy = vi.mocked(api).getMockImplementation()!
+  const submitted: Record<string, string>[] = []
+  vi.mocked(api).mockImplementation(async (path, options) => {
+    if (path.endsWith('/messages')) {
+      submitted.push(JSON.parse(String(options?.body)))
+      if (submitted.length === 1)
+        throw Object.assign(new Error('服务正在关闭，消息未接收，请稍后重试'), { status: 503 })
+    }
+    return healthy(path, options)
+  })
+  fireEvent.click(screen.getByRole('button', { name: '回答这个问题' }))
+  fireEvent.change(screen.getByLabelText('给项目统筹的消息'), { target: { value: '从头部开始' } })
+  fireEvent.click(screen.getByRole('button', { name: '发送' }))
+  expect(await screen.findByText(/服务正在关闭，消息未接收/)).toBeInTheDocument()
+  expect(screen.getByLabelText('给项目统筹的消息')).toHaveValue('从头部开始')
+  expect(screen.queryByText('请求已发送。')).not.toBeInTheDocument()
+  await waitFor(() => expect(screen.getByRole('button', { name: '发送' })).toBeEnabled())
+  fireEvent.click(screen.getByRole('button', { name: '发送' }))
+  await waitFor(() => expect(screen.getByLabelText('给项目统筹的消息')).toHaveValue(''))
+  expect(submitted).toHaveLength(2)
+  expect(submitted[0]).toEqual(expect.objectContaining({ message: '从头部开始', item_id: 'predict', question_id: 'origin', request_key: expect.any(String) }))
+  expect(submitted[0].request_key).toBeTruthy()
+  expect(submitted[1]).toEqual(submitted[0])
+  expect(screen.queryByText(/服务正在关闭，消息未接收/)).not.toBeInTheDocument()
+})
+
 it('attaches an uploaded dataset without replacing the customer’s unsent request', async () => {
   await setup()
   const original = vi.mocked(api).getMockImplementation()!
   const uploaded = { id: 'uploaded', name: 'input.csv', status: 'registered', mapping: { kind: 'tabular' } }
+  let finishUpload!: (value: typeof uploaded) => void
+  const pendingUpload = new Promise<typeof uploaded>(resolve => { finishUpload = resolve })
   vi.mocked(api).mockImplementation(async (path, options) => {
-    if (path.endsWith('/datasets/upload') || path.endsWith('/datasets/uploaded')) return uploaded as never
+    if (path.endsWith('/datasets/upload')) return pendingUpload as never
+    if (path.endsWith('/datasets/uploaded')) return uploaded as never
     if (path.includes('/datasets')) return [uploaded] as never
     if (path.includes('/modeling/studies')) return [] as never
     return original(path, options)
   })
   fireEvent.change(screen.getByLabelText('给项目统筹的消息'), { target: { value: '用已有模型预测这份文件，不重新训练' } })
   fireEvent.change(screen.getByLabelText('上传建模数据'), { target: { files: [new File(['x\n4\n'], 'input.csv')] } })
-  await screen.findByRole('combobox', { name: '选择数据集' })
+  expect(screen.getByLabelText('上传建模数据')).toBeDisabled()
+  expect(screen.getByLabelText('给项目统筹的消息')).toHaveValue('用已有模型预测这份文件，不重新训练')
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  await act(async () => { finishUpload(uploaded); await pendingUpload })
+  const dialog = screen.getByRole('dialog', { name: '数据分析' })
+  expect(within(dialog).getByRole('combobox', { name: '选择数据集' })).toHaveValue('uploaded')
   fireEvent.click(screen.getByRole('button', { name: '关闭阅读窗口' }))
   expect(screen.getByLabelText('给项目统筹的消息')).toHaveValue('用已有模型预测这份文件，不重新训练')
   fireEvent.click(screen.getByRole('button', { name: '发送' }))
-  await waitFor(() => expect(api).toHaveBeenCalledWith('/api/v1/projects/p/conversation/messages', {
+  await waitFor(() => expect(api).toHaveBeenCalledWith('/api/v1/projects/p/conversations/chat/messages', {
     method: 'POST', body: expect.stringContaining('"dataset_id":"uploaded"'),
   }))
-  const call = vi.mocked(api).mock.calls.find(([path, options]) => path.endsWith('/conversation/messages') && options?.method === 'POST')!
+  const call = vi.mocked(api).mock.calls.find(([path, options]) => path.endsWith('/conversations/chat/messages') && options?.method === 'POST')!
   expect(JSON.parse(call[1]!.body as string).message).toBe('用已有模型预测这份文件，不重新训练')
 })
 
@@ -74,7 +112,7 @@ it('removes answered questions with the same identifier in different business it
   current.value.items = current.value.items.map(i => ({ ...i, questions: i.questions.map(q =>
     q.id === 'maintenance' ? { ...q, answer: '已经恢复' } : q) }))
   live.revision = 2
-  await act(async () => { (intervals.mock.calls[0][0] as () => void)() })
+  await act(async () => { (intervals.mock.calls.find(call => call[1] === 1500)![0] as () => void)() })
   await waitFor(() => expect(within(pending()).queryByText('运行环境等待恢复')).not.toBeInTheDocument())
   expect(within(pending()).getByText('坐标从哪端开始？')).toBeInTheDocument()
 })
@@ -85,20 +123,57 @@ it('recovers an invalid message cursor without losing visible history or the uns
   fireEvent.change(screen.getByLabelText('给项目统筹的消息'), { target: { value: '尚未发送的客户补充' } })
   const healthy = vi.mocked(api).getMockImplementation()!
   vi.mocked(api).mockImplementation(async (path, options) => {
-    if (path.endsWith('/conversation?after=m1'))
+    if (path.endsWith('/conversations/chat?after=m1'))
       throw Object.assign(new Error('会话分页位置不存在'), { status: 422, detail: '会话分页位置不存在' })
-    if (path.endsWith('/conversation')) return { ...session, revision: 2,
+    if (path.endsWith('/conversations/chat')) return { ...session, revision: 2,
       events: [{ id: 'm2', kind: 'assistant', text: '已从保存状态恢复', time: '' }],
       first_cursor: 'm2', last_cursor: 'm2' } as never
     return healthy(path, options)
   })
-  await act(async () => { (intervals.mock.calls[0][0] as () => void)() })
+  await act(async () => { (intervals.mock.calls.find(call => call[1] === 1500)![0] as () => void)() })
   expect(await screen.findByText('已从保存状态恢复')).toBeInTheDocument()
   expect(screen.getByText('可以先试用申请分配。')).toBeInTheDocument()
   expect(screen.getByLabelText('给项目统筹的消息')).toHaveValue('尚未发送的客户补充')
   expect(screen.queryByText('连接暂时中断，已保存的对话和结果仍保留。')).not.toBeInTheDocument()
-  await act(async () => { (intervals.mock.calls[0][0] as () => void)() })
-  expect(api).toHaveBeenCalledWith('/api/v1/projects/p/conversation?after=m2')
+  await act(async () => { (intervals.mock.calls.find(call => call[1] === 1500)![0] as () => void)() })
+  expect(api).toHaveBeenCalledWith('/api/v1/projects/p/conversations/chat?after=m2')
+})
+
+it.each(['previous_idle', 'previous_running', 'previous_failure'])('keeps the newest displayed task state when %s arrives late', async fault => {
+  const intervals = vi.spyOn(window, 'setInterval')
+  const previous = { ...session, status: fault === 'previous_running' ? 'running' : 'idle', revision: 2 }
+  await setup(previous)
+  fireEvent.change(screen.getByLabelText('给项目统筹的消息'), { target: { value: '尚未发送的补充' } })
+  const healthy = vi.mocked(api).getMockImplementation()!
+  let resolve!: (value: never) => void
+  let reject!: (error: Error) => void
+  let reads = 0
+  const latest = { ...session, status: fault === 'previous_running' ? 'idle' : 'running', revision: 3,
+    events: [{ id: 'm2', kind: 'assistant', text: '最新处理记录', time: '' }], first_cursor: 'm2', last_cursor: 'm2' }
+  vi.mocked(api).mockImplementation(async (path, options) => {
+    if (path.includes('/conversations/chat') && !path.includes('kind=') && !options) {
+      reads++
+      if (reads === 1) return new Promise((yes, no) => { resolve = yes; reject = no })
+      return latest as never
+    }
+    return healthy(path, options)
+  })
+  const refresh = intervals.mock.calls.find(call => call[1] === 1500)![0] as () => void
+  await act(async () => { refresh() })
+  expect(resolve).toBeDefined()
+  await act(async () => { refresh() })
+  expect(await screen.findByText('最新处理记录')).toBeInTheDocument()
+  await act(async () => {
+    if (fault === 'previous_failure') reject(new Error('older connection failed'))
+    else resolve(previous as never)
+  })
+  if (fault === 'previous_running') expect(screen.queryByRole('button', { name: '停止' })).not.toBeInTheDocument()
+  else expect(screen.getByRole('button', { name: '停止' })).toBeInTheDocument()
+  expect(screen.queryByText('连接暂时中断，已保存的对话和结果仍保留。')).not.toBeInTheDocument()
+  expect(screen.getByLabelText('给项目统筹的消息')).toHaveValue('尚未发送的补充')
+  expect(screen.getByText('最新处理记录')).toBeInTheDocument()
+  await act(async () => { refresh() })
+  expect(api).toHaveBeenLastCalledWith('/api/v1/projects/p/conversations/chat?after=m2')
 })
 
 it('shows usable capability and ongoing work independently, with local questions', async () => {
@@ -113,7 +188,7 @@ it('shows usable capability and ongoing work independently, with local questions
   fireEvent.click(screen.getByRole('button', { name: '回答这个问题' }))
   fireEvent.change(screen.getByLabelText('给项目统筹的消息'), { target: { value: '从头部开始' } })
   fireEvent.click(screen.getByRole('button', { name: '发送' }))
-  await waitFor(() => expect(api).toHaveBeenCalledWith('/api/v1/projects/p/conversation/messages', {
+  await waitFor(() => expect(api).toHaveBeenCalledWith('/api/v1/projects/p/conversations/chat/messages', {
     method: 'POST', body: JSON.stringify({ message: '从头部开始', item_id: 'predict', question_id: 'origin', task_id: '' }),
   }))
 })
@@ -124,16 +199,16 @@ it('trials and result feedback use the same conversation without an internal pha
   expect((screen.getByLabelText('给项目统筹的消息') as HTMLTextAreaElement).value).toContain('申请分配')
   fireEvent.change(screen.getByLabelText('给项目统筹的消息'), { target: { value: '用 request.json 试一下' } })
   fireEvent.click(screen.getByRole('button', { name: '发送' }))
-  await waitFor(() => expect(api).toHaveBeenCalledWith('/api/v1/projects/p/conversation/messages', {
+  await waitFor(() => expect(api).toHaveBeenCalledWith('/api/v1/projects/p/conversations/chat/messages', {
     method: 'POST', body: JSON.stringify({ message: '用 request.json 试一下', item_id: 'allocate', question_id: '', task_id: '' }),
   }))
-  fireEvent.click(screen.getByRole('tab', { name: '业务结果' }))
+  fireEvent.click(screen.getByRole('tab', { name: '运行记录' }))
   fireEvent.click(screen.getByRole('button', { name: /申请分配 · 运行完成/ }))
   expect(await screen.findByRole('table')).toHaveTextContent('资源2')
-  fireEvent.click(screen.getByRole('button', { name: '反馈这个结果' }))
+  fireEvent.click(screen.getByRole('button', { name: '让智能体修改' }))
   fireEvent.change(screen.getByLabelText('给项目统筹的消息'), { target: { value: '这个分配不合适，请修改后再试' } })
   fireEvent.click(screen.getByRole('button', { name: '发送' }))
-  await waitFor(() => expect(api).toHaveBeenCalledWith('/api/v1/projects/p/conversation/messages', {
+  await waitFor(() => expect(api).toHaveBeenCalledWith('/api/v1/projects/p/conversations/chat/messages', {
     method: 'POST', body: JSON.stringify({ message: '这个分配不合适，请修改后再试', item_id: 'allocate', question_id: '', task_id: 't1' }),
   }))
 })
@@ -142,13 +217,10 @@ it('loads tool history only on demand and shows business members from the real t
   await setup()
   expect(vi.mocked(api).mock.calls.some(([path]) => path.includes('kind=tools'))).toBe(false)
   fireEvent.click(screen.getByText('查看操作记录'))
-  await waitFor(() => expect(api).toHaveBeenCalledWith('/api/v1/projects/p/conversation?kind=tools'))
-  fireEvent.click(screen.getByRole('tab', { name: '业务流程' }))
+  await waitFor(() => expect(api).toHaveBeenCalledWith('/api/v1/projects/p/conversations/chat?kind=tools'))
+  fireEvent.click(screen.getByRole('tab', { name: '工作流' }))
   expect(await screen.findByRole('button', { name: '业务主流程' })).toBeInTheDocument()
   expect(screen.queryByRole('button', { name: '内部测试' })).not.toBeInTheDocument()
-  expect(screen.getByRole('region', { name: '需求与当前结果对照' })).toBeInTheDocument()
-  expect(screen.queryByTitle('业务工作流画布')).not.toBeInTheDocument()
-  fireEvent.click(screen.getByRole('button', { name: '编辑画布' }))
   expect(screen.getByTitle('业务工作流画布')).toHaveAttribute('src', '/applications/p?tab=edit&embedded=1')
 })
 
@@ -156,7 +228,7 @@ it('continues interrupted feedback with its original item and task', async () =>
   await setup({ status: 'interrupted', active_item_id: 'allocate', conversation_context: { item_id: 'allocate', task_id: 't1' } })
   expect(screen.getByText(/已停止，进展和结果已保留/)).toHaveTextContent('检查分配反馈')
   fireEvent.click(screen.getByRole('button', { name: '继续推进' }))
-  await waitFor(() => expect(api).toHaveBeenCalledWith('/api/v1/projects/p/conversation/messages', {
+  await waitFor(() => expect(api).toHaveBeenCalledWith('/api/v1/projects/p/conversations/chat/messages', {
     method: 'POST', body: JSON.stringify({ message: '继续推进已授权的剩余工作；先读取当前进展与最近反馈。', item_id: 'allocate', question_id: '', task_id: 't1' }),
   }))
 })
@@ -167,7 +239,7 @@ it('lets the customer supplement an already answered question in its original co
   fireEvent.click(screen.getByRole('button', { name: '补充回答' }))
   fireEvent.change(screen.getByLabelText('给项目统筹的消息'), { target: { value: '补充：从头部开始' } })
   fireEvent.click(screen.getByRole('button', { name: '发送' }))
-  await waitFor(() => expect(api).toHaveBeenCalledWith('/api/v1/projects/p/conversation/messages', {
+  await waitFor(() => expect(api).toHaveBeenCalledWith('/api/v1/projects/p/conversations/chat/messages', {
     method: 'POST', body: JSON.stringify({ message: '补充：从头部开始', item_id: 'predict', question_id: 'origin', task_id: '' }),
   }))
 })
@@ -197,10 +269,10 @@ it('opens the referenced report, follows its files and keeps feedback bound to t
   expect(await screen.findByText('{"actual":2}')).toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: '查看关联结果' }))
   expect(await screen.findByRole('table')).toHaveTextContent('资源2')
-  fireEvent.click(screen.getByRole('button', { name: '反馈这个结果' }))
+  fireEvent.click(screen.getByRole('button', { name: '让智能体修改' }))
   expect(screen.getByLabelText('给项目统筹的消息')).toHaveValue('未发送的反馈')
   fireEvent.click(screen.getByRole('button', { name: '发送' }))
-  await waitFor(() => expect(api).toHaveBeenCalledWith('/api/v1/projects/p/conversation/messages', {
+  await waitFor(() => expect(api).toHaveBeenCalledWith('/api/v1/projects/p/conversations/chat/messages', {
     method: 'POST', body: JSON.stringify({ message: '未发送的反馈', item_id: 'allocate', question_id: '', task_id: 't1' }),
   }))
 })
@@ -211,7 +283,7 @@ it('downloads a PDF file reference even when it also links to a task', async () 
   await setup({}, current)
   fireEvent.click(screen.getByText('相关结果与资料（1）'))
   const report = screen.getByRole('link', { name: '试用报告PDF ↓' })
-  expect(report).toHaveAttribute('href', '/api/platform/api/v1/applications/p/workspace/files/results/trial/report.pdf')
+  expect(report).toHaveAttribute('href', '/api/platform/api/v1/applications/p/workspace/files/results/trial/report.pdf?download=1')
   expect(report).toHaveAttribute('download')
   expect(screen.queryByRole('button', { name: '试用报告PDF ↗' })).not.toBeInTheDocument()
   expect(vi.mocked(api).mock.calls.some(([path]) => path.endsWith('/tasks/t1'))).toBe(false)
@@ -235,8 +307,8 @@ it('keeps the draft through reading, navigation, sidebar collapse and remount', 
   expect(screen.getByRole('dialog')).toHaveTextContent('当前需求')
   fireEvent.click(screen.getByRole('button', { name: '关闭阅读窗口' }))
   fireEvent.click(screen.getByRole('button', { name: '收起导航' }))
-  fireEvent.click(screen.getByRole('tab', { name: '项目资料' }))
-  fireEvent.click(screen.getByRole('tab', { name: '项目进展与对话' }))
+  fireEvent.click(screen.getByRole('tab', { name: '资料与知识' }))
+  fireEvent.click(screen.getByRole('tab', { name: '对话' }))
   expect(screen.getByLabelText('给项目统筹的消息')).toHaveValue('这份输入先留在草稿')
   cleanup()
   await setup()
@@ -252,12 +324,21 @@ it('shows a result card only with a persisted task link and carries feedback to 
   expect(within(result).getByText('运行完成')).toBeInTheDocument()
   fireEvent.click(within(result).getByRole('button', { name: '查看结果' }))
   expect(await screen.findByRole('dialog')).toHaveTextContent('资源2')
-  fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: '反馈这个结果' }))
+  fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: '让智能体修改' }))
   fireEvent.change(screen.getByLabelText('给项目统筹的消息'), { target: { value: '这个结果请改一下' } })
   fireEvent.click(screen.getByRole('button', { name: '发送' }))
-  await waitFor(() => expect(api).toHaveBeenCalledWith('/api/v1/projects/p/conversation/messages', {
+  await waitFor(() => expect(api).toHaveBeenCalledWith('/api/v1/projects/p/conversations/chat/messages', {
     method: 'POST', body: JSON.stringify({ message: '这个结果请改一下', item_id: 'allocate', question_id: '', task_id: 't1' }),
   }))
+})
+
+it('opens an already completed result when the model has exhausted its request budget', async () => {
+  await setup({ status: 'error', error: '本次请求已达到 4 次对话模型调用上限',
+    events: [{ id: 'r1', kind: 'result', time: '', text: '运行完成', request_id: 'request-1', task_id: 't1' }] })
+  expect(screen.getByText('本次请求已达到 4 次对话模型调用上限')).toBeInTheDocument()
+  fireEvent.click(within(screen.getByRole('article', { name: '关联业务结果' })).getByRole('button', { name: '查看结果' }))
+  expect(await screen.findByRole('dialog')).toHaveTextContent('资源2')
+  expect(vi.mocked(api).mock.calls.some(([path, options]) => path.endsWith('/messages') && options?.method === 'POST')).toBe(false)
 })
 
 it('acknowledges a supplement without declaring the running task complete', async () => {
@@ -282,4 +363,92 @@ it('shows this delivery and its completion conditions alongside the unfinished e
   expect(within(card).getByText('保留修改前的结果')).toBeVisible()
   expect(screen.getByRole('region', { name: '氧预测' })).toHaveTextContent('等待条件')
   expect(screen.getByText('处理申请并改善预测')).toBeInTheDocument()
+})
+
+
+it('reads shared requirements without requiring a confirmation step before talking', async () => {
+  await setup({requirements:{status:'review',document:'# 待讨论的需求',revision:4}})
+  expect(screen.getByRole('button',{name:'当前需求文档'})).toBeEnabled()
+  expect(screen.queryByRole('button',{name:'理解正确，确认需求文档'})).not.toBeInTheDocument()
+  fireEvent.change(screen.getByLabelText('给项目统筹的消息'),{target:{value:'先训练一个基线模型'}})
+  fireEvent.click(screen.getByRole('button',{name:'发送'}))
+  await waitFor(()=>expect(api).toHaveBeenCalledWith('/api/v1/projects/p/conversations/chat/messages',expect.objectContaining({method:'POST'})))
+  expect(vi.mocked(api).mock.calls.some(([path])=>path.endsWith('/requirements/confirm'))).toBe(false)
+})
+
+
+it('appends an example question without replacing an unsent draft or sending a message', async () => {
+  await setup({}, progress, {name:'会议纪要',question:'整理这份会议记录',requires:['大模型连接'],steps:['查看资料'],exercise:'更换资料',files:[],workflows:[]})
+  fireEvent.change(screen.getByLabelText('给项目统筹的消息'), {target:{value:'这是我正在写的草稿'}})
+  fireEvent.click(screen.getByRole('button',{name:'准备这条消息'}))
+  expect((screen.getByLabelText('给项目统筹的消息') as HTMLTextAreaElement).value).toContain('这是我正在写的草稿')
+  expect((screen.getByLabelText('给项目统筹的消息') as HTMLTextAreaElement).value).toContain('整理这份会议记录')
+  fireEvent.click(screen.getByRole('button',{name:'准备这条消息'}))
+  expect((screen.getByLabelText('给项目统筹的消息') as HTMLTextAreaElement).value.split('整理这份会议记录')).toHaveLength(2)
+  expect(vi.mocked(api).mock.calls.some(([path,options])=>path.endsWith('/messages')&&options?.method==='POST')).toBe(false)
+})
+
+it.each([false,true])('hands the selected training result to a prepared workflow draft (existing conversation=%s)',async existing=>{
+  const study={id:'study-selected',name:'本次训练结果',dataset_id:'data-selected',status:'finished',best:{candidate_id:'candidate-selected',slot:0,model:'linear',score:.2},budget:{seconds:60,trials:1},evaluation:{metric:'mae',split:'random'},trials_used:1}
+  const candidate={id:'candidate-selected',task_id:'training-task',status:'completed',hypothesis:'使用已有模型',trials:[{slot:0,status:'completed',model:'linear',metrics:{mae:.2},seconds:1}]}
+  let rows=existing?[{id:'chat',title:'我的会话',status:'idle'}]:[]
+  vi.mocked(api).mockImplementation(async(path,options)=>{
+    if(path.endsWith('/conversations')){
+      if(options?.method==='POST'){const row={id:'new',title:'新会话',status:'idle'};rows=[row];return row as never}
+      return rows as never
+    }
+    if(path.includes('/conversations/'))return {...session,events:[]} as never
+    if(path.endsWith('/candidates/candidate-selected'))return candidate as never
+    if(path.includes('/candidates'))return [candidate] as never
+    if(path.includes('/modeling/studies'))return [study] as never
+    if(path.includes('/datasets'))return [{id:'data-selected',name:'本次数据',status:'profiled',mapping:{target:'y',kind:'tabular'}}] as never
+    if(path.endsWith('/models')||path.endsWith('/model-environments'))return [] as never
+    if(path.endsWith('/progress'))return progress as never
+    if(path.endsWith('/example'))return null as never
+    if(path.includes('/tasks'))return [] as never
+    if(path.endsWith('/space'))return {files:[]} as never
+    if(path.endsWith('/workspace/files'))return [] as never
+    return project as never
+  })
+  await act(async()=>{render(<Suspense><ProjectPage params={Promise.resolve({id:'p'})}/></Suspense>)})
+  if(existing)fireEvent.change(await screen.findByLabelText('给项目统筹的消息'),{target:{value:'已有草稿，请保留'}})
+  else await screen.findByText('新建会话，开始分析资料、训练模型或搭建工作流。')
+  expect(vi.mocked(api).mock.calls.some(([,options])=>options?.method)).toBe(false)
+  fireEvent.click(screen.getByRole('tab',{name:'模型'}))
+  fireEvent.click(await screen.findByRole('button',{name:'查看结果'}))
+  fireEvent.click(within(screen.getByRole('dialog')).getByRole('button',{name:'创建预测工作流'}))
+  const message=await screen.findByLabelText('给项目统筹的消息')
+  await waitFor(()=>expect(message).toHaveValue((existing?'已有草稿，请保留\n\n':'')+'请用当前最佳模型生成可复用的预测工作流，并说明无标签输入格式。'))
+  expect(screen.getByRole('button',{name:'创建工作流'})).toHaveAttribute('aria-pressed','true')
+  expect(screen.getByRole('button',{name:'生成新工作流'})).toBeEnabled()
+  expect(screen.getByText('关于建模：本次训练结果')).toBeVisible()
+  const contextKey=Array.from({length:sessionStorage.length},(_,index)=>sessionStorage.key(index)!).find(key=>key.endsWith(':draft:modeling'))!
+  expect(JSON.parse(sessionStorage.getItem(contextKey)!)).toMatchObject({study_id:'study-selected',candidate_id:'candidate-selected',dataset_id:'data-selected',task_id:'training-task'})
+  expect(vi.mocked(api).mock.calls.filter(([,options])=>options?.method).map(([path])=>path)).toEqual(existing?[]:['/api/v1/projects/p/conversations'])
+})
+
+it('prepares a workflow next step without sending it or replacing the current draft', async () => {
+  const old=task.outputs
+  task.outputs={result:{suggestions:['使用已有分类流程，按批次隔离。']}} as never
+  try {
+    await setup({events:[{id:'r1',kind:'result',time:'',text:'分析完成',request_id:'request-1',task_id:'t1'}]})
+    fireEvent.change(screen.getByLabelText('给项目统筹的消息'),{target:{value:'尚未发送的目标说明'}})
+    fireEvent.click(await screen.findByRole('button',{name:'准备下一步：使用已有分类流程，按批次隔离。'}))
+    expect(screen.getByLabelText('给项目统筹的消息')).toHaveValue('尚未发送的目标说明\n\n使用已有分类流程，按批次隔离。')
+    expect(vi.mocked(api).mock.calls.some(([path,options])=>options?.method==='POST'&&(path.endsWith('/messages')||path.endsWith('/tasks')))).toBe(false)
+  } finally {task.outputs=old}
+})
+
+it('identifies each historical run by input files without loading its complete output', async()=>{
+  await setup()
+  const previous = vi.mocked(api).getMockImplementation()!
+  vi.mocked(api).mockImplementation(async(path,options)=>{
+    if(path.includes('/tasks?'))return [{...task,input_files:['data.csv']},{...task,id:'t2',created_at:'2026-09-12T08:00:00Z',input_files:['data-2.csv']}] as never
+    return previous(path,options)
+  })
+  await act(async()=>{fireEvent.click(screen.getByRole('button',{name:'刷新状态'}))})
+  fireEvent.click(screen.getByRole('tab',{name:'运行记录'}))
+  expect(await within(screen.getByRole('region',{name:'运行记录'})).findByText('输入：data.csv')).toBeVisible()
+  expect(await within(screen.getByRole('region',{name:'运行记录'})).findByText('输入：data-2.csv')).toBeVisible()
+  expect(vi.mocked(api).mock.calls.some(([path])=>/\/tasks\/t[12]$/.test(path))).toBe(false)
 })

@@ -244,6 +244,30 @@ def test_project_files_and_tools_cannot_reach_answers_other_apps_or_change_input
     assert client.get(base+'/agent-tools', headers={'Authorization': 'Bearer wrong'}).status_code == 401
 
 
+def test_missing_project_file_suggests_exact_same_named_paths_without_selecting_one(configured, tmp_path):
+    client, _, base, app_id, settings, _ = configured
+    workspace = settings.workspace_root / app_id
+    for directory, text in [('one', 'first'), ('two', 'second')]:
+        path = workspace / 'requirement-package' / directory / '说明.txt'
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+    outside = tmp_path / '说明.txt'
+    outside.write_text('outside-secret')
+    hidden = workspace / 'requirement-package' / 'hidden'
+    hidden.mkdir()
+    (hidden / '说明.txt').symlink_to(outside)
+    request = {'name': 'project_file', 'arguments': {'action': 'read', 'path': 'requirement-package/说明.txt'}}
+    response = client.post(base + '/agent-tools', json=request)
+    assert response.status_code == 422
+    assert 'requirement-package/one/说明.txt' in response.text
+    assert 'requirement-package/two/说明.txt' in response.text
+    assert 'hidden' not in response.text and 'outside-secret' not in response.text
+    assert str(workspace) not in response.text
+    request['arguments']['path'] = 'requirement-package/two/说明.txt'
+    selected = client.post(base + '/agent-tools', json=request)
+    assert selected.status_code == 200 and selected.json()['lines'] == ['second']
+
+
 def test_stop_steer_and_reconnect_same_project_thread(configured):
     client, app, base, app_id, settings, provider = configured
     select(client, base)

@@ -19,7 +19,7 @@ from pathlib import Path
 import pytest
 
 from agent_platform.config import Settings
-from agent_platform.sandbox import CommandResult, NetworkPolicy, SandboxError, SandboxSession, SandboxManager
+from agent_platform.sandbox import CommandResult, NetworkPolicy, SandboxCleanupError, SandboxError, SandboxSession, SandboxManager
 
 
 def _session(tmp_path: Path) -> SandboxSession:
@@ -171,3 +171,143 @@ def test_readonly_input_registration_rejects_paths_outside_project(tmp_path):
     for path in ('../outside', str(outside), 'linked'):
         with pytest.raises(SandboxError):
             manager.protect_inputs(workspace, [path])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('failure', ['exit_code', 'exception'])
+async def test_failed_container_removal_stays_tracked_for_explicit_retry(tmp_path, failure):
+    session = _session(tmp_path)
+    session.started = True
+    manager = SandboxManager(session.settings)
+    manager.sessions[session.session_id] = session
+    commands = []
+    async def failed_remove(argv, **kwargs):
+        commands.append(argv)
+        if failure == 'exception': raise SandboxError('removal unavailable')
+        return CommandResult('', 'removal unavailable', 1)
+    session._host_command = failed_remove
+    with pytest.raises(SandboxError, match='removal unavailable'):
+        await manager.remove(session.session_id)
+    assert manager.sessions[session.session_id] is session and session.started
+    async def successful_remove(argv, **kwargs):
+        commands.append(argv)
+        return CommandResult('', '', 0)
+    session._host_command = successful_remove
+    await manager.remove(session.session_id)
+    assert not session.started and session.session_id not in manager.sessions
+    assert commands == [['docker','rm','-f',session.container_name]] * 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('first', ['remove', 'close'])
+@pytest.mark.parametrize('outcome', ['success', 'exit_code', 'exception'])
+async def test_concurrent_cleanup_shares_one_removal_and_its_result(tmp_path, first, outcome):
+    session = _session(tmp_path)
+    session.started = True
+    manager = SandboxManager(session.settings)
+    manager.sessions[session.session_id] = session
+    entered, release = asyncio.Event(), asyncio.Event()
+    commands = []
+
+    async def remove_container(argv, **kwargs):
+        commands.append(argv)
+        if len(commands) > 1:
+            return CommandResult('', 'removal of container is already in progress', 1)
+        entered.set()
+        await release.wait()
+        if outcome == 'exception':
+            raise SandboxError('removal unavailable')
+        return CommandResult('', 'removal unavailable' if outcome == 'exit_code' else '',
+                             1 if outcome == 'exit_code' else 0)
+
+    session._host_command = remove_container
+    operations = {'remove': lambda: manager.remove(session.session_id),
+                  'close': manager.close, 'direct': session.stop}
+    tasks = [asyncio.create_task(operations[first]())]
+    try:
+        await asyncio.wait_for(entered.wait(), 2)
+        tasks.extend(asyncio.create_task(operation()) for name, operation in operations.items()
+                     if name != first)
+        for _ in range(3):
+            await asyncio.sleep(0)
+        pending = all(not task.done() for task in tasks)
+        still_owned = manager.sessions.get(session.session_id) is session and session.started
+        calls_while_waiting = len(commands)
+    finally:
+        release.set()
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    assert pending and still_owned
+    assert calls_while_waiting == len(commands) == 1
+    if outcome == 'success':
+        assert results == [None, None, None]
+        assert not session.started and not manager.sessions
+        await asyncio.gather(manager.close(), manager.remove(session.session_id), session.stop())
+        assert len(commands) == 1
+    else:
+        assert all(isinstance(result, SandboxCleanupError) for result in results)
+        assert all('removal unavailable' in str(result) for result in results)
+        assert session.started and manager.sessions[session.session_id] is session
+
+        async def retry(argv, **kwargs):
+            commands.append(argv)
+            return CommandResult('', '', 0)
+
+        session._host_command = retry
+        await manager.remove(session.session_id)
+        assert len(commands) == 2
+        assert not session.started and not manager.sessions
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('cancelled', ['remove', 'close', 'direct'])
+@pytest.mark.parametrize('outcome', ['success', 'failure'])
+async def test_cancelled_cleanup_waiter_still_waits_without_cancelling_shared_removal(tmp_path, cancelled, outcome):
+    session = _session(tmp_path)
+    session.started = True
+    manager = SandboxManager(session.settings)
+    manager.sessions[session.session_id] = session
+    entered, release = asyncio.Event(), asyncio.Event()
+    commands = []
+    command_cancelled = False
+
+    async def remove_container(argv, **kwargs):
+        nonlocal command_cancelled
+        commands.append(argv)
+        entered.set()
+        try:
+            await release.wait()
+        except asyncio.CancelledError:
+            command_cancelled = True
+            raise
+        return CommandResult('', 'removal unavailable' if outcome == 'failure' else '',
+                             1 if outcome == 'failure' else 0)
+
+    session._host_command = remove_container
+    tasks = {'remove': asyncio.create_task(manager.remove(session.session_id)),
+             'close': asyncio.create_task(manager.close()),
+             'direct': asyncio.create_task(session.stop())}
+    try:
+        await asyncio.wait_for(entered.wait(), 2)
+        for _ in range(3):
+            await asyncio.sleep(0)
+        for _ in range(2):
+            tasks[cancelled].cancel()
+            await asyncio.sleep(0)
+        pending = all(not task.done() for task in tasks.values())
+        still_owned = manager.sessions.get(session.session_id) is session and session.started
+    finally:
+        release.set()
+        results = dict(zip(tasks, await asyncio.gather(*tasks.values(), return_exceptions=True)))
+
+    assert pending and still_owned
+    assert not command_cancelled
+    assert commands == [['docker', 'rm', '-f', session.container_name]]
+    if outcome == 'success':
+        assert isinstance(results[cancelled], asyncio.CancelledError)
+        assert all(result is None for name, result in results.items() if name != cancelled)
+        assert not session.started and not manager.sessions
+    else:
+        assert all(isinstance(result, SandboxCleanupError) for result in results.values())
+        assert all('removal unavailable' in str(result) for result in results.values())
+        assert session.started and manager.sessions[session.session_id] is session

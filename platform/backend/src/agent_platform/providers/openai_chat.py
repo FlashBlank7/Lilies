@@ -433,16 +433,19 @@ class OpenAIChatProvider(ModelProvider):
 
     @staticmethod
     def _usage(raw: dict[str, Any]) -> dict[str, Any]:
-        usage: dict[str, Any] = {
-            "input_tokens": int(raw.get("prompt_tokens") or 0),
-            "output_tokens": int(raw.get("completion_tokens") or 0),
-        }
+        # Missing usage is unknown, not a measured zero. Keep explicit zeros.
+        usage: dict[str, Any] = {}
+        def count(name, value):
+            if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+                usage[name] = value
+        count('input_tokens', raw.get('prompt_tokens'))
+        count('output_tokens', raw.get('completion_tokens'))
         details = raw.get("prompt_tokens_details")
-        if isinstance(details, dict) and details.get("cached_tokens"):
-            usage["cache_read_input_tokens"] = int(details["cached_tokens"])
+        if isinstance(details, dict):
+            count('cache_read_input_tokens', details.get('cached_tokens'))
         completion_details = raw.get("completion_tokens_details")
-        if isinstance(completion_details, dict) and completion_details.get("reasoning_tokens"):
-            usage["reasoning_tokens"] = int(completion_details["reasoning_tokens"])
+        if isinstance(completion_details, dict):
+            count('reasoning_tokens', completion_details.get('reasoning_tokens'))
         return usage
 
     @staticmethod

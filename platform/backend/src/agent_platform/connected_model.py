@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from pathlib import Path
 
 import httpx
@@ -9,7 +10,7 @@ import httpx
 from .models import StreamEvent
 from .providers.base import ModelProvider, ProviderCapabilities, ProviderError
 from .providers.deepseek import DeepSeekProvider
-from .providers.openai_chat import OpenAIChatProvider
+from .providers.openai_chat import OpenAIChatProvider, _is_loopback
 
 
 async def validate_kimi_cli(executable: str):
@@ -33,24 +34,30 @@ def completion_events(blocks, usage=None, stop_reason="end_turn"):
 
 
 class ConnectedModel(ModelProvider):
-    def __init__(self, connection, runtime_dir: Path, *, transport=None, supports_images=False):
+    def __init__(self, connection, runtime_dir: Path, *, transport=None, supports_images=False, egress_enabled=None):
         self.connection, self.runtime_dir, self.transport = connection, runtime_dir, transport
         self.supports_images = supports_images
         self.name = connection.provider
+        if egress_enabled is None:
+            configured = os.getenv('LILIES_MODEL_EGRESS_ENABLED', os.getenv('MODEL_EGRESS_ENABLED', 'false'))
+            egress_enabled = configured.strip().lower() in {'1', 'true', 'yes', 'on'}
+        self.egress_enabled = bool(egress_enabled)
 
     def capabilities(self, model):
         return ProviderCapabilities(thinking=True, tools=True, parallel_tools=False,
             prompt_caching=False, images=self.supports_images, max_context_tokens=128_000, max_output_tokens=16_384)
 
     async def stream(self, *, model, system, messages, tools, max_output_tokens,
-                     thinking_enabled, effort, tool_choice=None, user_id=None, **kwargs):
+                     thinking_enabled, effort, tool_choice=None, user_id=None, output_schema=None, **kwargs):
         if self.connection.provider != "api":
             raise ProviderError("模型积木仅支持原始 LLM API，不能调用 Codex、Claude Code、Kimi 等智能体会话")
-        async for event in self.api_stream(system, messages, tools, max_output_tokens, tool_choice):
+        async for event in self.api_stream(system, messages, tools, max_output_tokens, tool_choice, output_schema):
             yield event
 
-    async def api_stream(self, system, messages, tools, max_tokens, tool_choice):
+    async def api_stream(self, system, messages, tools, max_tokens, tool_choice, output_schema=None):
         c = self.connection
+        if not self.egress_enabled and not _is_loopback(c.base_url):
+            raise ProviderError('模型出口已关闭；仅在获准的真实调用中启用 MODEL_EGRESS_ENABLED')
         key = c.api_key.get_secret_value() if c.api_key else ""
         if not key:
             raise ProviderError("请填写项目 API Key")
@@ -59,6 +66,12 @@ class ConnectedModel(ModelProvider):
         if c.protocol == "openai":
             headers["authorization"] = "Bearer " + key
             payload = {"model": c.model, "messages": OpenAIChatProvider._chat_messages(system, messages), "stream": False}
+            # JSON mode constrains syntax, not required business fields. The
+            # runtime still validates the original schema before downstream use.
+            # Arrays/scalars/unions and Messages endpoints keep prompt-based
+            # formatting; forcing an object would change their output contract.
+            if not tools and output_schema and output_schema.get('type') == 'object':
+                payload['response_format'] = {'type': 'json_object'}
             reasoning_model = c.model.startswith(("gpt-5", "o1", "o3", "o4"))
             payload["max_completion_tokens" if reasoning_model else "max_tokens"] = max_tokens
             if tools:
@@ -94,6 +107,8 @@ class ConnectedModel(ModelProvider):
                         402: "模型服务账户额度不足或计费不可用（HTTP 402），请检查模型账户",
                         429: "模型服务暂时限流（HTTP 429），请降低并发后重试",
                     }.get(response.status_code, f"模型 API 返回 HTTP {response.status_code}，请检查地址、模型、密钥和思考选项")
+                    if response.status_code == 400 and 'response_format' in payload:
+                        message += '；本节点请求了 JSON 输出，请同时核对该模型服务是否支持 response_format=json_object'
                     raise ProviderError(message,
                         status_code=response.status_code, retryable=response.status_code in {408, 429, 502, 503})
                 data = response.json()

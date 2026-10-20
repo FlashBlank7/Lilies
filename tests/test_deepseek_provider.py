@@ -144,6 +144,8 @@ async def test_deepseek_egress_guard_is_closed_by_default(
 def test_deepseek_egress_guard_can_be_enabled_by_environment(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # Exercise the legacy variable independently of the deployment override.
+    monkeypatch.delenv("LILIES_MODEL_EGRESS_ENABLED", raising=False)
     monkeypatch.setenv("MODEL_EGRESS_ENABLED", "true")
     provider = DeepSeekProvider(
         "test-key",

@@ -13,6 +13,8 @@ it('previews quoted Chinese CSV without changing identifiers or losing the downl
   expect(table).toHaveTextContent('余料102毫米，未纳入200毫米')
   expect(table).toHaveTextContent('多行 说明')
   expect(screen.getByRole('link', { name:'下载原文件' })).toHaveAttribute('download')
+  expect(screen.getByRole('link', { name:'下载原文件' }).getAttribute('href')).toContain('?download=1')
+  expect(fetcher.mock.calls[0][0]).not.toContain('download=')
 })
 
 it('refuses traversal before fetching any file', () => {
@@ -37,4 +39,52 @@ it('opens generated training note links through the frontend API proxy', async (
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(`[下载训练笔记](${note})`)))
   render(<ProjectFileReader projectId="p" path="results/report.md" onClose={() => {}} />)
   expect(await screen.findByRole('link', { name:'下载训练笔记' })).toHaveAttribute('href', `/api/platform${note}`)
+})
+
+it.each(['pdf','docx','zip'])('offers the original %s download without decoding binary bytes as text', extension => {
+  const fetcher=vi.fn();vi.stubGlobal('fetch',fetcher)
+  render(<ProjectFileReader projectId="p" path={`requirement-package/original.${extension}`} onClose={() => {}} />)
+  expect(screen.getByRole('link',{name:'下载原文件'})).toHaveAttribute('href',`/api/platform/api/v1/applications/p/workspace/files/requirement-package/original.${extension}?download=1`)
+  expect(screen.getByText('此文件格式暂不支持页面预览，请下载原文件查看。')).toBeInTheDocument()
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  expect(fetcher).not.toHaveBeenCalled()
+})
+
+it('keeps encoded traversal out of binary download links', () => {
+  const fetcher=vi.fn();vi.stubGlobal('fetch',fetcher)
+  render(<ProjectFileReader projectId="p" path="requirement-package/%2e%2e/secret.pdf" onClose={() => {}} />)
+  expect(screen.getByRole('alert')).toHaveTextContent('只能预览当前项目')
+  expect(screen.queryByRole('link')).not.toBeInTheDocument()
+  expect(fetcher).not.toHaveBeenCalled()
+})
+
+it('clears the preceding text preview when opening a binary file', async () => {
+  const fetcher = vi.fn().mockResolvedValue(new Response('上一份文件正文'))
+  vi.stubGlobal('fetch', fetcher)
+  const view = render(<ProjectFileReader projectId="p" path="results/note.txt" onClose={() => {}} />)
+  await screen.findByText('上一份文件正文')
+  view.rerender(<ProjectFileReader projectId="p" path="requirement-package/source.pdf" onClose={() => {}} />)
+  expect(screen.queryByText('上一份文件正文')).not.toBeInTheDocument()
+  expect(screen.getByRole('link', { name:'下载原文件' })).toHaveAttribute('href', expect.stringContaining('source.pdf'))
+  expect(fetcher).toHaveBeenCalledTimes(1)
+})
+
+it('previews a project image without decoding it as text, and keeps its original download',()=>{
+  const fetcher=vi.fn();vi.stubGlobal('fetch',fetcher)
+  render(<ProjectFileReader projectId="p" path="results/frozen/样本.png" onClose={()=>{}} />)
+  expect(screen.getByRole('img',{name:'样本.png'})).toHaveAttribute('src','/api/platform/api/v1/applications/p/workspace/files/results/frozen/%E6%A0%B7%E6%9C%AC.png')
+  expect(screen.getByRole('link',{name:'下载原文件'})).toHaveAttribute('download')
+  expect(fetcher).not.toHaveBeenCalled()
+})
+
+it('previews generated SVG as an image and keeps executable markup out of the page DOM',()=>{
+  const fetcher=vi.fn();vi.stubGlobal('fetch',fetcher)
+  const view=render(<ProjectFileReader projectId="p" path="results/summary/chart.svg" onClose={()=>{}} />)
+  expect(screen.getByRole('img',{name:'chart.svg'})).toHaveAttribute('src','/api/platform/api/v1/applications/p/workspace/files/results/summary/chart.svg')
+  expect(screen.getByRole('link',{name:'下载原文件'})).toHaveAttribute('download')
+  expect(fetcher).not.toHaveBeenCalled()
+  expect(screen.getByRole('img',{name:'chart.svg'}).closest('figure')!.querySelector('svg,object,embed,iframe')).toBeNull()
+  view.rerender(<ProjectFileReader projectId="p" path="results/../other/chart.svg" onClose={()=>{}} />)
+  expect(screen.getByRole('alert')).toHaveTextContent('只能预览当前项目')
+  expect(screen.queryByRole('img')).not.toBeInTheDocument()
 })

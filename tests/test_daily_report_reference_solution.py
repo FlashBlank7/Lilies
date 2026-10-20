@@ -240,12 +240,13 @@ def test_failed_reference_lists_available_paths() -> None:
         )
     assert "多半是这里的引用写错了" in str(near_error.value)
 
-    #   八竿子打不着 → 被引用节点确实没产出这个字段
+    # The displayed paths are bounded; a far miss cannot prove the producer
+    # needs changing without checking its complete output.
     with pytest.raises(WorkflowReferenceResolutionError) as far_error:
         WorkflowRuntime._resolve(
             {"$ref": {"node_id": "calc", "path": ["completely_unrelated"]}}, context
         )
-    assert "根本没产出这个字段" in str(far_error.value)
+    assert "核对字段名称和节点的完整输出" in str(far_error.value)
 
 
 def test_dotted_path_written_as_one_segment_still_resolves() -> None:

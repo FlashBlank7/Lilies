@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
 from .event_automation import DurableEventTimerConfig
+from .project_knowledge import KnowledgeSearchConfig
 from .knowledge_rag import (
     GroundedAnswerConfig,
     KnowledgeIndexSyncConfig,
@@ -33,6 +34,11 @@ from .workflow_models import (
     ValueType,
     WorkflowSpec,
 )
+
+DEFAULT_WORKFLOW_BLOCKS = frozenset({'start', 'end', 'answer', 'code', 'llm', 'tool', 'http_request',
+    'data_analysis', 'feature_extract', 'model_train', 'model_predict', 'knowledge_search',
+    'if_else', 'iteration', 'loop', 'human_input',
+    'template_transform', 'variable_aggregator', 'variable_assigner', 'project_record'})
 
 
 
@@ -67,14 +73,34 @@ def _zh_pydantic(message: str) -> str:
     return message
 
 
+class InputColumn(BaseModel):
+    name: str
+    label: str = ''
+    type: Literal['string', 'number', 'boolean', 'file'] = 'string'
+    options: list[str] = Field(default_factory=list)
+    default: Any = ''
+
+
 class InputField(BaseModel):
     name: str
     label: str = ""
+    description: str = ""
     type: ValueType = ValueType.string
     required: bool = True
     default: Any = None
     # 给普通使用者看的示例值：使用页拿它当占位提示（"长这样就对了"）。
     example: Any = None
+    options: list[str] = Field(default_factory=list)
+    columns: list[InputColumn] = Field(default_factory=list)
+    resource_kind: Literal['', 'file', 'dataset', 'model', 'result'] = ''
+    purpose: Literal['', 'worksheet', 'header_row', 'skip_after_header'] = ''
+    accepted_formats: list[str] = Field(default_factory=list)
+    required_columns: list[str] = Field(default_factory=list)
+    # Optional file-extension hints for human input forms; execution still
+    # validates actual content in the corresponding processing node.
+    accept: list[str] = Field(default_factory=list)
+    # Name of the file input whose headers supply this string field's choices.
+    column_source: str = ''
 
 
 class StartConfig(BaseModel):
@@ -274,16 +300,17 @@ class ConnectorActionConfig(BaseModel):
 
 class IterationConfig(BaseModel):
     items: Any
-    workflow: WorkflowSpec
+    workflow: WorkflowSpec = Field(description='完整子流程，包含一个开始节点和至少一个 end/answer 结束节点，并通过连线接入执行路径；output_node_id 指定收集哪个节点的结果，不能替代结束节点。')
     variables: dict[str, Any] = Field(default_factory=dict, max_length=100)
     item_name: str = "item"
     output_node_id: str
     output_path: list[str] = Field(default_factory=list)
     parallelism: int = Field(default=4, ge=1, le=20)
+    reuse_completed: bool = Field(default=False, description="复用已完成结果；仅在内部步骤可复用且输入、文件、模型和环境均未改变时生效。")
 
 
 class LoopConfig(BaseModel):
-    workflow: WorkflowSpec
+    workflow: WorkflowSpec = Field(description='完整子流程，包含一个开始节点和至少一个 end/answer 结束节点，并通过连线接入执行路径；output_node_id 指定收集哪个节点的结果，不能替代结束节点。')
     variables: dict[str, Any] = Field(default_factory=dict)
     initial_state: Any = None
     state_input_name: str = Field(default="loop_state", pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -310,11 +337,36 @@ class HumanField(BaseModel):
 class HumanInputConfig(BaseModel):
     title: str = "Input required"
     description: str = ""
+    context: Any = Field(default=None, description='上游文字，或包含markdown和images（项目path、label）的对象；页面只显示当前项目图片。')
     fields: list[HumanField] = Field(min_length=1)
 
 
+def validate_human_values(config: HumanInputConfig, values: dict) -> dict:
+    """Validate a real response before saving it or advancing a paused run."""
+    import math
+    fields = {field.name: field for field in config.fields}
+    if set(values) - fields.keys():
+        raise ValueError('回答包含未提出的字段')
+    for name, field in fields.items():
+        value = values.get(name)
+        if value is None or value == '':
+            if field.required:
+                raise ValueError('请填写：' + field.label)
+            continue
+        kind = field.type.value
+        valid = (kind == 'any' or
+                 kind in {'string', 'file'} and isinstance(value, str) or
+                 kind == 'number' and type(value) in {int, float} and math.isfinite(value) or
+                 kind == 'boolean' and isinstance(value, bool) or
+                 kind == 'object' and isinstance(value, dict) or
+                 kind in {'array', 'file_list'} and isinstance(value, list))
+        if not valid or (field.options and value not in field.options):
+            raise ValueError('回答格式或选项不正确：' + field.label)
+    return values
+
+
 class EndConfig(BaseModel):
-    outputs: dict[str, Any] = Field(default_factory=dict)
+    outputs: dict[str, Any] = Field(default_factory=dict, description='工作流输出字段，可使用变量引用。任务页正文使用 markdown 字符串；下载文件使用 artifacts 数组，每项含 file_path（results/ 或 solution/ 下的项目相对路径）和 label。其他业务字段可按需保留。')
 
 
 class AnswerConfig(BaseModel):
@@ -426,6 +478,7 @@ _ZH_BLOCKS = {
         "权限知识检索",
         "先按调用者角色过滤无权文档，再从获准知识中检索可引用片段。",
     ),
+    'knowledge_search': ('知识检索', '从项目知识库做语义检索，返回原文、出处和本次索引版本；可先保存流程，稍后配置知识库。'),
     "grounded_answer": (
         "有据回答",
         "只用已授权检索证据回答；没有足够证据时明确拒答。",
@@ -493,6 +546,12 @@ _ZH_BLOCKS = {
 
 
 _EDITOR_FIELDS: dict[str, list[dict[str, Any]]] = {
+    "human_input": [
+        {"path": "title", "label": "Title", "label_zh": "问题标题", "control": "text"},
+        {"path": "description", "label": "Description", "label_zh": "填写说明", "control": "textarea"},
+        {"path": "context", "label": "Question context", "label_zh": "上游分析与问题", "control": "reference_or_text"},
+        {"path": "fields", "label": "Form fields", "label_zh": "回答字段", "control": "json", "required": True},
+    ],
     "schedule_trigger": [
         {"path": "timezone", "label": "Timezone", "label_zh": "时区", "control": "text", "description": "IANA timezone such as Asia/Tokyo.", "required": True},
         {"path": "hour", "label": "Hour", "label_zh": "小时", "control": "number", "minimum": 0, "maximum": 23, "step": 1, "required": True},
@@ -650,6 +709,12 @@ _EDITOR_FIELDS: dict[str, list[dict[str, Any]]] = {
             "description": "Stable webhook, job, or change-set identity used for idempotency.",
             "required": True,
         },
+    ],
+    'knowledge_search': [
+        {'path': 'knowledge_ref', 'label': 'Knowledge base', 'label_zh': '知识库', 'control': 'text'},
+        {'path': 'query', 'label': 'Question', 'label_zh': '问题', 'control': 'reference_or_text'},
+        {'path': 'top_k', 'label': 'Results', 'label_zh': '最多返回条数', 'control': 'number'},
+        {'path': 'minimum_score', 'label': 'Minimum similarity', 'label_zh': '最低相似度', 'control': 'number'},
     ],
     "knowledge_retrieval": [
         {
@@ -1052,6 +1117,26 @@ def _manual(
     *,
     legacy: bool = False,
 ) -> dict[str, Any]:
+    if block_type == "start":
+        return {
+            "summary": "Declare named workflow inputs, their types, and optional defaults.",
+            "when_to_use": ["Accept user or caller input at the beginning of a workflow."],
+            "examples": [{
+                "description": "Require a source name and default an omitted batch size to 20.",
+                "connection": "start -> processing -> end",
+                "config": {"inputs": [
+                    {"name": "source", "type": "string", "required": True},
+                    {"name": "batch_size", "type": "number", "required": False, "default": 20},
+                ]},
+            }],
+            "anti_patterns": ["Do not put input declarations in input/settings; use the inputs array."],
+            "common_errors": [
+                "A required field without a default must be supplied when running.",
+                "Downstream references use the field name: $ref={node_id: start, path: [batch_size]}.",
+            ],
+            "claude_architecture_mapping": mapping,
+            "composability_constraints": ["The start node has no upstream input; connect its output to the next node."],
+        }
     if legacy:
         return {
             "summary": "Compatibility wrapper for old drafts. Prefer composing explicit agent architecture blocks.",
@@ -1078,16 +1163,14 @@ def _manual(
             {
                 "description": f"Use {title} as one visible runtime step.",
                 "connection": f"... -> {block_type} -> ...",
-                "config": {"input": {"$ref": {"node_id": "<upstream>", "path": ["output"]}}, "settings": {}},
             }
         ],
         "anti_patterns": [
             "Do not use this block as decoration without connecting its output.",
-            "Do not bypass the manual and emit a whole graph JSON in one step.",
         ],
         "common_errors": [
             "Input references point to a skipped or missing upstream node.",
-            "Settings are shaped like prose instead of the config schema.",
+            "Configuration does not match the block's config schema.",
             "The block is connected but its output is not consumed by a downstream step or test.",
         ],
         "claude_architecture_mapping": mapping,
@@ -2204,6 +2287,10 @@ class BlockRegistry:
                 key
                 for key in node.config.keys()
                 if key not in known
+                # Modeling nodes accept the old all-purpose shape only when
+                # its obsolete fields retain their defaults; their model
+                # validator rejects configured options from another purpose.
+                and key not in getattr(model, 'legacy_config_defaults', {})
                 # x_ 前缀是显式扩展字段惯例（往返透传）；merge_config 是
                 # 更新语义标志，由上游提升处理
                 and not str(key).startswith("x_")
@@ -2304,6 +2391,18 @@ class BlockRegistry:
 
         walk(config)
         return found
+
+    def validate_draft(self, workflow: WorkflowSpec) -> list[str]:
+        """Validate editable data, independently from runnable graph shape."""
+        errors = []
+        known = {n.id for n in workflow.nodes}
+        for node in workflow.nodes:
+            errors.extend(self._dangling_refs(node.id, node.config, known))
+            try:
+                self.validate_node(node)
+            except Exception as error:
+                errors.append(f'{node.id}: {error}')
+        return errors
 
     def validate_workflow(self, workflow: WorkflowSpec, *, nested: bool = False) -> list[str]:
         errors: list[str] = []
@@ -2706,7 +2805,7 @@ def _definition(
 def build_block_registry() -> BlockRegistry:
     registry = BlockRegistry()
     blocks: list[tuple[BlockDefinition, type[BaseModel]]] = [
-        (_definition("start", "User Input", "Declare workflow inputs.", "input", StartConfig, outputs=[("output", ValueType.any)]), StartConfig),
+        (_definition("start", "User Input", "Declare workflow inputs. Omitted declared fields use their default (null when absent) in both $inputs and start output; supplied values take precedence. Required fields without a value still fail at runtime.", "input", StartConfig, outputs=[("output", ValueType.any)]), StartConfig),
         (_definition("schedule_trigger", "Schedule Trigger", "Start a published workflow on an IANA-timezone daily schedule.", "input", ScheduleTriggerConfig, outputs=[("output", ValueType.any)]), ScheduleTriggerConfig),
         (
             _definition(
@@ -2729,7 +2828,7 @@ def build_block_registry() -> BlockRegistry:
             ),
             EventSubscriptionTriggerConfig,
         ),
-        (_definition("llm", "LLM", "Make one provider-neutral model call.", "model", LLMConfig, inputs=[("input", ValueType.any)], outputs=[("text", ValueType.string), ("structured", ValueType.object)], retry=True, error_branch=True), LLMConfig),
+        (_definition("llm", "LLM", "Make one provider-neutral model call.", "model", LLMConfig, inputs=[("input", ValueType.any)], outputs=[("text", ValueType.string), ("structured", ValueType.object), ("usage", ValueType.object), ("model", ValueType.string), ("seconds", ValueType.number), ("input_sha256", ValueType.string)], retry=True, error_branch=True), LLMConfig),
         (_definition(
             "claude_agent",
             "Claude Agent (Legacy)",
@@ -2964,6 +3063,16 @@ def build_block_registry() -> BlockRegistry:
                 ),
             ),
             KnowledgeIndexSyncConfig,
+        ),
+        (
+            _definition(
+                'knowledge_search', 'Semantic Knowledge Search',
+                'Search the current project knowledge base with its configured embedding model. Save before configuration; runtime requires a ready index. Return exact source text and citations; connect context to an LLM for synthesis.',
+                'model', KnowledgeSearchConfig, inputs=[('input', ValueType.object)],
+                outputs=[('output', ValueType.object), ('results', ValueType.array), ('context', ValueType.string), ('version', ValueType.string), ('retrieved_count', ValueType.number)],
+                error_branch=True,
+            ),
+            KnowledgeSearchConfig,
         ),
         (
             _definition(
@@ -3215,6 +3324,10 @@ def build_block_registry() -> BlockRegistry:
     register_project_blocks(registry)
     from .modeling_models import register_modeling_blocks
     register_modeling_blocks(registry)
+    from .python_execution import register_code_block
+    register_code_block(registry)
+    for block in registry.list():
+        block.editor['advanced'] = block.type not in DEFAULT_WORKFLOW_BLOCKS
     return registry
 
 

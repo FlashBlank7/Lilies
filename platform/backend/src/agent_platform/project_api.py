@@ -1,8 +1,9 @@
 """Owner-facing project API. Native agents receive only project-bound tools."""
 import zipfile
+import re
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, Query
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from .local_agent_api import AgentToolCall, SelectAgent
@@ -12,6 +13,22 @@ from .project_conversation import ConversationMessage, ProgressUpdate
 from .requirement_discussion import load_discussion
 from .requirement_package import import_package
 from .model_connections import ModelConnection
+
+
+def input_file_names(inputs):
+    """Small input labels for run lists; never include arbitrary prompts or rows."""
+    names = []
+    for key, value in inputs.items():
+        if not re.search(r'(?:path|file|document|attachment)s?$', key, re.I):
+            continue
+        for path in (value if isinstance(value, list) else [value]):
+            if isinstance(path, str) and path.strip() and '\n' not in path and '://' not in path:
+                name = path.replace('\\', '/').rsplit('/', 1)[-1]
+                if name and name not in names:
+                    names.append(name[:200])
+            if len(names) == 20:
+                return names
+    return names
 
 
 class Body(BaseModel):
@@ -24,6 +41,11 @@ class NewProject(Body):
     requirement: str = Field(default='', max_length=28000)
 
 
+class AccessMember(Body):
+    name: str = Field(min_length=1, max_length=40)
+    role: Literal['owner', 'collaborator'] = 'collaborator'
+
+
 class NewMember(Body):
     name: str = Field(min_length=1, max_length=100)
     description: str = Field(default='', max_length=1000)
@@ -32,8 +54,8 @@ class NewMember(Body):
 
 class CopyModelConnection(Body):
     source_project_id: str
-    role: Literal['main', 'vision'] = 'main'
-    source_role: Literal['main', 'vision'] | None = None
+    role: Literal['main', 'vision', 'generation'] = 'main'
+    source_role: Literal['main', 'vision', 'generation'] | None = None
 
 
 class CopyMaterial(Body):
@@ -67,6 +89,7 @@ class NewTask(Body):
     purpose: Literal['build_test', 'customer_trial', 'business'] = 'business'
     item_id: str = ''
     feedback_task_id: str = ''
+    reuse_task_id: str = ''
 
 
 class RecordUpdate(Body):
@@ -81,6 +104,8 @@ class Supplement(Body):
 
 class HumanResponse(Body):
     values: dict[str, Any]
+    node_id: str = ''
+    resume: bool = False
 
 
 async def invoke(fn, *args, **kwargs):
@@ -102,23 +127,36 @@ def project_router(services, require_token):
         return await invoke(projects.store.get, project_id)
 
     scoped = APIRouter(prefix='/projects/{project_id}', dependencies=[Depends(require_project)])
+    from .example_projects import register_example_routes
+    register_example_routes(router, scoped, services, invoke)
 
     @router.get('/projects')
-    async def list_projects():
-        return await projects.store.list()
+    async def list_projects(request: Request):
+        items = []
+        for project in await projects.store.list():
+            role = await services.accounts.project_role(request.state.user, project['id'])
+            if role:
+                items.append({**project, 'access_role': role})
+        return items
 
     @router.post('/projects', status_code=201)
-    async def create_project(body: NewProject):
-        return await invoke(projects.create, **body.model_dump())
+    async def create_project(body: NewProject, request: Request):
+        project = await invoke(projects.create, **body.model_dump())
+        if request.state.user['id'] != 'root':
+            await services.accounts.add_member(project['id'], request.state.user['id'], 'owner')
+        return {**project, 'access_role': 'owner' if request.state.user['role'] != 'admin' else 'admin'}
 
     @router.post('/projects/requirement-packages/import', status_code=201)
-    async def import_project(file: UploadFile = File(...)):
+    async def import_project(request: Request, file: UploadFile = File(...)):
         try:
             if not (file.filename or '').lower().endswith('.zip'):
                 raise ValueError('请选择 ZIP 格式的需求包')
             result = await import_package(file.file, services.settings.workspace_root, services.workflow_store)
             app = result['application']
-            return {**result, 'project': await projects.adopt_new_application(app['id'], app['name'], app['description'])}
+            project = await projects.adopt_new_application(app['id'], app['name'], app['description'])
+            if request.state.user['id'] != 'root':
+                await services.accounts.add_member(project['id'], request.state.user['id'], 'owner')
+            return {**result, 'project': project}
         except (ValueError, zipfile.BadZipFile, NotImplementedError) as e:
             raise HTTPException(422, str(e)) from e
         finally:
@@ -129,8 +167,31 @@ def project_router(services, require_token):
         return {'project_id': await projects.store.membership(application_id)}
 
     @scoped.get('')
-    async def get_project(project_id: str):
-        return await projects.store.get(project_id)
+    async def get_project(project_id: str, request: Request):
+        return {**await projects.store.get(project_id),
+                'access_role': await services.accounts.project_role(request.state.user, project_id)}
+
+    @scoped.get('/access-members')
+    async def access_members(project_id: str):
+        return await services.accounts.members(project_id)
+
+    @scoped.post('/access-members')
+    async def add_access_member(project_id: str, body: AccessMember, request: Request):
+        await services.accounts.require_project(request.state.user, project_id, owner=True)
+        user = await services.storage.user_by_name(body.name.strip())
+        if not user or user['status'] != 'active':
+            raise HTTPException(404, '未找到可加入项目的账号，请核对用户名')
+        # Adding an existing owner as a collaborator must not remove ownership.
+        if body.role == 'collaborator' and await services.accounts.project_role(user, project_id) == 'owner':
+            raise HTTPException(409, '请通过转交负责人操作修改项目负责人')
+        await services.accounts.add_member(project_id, user['id'], body.role)
+        return await services.accounts.members(project_id)
+
+    @scoped.delete('/access-members/{user_id}')
+    async def remove_access_member(project_id: str, user_id: str, request: Request):
+        await services.accounts.require_project(request.state.user, project_id, owner=True)
+        await services.accounts.remove_member(project_id, user_id)
+        return {'ok': True}
 
     @scoped.get('/members')
     async def list_members(project_id: str):
@@ -160,22 +221,25 @@ def project_router(services, require_token):
         return await projects.conversation.topology(project_id)
 
     @scoped.get('/conversation')
-    async def conversation(project_id: str, after: str = '', before: str = '',
+    async def conversation(project_id: str, request: Request, after: str = '', before: str = '',
                            limit: int = Query(default=50, ge=1, le=100),
                            kind: Literal['messages', 'tools', 'activity'] = 'messages', request_id: str = ''):
+        await services.project_sessions.require(project_id, 'legacy', request.state.user)
         try:
             return projects.conversation.events(project_id, after=after, before=before, limit=limit, kind=kind, request_id=request_id)
         except ValueError as e:
             raise HTTPException(422, str(e)) from e
 
     @scoped.post('/conversation/messages', status_code=202)
-    async def conversation_message(project_id: str, body: ConversationMessage):
+    async def conversation_message(project_id: str, request: Request, body: ConversationMessage):
+        await services.project_sessions.require(project_id, 'legacy', request.state.user)
         await invoke(projects.conversation.send, project_id, body)
         # Avoid returning the entire historical transcript on every message.
         return projects.conversation.events(project_id)
 
     @scoped.get('/conversation/metrics')
-    async def conversation_metrics(project_id: str, request_id: str = ''):
+    async def conversation_metrics(project_id: str, request: Request, request_id: str = ''):
+        await services.project_sessions.require(project_id, 'legacy', request.state.user)
         from .project_metrics import session_metrics
         return session_metrics(manager.load(project_id)['events'], request_id)
 
@@ -202,8 +266,9 @@ def project_router(services, require_token):
         return await invoke(add_material, services, project_id, file)
 
     @scoped.post('/materials/copy', status_code=201)
-    async def copy_material(project_id: str, body: CopyMaterial):
+    async def copy_material(project_id: str, body: CopyMaterial, request: Request):
         from .project_materials import copy_material as copy
+        await services.accounts.require_project(request.state.user, body.source_project_id)
         return await invoke(copy, services, project_id, body.source_project_id, body.source_path)
 
     @scoped.get('/requirements')
@@ -211,7 +276,8 @@ def project_router(services, require_token):
         return load_discussion(projects.workspace(project_id))
 
     @scoped.post('/requirements/messages', status_code=202)
-    async def discuss(project_id: str, body: Message):
+    async def discuss(project_id: str, request: Request, body: Message):
+        await services.project_sessions.require(project_id, 'legacy', request.state.user)
         return await invoke(manager.message, project_id, body.message or '请阅读需求包并与我核对理解', intent='discuss')
 
     @scoped.post('/requirements/confirm')
@@ -219,8 +285,14 @@ def project_router(services, require_token):
         return await invoke(projects.confirm, project_id, body.revision)
 
     @scoped.get('/agent-session')
-    async def session(project_id: str):
-        return {**manager.load(project_id), 'requirements': load_discussion(projects.workspace(project_id))}
+    async def session(project_id: str, request: Request):
+        if await services.project_sessions.legacy_allowed(project_id, request.state.user):
+            return {**manager.load(project_id), 'requirements': load_discussion(projects.workspace(project_id)),
+                    'raw_connection': manager.connections.public(manager.connections.load(project_id)) if manager.connections.load(project_id) else None}
+        connection = manager.connections.load(project_id)
+        return {**(manager.connections.public(connection) if connection else {'provider': None}),
+                'status': 'idle', 'events': [], 'revision': 0, 'error': '',
+                'model_egress_enabled': services.settings.model_egress_enabled}
 
     @scoped.put('/agent-session')
     async def select(project_id: str, body: SelectAgent):
@@ -229,7 +301,8 @@ def project_router(services, require_token):
     @scoped.get('/vision-model')
     async def vision_model(project_id: str):
         connection = manager.connections.load(project_id, 'vision')
-        return manager.connections.public(connection) if connection else {'provider': None, 'has_api_key': False, 'runtime_enabled': False}
+        return {**(manager.connections.public(connection) if connection else {'provider': None, 'has_api_key': False, 'runtime_enabled': False}),
+                'model_egress_enabled': services.settings.model_egress_enabled}
 
     @scoped.put('/vision-model')
     async def save_vision_model(project_id: str, body: ModelConnection):
@@ -238,28 +311,52 @@ def project_router(services, require_token):
         except ValueError as error:
             raise HTTPException(422, str(error)) from error
 
+    @scoped.get('/generation-model')
+    async def generation_model(project_id: str):
+        return {**manager.connections.generation_settings(project_id),
+                'generation_source': 'official' if services.official_agent.selected(project_id, 'generation') else 'api',
+                'model_egress_enabled': services.settings.model_egress_enabled}
+
+    @scoped.put('/generation-model')
+    async def save_generation_model(project_id: str, body: ModelConnection):
+        try:
+            manager.connections.save(project_id, body, role='generation')
+            return manager.connections.generation_settings(project_id)
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from error
+
+    @scoped.delete('/generation-model')
+    async def inherit_generation_model(project_id: str):
+        return manager.connections.inherit_generation(project_id)
+
     @scoped.post('/model-connection/copy')
-    async def copy_model_connection(project_id: str, body: CopyModelConnection):
+    async def copy_model_connection(project_id: str, body: CopyModelConnection, request: Request):
         await require_project(body.source_project_id)
+        await services.accounts.require_project(request.state.user, body.source_project_id, owner=True)
         connection = manager.connections.load(body.source_project_id, body.source_role or body.role)
         if not connection or connection.provider != 'api':
             raise HTTPException(422, '所选项目尚未配置此用途的 API 模型')
         if body.role == 'vision':
             return await save_vision_model(project_id, connection)
+        if body.role == 'generation':
+            return await save_generation_model(project_id, connection)
         return await invoke(manager.select, project_id, **connection.model_dump())
 
     @scoped.post('/agent-session/messages', status_code=202)
-    async def message(project_id: str, body: Message):
+    async def message(project_id: str, request: Request, body: Message):
+        await services.project_sessions.require(project_id, 'legacy', request.state.user)
         if body.intent == 'operate' and not manager.running(project_id):
             raise HTTPException(409, '请通过项目任务发起或继续业务处理')
         return await invoke(manager.message, project_id, body.message or '继续', intent=body.intent)
 
     @scoped.post('/agent-session/stop')
-    async def stop_agent(project_id: str):
+    async def stop_agent(project_id: str, request: Request):
+        await services.project_sessions.require(project_id, 'legacy', request.state.user)
         return await manager.stop(project_id)
 
     @scoped.post('/agent-session/resume', status_code=202)
-    async def resume_agent(project_id: str, body: Message):
+    async def resume_agent(project_id: str, request: Request, body: Message):
+        await services.project_sessions.require(project_id, 'legacy', request.state.user)
         state = manager.load(project_id)
         if state.get('phase') == 'operate' and state.get('project_task_id'):
             return await invoke(projects.resume, project_id, state['project_task_id'], body.message)
@@ -287,37 +384,64 @@ def project_router(services, require_token):
 
     @scoped.get('/tasks')
     async def tasks(project_id: str, purpose: Literal['', 'business', 'customer_trial', 'build_test', 'unclassified'] = '',
-                    item_id: str = '', before: str = '', limit: int = Query(default=100, ge=1, le=100), compact: bool = False):
-        result = await invoke(projects.store.tasks, project_id, purpose=purpose, item_id=item_id, before=before, limit=limit)
+                    item_id: str = '', before: str = '', limit: int = Query(default=100, ge=1, le=100), compact: bool = False,
+                    status: Literal['', 'queued', 'running', 'waiting_input', 'interrupted', 'succeeded', 'failed'] = ''):
+        result = await invoke(projects.store.tasks, project_id, purpose=purpose, item_id=item_id, before=before, limit=limit, status=status)
         if compact:
-            return [{k: v for k, v in task.items() if k not in {'inputs', 'outputs'}} for task in result]
+            return [{**{k: v for k, v in task.items() if k not in {'inputs', 'outputs'}},
+                     'input_files': input_file_names(task.get('inputs') or {})} for task in result]
         return result
 
     @scoped.post('/tasks', status_code=202)
-    async def start_task(project_id: str, body: NewTask):
+    async def start_task(project_id: str, body: NewTask, request: Request):
+        if body.mode == 'agent':
+            await services.project_sessions.require(project_id, 'legacy', request.state.user)
         return await invoke(projects.start, project_id, **body.model_dump())
 
     @scoped.get('/tasks/{task_id}')
     async def task(project_id: str, task_id: str):
         return await invoke(projects.task, project_id, task_id)
 
+    async def require_task_conversation(project_id, task_id, request):
+        task = await invoke(projects.store.get_task, project_id, task_id)
+        if task['mode'] == 'agent':
+            await services.project_sessions.require(project_id, task.get('conversation_id') or 'legacy', request.state.user)
+
     @scoped.post('/tasks/{task_id}/stop')
-    async def stop_task(project_id: str, task_id: str):
+    async def stop_task(project_id: str, task_id: str, request: Request):
+        await require_task_conversation(project_id, task_id, request)
         return await invoke(projects.stop, project_id, task_id)
 
     @scoped.post('/tasks/{task_id}/resume', status_code=202)
-    async def resume_task(project_id: str, task_id: str, body: Message):
+    async def resume_task(project_id: str, task_id: str, request: Request, body: Message):
+        await require_task_conversation(project_id, task_id, request)
         return await invoke(projects.resume, project_id, task_id, body.message)
 
     @scoped.post('/tasks/{task_id}/supplements')
-    async def supplement_task(project_id: str, task_id: str, body: Supplement):
+    async def supplement_task(project_id: str, task_id: str, request: Request, body: Supplement):
+        await require_task_conversation(project_id, task_id, request)
         return await invoke(projects.supplement, project_id, task_id, body.message, body.inputs)
 
     @scoped.post('/tasks/{task_id}/runs/{run_id}/input')
-    async def project_task_run_input(project_id: str, task_id: str, run_id: str, body: HumanResponse):
-        return await invoke(projects.respond, project_id, task_id, run_id, body.values)
+    async def project_task_run_input(project_id: str, task_id: str, request: Request, run_id: str, body: HumanResponse):
+        await require_task_conversation(project_id, task_id, request)
+        return await invoke(projects.respond, project_id, task_id, run_id, body.values, body.node_id, body.resume)
 
     from .modeling_api import register_modeling_routes
     register_modeling_routes(scoped, services, invoke)
+    from .project_resources import register_resource_routes
+    register_resource_routes(scoped, services, invoke)
+    from .project_knowledge import register_knowledge_routes
+    register_knowledge_routes(scoped, services, invoke)
+    from .project_workflow_edit import register_workflow_edit_routes
+    register_workflow_edit_routes(scoped, services, invoke)
+    from .project_skills import register_skill_routes
+    register_skill_routes(scoped, services, invoke)
+    from .project_sessions import register_session_routes
+    register_session_routes(scoped, services, invoke)
+    from .project_space import register_space_routes
+    register_space_routes(scoped, services, invoke)
+    from .data_workspace import register_data_workspace_routes
+    register_data_workspace_routes(scoped, services, invoke)
     router.include_router(scoped)
     return router

@@ -127,6 +127,8 @@ def test_view_crud_and_use_channel_projection(tmp_path: Path) -> None:
         SilentProvider(),
     )
     with TestClient(app) as client:
+        # v0.6: legacy link behavior is exercised by an authenticated caller.
+        client.headers["Authorization"] = "Bearer view-test"
         application_id = client.post(
             "/api/v1/applications", headers=HEADERS,
             json={"name": "界面方案测试", "requirement": "有中间环节的流程。"},

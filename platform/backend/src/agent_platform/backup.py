@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import sqlite3
 import stat
 import tempfile
 from uuid import uuid4
@@ -145,12 +146,34 @@ def _relocate_runs(data_dir: Path, old_workspace: Path, new_workspace: Path):
                 if updated != raw:
                     connection.execute('UPDATE workflow_runs SET state_json=? WHERE id=?',
                                        (updated, ident))
-        for table in ('generations', 'sessions'):
+        for table, key in (('generations', 'id'), ('sessions', 'id'), ('event_timers', 'timer_key')):
             if table in tables:
-                for ident, path in connection.execute(f'SELECT id,workspace_path FROM {table}').fetchall():
-                    connection.execute(f'UPDATE {table} SET workspace_path=? WHERE id=?',
+                for ident, path in connection.execute(f'SELECT {key},workspace_path FROM {table}').fetchall():
+                    connection.execute(f'UPDATE {table} SET workspace_path=? WHERE {key}=?',
                                        (moved(path), ident))
+        if 'event_subscriptions' in tables:
+            for ident, raw in connection.execute('SELECT id,config_json FROM event_subscriptions').fetchall():
+                config = json.loads(raw)
+                path = config.get('workspace_path')
+                if moved(path) != path:
+                    config['workspace_path'] = moved(path)
+                    connection.execute('UPDATE event_subscriptions SET config_json=? WHERE id=?',
+                                       (json.dumps(config, ensure_ascii=False), ident))
         connection.commit()
+
+
+def _codex_indexes(data_dir: Path):
+    for name in ('local-agents', 'official-agent'):
+        root = data_dir / name
+        if root.is_symlink():
+            continue
+        for directory, directories, files in os.walk(root, followlinks=False):
+            home = Path(directory)
+            directories[:] = [name for name in directories if not (home / name).is_symlink()]
+            if home.name == 'codex-home':
+                for name in files:
+                    if Path(name).match('state_*.sqlite'):
+                        yield home / name
 
 
 def _relocate_codex(data_dir: Path, old_data: Path, new_data: Path):
@@ -160,9 +183,12 @@ def _relocate_codex(data_dir: Path, old_data: Path, new_data: Path):
     the pre-restore path. This is intentionally a restore-only migration, guarded
     by the actual schema, not part of the running platform's Codex integration.
     """
-    for db in (data_dir / 'local-agents').glob('*/*/codex-home/state_*.sqlite'):
+    for db in _codex_indexes(data_dir):
         if db.is_symlink():
             raise ValueError('Codex 会话索引不能是符号链接')
+        for suffix in ('-wal', '-shm', '-journal'):
+            if db.with_name(db.name + suffix).is_symlink():
+                raise ValueError('Codex 会话索引附属文件不能是符号链接')
         with connect(db, row_factory=None) as connection:
             columns = {r[1] for r in connection.execute('PRAGMA table_info(threads)')}
             if not columns:
@@ -208,17 +234,19 @@ def restore_backup(backup: Path, destination: Path) -> Path:
                        destination / 'workspaces')
         _relocate_codex(temporary / 'data', Path(description['sources']['data']),
                         destination / 'data')
-        if (backup / '.env').exists():
-            if (backup / '.env').is_symlink():
-                raise ValueError('备份配置不能是符号链接')
-            original = (backup / '.env').read_text(encoding='utf-8')
-            # Last definitions win; keep credentials/images, point to restored files.
-            (temporary / '.env').write_text(original + '\n' + '\n'.join([
-                f'DATA_DIR={json.dumps(str(destination / "data"), ensure_ascii=False)}',
-                f'WORKSPACE_ROOT={json.dumps(str(destination / "workspaces"), ensure_ascii=False)}',
-                f'WORKSPACE_HOST_ROOT={json.dumps(str(destination / "workspaces"), ensure_ascii=False)}',
-                'MODEL_EGRESS_ENABLED=false', '']), encoding='utf-8')
-            (temporary / '.env').chmod(0o600)
+        config = backup / '.env'
+        if config.is_symlink():
+            raise ValueError('备份配置不能是符号链接')
+        original = config.read_text(encoding='utf-8') if config.exists() else ''
+        # Last dotenv definitions win; process environment can still override them.
+        # Even backups without configuration restore with all automatic work disabled.
+        (temporary / '.env').write_text(original + '\n' + '\n'.join([
+            f'DATA_DIR={json.dumps(str(destination / "data"), ensure_ascii=False)}',
+            f'WORKSPACE_ROOT={json.dumps(str(destination / "workspaces"), ensure_ascii=False)}',
+            f'WORKSPACE_HOST_ROOT={json.dumps(str(destination / "workspaces"), ensure_ascii=False)}',
+            'MODEL_EGRESS_ENABLED=false', 'OFFICIAL_AGENT_EGRESS_ENABLED=false',
+            'AUTOMATIC_TASKS_ENABLED=false', '']), encoding='utf-8')
+        (temporary / '.env').chmod(0o600)
         (temporary / 'restored-from.json').write_text(json.dumps(description, ensure_ascii=False,
                                                               indent=2), encoding='utf-8')
         temporary.rename(destination)

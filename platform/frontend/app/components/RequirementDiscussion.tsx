@@ -113,7 +113,7 @@ export default function RequirementDiscussion({ applicationId, onPhaseChange, on
       {discussion.status === 'review' && <button type="button" disabled={busy} onClick={() => void confirm()}>理解正确，确认需求文档</button>}
     </details>}
     {discussion.document_path && discussion.status === 'confirmed' && <p>
-      <a download="需求文档.md" href={withFrontendToken(`/api/platform/api/v1/applications/${applicationId}/workspace/files/${encodeURIComponent(discussion.document_path)}`)}>下载需求文档</a>
+      <a download="需求文档.md" href={withFrontendToken(`/api/platform/api/v1/applications/${applicationId}/workspace/files/${encodeURIComponent(discussion.document_path)}?download=1`)}>下载需求文档</a>
       {' · '}可以开始搭建，也可以继续讨论调整需求。
     </p>}
     <textarea aria-label="补充或修正需求理解" placeholder={discussion.status === 'not_started'

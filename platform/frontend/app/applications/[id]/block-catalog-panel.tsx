@@ -4,6 +4,7 @@ import { useMemo, useState, type DragEvent } from 'react'
 
 import type { Block, WorkflowNode } from '@/lib/platform'
 import type { Locale } from '@/lib/i18n'
+import { blockPortType } from '@/lib/block-display'
 
 import styles from './block-catalog-panel.module.css'
 
@@ -84,9 +85,9 @@ function groupedBlocks(blocks: Block[], locale: Locale) {
   }, {})
 }
 
-function portSummary(ports: Block['input_ports'] | Block['output_ports']) {
+function portSummary(ports: Block['input_ports'] | Block['output_ports'], locale: Locale) {
   if (!ports.length) return '—'
-  return ports.map(port => `${port.name}: ${port.value_type}`).join(' · ')
+  return ports.map(port => `${port.name}: ${blockPortType(port.value_type, locale)}`).join(' · ')
 }
 
 function manualItems(items: string[] | undefined, limit: number) {
@@ -94,9 +95,8 @@ function manualItems(items: string[] | undefined, limit: number) {
 }
 
 function localizedManualItems(items: string[] | undefined, locale: Locale, limit: number) {
-  const available = manualItems(items, limit)
-  if (locale !== 'zh') return available
-  return available.filter(item => /[\u3400-\u9fff]/u.test(item))
+  if (locale !== 'zh') return manualItems(items, limit)
+  return manualItems(items?.filter(item => /[\u3400-\u9fff]/u.test(item)), limit)
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -140,6 +140,18 @@ export function UndefinedBusinessWorkflowNotice({
 export function BlockInstanceDetails({ locale, node }: BlockInstanceDetailsProps) {
   const zh = locale === 'zh'
   const config = asRecord(node.config)
+  if (node.type === 'code') {
+    const inputs = asRecord(config.inputs)
+    return <section className={styles.instance} data-block-instance-details="code">
+      <strong>{zh ? '这个节点的处理逻辑' : 'What this code node does'}</strong>
+      <p>{node.description || (zh ? '具体规则由下方 Python 代码决定。可请 Lilies 解释或修改当前节点。' : 'The Python code below defines this node’s rules.')}</p>
+      <dl>
+        <div><dt>{zh ? '传入代码' : 'Code inputs'}</dt><dd>{Object.keys(inputs).join('、') || (zh ? '查看下方输入配置' : 'See input configuration below')}</dd></div>
+        <div><dt>{zh ? '传给后续节点' : 'Downstream result'}</dt><dd>{zh ? 'output：main(inputs) 的返回值，具体字段取决于代码；logs：打印日志。' : 'output contains the return value of main(inputs); logs contains printed messages.'}</dd></div>
+      </dl>
+      <p>{zh ? '表单可改已传入的参数和数据来源；代码中的固定规则需修改 Python，或请 Lilies 修改。' : 'Use the form to edit exposed parameters and data sources. Fixed rules require editing the Python code.'}</p>
+    </section>
+  }
   if (node.type === 'connector_action') {
     return <section className={styles.instance} data-block-instance-details="connector_action">
       <strong>{zh ? '这个节点实际调用什么' : 'What this node actually calls'}</strong>
@@ -192,8 +204,8 @@ export function BlockPurpose({ block, locale, compact = false }: BlockPurposePro
     <h3>{localizedTitle(block, locale)}</h3>
     <p className={styles.description}>{localizedDescription(block, locale)}</p>
     <dl className={styles.ports}>
-      <div><dt>{zh ? '输入' : 'Inputs'}</dt><dd>{portSummary(block.input_ports)}</dd></div>
-      <div><dt>{zh ? '输出' : 'Outputs'}</dt><dd>{portSummary(block.output_ports)}</dd></div>
+      <div><dt>{zh ? '输入' : 'Inputs'}</dt><dd>{portSummary(block.input_ports, locale)}</dd></div>
+      <div><dt>{zh ? '输出' : 'Outputs'}</dt><dd>{portSummary(block.output_ports, locale)}</dd></div>
     </dl>
     {whenToUse.length > 0 && <div className={styles.manualSection}>
       <strong>{zh ? '什么时候使用' : 'When to use it'}</strong>
@@ -215,12 +227,14 @@ export function BlockPurpose({ block, locale, compact = false }: BlockPurposePro
 export function BlockCatalogPanel({ blocks, expanded, locale, onAdd, onToggle }: BlockCatalogPanelProps) {
   const zh = locale === 'zh'
   const [query, setQuery] = useState('')
+  const [advanced, setAdvanced] = useState(false)
   const [selectedType, setSelectedType] = useState<string | null>(null)
   const [addingType, setAddingType] = useState<string | null>(null)
   const filtered = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase()
-    if (!needle) return blocks
-    return blocks.filter(block => [
+    const available = advanced ? blocks : blocks.filter(block => !block.editor?.advanced && block.block_kind !== 'agent_architecture' && block.block_kind !== 'legacy_compatibility')
+    if (!needle) return available
+    return available.filter(block => [
       block.type,
       localizedTitle(block, locale),
       localizedDescription(block, locale),
@@ -228,7 +242,7 @@ export function BlockCatalogPanel({ blocks, expanded, locale, onAdd, onToggle }:
       block.manual_summary || '',
       ...(block.when_to_use || []),
     ].join(' ').toLocaleLowerCase().includes(needle))
-  }, [blocks, locale, query])
+  }, [blocks, locale, query, advanced])
   const grouped = useMemo(() => groupedBlocks(filtered, locale), [filtered, locale])
 
   async function addSelected(block: Block) {
@@ -268,7 +282,7 @@ export function BlockCatalogPanel({ blocks, expanded, locale, onAdd, onToggle }:
     </button>
     <div className={styles.content} id="studio-block-catalog-content">
       <header className={styles.heading}>
-        <div><strong>{zh ? '积木库' : 'Brick library'}</strong><small>{zh ? `${blocks.length} 个可用积木` : `${blocks.length} available`}</small></div>
+        <div><strong>{zh ? '积木库' : 'Brick library'}</strong><small>{zh ? `显示 ${filtered.length} 个积木` : `${filtered.length} shown`}</small></div>
         <span>{zh ? '可拖到画布；点击先看说明' : 'Drag to canvas, or click to inspect'}</span>
         <input
           aria-label={zh ? '搜索积木' : 'Search bricks'}
@@ -279,6 +293,7 @@ export function BlockCatalogPanel({ blocks, expanded, locale, onAdd, onToggle }:
         />
       </header>
       <div className={styles.groups}>
+      <label><input type="checkbox" checked={advanced} onChange={event => setAdvanced(event.target.checked)} />{zh ? '显示高级与兼容积木' : 'Show advanced and compatibility blocks'}</label>
       {Object.entries(grouped).map(([category, items]) => <section className={styles.group} key={category}>
         <h2>{category}</h2>
         {items.map(block => {

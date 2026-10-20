@@ -42,14 +42,18 @@ def _service(tmp: str) -> EventAutomationService:
     )
 
 
-async def _run_briefly(coro, seconds: float = 0.08) -> None:
+async def _run_until_progress(coro, progressed: asyncio.Event) -> None:
     task = asyncio.create_task(coro)
-    await asyncio.sleep(seconds)
-    task.cancel()
     try:
-        await task
-    except asyncio.CancelledError:
-        pass
+        # 等待实际重试或派发；超时只防止循环失效时测试无限等待。
+        await asyncio.wait_for(progressed.wait(), timeout=2)
+        assert not task.done(), "后台循环在取得进展后提前退出了"
+    finally:
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
 
 
 @pytest.mark.asyncio
@@ -59,21 +63,31 @@ async def test_a_broken_timer_row_does_not_kill_the_loop():
         service = _service(tmp)
         await service.initialize()
         rounds = {"n": 0}
+        progressed = asyncio.Event()
+        dispatched: list[str] = []
 
         def claim():
             rounds["n"] += 1
-            return [{"timer_key": "坏的", "due_inputs_json": "{不是JSON",
+            if rounds["n"] > 2:
+                return []
+            broken = rounds["n"] == 1
+            return [{"timer_key": "坏的" if broken else "好的",
+                     "due_inputs_json": "{不是JSON" if broken else json.dumps({"n": 1}),
                      "source_event_id": "e1", "due_at": "x",
                      "recovery_count": 0, "application_id": "a",
                      "workspace_path": "/w"}]
 
-        async def never_called(*a, **k):
-            raise AssertionError("坏行不该走到运行回调")
+        async def run(app_id, inputs, workspace):
+            dispatched.append(inputs["__event_automation"]["timer_key"])
+            progressed.set()
+            return {"run_id": "r-1"}
 
         service._claim_due_timers_sync = claim
-        service.bind_run_callback(never_called)
-        await _run_briefly(service._timer_loop())
+        service._record_timer_dispatched_sync = lambda *a: None
+        service.bind_run_callback(run)
+        await _run_until_progress(service._timer_loop(), progressed)
         assert rounds["n"] > 1, "第一条坏数据就把循环打死了"
+        assert dispatched == ["好的"], "坏行应被隔离，下一轮的好行应正常执行"
 
 
 @pytest.mark.asyncio
@@ -83,14 +97,18 @@ async def test_a_failing_claim_does_not_kill_the_loop():
         service = _service(tmp)
         await service.initialize()
         rounds = {"n": 0}
+        retried = asyncio.Event()
+        loop = asyncio.get_running_loop()
 
         def claim():
             rounds["n"] += 1
+            if rounds["n"] > 1:
+                loop.call_soon_threadsafe(retried.set)
             raise RuntimeError("database is locked")
 
         service._claim_due_timers_sync = claim
         service.bind_run_callback(lambda *a: None)
-        await _run_briefly(service._timer_loop())
+        await _run_until_progress(service._timer_loop(), retried)
         assert rounds["n"] > 1
 
 
@@ -101,6 +119,7 @@ async def test_a_good_timer_still_fires_after_a_bad_one():
         service = _service(tmp)
         await service.initialize()
         dispatched: list[str] = []
+        progressed = asyncio.Event()
 
         def claim():
             return [
@@ -113,14 +132,16 @@ async def test_a_good_timer_still_fires_after_a_bad_one():
             ]
 
         async def run(app_id, inputs, workspace):
-            dispatched.append(app_id)
+            dispatched.append(inputs["__event_automation"]["timer_key"])
+            progressed.set()
             return {"run_id": "r-1"}
 
         service._claim_due_timers_sync = claim
         service._record_timer_dispatched_sync = lambda *a: None
         service.bind_run_callback(run)
-        await _run_briefly(service._timer_loop())
+        await _run_until_progress(service._timer_loop(), progressed)
         assert dispatched, "坏的那条把好的一起拖下水了"
+        assert set(dispatched) == {"好的"}, "坏行不该走到运行回调"
 
 
 @pytest.mark.asyncio
@@ -130,13 +151,16 @@ async def test_a_missing_subscription_does_not_kill_its_loop():
         service = _service(tmp)
         await service.initialize()
         tries = {"n": 0}
+        retried = asyncio.Event()
 
         async def gone(subscription_id):
             tries["n"] += 1
+            if tries["n"] > 1:
+                retried.set()
             raise KeyError("这个订阅没了")
 
         service.get_subscription = gone
-        await _run_briefly(service._subscription_loop("s1"))
+        await _run_until_progress(service._subscription_loop("s1"), retried)
         assert tries["n"] > 1
 
 
@@ -147,13 +171,16 @@ async def test_a_broken_subscription_config_does_not_kill_its_loop():
         service = _service(tmp)
         await service.initialize()
         tries = {"n": 0}
+        retried = asyncio.Event()
 
         async def broken(subscription_id):
             tries["n"] += 1
+            if tries["n"] > 1:
+                retried.set()
             return {"enabled": True, "config": {"name": "!!非法!!"}}
 
         service.get_subscription = broken
-        await _run_briefly(service._subscription_loop("s1"))
+        await _run_until_progress(service._subscription_loop("s1"), retried)
         assert tries["n"] > 1
 
 

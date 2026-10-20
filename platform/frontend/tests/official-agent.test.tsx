@@ -1,0 +1,73 @@
+import {cleanup,fireEvent,render,screen,waitFor} from '@testing-library/react'
+import {afterEach,beforeEach,expect,it,vi} from 'vitest'
+import {api} from '@/lib/platform'
+import AssistantSourcePanel from '@/app/components/AssistantSourcePanel'
+import OfficialAgentPage from '@/app/official-agent/page'
+vi.mock('@/lib/platform',()=>({api:vi.fn()}))
+vi.mock('@/app/components/AuthBoundary',()=>({useAccount:()=>({id:'admin',role:'admin'})}))
+afterEach(cleanup)
+beforeEach(()=>{vi.mocked(api).mockReset()})
+it('saves explicit project permission and source without changing API credentials',async()=>{
+  vi.mocked(api).mockImplementation(async(path)=>path.endsWith('/assistant-source')?{allowed:false,task:'api',generation:'inherit'} as never:{agent_modules_enabled:false} as never)
+  const saved=vi.fn().mockResolvedValue(undefined)
+  render(<AssistantSourcePanel base="/api/v1/projects/p" running={false} onSaved={saved}/> )
+  fireEvent.click(screen.getByRole('button',{name:'智能体来源'}))
+  fireEvent.click(await screen.findByLabelText('允许项目使用完整智能体能力'))
+  fireEvent.click(screen.getByLabelText('授权此项目使用官方智能体'))
+  fireEvent.change(screen.getByLabelText('任务助手'),{target:{value:'official'}})
+  fireEvent.click(screen.getByRole('button',{name:'保存智能体设置'}))
+  await waitFor(()=>expect(saved).toHaveBeenCalledOnce())
+  expect(api).toHaveBeenCalledWith('/api/v1/projects/p/assistant-source',{method:'PUT',body:JSON.stringify({allowed:true,task:'official',generation:'inherit'})})
+  expect(vi.mocked(api).mock.calls.some(([p])=>p.includes('/agent-session'))).toBe(false)
+})
+it('does not start login or model calls on opening admin page and shows unknown usage',async()=>{
+  vi.mocked(api).mockImplementation(async path=>path.endsWith('/admin/usage')?{active_users:0,features:[],feedback:[],notes:[]} as never:{config:{enabled:false,executable:'codex',version:'',model:'gpt-5.6-luna',thinking:'max',reserve_percent:50,concurrency:1,max_tokens:32000,max_seconds:600},jobs:[]} as never)
+  render(<OfficialAgentPage/> )
+  expect(await screen.findByLabelText('个人保留额度（%）')).toHaveValue(50)
+  expect(screen.getByText('账号剩余额度：未知')).toBeInTheDocument()
+  expect(api).toHaveBeenCalledTimes(2)
+  expect(api).toHaveBeenCalledWith('/api/v1/admin/official-agent')
+})
+it('saves unlimited tokens, preserves other settings and can restore a finite limit',async()=>{
+  let config={enabled:true,executable:'codex',version:'',model:'gpt-5.6-luna',thinking:'max',reserve_percent:50,concurrency:1,max_tokens:32000 as number|null,max_seconds:180}
+  vi.mocked(api).mockImplementation(async (path,init)=>{
+    if(path.endsWith('/admin/usage'))return {active_users:0,features:[],feedback:[],notes:[]} as never
+    if(init?.method==='PUT')config=JSON.parse(String(init.body))
+    return {config,jobs:[]} as never
+  })
+  render(<OfficialAgentPage/> )
+  const toggle=await screen.findByLabelText('不设每任务 token 上限')
+  fireEvent.click(toggle)
+  expect(screen.queryByLabelText('每任务 token 上限')).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button',{name:'保存服务设置'}))
+  await screen.findByText('设置已保存')
+  expect(config).toMatchObject({max_tokens:null,max_seconds:180,reserve_percent:50,model:'gpt-5.6-luna',thinking:'max'})
+  expect(toggle).toBeChecked()
+  fireEvent.click(toggle)
+  expect(screen.getByLabelText('每任务 token 上限')).toHaveValue(32000)
+  fireEvent.change(screen.getByLabelText('每任务 token 上限'),{target:{value:'48000'}})
+  fireEvent.click(screen.getByRole('button',{name:'保存服务设置'}))
+  await waitFor(()=>expect(config.max_tokens).toBe(48000))
+})
+
+it('saves and clears context threshold independently of unlimited task tokens',async()=>{
+  let config={enabled:true,executable:'codex',version:'',model:'gpt-5.6-luna',thinking:'max',reserve_percent:50,concurrency:1,max_tokens:null,max_seconds:600,auto_compact_token_limit:null as number|null}
+  vi.mocked(api).mockImplementation(async(path,init)=>{
+    if(path.endsWith('/admin/usage'))return {active_users:0,features:[],feedback:[],notes:[]} as never
+    if(init?.method==='PUT')config=JSON.parse(String(init.body))
+    return {config,jobs:[]} as never
+  })
+  render(<OfficialAgentPage/>)
+  const field=await screen.findByLabelText('历史自动整理阈值（上下文 token）')
+  expect(field).toHaveValue(null)
+  fireEvent.change(field,{target:{value:'32768'}})
+  fireEvent.click(screen.getByRole('button',{name:'保存服务设置'}))
+  await waitFor(()=>expect(config.auto_compact_token_limit).toBe(32768))
+  expect(config.max_tokens).toBeNull()
+  expect(screen.getByLabelText('不设每任务 token 上限')).toBeChecked()
+  fireEvent.change(field,{target:{value:''}})
+  fireEvent.click(screen.getByRole('button',{name:'保存服务设置'}))
+  await waitFor(()=>expect(config.auto_compact_token_limit).toBeNull())
+  expect(config).toMatchObject({max_tokens:null,model:'gpt-5.6-luna',thinking:'max'})
+  expect(vi.mocked(api).mock.calls.every(([path])=>!path.includes('/messages')&&!path.includes('/login'))).toBe(true)
+})

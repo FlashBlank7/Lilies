@@ -18,6 +18,7 @@ LOCAL_PROVIDERS = {"codex", "claude", "kimi"}
 AGENT_PROVIDERS = LOCAL_PROVIDERS | {"api"}
 project_model: ContextVar[str | None] = ContextVar("project_model", default=None)
 project_model_role: ContextVar[str] = ContextVar("project_model_role", default="main")
+project_model_override: ContextVar[str | None] = ContextVar("project_model_override", default=None)
 
 
 class ModelConnection(BaseModel):
@@ -54,13 +55,14 @@ class ModelConnection(BaseModel):
 
 
 class ModelConnections:
-    def __init__(self, data_dir: Path):
+    def __init__(self, data_dir: Path, *, egress_enabled: bool | None = None):
         self.root = data_dir.resolve() / "model-connections"
+        self.egress_enabled = egress_enabled
 
     def path(self, project_id: str, role: str = 'main'):
-        if role not in {'main', 'vision'}:
+        if role not in {'main', 'vision', 'generation', 'embedding'}:
             raise ValueError('未知模型用途')
-        suffix = '' if role == 'main' else '.vision'
+        suffix = '' if role == 'main' else '.' + role
         return self.root / (str(UUID(project_id)) + suffix + ".json")
 
     def load(self, project_id: str, role: str = 'main') -> ModelConnection | None:
@@ -68,13 +70,18 @@ class ModelConnections:
         return ModelConnection.model_validate_json(path.read_text()) if path.is_file() else None
 
     def save(self, project_id: str, value: ModelConnection, role: str = 'main') -> dict:
-        if role == 'vision' and value.provider != 'api':
-            raise ValueError('视觉模型需要 API 连接')
+        if role in {'vision', 'generation', 'embedding'} and value.provider != 'api':
+            raise ValueError('视觉、生成及 Embedding 模型需要原始 API 连接')
+        if role == 'embedding' and value.protocol != 'openai':
+            raise ValueError('Embedding 使用 OpenAI 兼容的 embeddings 接口')
         previous = self.load(project_id, role)
         if value.provider == "api" and not value.api_key:
             if previous and previous.provider == "api" and previous.base_url == value.base_url and previous.protocol == value.protocol:
                 value = value.model_copy(update={"api_key": previous.api_key})
-            if not value.api_key or not value.api_key.get_secret_value():
+            from .providers.openai_chat import _is_loopback
+            if not value.api_key and role == 'embedding' and _is_loopback(value.base_url):
+                pass
+            elif not value.api_key or not value.api_key.get_secret_value():
                 raise ValueError("请填写 API Key；切换 API 地址时需要重新填写")
         if value.provider != "api":
             value = value.model_copy(update={"api_key": None, "base_url": ""})
@@ -100,12 +107,30 @@ class ModelConnections:
     def workflow_enabled(self, project_id: str) -> bool:
         return self.enabled(project_id) or self.enabled(project_id, 'vision')
 
+    def generation_settings(self, project_id: str) -> dict:
+        own = self.load(project_id, 'generation')
+        value = own or self.load(project_id)
+        return {'mode': 'independent' if own else 'inherit',
+                **(self.public(value) if value else {'provider': None, 'has_api_key': False, 'runtime_enabled': False})}
+
+    def inherit_generation(self, project_id: str) -> dict:
+        self.path(project_id, 'generation').unlink(missing_ok=True)
+        return self.generation_settings(project_id)
+
     def provider(self, project_id: str, role: str = 'main'):
+        if role == 'embedding':
+            raise ValueError('Embedding 连接只能用于向量化，不能用于对话')
         from .connected_model import ConnectedModel
         value = self.load(project_id, role)
+        if role == 'generation':
+            # An explicit override is authoritative, including when disabled.
+            # Only the visible "inherit" mode follows the project's main model.
+            value = value or self.load(project_id)
+            if not value or value.provider != 'api' or not value.runtime_enabled:
+                raise ProviderError('请配置并启用工作流生成模型；也可在生成模型设置中沿用项目主模型')
         if not value:
             raise ProviderError("请先配置项目模型")
-        return ConnectedModel(value, self.root / "sessions" / project_id, supports_images=role == 'vision')
+        return ConnectedModel(value, self.root / "sessions" / project_id, supports_images=role == 'vision', egress_enabled=self.egress_enabled)
 
 
 class ProjectModelProvider(ModelProvider):
@@ -125,7 +150,12 @@ class ProjectModelProvider(ModelProvider):
         role = project_model_role.get()
         if not self.connections.enabled(project_id, role):
             raise ProviderError("本项目尚未配置或启用视觉模型" if role == 'vision' else "本项目尚未启用工作流模型调用")
-        return self.connections.provider(project_id, role='vision') if role == 'vision' else self.connections.provider(project_id)
+        provider = self.connections.provider(project_id, role='vision') if role == 'vision' else self.connections.provider(project_id)
+        if override := project_model_override.get():
+            # The node selects a model on the same authorized API connection.
+            # Do not persist this choice or leak it into another node/session.
+            provider.connection = provider.connection.model_copy(update={'model': override})
+        return provider
 
     def capabilities(self, model):
         return self.current().capabilities(model)

@@ -31,6 +31,8 @@ class Projects:
         self.active: dict[str, asyncio.Task] = {}
         self.locks: dict[str, asyncio.Lock] = {}
         self.conversation = ProjectConversation(services, self)
+        from .project_knowledge import ProjectKnowledge
+        self.knowledge = ProjectKnowledge(services)
 
     def workspace(self, project_id: str):
         # Project id is the id of its main application; legacy application paths remain valid.
@@ -50,12 +52,16 @@ class Projects:
 
     async def initialize(self):
         await self.store.initialize()
+        await self.knowledge.initialize()
         for project in await self.store.list():
             self.services.sandboxes.protect_inputs(self.workspace(project['id']), ['requirement-package', 'requirements'])
+        from .example_projects import refresh_example_defaults
+        await refresh_example_defaults(self.services)
 
-    async def create(self, name: str, description: str = '', requirement: str = '') -> dict:
+    async def create(self, name: str, description: str = '', requirement: str = '', *, workflow_description: str | None = None) -> dict:
         app = await self.services.workflow_store.create_application(ApplicationCreateRequest(
-            name=name, description=description, requirement=requirement))
+            name=name, description=description if workflow_description is None else workflow_description,
+            requirement=requirement))
         return await self.adopt_new_application(app['id'], name, description)
 
     async def adopt_new_application(self, application_id: str, name: str, description: str):
@@ -95,7 +101,15 @@ class Projects:
                 return {r['application_id']: {'revision': r['revision'], 'content_hash': r['content_hash'], 'snapshot': json.loads(r['snapshot_json'])}
                         for r in c.execute('SELECT d.application_id,d.revision,d.content_hash,d.snapshot_json FROM project_members m '
                                            'JOIN application_drafts d ON d.application_id=m.application_id WHERE m.project_id=?', (project_id,))}
-        return await asyncio.to_thread(read)
+        snapshots = await asyncio.to_thread(read)
+        from .project_resources import model_resources
+        resources = {m['model_ref']: m for m in await model_resources(self.services, project_id)}
+        knowledge = {k['knowledge_ref']: k['active_version'] if k['status'] == 'ready' else ''
+                     for k in await self.knowledge.list(project_id)}
+        for snapshot in snapshots.values():
+            snapshot['model_resources'] = resources
+            snapshot['knowledge_resources'] = knowledge
+        return snapshots
 
     async def confirm(self, project_id: str, revision: int) -> dict:
         await self.store.get(project_id)
@@ -129,13 +143,21 @@ class Projects:
         for run in task['runs']:
             run.pop('outputs_json', None)
             state = json.loads(run.pop('state_json'))
+            run['reuse'] = {'source_run_id': state.get('reuse_source_run_id'),
+                           'nodes': state.get('reused_nodes', []),
+                           'titles': [n['title'] for n in state['snapshot']['workflow']['nodes']
+                                      if n['id'] in state.get('reused_nodes', [])]}
             run['waiting_node'] = next((n for n in state['snapshot']['workflow']['nodes']
                                         if n['id'] == state.get('waiting_node_id')), None)
+            run['waiting_input'] = state.get('waiting_form')
+            if not run['waiting_input'] and run['waiting_node'] and run['waiting_node']['type'] == 'human_input':
+                run['waiting_input'] = {'node_id': run['waiting_node']['id'], **run['waiting_node']['config']}
         return task
 
     async def start(self, project_id: str, *, request_key: str, mode: str = 'workflow',
                     workflow_id: str = '', inputs: dict | None = None, message: str = '',
                     purpose: str = 'business', item_id: str = '', feedback_task_id: str = '',
+                    reuse_task_id: str = '',
                     validate_snapshots: Callable[[dict], None] | None = None) -> dict:
         workflow_id = workflow_id or project_id
         await self.member(project_id, workflow_id)
@@ -152,6 +174,18 @@ class Projects:
                 if self.services.local_agents.load(project_id).get('provider') != 'api':
                     raise ProjectConflict('请先连接项目模型')
             snapshots = await self.freeze(project_id)
+            if reuse_task_id and not existing:
+                source = await self.store.get_task(project_id, reuse_task_id)
+                if mode != 'workflow' or source['mode'] != 'workflow' or source['workflow_id'] != workflow_id:
+                    raise ValueError('请选择同一项目同一工作流的历史任务')
+                if source['status'] not in {'succeeded', 'failed', 'interrupted'}:
+                    raise ValueError('请先结束原任务，再按当前配置重算')
+                runs = await self.store.runs(reuse_task_id)
+                main = next((r for r in reversed(runs) if r['application_id'] == workflow_id
+                             and r['step_key'].startswith('main:')), None)
+                if not main:
+                    raise ValueError('原任务没有可供复用的工作流运行')
+                snapshots[workflow_id]['reuse_source_run_id'] = main['id']
             if not existing and validate_snapshots:
                 validate_snapshots(snapshots)
             task, created = await self.store.create_task(str(uuid4()), project_id, request_key, mode,
@@ -162,6 +196,11 @@ class Projects:
             return await self.task(project_id, task['id'])
 
     async def _launch(self, task: dict, message: str = ''):
+        from .conversation_scope import conversation_scope
+        with conversation_scope(task['project_id'], task.get('conversation_id', '')):
+            return await self._launch_in_conversation(task, message)
+
+    async def _launch_in_conversation(self, task: dict, message: str = ''):
         task_id, project_id = task['id'], task['project_id']
         await self.store.update_task(task_id, status='running', error='')
         if task['mode'] == 'agent':
@@ -174,12 +213,17 @@ class Projects:
             except Exception as e:
                 await self.store.update_task(task_id, status='failed', error=str(e))
                 raise
+        elif task['mode'] in {'training', 'prediction'}:
+            from .project_resources import run_compute
+            self.active[task_id] = asyncio.create_task(run_compute(self.services, task))
         else:
             self.active[task_id] = asyncio.create_task(self._run(task))
 
     async def context(self, project_id: str, task_id: str, step: str) -> dict:
         task = await self.store.get_task(project_id, task_id, snapshots=True)
-        return {'project_id': project_id, 'task_id': task_id, 'snapshots': task['snapshots'], 'step': step}
+        return {'project_id': project_id, 'task_id': task_id, 'snapshots': task['snapshots'], 'step': step,
+                'model_resources': next(iter(task['snapshots'].values()), {}).get('model_resources', {}),
+                'knowledge_resources': next(iter(task['snapshots'].values()), {}).get('knowledge_resources', {})}
 
     async def execute(self, project_id: str, task_id: str, workflow_id: str, inputs: dict,
                       *, step: str = 'main', parent_run_id: str | None = None, reuse: bool = False,
@@ -221,14 +265,18 @@ class Projects:
                     runtime._start(record['state'])
                     await asyncio.shield(runtime.active_tasks[run['id']])
                     return execution_result(await self.services.workflow_store.get_run(run['id']))
+        # ProjectModelProvider checks the explicit project connection at the model
+        # node. A missing connection must not reject branches that never call it.
         scope = {'workspace_boundary': str(workspace),
                  'allowed_nested_application_ids': list(context['snapshots']),
                  'allowed_runtime_tools': ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash'],
-                 'allowed_network_hosts': [], 'model_access': self.services.local_agents.connections.workflow_enabled(project_id), 'allowed_connector_operations': []}
+                 'allowed_network_hosts': [], 'model_access': True, 'allowed_connector_operations': []}
         creation = asyncio.create_task(runtime.create_run(workflow_id,
             WorkflowRunRequest(inputs=inputs, use_draft=True, workspace_path=str(workspace)),
             project_context=context, parent_task_id=parent_run_id, application_call_chain=call_chain,
-            origin='project', triggered_by='项目任务', **scope))
+            origin='project', triggered_by='项目任务',
+            reuse_source_run_id=(context['snapshots'][workflow_id].get('reuse_source_run_id') if step == 'main' else None),
+            **scope))
         try:
             run = await asyncio.shield(creation)
         except asyncio.CancelledError:
@@ -287,13 +335,23 @@ class Projects:
                     await self.services.harness.finish_task(run['id'], status='cancelled')
             break
 
+    @staticmethod
+    def require_task_scope(project_id: str, task: dict) -> None:
+        from .conversation_scope import conversation_for
+        current = conversation_for(project_id)
+        if current and task['mode'] == 'agent' and task.get('conversation_id', '') != current:
+            raise ProjectConflict('请在任务所属会话中停止或继续智能体任务')
+
     async def stop(self, project_id: str, task_id: str) -> dict:
         task = await self.store.get_task(project_id, task_id)
+        self.require_task_scope(project_id, task)
         if task['mode'] == 'agent':
+            from .conversation_scope import conversation_scope
             manager = self.services.local_agents
-            if (manager.load(project_id).get('project_task_id') == task_id and manager.running(project_id)
-                    and manager.tasks.get(project_id) is not asyncio.current_task()):
-                await manager.stop(project_id)
+            with conversation_scope(project_id, task.get('conversation_id', '')):
+                if (manager.load(project_id).get('project_task_id') == task_id and manager.running(project_id)
+                        and manager.tasks.get(manager.key(project_id)) is not asyncio.current_task()):
+                    await manager.stop(project_id)
         worker = self.active.get(task_id)
         if worker and not worker.done():
             worker.cancel()
@@ -306,28 +364,43 @@ class Projects:
     async def resume(self, project_id: str, task_id: str, message: str = '') -> dict:
         async with self.locks.setdefault(project_id, asyncio.Lock()):
             task = await self.store.get_task(project_id, task_id)
+            self.require_task_scope(project_id, task)
             if task['status'] not in {'waiting_input', 'interrupted', 'failed'}:
                 raise ProjectConflict('仅等待补充、中断或失败的任务可以继续')
-            if task['mode'] == 'agent' and self.services.local_agents.running(project_id):
-                raise ProjectConflict('Lilies 正在处理另一轮任务')
+            from .conversation_scope import conversation_scope
+            with conversation_scope(project_id, task.get('conversation_id', '')):
+                if task['mode'] == 'agent' and self.services.local_agents.running(project_id):
+                    raise ProjectConflict('此会话正在处理另一轮任务')
             await self._launch(task, message)
             return await self.task(project_id, task_id)
 
     async def supplement(self, project_id: str, task_id: str, message: str, inputs: dict):
         async with self.locks.setdefault(project_id, asyncio.Lock()):
             task = await self.store.get_task(project_id, task_id)
+            self.require_task_scope(project_id, task)
             if task['status'] not in {'waiting_input', 'interrupted', 'failed'}:
                 raise ProjectConflict('请在任务等待补充或停止后提交补充')
             await self.store.supplement(task_id, message, inputs)
             return await self.task(project_id, task_id)
 
-    async def respond(self, project_id: str, task_id: str, run_id: str, values: dict):
-        task = await self.task(project_id, task_id)
-        run = next((r for r in task['runs'] if r['id'] == run_id), None)
-        if not run or run['status'] != 'paused' or not run['waiting_node']:
-            raise ProjectConflict('此任务的成员运行没有等待输入')
-        await self.store.response(task_id, run_id, run['waiting_node']['id'], values)
-        return {'saved': True, 'message': '输入已保存，点击继续后执行'}
+    async def respond(self, project_id: str, task_id: str, run_id: str, values: dict,
+                      node_id: str = '', resume: bool = False):
+        from .blocks import HumanInputConfig, validate_human_values
+        async with self.locks.setdefault(project_id, asyncio.Lock()):
+            task = await self.task(project_id, task_id)
+            self.require_task_scope(project_id, task)
+            run = next((r for r in task['runs'] if r['id'] == run_id), None)
+            form = run.get('waiting_input') if run else None
+            if task['status'] != 'waiting_input' or not run or run['status'] != 'paused' or not form:
+                raise ProjectConflict('此任务当前没有等待回答；可能已提交或已停止，请刷新查看')
+            if node_id and node_id != form['node_id']:
+                raise ProjectConflict('问题已变化，请刷新后回答当前问题')
+            validate_human_values(HumanInputConfig.model_validate(form), values)
+            await self.store.response(task_id, run_id, form['node_id'], values)
+            if resume:
+                await self._launch(task)
+                return await self.task(project_id, task_id)
+            return {'saved': True, 'message': '输入已保存，点击继续后执行'}
 
     async def finish_agent(self, project_id: str, task_id: str, status: str, error: str):
         if status in {'interrupted', 'error'}:
@@ -354,7 +427,7 @@ class Projects:
                 workspace_path=str(self.workspace(project_id)), workspace_boundary=str(self.workspace(project_id)),
                 allowed_nested_application_ids=list(frozen),
                 allowed_runtime_tools=['Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash'],
-                allowed_network_hosts=[], model_access=self.services.local_agents.connections.workflow_enabled(project_id), allowed_connector_operations=[],
+                allowed_network_hosts=[], model_access=True, allowed_connector_operations=[],
                 project_context=await self.context(project_id, task['id'], 'tests'))
             await self.store.update_task(task['id'], status='succeeded' if report['passed'] else 'failed', outputs=report)
             return {**report, 'project_task_id': task['id']}

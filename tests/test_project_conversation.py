@@ -46,6 +46,235 @@ class TestSession:
         return {'status': 'completed'}
 
 
+def test_turn_context_preserves_request_text_and_measures_sent_bytes(configured, monkeypatch):
+    sent = []
+    request = '只解释已有结果。\n保留  两个空格、中文和 "引号"。'
+
+    class CaptureContext(TestSession):
+        async def turn(self, message, on_event, on_tool, **kwargs):
+            sent.append(message)
+            return {'status': 'completed'}
+
+    client, app, project, _, base = configure_agent(configured, monkeypatch, CaptureContext)
+    assert client.post(base + '/conversation/messages', json={'message': request}).status_code == 202
+    state = agent_settled(client, base)
+    assert state['status'] == 'idle', state['error']
+    assert len(sent) == 1
+    context = json.loads(sent[0])
+    assert context['user_message'] == request
+    assert context['project']['id'] == project['id']
+    events = app.state.services.local_agents.load(project['id'])['events']
+    turns = [event for event in events if event['kind'] == 'agent_turn_started']
+    assert len(turns) == 1 and turns[0]['context_bytes'] == len(sent[0].encode('utf-8'))
+    assert client.get(base + '/tasks').json() == []
+
+
+def test_existing_workflow_runs_from_current_interface_without_reading_graph(configured, monkeypatch):
+    outputs = []
+
+    class UsingWorkflow(TestSession):
+        async def turn(self, message, on_event, on_tool, **kwargs):
+            workflow = json.loads(message)['workflows'][0]
+            assert not workflow['interface_truncated']
+            assert workflow['outputs'] == [['echo']]
+            inputs = {f['name']: f['default'] for group in workflow['inputs'] for f in group}
+            task = await on_tool('workflow_run', {'action': 'start', 'workflow_id': workflow['id'],
+                                                  'inputs': inputs})
+            assert task['status'] == 'succeeded'
+            outputs.append(task['outputs'])
+            return {'status': 'completed'}
+
+    client, _, project, _, base = configure_agent(configured, monkeypatch, UsingWorkflow)
+    for value in ('first file', 'changed file'):
+        graph(client, project['id'], [
+            node('s', 'start', inputs=[{'name': 'source', 'type': 'string', 'required': True, 'default': value}]),
+            node('e', 'end', outputs={'echo': ref('s', 'source')})], [edge('s', 'e')])
+        assert client.post(base + '/conversation/messages', json={'message': '用现有流程处理资料'}).status_code == 202
+        state = agent_settled(client, base)
+        assert state['status'] == 'idle', state['error']
+    assert outputs == [{'echo': 'first file'}, {'echo': 'changed file'}]
+    assert len(client.get(base + '/tasks').json()) == 2
+
+
+def test_large_interface_preview_can_be_read_in_full(configured, monkeypatch):
+    full_default = 'sample' * 1000
+
+    class ReadInterface(TestSession):
+        async def turn(self, message, on_event, on_tool, **kwargs):
+            workflow = json.loads(message)['workflows'][0]
+            assert workflow['interface_truncated']
+            assert full_default not in json.dumps(workflow)
+            complete = await on_tool('project_workflows', {'action': 'inspect', 'workflow_id': workflow['id']})
+            assert complete['inputs'][0][0]['default'] == full_default
+            return {'status': 'completed'}
+
+    client, _, project, _, base = configure_agent(configured, monkeypatch, ReadInterface)
+    graph(client, project['id'], [node('s', 'start', inputs=[
+        {'name': 'text', 'type': 'string', 'default': full_default}]),
+        node('e', 'end', outputs={'text': ref('s', 'text')})], [edge('s', 'e')])
+    client.post(base + '/conversation/messages', json={'message': '查看这个流程的输入'})
+    state = agent_settled(client, base)
+    assert state['status'] == 'idle', state['error']
+    assert client.get(base + '/tasks').json() == []
+
+
+def test_workflow_catalog_shares_instructions_without_losing_interfaces(configured, monkeypatch):
+    contexts = []
+
+    class ReadCatalog(TestSession):
+        async def turn(self, message, on_event, on_tool, **kwargs):
+            context = json.loads(message)
+            contexts.append(context)
+            for workflow in context['workflows']:
+                detail = await on_tool('project_workflows', {'action': 'inspect', 'workflow_id': workflow['id']})
+                assert workflow['inputs'] == detail['inputs']
+                assert workflow['outputs'] == [list(output) for output in detail['outputs']]
+                assert workflow['revision'] == detail['revision']
+                assert 'detail' not in workflow
+            return {'status': 'completed'}
+
+    client, _, project, _, base = configure_agent(configured, monkeypatch, ReadCatalog)
+    ids = [project['id']]
+    for name in ('分析', '预测'):
+        response = client.post(base + '/members', json={'name': name})
+        assert response.status_code == 201, response.text
+        ids.append(response.json()['id'])
+    for index, workflow_id in enumerate(ids):
+        graph(client, workflow_id, [node('s', 'start', inputs=[
+            {'name': 'source', 'type': 'string', 'default': f'file-{index}.csv'}]),
+            node('e', 'end', outputs={'file': ref('s', 'source')})], [edge('s', 'e')])
+    assert client.post(base + '/conversation/messages', json={'message': '查看已有流程'}).status_code == 202
+    state = agent_settled(client, base)
+    assert state['status'] == 'idle', state['error']
+    assert {w['id'] for w in contexts[0]['workflows']} == set(ids)
+    assert contexts[0]['workflow_detail']
+    assert client.get(base + '/tasks').json() == []
+
+
+def test_read_exact_result_branch_without_traces_or_other_project_access(configured, monkeypatch):
+    client, _, project, _, base = configure_agent(configured, monkeypatch, TestSession)
+    output = {'test': {'classes': [{'label': 'rare', 'count': 0}], 'metrics': {'accuracy': 0.5}},
+              'large_table': ['value'] * 2000}
+    graph(client, project['id'], [node('s', 'start'), node('e', 'end', outputs=output)], [edge('s', 'e')])
+    task = settled(client, base, start(client, base, 'result-branches'))
+    assert task['status'] == 'succeeded'
+    summary = client.post(base + '/agent-tools', json={'name': 'workflow_run',
+        'arguments': {'action': 'inspect', 'task_id': task['id']}}).json()
+    assert summary['outputs_truncated']
+    assert summary['outputs']['test'] == output['test']
+    assert summary['outputs']['large_table']['count'] == 2000
+    assert summary['outputs']['large_table']['preview_omitted']
+    assert 'value' not in json.dumps(summary['outputs'])
+    for path, expected in [(['test'], output['test']), (['test', 'classes', 0, 'count'], 0), ([], output)]:
+        response = client.post(base + '/agent-tools', json={'name': 'workflow_run',
+            'arguments': {'action': 'inspect', 'task_id': task['id'], 'output_path': path}})
+        assert response.status_code == 200, response.text
+        selected = response.json()['output']
+        assert selected == expected
+        assert 'runs' not in response.json()
+    for path in [['missing'], ['test', 'classes', -1], ['test', 'classes', 3]]:
+        response = client.post(base + '/agent-tools', json={'name': 'workflow_run',
+            'arguments': {'action': 'inspect', 'task_id': task['id'], 'output_path': path}})
+        assert response.status_code == 422, response.text
+    other = client.post('/api/v1/projects', json={'name': 'other'}).json()['id']
+    response = client.post('/api/v1/projects/' + other + '/agent-tools', json={'name': 'workflow_run',
+        'arguments': {'action': 'inspect', 'task_id': task['id'], 'output_path': ['test']}})
+    assert response.status_code == 404, response.text
+    assert len(client.get(base + '/tasks').json()) == 1
+
+
+def test_recent_results_are_discoverable_without_resending_reports(configured, monkeypatch):
+    report = '# 已有分析\n' + '稀有类别只有一条，尚不能确认预测时点。\n' * 80
+    outputs = {'markdown': report, 'result': {
+        'markdown': report, 'artifacts': [{'file_path': 'results/analysis.md'}], 'rows': 24}}
+    observed = []
+
+    class ReadExisting(TestSession):
+        async def turn(self, message, on_event, on_tool, **kwargs):
+            context = json.loads(message)
+            assert report not in message
+            recent = context['recent_results'][0]
+            assert recent['status'] == 'succeeded'
+            assert recent['output_keys'] == ['markdown', 'result']
+            assert 'outputs' not in recent and 'inputs' not in recent
+            read = recent['read_with']
+            summary = await on_tool(read['tool'], read['arguments'])
+            assert summary['outputs']['markdown'] == report
+            assert not summary['outputs_truncated']
+            assert summary['outputs']['result']['artifacts'] == outputs['result']['artifacts']
+            for path in (['markdown'], ['result', 'markdown']):
+                exact = await on_tool('workflow_run', {'action': 'inspect', 'task_id': recent['id'],
+                                                     'output_path': path})
+                assert exact['output'] == report
+            complete = await on_tool('workflow_run', {'action': 'inspect', 'task_id': recent['id'], 'view': 'full'})
+            assert complete['outputs'] == outputs
+            observed.append(recent['id'])
+            return {'status': 'completed'}
+
+    client, _, project, _, base = configure_agent(configured, monkeypatch, ReadExisting)
+    graph(client, project['id'], [node('s', 'start'), node('e', 'end', outputs=outputs)], [edge('s', 'e')])
+    task = settled(client, base, start(client, base, 'saved-report'))
+    assert task['status'] == 'succeeded'
+    for message in ('解释已有分析，不重新运行', '再次解释已有分析，不重新运行'):
+        client.post(base + '/conversation/messages', json={'message': message})
+        state = agent_settled(client, base)
+        assert state['status'] == 'idle', state['error']
+    assert observed == [task['id'], task['id']]
+    assert client.get(base + '/tasks/' + task['id']).json()['outputs'] == outputs
+    assert len(client.get(base + '/tasks').json()) == 1
+
+
+@pytest.mark.parametrize('stop', [False, True])
+def test_current_waiting_form_can_be_answered_without_inspecting_old_results(configured, monkeypatch, stop):
+    observed = []
+    question = '质量标签含义和预测时点是什么？不知道也可以继续查看已有分析。'
+    answer = '暂不清楚'
+
+    class AnswerWaiting(TestSession):
+        async def turn(self, message, on_event, on_tool, **kwargs):
+            recent = json.loads(message)['recent_results'][0]
+            assert 'outputs' not in recent and 'inputs' not in recent
+            if not observed:
+                assert recent['status'] == 'waiting_input'
+                run = recent['runs'][0]
+                assert set(run) == {'id', 'status', 'waiting_input'}
+                form = run['waiting_input']
+                assert form['node_id'] == 'human' and form['context'] == question
+                assert form['fields'][0]['name'] == 'answer'
+                assert form['fields'][0]['options'] == [answer, '可以补充']
+                if not stop:
+                    # Use the resolved form directly; no graph or task read.
+                    result = await on_tool('workflow_run', {'action': 'respond', 'task_id': recent['id'],
+                        'run_id': run['id'], 'node_id': form['node_id'], 'inputs': {'answer': answer}})
+                    assert result['status'] == 'succeeded'
+                    assert result['outputs'] == {'answer': answer}
+                    assert result['runs'][0]['id'] == run['id']
+            else:
+                assert recent['status'] == ('interrupted' if stop else 'succeeded')
+                assert 'runs' not in recent
+            observed.append(recent['id'])
+            return {'status': 'completed'}
+
+    client, _, project, _, base = configure_agent(configured, monkeypatch, AnswerWaiting)
+    graph(client, project['id'], [
+        node('s', 'start', inputs=[{'name': 'question', 'type': 'string', 'default': question}]),
+        node('human', 'human_input', context=ref('s', 'question'),
+             fields=[{'name': 'answer', 'label': '你是否了解？', 'type': 'string',
+                      'required': True, 'options': [answer, '可以补充']}]),
+        node('e', 'end', outputs={'answer': ref('human', 'answer')})],
+        [edge('s', 'human'), edge('human', 'e')])
+    task = settled(client, base, start(client, base, 'waiting-form'))
+    assert task['status'] == 'waiting_input'
+    for index in range(2):
+        if index and stop:
+            client.post(base + '/tasks/' + task['id'] + '/stop').raise_for_status()
+        client.post(base + '/conversation/messages', json={'message': answer}).raise_for_status()
+        state = agent_settled(client, base)
+        assert state['status'] == 'idle', state['error']
+    assert observed == [task['id'], task['id']]
+    assert len(client.get(base + '/tasks').json()) == 1
+
+
 @pytest.mark.parametrize('action', ['inspect', 'finish', 'discuss', 'wait', 'build'])
 def test_phase_change_preserves_messages_received_during_await(configured, monkeypatch, action):
     from agent_platform.project_conversation import ProjectAction
@@ -110,7 +339,7 @@ def test_supplement_arriving_while_loading_progress_reaches_the_next_turn(config
     monkeypatch.setattr(store, 'progress', interleaved)
     assert client.post(base + '/conversation/messages', json={'message': '继续当前事项'}).status_code == 202
     state = agent_settled(client, base)
-    assert seen == ['先到的补充', '加载进展期间收到的补充']
+    assert seen == ['先到的补充', '继续当前事项', '加载进展期间收到的补充']
     assert any(e.get('text') == '加载进展期间收到的补充' for e in state['events'])
     assert not state.get('pending_messages')
 
@@ -168,39 +397,24 @@ def test_customer_answer_is_durable_and_bound_to_item(configured, monkeypatch):
     assert client.get(base+'/requirements').json()['status'] == 'confirmed'
 
 
-def test_local_wait_does_not_end_authorized_building(configured, monkeypatch):
+def test_saved_draft_does_not_automatically_start_a_trial(configured, monkeypatch):
     class Building(TestSession):
         async def turn(self, message, on_event, on_tool, **kwargs):
             self.turns += 1
-            p = await on_tool('project_progress', {'view': 'full'})
-            if self.turns == 1:
-                await on_tool('project_action', {'action': 'build', 'item_id': 'allocate'})
-                draft = await on_tool('workflow_draft', {})
-                await on_tool('workflow_draft', {'operation': {'op': 'replace_workflow', 'expected_revision': draft['revision'],
-                    'idempotency_key': 'working', 'data': {'workflow': {'nodes': [node('s', 'start'), node('e', 'end', outputs={'ready': True})], 'edges': [edge('s', 'e')]}}}})
-                # End the model turn while actionable work remains. The platform must invoke the next turn.
-            else:
-                run = await on_tool('project_action', {'action': 'trial', 'item_id': 'allocate', 'inputs': {}})
-                assert run['status'] == 'succeeded' and run['outputs']['ready']
-                await on_tool('project_task_result', {'status': 'succeeded', 'message': '分配可以试用', 'markdown': '|结果|值|\n|---|---|\n|可处理|是|', 'outputs': {'forged': 1}})
-                p = await on_tool('project_progress', {'view': 'full'})
-                p['value']['items'][0].update(status='done', availability='trial', summary='已完成本次试用')
-                await on_tool('project_progress', {'action': 'update', 'expected_revision': p['revision'], 'value': p['value']})
-                await on_tool('project_action', {'action': 'finish'})
+            draft = await on_tool('workflow_draft', {})
+            await on_tool('workflow_draft', {'operation': {'op': 'replace_workflow',
+                'expected_revision': draft['revision'], 'idempotency_key': 'draft-only',
+                'data': {'workflow': {'nodes': [node('s', 'start'),
+                    node('e', 'end', outputs={'ready': True})], 'edges': [edge('s', 'e')]}}}})
             return {'status': 'completed'}
     client, app, project, _, base = configure_agent(configured, monkeypatch, Building)
-    put_progress(client, base, [item(), item('prediction', status='waiting', blocker={'kind': 'data', 'owner': '数据负责人', 'reason': '缺少棒身标签', 'next_action': '补充后验证'})])
-    client.post(base+'/conversation/messages', json={'message': '其他部分继续做'})
+    put_progress(client, base, [item()])
+    client.post(base+'/conversation/messages', json={'message': '先生成流程，暂不运行'})
     state = agent_settled(client, base)
     assert state['status'] == 'idle', state['error']
-    assert app.state.services.local_agents.clients[project['id']].turns == 2
-    items = client.get(base+'/progress').json()['value']['items']
-    assert items[0]['availability'] == 'trial' and items[0]['status'] == 'done'
-    assert items[1]['status'] == 'waiting'
-    task = client.get(base+'/tasks?purpose=customer_trial').json()[0]
-    assert task['outputs'] == {'ready': True}  # Presentation cannot replace actual runtime output.
-    assert task['presentation']['markdown'].startswith('|结果|')
-    assert len(client.get(base+'/tasks/'+task['id']).json()['runs']) == 1
+    assert app.state.services.local_agents.clients[project['id']].turns == 1
+    assert client.get(base+'/tasks').json() == []
+    assert client.get('/api/v1/applications/'+project['id']+'/draft').json()['snapshot']['workflow']['nodes'][1]['config']['outputs'] == {'ready': True}
 
 
 def test_discuss_disables_auto_continuation_without_cancelling_background_task(configured, monkeypatch):
@@ -324,7 +538,7 @@ def test_history_is_incremental_and_usage_is_explicit(configured, monkeypatch):
     assert client.get(base).json()['members'][-1]['purpose'] == 'business'
 
 
-def test_repeated_failure_pauses_one_item_and_continues_another(configured, monkeypatch):
+def test_repeated_failure_keeps_errors_visible_without_locking_edits(configured, monkeypatch):
     class Failing(TestSession):
         async def turn(self, message, on_event, on_tool, **kwargs):
             self.turns += 1
@@ -348,12 +562,14 @@ def test_repeated_failure_pauses_one_item_and_continues_another(configured, monk
     state = agent_settled(client, base)
     assert state['status'] == 'idle', state['error']
     progress = client.get(base+'/progress').json()['value']['items']
-    assert progress[0]['status'] == 'waiting' and progress[0]['blocker']['kind'] == 'runtime'
-    assert progress[1]['status'] == 'done'
+    assert progress[0]['status'] == 'working' and not progress[0]['blocker']
+    assert not state.get('blocked_this_request')
+    assert client.post(base+'/agent-tools', json={'name': 'project_file', 'arguments': {
+        'action': 'write', 'path': 'solution/repair.txt', 'content': 'fixed'}}).status_code == 200
 
 
 @pytest.mark.parametrize('inspect_history', [True, False])
-def test_failure_pause_counts_executions_not_failed_task_reads(configured, monkeypatch, inspect_history):
+def test_failed_executions_and_history_reads_preserve_task_evidence_without_phase_lock(configured, monkeypatch, inspect_history):
     observed = []
 
     class Inspecting(TestSession):
@@ -382,8 +598,8 @@ def test_failure_pause_counts_executions_not_failed_task_reads(configured, monke
     assert client.post(base + '/conversation/messages', json={'message': '检查运行错误'}).status_code == 202
     state = agent_settled(client, base)
     assert state['status'] == 'idle', state['error']
-    assert observed == ['working' if inspect_history else 'waiting']
-    assert bool(state.get('blocked_this_request')) is not inspect_history
+    assert observed == ['working']
+    assert not state.get('blocked_this_request')
     assert len(client.get(base + '/tasks').json()) == (1 if inspect_history else 3)
     operations = [e for e in state['events'] if e['kind'] == 'tool' and e['text'] == 'workflow_run']
     assert [e['success'] for e in operations] == ([False, True, True] if inspect_history else [False] * 3)

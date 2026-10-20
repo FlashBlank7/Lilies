@@ -5,6 +5,7 @@
 ## 当前能用什么
 
 - **打开项目**：导入需求包，沟通目标；导入不会自动执行。
+- **数据工作空间**：查看表格、图表、文档和模型，将工具或流程拖到数据上，配置运行；结果可继续处理并保存为流程。见[使用说明](docs/DATA_WORKSPACE.md)与[验收记录](docs/DATA_WORKSPACE_VALIDATION.md)。
 - **分析与建模**：数据分析、特征配置、标准库训练、Optuna 调参和模型比较；每次试验保留训练笔记、实际指标和产物。
 - **交付与继续**：下载模型、运行预测工作流、反馈修改，以及停止后继续。
 - **编辑业务流程**：主流程与成员工作流共用现有画布和运行器，共享项目记录。
@@ -13,9 +14,11 @@
 
 ## 本机原型启动
 
-需要 Python 3.12+、Node.js 20+、Docker。项目使用模型 API，计算由 Docker 容器执行。配置、思考选项与验证范围见[项目模型连接](docs/project-model-connections.md)。
+当前交付及已知限制见 [v0.6 原型说明](docs/RELEASE-v0.6-prototype.md)；独立训练、随时生成草稿和模型绑定入口见 [原型试用说明](docs/V06_TRYOUT.md)。
 
-以下是当前开发启动方式；完整备份恢复已实现并完成本机隔离验证，干净环境安装和生产启动仍待验证。
+需要 Python 3.12+、Node.js 22+、Docker。项目使用模型 API，计算由 Docker 容器执行。配置、思考选项与验证范围见[项目模型连接](docs/project-model-connections.md)。
+
+以下是开发启动方式。新的依赖目录、空数据库和新计算镜像已完成本机隔离试用；独立运行包和容器前端的生产启动方式见[安装说明](docs/V06_INSTALL.md)。跨设备访问已按用户要求通过独立容器模拟，并实际验证局域网 HTTP 页面；物理网络与系统文件选择窗口不在已验证范围。
 
 1. 首次创建配置；已有配置无需覆盖：
 
@@ -24,7 +27,7 @@
    chmod 600 .env
    ```
 
-   将 `API_TOKEN` 换为自己的随机令牌。保持 `MODEL_EGRESS_ENABLED=false`，在项目模型设置中明确配置 API 连接；不会自动启用全局模型或调用上传材料中的密钥。
+   普通用户通过账号登录；只有需要服务端集成时才将 `API_TOKEN` 换为自己的随机令牌。保持 `MODEL_EGRESS_ENABLED=false`，在项目模型设置中配置连接；远程对话和生成的启用方式见安装说明。不会自动调用上传材料中的密钥。
 
 2. 安装平台依赖：
 
@@ -50,16 +53,42 @@
    ./scripts/dev_platform.sh
    ```
 
-   打开 **http://127.0.0.1:3000/projects**。API 默认 http://127.0.0.1:8001。`--check-env` 仅显示配置和程序发现情况，实际登录、镜像及计算需要在项目中验证。
+   首次部署运行 `.venv/bin/python -m agent_platform.auth 管理员用户名` 初始化管理员；命令会交互式询问密码。打开 **http://127.0.0.1:3000/login** 登录，普通用户可自行注册。旧项目由管理员分配负责人，详见[登录与项目成员说明](docs/V06_AUTH.md)。
 
-旧 `compose.yaml` 保留兼容用途，但尚未包含建模镜像和宿主 Codex 的完整部署路径，不能将其作为当前原型的一键交付方案。不要为了启动旧入口而打开平台模型出口。
+   登录后打开 **http://127.0.0.1:3000/projects**。API 默认 http://127.0.0.1:8001。`--check-env` 仅显示配置和程序发现情况，实际登录、镜像及计算需要在项目中验证。
+
+旧 `compose.yaml` 保留兼容用途，其全栈计算部署尚未完成本轮验收，不能将其作为当前原型的一键交付方案。默认使用路径不需要宿主 Codex。不要为了启动旧入口而打开平台模型出口。
+
+### 本地调试启动（免用户名和密码）
+
+完成上述依赖安装和计算镜像准备后，在仓库根目录执行以下命令，无需初始化管理员或注册账号：
+
+```bash
+./scripts/dev_platform.sh --debug --check-env
+./scripts/dev_platform.sh --debug
+```
+
+默认打开 [项目页](http://127.0.0.1:3000/projects)，API 地址为 `http://127.0.0.1:8001`。页面显示“本地调试 · 免登录”，自动使用本机管理员身份；访问登录或注册页也会跳到项目页。
+
+需要更换端口时，例如：
+
+```bash
+API_PORT=18331 WEB_PORT=18332 ./scripts/dev_platform.sh --debug
+```
+
+对应打开 [调试项目页](http://127.0.0.1:18332/projects)。若 `.env` 中也配置了端口，请同步修改；最终地址以启动日志为准。
+
+- 仅监听 `127.0.0.1`，供本机开发使用。
+- 数据保存在本仓库的 `.local-debug/data`，项目文件保存在 `.local-debug/workspaces`；与普通启动的数据分开，重启后保留。
+- 服务间凭据每次启动自动生成，不交给浏览器。调试启动会关闭模型和官方智能体的出站调用。
+- 在启动终端按 `Ctrl+C` 停止；下次不带 `--debug` 启动，就恢复普通账号登录。
 
 ## 本轮开发重点
 
-优先交付能独立试用的原型：精简旧入口和配置、减少统筹往返、准备完整数据备份恢复，并在干净环境完成发布候选试用。部署位置与模型付款、报销方式仍待确认；当前不据此扩建计费或多租户系统。
+v0.6 开发原型已提供项目空间、独立任务、可编辑工作流、官方智能体与项目 API 连接，以及员工反馈和使用轨迹驱动改进。当前功能与验证边界见[原型交付说明](docs/RELEASE-v0.6-prototype.md)；后续以实际使用中的问题推进，不预设生产效果。
 
 - [每周开发计划](docs/DEVELOPMENT_PLAN.md)：单人开发，暂按每周3个投入日，推进原型落地与工业项目验证。
-- [原型试用说明](docs/PROTOTYPE_QUICKSTART.md)：从上传数据到结果、反馈与预测。
+- [原型试用说明](docs/PROTOTYPE_QUICKSTART.md)：从示例、项目资料和对话调用开始，查看结果、修改工作流并反馈问题。
 - [产品方向](docs/PRODUCT_NORTH_STAR.md)、[业务结构](docs/BUSINESS_LOGIC.md)。
 - [数据与建模](docs/modeling.md)、逐模型笔记及实际试用（本地试验记录）。
 - [项目协作](docs/project-cooperation.md)、[统一对话与接续](docs/project-conversation.md)。
@@ -69,7 +98,7 @@
 ## 开发验证
 
 ```sh
-MODEL_EGRESS_ENABLED=false .venv/bin/python -m pytest tests -q
+MODEL_EGRESS_ENABLED=false OFFICIAL_AGENT_EGRESS_ENABLED=false .venv/bin/python -m pytest tests -q
 npm --prefix platform/frontend test -- --run
 npm --prefix platform/frontend run build
 ```

@@ -37,6 +37,8 @@ def channel(tmp_path: Path):
                         workspace_root=tmp_path / "w")
     settings.prepare()
     with TestClient(create_app(settings, SlowBuilderProvider())) as client:
+        # v0.6: legacy link behavior is exercised by an authenticated caller.
+        client.headers["Authorization"] = "Bearer workflow-test"
         app_id = client.post("/api/v1/applications", headers=headers(),
                              json={"name": "客户报错测试", "requirement": "x"},
                              ).json()["id"]
