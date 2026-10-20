@@ -1,6 +1,7 @@
 """An existing pipeline is bound immutably and uses the shared prediction service."""
 import csv
 import io
+import json
 
 from tests.test_projects import configured, start  # noqa: F401
 from tests.test_modeling import modeling, real_compute, setup, wait_task  # noqa: F401
@@ -14,8 +15,8 @@ def test_real_pipeline_import_prediction_and_version_isolation(real_compute):
     model_file = service.path(project['id'], candidate['id']) / 'output/trial-0/model.joblib'
     uploaded = client.post(base + '/materials', files={'file': ('model.joblib', model_file.read_bytes(), 'application/octet-stream')}).json()
     environments = client.get(base + '/model-environments').json()
-    assert 'lilies-modeling:20260922-acceptance' in environments
-    request = {'name': '已有模型', 'source_path': uploaded['path'], 'environment': 'lilies-modeling:20260922-acceptance', 'mapping': dataset['mapping']}
+    assert settings.modeling_image in environments
+    request = {'name': '已有模型', 'source_path': uploaded['path'], 'environment': settings.modeling_image, 'mapping': dataset['mapping']}
     imported = client.post(base + '/models/imported/import', json=request)
     assert imported.status_code == 201, imported.text
     first = imported.json()['value']['import_id']
@@ -57,34 +58,45 @@ def test_real_pipeline_import_prediction_and_version_isolation(real_compute):
     # CSV physical lines (blank lines / multiline cells) and XLSX worksheet
     # positions must not be confused with parsed input record numbers.
     record_import = client.post(base + '/models/records/import', json={**request,
-        'mapping': {**dataset['mapping'], 'id_column': '', 'sheet': '预测清单'}})
+        'mapping': {**dataset['mapping'], 'id_column': '', 'sheet': '预测清单',
+                    'field_rules': {'x': {'dtype': 'number', 'allow_missing': ['unknown']},
+                                    'category': {'dtype': 'category', 'categories': ['a', 'b']}}}})
     assert record_import.status_code == 201, record_import.text
     csv_bytes = b'id,x,category,y,note\n001,1,a,,"two\nlines"\n\n002,,b,,missing\n003,3,a,,last\n'
     from openpyxl import Workbook
     book = Workbook(); book.active.title = 'other'; samples = book.create_sheet('预测清单')
     for row in [('id', 'x', 'category', 'y', 'note'), ('001', 1, 'a', None, 'two\nlines'),
+                (None, None, None, None, None),
                 ('002', None, 'b', None, 'missing'), ('003', 3, 'a', None, 'last')]:
         samples.append(row)
     stream = io.BytesIO(); book.save(stream)
     predictions = []
     for extension, content in [('csv', csv_bytes), ('xlsx', stream.getvalue())]:
-        data = client.post(base + '/datasets/upload', files={'file': ('records.' + extension, content, 'application/octet-stream')}).json()
+        data = client.post(base + '/datasets/upload',
+            data={'mapping': json.dumps({'sheet': '预测清单' if extension == 'xlsx' else 0})},
+            files={'file': ('records.' + extension, content, 'application/octet-stream')}).json()
         requested = client.post(base + '/models/records/predict', json={'dataset_id': data['id'], 'request_key': 'records-' + extension})
         assert requested.status_code == 202, requested.text
         predicted = wait_task(client, base, requested.json())
         assert predicted['status'] == 'succeeded', predicted.get('error')
         output = predicted['outputs']
-        assert output['rows'] == 3
-        assert [row['input_record'] for row in output['preview']] == [1, 2, 3]
+        assert output['rows'] == 4
+        assert output['predicted_rows'] == 3 and output['unavailable_rows'] == 1
+        assert [row['input_record'] for row in output['preview']] == [1, 2, 3, 4]
+        assert output['preview'][1]['prediction_status'] == 'unavailable'
+        assert '无可用观测值' in output['preview'][1]['prediction_reason']
+        # These positions count parsed table rows, not physical CSV lines.
+        assert [row['source_row'] for row in output['preview']] == [0, 1, 2, 3]
         assert output['input_source'] == {'dataset_id': data['id'], 'path': data['files']['source']['original'],
                                          'table': 'source', 'record_column': 'input_record',
                                          **({'sheet': '预测清单'} if extension == 'xlsx' else {})}
         download = client.get(base + '/' + output['artifact'])
         assert download.status_code == 200
         records = list(csv.DictReader(io.StringIO(download.text)))
-        assert [row['input_record'] for row in records] == ['1', '2', '3']
-        assert [float(row['prediction']) for row in records] == [row['prediction'] for row in output['preview']]
-        predictions.append(output['preview'])
+        assert [row['input_record'] for row in records] == ['1', '2', '3', '4']
+        values = [float(row['prediction']) if row['prediction'] else None for row in records]
+        assert values == [row['prediction'] for row in output['preview']]
+        predictions.append(values)
         assert client.get(base + '/tasks/' + predicted['id']).json()['outputs']['input_source'] == output['input_source']
         assert (service.path(project['id'], data['id']) / data['files']['source']['name']).read_bytes() == content
     assert predictions[0] == predictions[1]

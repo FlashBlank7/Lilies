@@ -443,15 +443,10 @@ class ProjectConversation:
         calls, flows = [], {}
         for workflow_id, draft in frozen.items():
             graph = draft['snapshot']['workflow']
-            nodes, inputs, outputs = [], [], []
+            nodes, outputs = [], []
             for node in graph['nodes']:
                 config = node.get('config', {})
-                if node['type'] in {'start', 'event_subscription_trigger'}:
-                    inputs.extend({'name': field['name'], 'label': field.get('label', ''),
-                                   'type': field.get('type', 'string'), 'required': field.get('required', True),
-                                   'description': field.get('description', '')}
-                                  for field in config.get('inputs', []))
-                elif node['type'] == 'end':
+                if node['type'] == 'end':
                     outputs.extend(config.get('outputs', {}))
                 elif node['type'] == 'answer':
                     outputs.append('answer')
