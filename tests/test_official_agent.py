@@ -85,7 +85,8 @@ def resident_control(official, monkeypatch):
     class Control:
         def __init__(self, executable, runtime_dir, **options):
             self.account = state['account'] if controls else None
-            self.process = SimpleNamespace(returncode=None)
+            self.closing = False
+            self.process = SimpleNamespace(returncode=None, stdin=SimpleNamespace(is_closing=lambda: self.closing))
             self.options = options
             self.calls = []
             self.closed = False
@@ -106,6 +107,7 @@ def resident_control(official, monkeypatch):
 
         async def close(self):
             self.closed = True
+            self.closing = True
             self.process.returncode = 0
 
     async def executable(_):

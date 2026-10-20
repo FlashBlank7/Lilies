@@ -71,6 +71,7 @@ def test_shared_context_preserves_complete_study_facts_and_saves_sent_bytes(stud
         assert entry['split'] == {
             'missing_labels': 0, 'evaluation_label': '保留测试已完成并保存结果，未参与模型搜索',
             'development_samples': 48, 'holdout_samples': 12, 'folds': 3,
+            'holdout_status': 'evaluated',
         }
         for key in ('dataset_id', 'name', 'status', 'trials_used'):
             assert entry[key] == study[key]
