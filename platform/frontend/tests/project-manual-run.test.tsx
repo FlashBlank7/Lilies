@@ -226,6 +226,7 @@ it('recomputes the current draft using historical inputs and a scoped reuse task
 
 it('keeps uploaded inputs separate from generated files and retains the selected filename', async () => {
   vi.mocked(api).mockImplementation(async path => {
+    if (path.endsWith('/readiness')) return {status:'configured',issues:[]} as never
     if (path.endsWith('/draft')) return {snapshot:{workflow:{nodes:[{type:'start',config:{inputs:[{name:'source_path',label:'生产原始表',type:'file',required:true,description:'选择 Excel，保留 Sheet2 和两行表头。'}]}}]}}} as never
     return [{path:'requirement-package/batch/new.xlsx'},{path:'results/run/old.csv'},{path:'solution/prepare.py'}] as never
   })

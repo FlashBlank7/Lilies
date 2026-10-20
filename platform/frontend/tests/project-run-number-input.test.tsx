@@ -44,7 +44,7 @@ it.each([
 })
 
 it('uses the field name when no readable label exists and omits an optional cleared number', async () => {
-  await show({ name: 'amount', type: 'number', default: 5 })
+  await show({ name: 'amount', type: 'number', default: 5, required: false })
   const input = screen.getByRole('spinbutton', { name: 'amount' })
   fireEvent.change(input, { target: { value: '' } })
   expect(input).toHaveValue(null)
@@ -58,7 +58,7 @@ it('blocks an empty required number without submitting a task', async () => {
   const input = screen.getByRole('spinbutton', { name: '调整金额' })
   fireEvent.change(input, { target: { value: '' } })
   fireEvent.click(screen.getByRole('button', { name: '启动工作流' }))
-  expect(await screen.findByRole('alert')).toHaveTextContent('请填写 amount')
+  expect(await screen.findByRole('alert')).toHaveTextContent('请填写 调整金额')
   expect(submissions()).toHaveLength(0)
   expect(input).toBeEnabled()
 })

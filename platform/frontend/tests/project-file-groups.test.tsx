@@ -178,6 +178,8 @@ it('groups both file inputs and table choices and submits the unchanged full pat
   await act(async () => {render(<ProjectRunPanel projectId="p" members={[workflow]} initialWorkflowId="w" />)})
   const select = screen.getByRole('combobox', {name: '为 source_path 选择项目文件'})
   const table = screen.getByRole('combobox', {name: '材料第1行文件'})
+  expect(within(select).getAllByRole('group').map(item => item.getAttribute('label'))).toEqual(['原始资料', '说明'])
+  fireEvent.click(screen.getByRole('checkbox', {name: '为 source_path 显示历史结果与其他文件'}))
   for (const field of [select, table]) {
     expect(within(field).getAllByRole('group').map(item => item.getAttribute('label'))).toEqual(['原始资料', '说明', '运行结果', '其他'])
     const reports = within(field).getAllByRole('option', {name: /^report.md/})

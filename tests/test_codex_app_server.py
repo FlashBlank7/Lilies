@@ -259,13 +259,13 @@ for line in sys.stdin:
     elif method == 'turn/start':
         emit({'id': message['id'], 'result': {'turn': {'id': 'turn'}}})
         emit({'id': 'skill-read', 'method': 'item/tool/call', 'params': {
-            'threadId': 'project-thread', 'tool': 'project_skills',
+            'threadId': 'project-thread', 'turnId': 'turn', 'tool': 'project_skills',
             'arguments': {'action': 'read', 'name': 'quality-analysis'}}})
     elif message.get('id') == 'skill-read':
         assert message['result']['success']
         value = json.loads(message['result']['contentItems'][0]['text'])
         assert value == {'body': 'Use the project quality workflow.'}
-        emit({'method': 'turn/completed', 'params': {'turn': {'id': 'turn', 'status': 'completed'}}})
+        emit({'method': 'turn/completed', 'params': {'threadId': 'project-thread', 'turn': {'id': 'turn', 'status': 'completed'}}})
 ''')
     executable.chmod(0o700)
     client = CodexAppServer(str(executable), tmp_path / 'runtime')
@@ -467,9 +467,11 @@ async def test_dynamic_tool_result_instructions_follow_the_transport(tmp_path, m
         responses.append(message)
 
     client.on_tool = on_tool
+    client.accepting_tools = True
+    client.turn_id = 'active-turn'
     monkeypatch.setattr(client, '_send', send)
     await client._server_request({'id': 'read-draft', 'method': 'item/tool/call',
-        'params': {'threadId': 'project-thread', 'tool': 'workflow_draft', 'arguments': {}}})
+        'params': {'threadId': 'project-thread', 'turnId': 'active-turn', 'tool': 'workflow_draft', 'arguments': {}}})
     result = responses[0]['result']
     assert result['success'] is True
     item, = result['contentItems']
@@ -494,10 +496,10 @@ log = Path(__file__).with_suffix('.requests.jsonl')
 def emit(value):
     print(json.dumps(value), flush=True)
 def usage():
-    emit({'method':'thread/tokenUsage/updated','params':{'tokenUsage':{'total':{
+    emit({'method':'thread/tokenUsage/updated','params':{'threadId':'t1','turnId':'u1','tokenUsage':{'total':{
         'inputTokens':100,'outputTokens':20,'totalTokens':120}}}})
 def complete(status):
-    emit({'method':'turn/completed','params':{'turn':{'id':'u1','status':status}}})
+    emit({'method':'turn/completed','params':{'threadId':'t1','turn':{'id':'u1','status':status}}})
 for line in sys.stdin:
     message=json.loads(line); method=message.get('method')
     with log.open('a') as out:
