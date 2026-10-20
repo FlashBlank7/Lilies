@@ -9,9 +9,69 @@ beforeEach(() => {
   vi.stubEnv('AGENT_PLATFORM_URL', 'http://backend.test')
   vi.stubEnv('API_TOKEN', 'must-not-be-forwarded')
   vi.stubEnv('AUTH_PROXY_SECRET', '')
+  vi.stubEnv('LILIES_LOCAL_DEBUG', '')
+  vi.stubEnv('LILIES_LOCAL_DEBUG_TOKEN', '')
   vi.stubGlobal('fetch', vi.fn())
 })
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs() })
+
+const debugSecret = 'd'.repeat(64)
+function debugMode() {
+  vi.stubEnv('LILIES_LOCAL_DEBUG', 'true')
+  vi.stubEnv('LILIES_LOCAL_DEBUG_TOKEN', debugSecret)
+  vi.stubEnv('AGENT_PLATFORM_URL', 'http://127.0.0.1:8001')
+}
+
+it('opens a local debug session without a password or browser cookie, even with a stale cookie', async () => {
+  debugMode()
+  vi.mocked(fetch).mockResolvedValue(Response.json({ user: { id: 'root', name: '管理员' } }))
+  const response = await GET(request('api/v1/me', { headers: { host: '127.0.0.1:3000', cookie: 'lilies_session=old-session' } }), context('api/v1/me'))
+  expect(new Headers(vi.mocked(fetch).mock.calls[0][1]?.headers).get('authorization')).toBe(`Bearer ${debugSecret}`)
+  expect(await response.json()).toEqual({ user: { id: 'root', name: '管理员' }, local_debug: true })
+  expect(response.headers.get('set-cookie')).toBeNull()
+})
+
+it('authenticates debug writes and downloads without exposing the internal token', async () => {
+  debugMode()
+  vi.mocked(fetch).mockResolvedValue(new Response('report', { headers: { 'content-disposition': 'attachment; filename=report.csv' } }))
+  const response = await POST(request('api/v1/projects', { method: 'POST', headers: { origin: 'http://localhost:3000', host: 'localhost:3000' }, body: '{}' }), context('api/v1/projects'))
+  expect(response.status).toBe(200)
+  expect(response.headers.get('content-disposition')).toContain('report.csv')
+  expect(await response.text()).not.toContain(debugSecret)
+  expect(response.headers.get('set-cookie')).toBeNull()
+  expect(new Headers(vi.mocked(fetch).mock.calls[0][1]?.headers).get('authorization')).toBe(`Bearer ${debugSecret}`)
+})
+
+it('still rejects cross-origin writes in debug mode', async () => {
+  debugMode()
+  const response = await POST(request('api/v1/projects', { method: 'POST', headers: { origin: 'http://attacker.test', host: '127.0.0.1:3000' }, body: '{}' }), context('api/v1/projects'))
+  expect(response.status).toBe(403)
+  expect(fetch).not.toHaveBeenCalled()
+})
+
+it.each(['platform.test', '192.168.1.2:3000', 'localhost.attacker.test', 'attacker.test@localhost', ''])('never supplies debug credentials for nonlocal Host %s', async host => {
+  debugMode()
+  const response = await GET(request('api/v1/projects', { headers: { host } }), context('api/v1/projects'))
+  expect(response.status).toBe(401)
+  expect(fetch).not.toHaveBeenCalled()
+})
+
+it.each(['http://backend.test', 'http://0.0.0.0:8001', 'http://localhost.attacker.test', 'http://user:pass@localhost:8001', 'invalid'])('never sends the debug token to an unsafe backend %s', async base => {
+  debugMode()
+  vi.stubEnv('AGENT_PLATFORM_URL', base)
+  const response = await GET(request('api/v1/projects', { headers: { host: 'localhost:3000' } }), context('api/v1/projects'))
+  expect(response.status).toBe(401)
+  expect(fetch).not.toHaveBeenCalled()
+})
+
+it.each([['', debugSecret], ['false', debugSecret], ['true', ''], ['true', 'short']])('requires both explicit debug mode and a generated credential (%s)', async (enabled, token) => {
+  debugMode()
+  vi.stubEnv('LILIES_LOCAL_DEBUG', enabled)
+  vi.stubEnv('LILIES_LOCAL_DEBUG_TOKEN', token)
+  const response = await GET(request('api/v1/projects', { headers: { host: 'localhost:3000' } }), context('api/v1/projects'))
+  expect(response.status).toBe(401)
+  expect(fetch).not.toHaveBeenCalled()
+})
 
 it('never supplies the server administrator token to anonymous browser requests', async () => {
   const response = await GET(request('api/v1/projects', { headers: { 'x-agent-platform-token': 'must-not-be-forwarded' } }), context('api/v1/projects'))

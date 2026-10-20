@@ -40,3 +40,13 @@ it('does not redirect a valid new session when an older request fails', async ()
   await waitFor(() => expect(screen.getByRole('link', { name: '乙' })).toBeInTheDocument())
   expect(router.replace).not.toHaveBeenCalled()
 })
+
+it('shows a password-free debug identity after backend authentication', async () => {
+  vi.mocked(api).mockResolvedValue({ ...user('管理员'), local_debug: true } as never)
+  render(<AuthBoundary><WorkingPage /></AuthBoundary>)
+  await screen.findByText('本地调试 · 免登录')
+  expect(screen.getByLabelText('页面中的项目内容')).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: '退出登录' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('link', { name: '管理员' })).not.toBeInTheDocument()
+  expect(router.replace).not.toHaveBeenCalled()
+})

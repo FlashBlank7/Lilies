@@ -3,6 +3,7 @@ import path from 'path'
 import { timingSafeEqual } from 'node:crypto'
 import { isIP } from 'node:net'
 import { NextRequest, NextResponse } from 'next/server'
+import { localDebugToken } from '@/lib/local-debug'
 
 export const dynamic = 'force-dynamic'
 
@@ -108,7 +109,8 @@ async function proxy(request: NextRequest, context: { params: Promise<{ path: st
   if (write && !sameOrigin) {
     return NextResponse.json({ detail: '请求来源不正确，请从平台页面重试' }, { status: 403 })
   }
-  const token = request.cookies.get(sessionCookie)?.value
+  const debugToken = localDebugToken(request.headers.get('host'), base)
+  const token = debugToken || request.cookies.get(sessionCookie)?.value
   if (!publicAuth && !token) {
     return NextResponse.json({ detail: '请先登录' }, { status: 401 })
   }
@@ -147,6 +149,9 @@ async function proxy(request: NextRequest, context: { params: Promise<{ path: st
   if (retryAfter) responseHeaders.set('retry-after', retryAfter)
   const responseLastEventId = response.headers.get('last-event-id')
   if (responseLastEventId) responseHeaders.set('last-event-id', responseLastEventId)
+  if (debugToken && endpoint === '/api/v1/me' && response.ok) {
+    return NextResponse.json({ ...await response.json(), local_debug: true }, { status: response.status, headers: responseHeaders })
+  }
   if (publicAuth && response.ok) {
     const result = await response.json()
     const outgoing = NextResponse.json({ user: result.user }, { status: response.status, headers: responseHeaders })
