@@ -4,7 +4,6 @@ import base64
 import hashlib
 import json
 import ipaddress
-import shutil
 import socket
 import sqlite3
 import subprocess
@@ -2226,5 +2225,3 @@ def test_studio_uses_openapi_generation_as_default_and_labels_manual_legacy() ->
     assert 'data-connector-action="register-generated"' in source
     assert 'data-manual-manifest-legacy="true"' in source
     assert "专家旧路径：手工登记 manifest JSON" in source
-
-

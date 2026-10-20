@@ -29,11 +29,15 @@ async def skills(services, project_id, skill_id=''):
     rows = await services.projects.store.records(project_id, 'skills')
     items = {k: {'id': k, 'revision': 0, **v} for k, v in DEFAULT_SKILLS.items()}
     items.update({r['key']: {'id': r['key'], 'revision': r['revision'], **r['value']} for r in rows})
+    from .shared_methods import label_installed_skills
+    from .project_store import connect
+    with connect(services.projects.store.db_path) as db:
+        label_installed_skills(db, project_id, items)
     if skill_id:
         if skill_id not in items:
             raise KeyError('项目说明不存在')
         return items[skill_id]
-    return [{k: v for k, v in item.items() if k in {'id', 'name', 'description', 'revision'}} for item in items.values()]
+    return [{k: v for k, v in item.items() if k in {'id', 'name', 'display_name', 'description', 'revision'}} for item in items.values()]
 
 
 async def save_skill(services, project_id, skill_id, body):

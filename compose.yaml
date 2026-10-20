@@ -1,30 +1,24 @@
-# =============================================================================
-# Lilies — Docker Compose 全栈部署
-#
-# 前置条件: 只有 Docker（不需要 Python/Node.js 本地安装）
-#
-# 方式 A — 一键启动（首次会自动构建，约 3-5 分钟）:
-#   docker compose up -d
-#
-# 方式 B — 只启动基础设施，前后端本地开发（热重载）:
-#   docker compose -f compose.yaml --profile infra up -d
-#
-# 方式 C — 首次使用，先构建沙盒镜像:
-#   docker compose build sandbox-image
-# =============================================================================
+# 通过 ./scripts/docker-up.sh 启动；恢复时设置 LILIES_STATE_DIR。
+# 脚本提供绝对数据路径、启动者身份及 Docker socket 组，不能省略这些设置。
 
 services:
   # ── 前端 Studio (Next.js) ────────────────────────────────────
   web:
     build: ./platform/frontend
     ports:
-      - "127.0.0.1:3000:3000"
+      - "127.0.0.1:${LILIES_WEB_PORT:-3000}:3000"
     environment:
       AGENT_PLATFORM_URL: http://api:8000
       AUTH_PROXY_SECRET: ${AUTH_PROXY_SECRET:-}
     depends_on:
       api:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/login').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
     restart: unless-stopped
 
   # ── 后端 API (FastAPI) ───────────────────────────────────────
@@ -33,22 +27,35 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "127.0.0.1:8000:8000"
+      - "127.0.0.1:${LILIES_API_PORT:-8000}:8000"
     env_file:
-      - path: .env
+      - path: ${LILIES_STATE_DIR:?请通过 scripts/docker-up.sh 设置 LILIES_STATE_DIR}/.env
         required: false
+    user: "${LILIES_UID:?请通过 scripts/docker-up.sh 设置启动用户}:${LILIES_GID:?请通过 scripts/docker-up.sh 设置启动用户组}"
+    group_add:
+      - "${LILIES_DOCKER_GID:?请通过 scripts/docker-up.sh 设置 Docker socket 组}"
     environment:
-      DATA_DIR: /app/data
-      WORKSPACE_ROOT: /workspaces
-      WORKSPACE_HOST_ROOT: ${PWD:-.}/workspaces
-      SANDBOX_IMAGE: agent-platform-sandbox:latest
-      SANDBOX_UID: ${SANDBOX_UID:-10001}
-      SANDBOX_GID: ${SANDBOX_GID:-10001}
+      DATA_DIR: ${LILIES_DATA_DIR:?请通过 scripts/docker-up.sh 设置绝对数据目录}
+      WORKSPACE_ROOT: ${LILIES_WORKSPACE_DIR:?请通过 scripts/docker-up.sh 设置绝对工作区目录}
+      WORKSPACE_HOST_ROOT: ${LILIES_WORKSPACE_DIR}
+      SANDBOX_IMAGE: ${SANDBOX_IMAGE:-${LILIES_BASE_SANDBOX_IMAGE:?请通过 scripts/docker-up.sh 设置实例镜像}}
+      MODELING_IMAGE: ${MODELING_IMAGE:-${LILIES_BASE_MODELING_IMAGE:?请通过 scripts/docker-up.sh 设置实例镜像}}
+      SANDBOX_UID: ${LILIES_UID}
+      SANDBOX_GID: ${LILIES_GID}
+      API_HOST: 0.0.0.0
+      API_PORT: 8000
+      HOME: /tmp
       TEMPLATES_DIR: /app/templates
     volumes:
-      - ./data:/app/data
-      - ./workspaces:/workspaces
-      - /var/run/docker.sock:/var/run/docker.sock
+      - type: bind
+        source: ${LILIES_DATA_DIR}
+        target: ${LILIES_DATA_DIR}
+      - type: bind
+        source: ${LILIES_WORKSPACE_DIR}
+        target: ${LILIES_WORKSPACE_DIR}
+      - type: bind
+        source: ${LILIES_DOCKER_SOCKET:?请通过 scripts/docker-up.sh 设置 Docker socket 路径}
+        target: /var/run/docker.sock
     healthcheck:
       # 用 python 不用 curl：镜像基于 python:3.13-slim，里面根本没有 curl，
       # 健康检查会永远 "executable file not found"，api 永不健康，
@@ -63,32 +70,38 @@ services:
     depends_on:
       sandbox-image:
         condition: service_completed_successfully
+      modeling-image:
+        condition: service_completed_successfully
 
   # ── 沙盒镜像（仅构建，不运行）────────────────────────────────
   sandbox-image:
-    image: agent-platform-sandbox:latest
+    image: ${LILIES_BASE_SANDBOX_IMAGE:?请通过 scripts/docker-up.sh 设置实例沙盒镜像}
     build:
       context: .
       dockerfile: Dockerfile.sandbox
-      args:
-        SANDBOX_UID: ${SANDBOX_UID:-10001}
-        SANDBOX_GID: ${SANDBOX_GID:-10001}
     # 只构建、不驻留：镜像的 CMD 是 sleep infinity，直接跑会让 api 的
     # service_completed_successfully 永远等下去（一键部署就是卡在这）。
     # 覆盖成立刻退出的命令，镜像照样在 up 时构建出来。
     command: ["true"]
-    # 默认启动时自动构建；infra profile 下跳过
-    profiles: []
+
+  # 使用实例专属标签；历史研究绑定的镜像摘要仍须单独保留。
+  modeling-image:
+    image: ${LILIES_BASE_MODELING_IMAGE:?请通过 scripts/docker-up.sh 设置实例建模镜像}
+    build:
+      context: .
+      dockerfile: Dockerfile.modeling
+    entrypoint: ["true"]
 
   # ── 备份兜底（可选）: docker compose --profile backup up -d backup ──
   # 每日一次：cp SQLite 主库 + tar 打包 events/build_transcripts 到 ./backups/日期目录，保留 7 份。
-  # 生产推荐 scripts/backup.sh + 宿主 cron（VACUUM INTO 一致性快照）；本服务是容器内兜底。
+  # 仅旧版局部文件副本，不是完整或一致的恢复点；不用于发布回退。
+  # 完整备份先停 API/计算任务，再执行 scripts/backup.sh；见 docs/backup-restore.md。
   backup:
     image: alpine
     profiles: ["backup"]
     volumes:
-      - ./data:/data:ro
-      - ./backups:/backups
+      - ${LILIES_DATA_DIR}:/data:ro
+      - ${LILIES_STATE_DIR}/backups:/backups
     restart: unless-stopped
     entrypoint: ["sh", "-c"]
     command:

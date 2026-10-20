@@ -196,6 +196,38 @@ it('starts only after an explicit click and selects the returned conversation be
   await waitFor(() => expect(mocks.push).toHaveBeenCalledWith('/projects/project-a'))
 })
 
+it('shows another administrator is handling a finding without exposing or starting their chat', async () => {
+  vi.mocked(api).mockImplementation(async path => (path.endsWith('/settings') ? settings() : {
+    ...report(), items: [{ ...recovery, handoff: null, handled_elsewhere: true }],
+  }) as never)
+  render(<ImprovementsPage />)
+  const card = await screen.findByRole('article', { name: recovery.title })
+  expect(within(card).getByRole('status')).toHaveTextContent('其他管理员已有处理会话，无需重复启动。对方会话内容保持私有。')
+  expect(within(card).queryByRole('button', { name: '让项目智能体处理' })).not.toBeInTheDocument()
+  expect(within(card).queryByRole('button', { name: '查看处理进展' })).not.toBeInTheDocument()
+  expect(within(card).getByRole('link', { name: '下载改进任务（Markdown）' })).toBeInTheDocument()
+  expect(vi.mocked(api).mock.calls.every(([path, options]) => !options && !path.endsWith('/result'))).toBe(true)
+  expect(mocks.push).not.toHaveBeenCalled()
+})
+
+it('preserves a historical private continue entry while preventing another automatic brief', async () => {
+  vi.mocked(api).mockImplementation(async path => {
+    if (path.endsWith('/settings')) return settings() as never
+    if (path.endsWith('/result')) return handlingResult('prepared') as never
+    return { ...report(), items: [{ ...recovery, handled_elsewhere: true,
+      handoff: { conversation_id: 'improvement-chat', status: 'prepared', error: '' } }] } as never
+  })
+  render(<ImprovementsPage />)
+  const card = await screen.findByRole('article', { name: recovery.title })
+  fireEvent.click(within(card).getByRole('button', { name: '查看处理进展' }))
+  const continuation = await within(card).findByRole('button', { name: '继续沟通' })
+  expect(within(card).queryByRole('button', { name: '重试启动' })).not.toBeInTheDocument()
+  fireEvent.click(continuation)
+  expect(sessionStorage.getItem('lilies:user:admin-one:project:project-a:conversation')).toBe('improvement-chat')
+  expect(mocks.push).toHaveBeenCalledWith('/projects/project-a')
+  expect(vi.mocked(api).mock.calls.some(([path]) => path.endsWith('/start'))).toBe(false)
+})
+
 it('keeps a failed start on this page and permits retrying the same signal', async () => {
   vi.mocked(api).mockImplementation(async path => {
     if (path.endsWith('/start')) throw new Error('请先连接项目模型')

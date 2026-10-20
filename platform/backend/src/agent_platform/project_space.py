@@ -1,5 +1,6 @@
 """A project's callable workflows and files form its shared working context."""
 import asyncio
+from datetime import datetime, timezone
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -18,10 +19,21 @@ async def space(services, project_id):
         draft = await services.workflow_store.get_draft(member['id'])
         snapshot = draft['snapshot']
         workflows.append({'id': member['id'], 'name': snapshot.name,
+            **({'display_name':member['display_name']} if member.get('display_name') else {}),
             'description': snapshot.description, 'revision': draft['revision'],
             'node_count': len(snapshot.workflow.nodes), 'allowed': blocks.supports_workflow(snapshot.workflow),
             'inputs': [f for n in snapshot.workflow.nodes if n.type == 'start' for f in n.config.get('inputs', [])]})
-    files = await asyncio.to_thread(ProjectTools(services, project_id, services.local_agents).file, ProjectFile(action='list'))
+    tools = ProjectTools(services, project_id, services.local_agents)
+    def listed_files():
+        listing = tools.file(ProjectFile(action='list'))
+        for file in listing['files']:
+            try:
+                file['modified_at'] = datetime.fromtimestamp(tools.path(file['path']).stat().st_mtime, tz=timezone.utc).isoformat()
+            except (OSError, ValueError):
+                pass
+        return listing
+    files = await asyncio.to_thread(listed_files)
+    files['files'] = await services.projects.store.annotate_files(project_id, files['files'])
     return {'project_id': project_id, 'workflows': workflows, 'files': files['files'], 'files_truncated': files['truncated']}
 
 
@@ -58,6 +70,11 @@ async def add_workflow(services, project_id, body):
 
 
 def register_space_routes(router, services, invoke):
+    @router.get('/space/workflows/{workflow_id}/readiness')
+    async def readiness(project_id: str, workflow_id: str):
+        from .workflow_readiness import project_readiness
+        return await invoke(project_readiness, services, project_id, workflow_id)
+
     from .shared_methods import register_shared_routes
     register_shared_routes(router, services, invoke)
     @router.get('/space/official-workflows')

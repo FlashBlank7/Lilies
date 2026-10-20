@@ -3,6 +3,7 @@ import { useEffect, useId, useState } from 'react'
 import { api, type Block } from '@/lib/platform'
 import { outputPaths, parseField, upstreamNodes, valueReference, type FieldNode, type FieldEdge } from '@/lib/workflow-fields'
 import styles from './workflow-fields.module.css'
+export { WorkflowInputFields } from './WorkflowInputFields'
 
 export type WorkflowFieldProps = {
   value: string; onChange: (value: string) => void; nodes: FieldNode[]; edges?: FieldEdge[]; blocks?: Block[]
@@ -90,21 +91,6 @@ export function WorkflowObjectFields(props: WorkflowFieldProps) {
       <button disabled={props.disabled} type="button" onClick={() => { setNames({}); props.onChange(JSON.stringify(Object.fromEntries(entries.filter((_, i) => i !== index)))) }}>删除字段</button>
     </span>
   })}<button disabled={props.disabled} type="button" onClick={() => { let index = entries.length + 1; while (entries.some(([name]) => name === 'field_' + index)) index++; props.onChange(JSON.stringify({ ...Object.fromEntries(entries), ['field_' + index]: '' })) }}>添加字段</button></span>
-}
-
-export function WorkflowInputFields({ value, onChange, human = false }: { value: string; onChange: (value: string) => void; human?: boolean }) {
-  const parsed = parseField(value), items = Array.isArray(parsed) ? parsed as { name: string; type: string; required?: boolean; [key: string]: unknown }[] : []
-  const labels: Record<string, string> = { string: '文本', number: '数字', boolean: '是 / 否', file: '文件', file_list: '文件列表', object: '对象', array: '数组', any: '任意类型' }
-  function update(index: number, patch: Record<string, unknown>) { onChange(JSON.stringify(items.map((item, i) => i === index ? { ...item, ...patch } : item))) }
-  return <span className={styles.entries}>{items.map((item, index) => <span key={index} className={styles.entry}>
-    <label>名称<input aria-label={`输入名称 ${index + 1}`} value={item.name} onChange={event => update(index, { name: event.target.value })} /></label>
-    {!human && <><label>显示名称<input aria-label={`输入显示名称 ${index + 1}`} value={String(item.label || '')} onChange={e => update(index, {label:e.target.value})}/></label><label>填写说明<textarea aria-label={`输入说明 ${index + 1}`} value={String(item.description || '')} onChange={e => update(index, {description:e.target.value})}/></label></>}
-    {human && <><label>显示名称<input aria-label={`回答名称 ${index + 1}`} value={String(item.label || "")} onChange={e=>update(index,{label:e.target.value})}/></label><label>可选答案（每行一个，留空自由填写）<textarea aria-label={`回答选项 ${index + 1}`} value={Array.isArray(item.options)?item.options.join("\n"):""} onChange={e=>update(index,{options:e.target.value.split("\n").filter(Boolean)})}/></label></>}
-    <label>类型<select aria-label={`输入类型 ${index + 1}`} value={item.type} onChange={event => update(index, { type: event.target.value })}>{Object.entries(labels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
-    {!human&&<><label>数据工作空间用途<select aria-label={`输入资源类型 ${index+1}`} value={String(item.resource_kind||'')} onChange={e=>update(index,{resource_kind:e.target.value})}><option value="">普通参数 / 自动识别</option><option value="file">项目文件</option><option value="dataset">表格数据集</option><option value="model">已训练模型</option><option value="result">分析结果</option></select></label>{item.resource_kind==='file'&&<label>接受的文件格式（逗号分隔，空白表示不限）<input aria-label={`输入文件格式 ${index+1}`} value={Array.isArray(item.accepted_formats)?item.accepted_formats.join(','):''} onChange={e=>update(index,{accepted_formats:e.target.value.split(',').map(v=>v.trim()).filter(Boolean)})}/></label>}{['file','dataset'].includes(String(item.resource_kind))&&<label>必须包含的字段（逗号分隔）<input aria-label={`输入必需字段 ${index+1}`} value={Array.isArray(item.required_columns)?item.required_columns.join(','):''} onChange={e=>update(index,{required_columns:e.target.value.split(',').map(v=>v.trim()).filter(Boolean)})}/></label>}</>}
-    <span className={styles.row}><label className={styles.checkbox}><input aria-label={`必填 ${index + 1}`} type="checkbox" checked={!!item.required} onChange={event => update(index, { required: event.target.checked })} />必填</label></span>
-    <button type="button" onClick={() => onChange(JSON.stringify(items.filter((_, i) => i !== index)))}>删除输入</button>
-  </span>)}<button type="button" onClick={() => { let index = items.length + 1; while (items.some(item => item.name === 'input_' + index)) index++; onChange(JSON.stringify([...items, { name: 'input_' + index, type: 'string', required: false, ...(human ? {label:'补充说明',options:[]} : {}) }])) }}>添加输入</button></span>
 }
 
 export function WorkflowArrayFields(props: WorkflowFieldProps) {

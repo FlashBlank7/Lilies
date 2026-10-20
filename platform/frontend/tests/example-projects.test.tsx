@@ -1,4 +1,4 @@
-import {cleanup,fireEvent,render,screen,waitFor} from '@testing-library/react'
+import {cleanup,fireEvent,render,screen,waitFor,within} from '@testing-library/react'
 import {afterEach,beforeEach,expect,it,vi} from 'vitest'
 import {api} from '@/lib/platform'
 import ExampleProjects from '@/app/components/ExampleProjects'
@@ -44,10 +44,34 @@ it('prepares a message and exposes actual files, workflows and run forms without
  render(<ExampleProjectGuide projectId="p" onTalk={talk} onRun={run} onFile={file} onWorkflow={workflow} onSettings={()=>{}}/> )
  fireEvent.click(await screen.findByRole('button',{name:'准备这条消息'}))
  expect(talk).toHaveBeenCalledWith(expect.stringContaining(sample.question))
+ fireEvent.click(screen.getByRole('button',{name:'阅读完整使用说明'}))
+ expect(file).toHaveBeenCalledWith(sample.manual_path)
  fireEvent.click(screen.getByText('操作步骤、工作流与修改练习'))
  fireEvent.click(screen.getByRole('button',{name:'填写运行参数'}))
  expect(run).toHaveBeenCalledWith('w')
  fireEvent.click(screen.getByRole('button',{name:'input.txt'}))
  expect(file).toHaveBeenCalledWith('requirement-package/input.txt')
  expect(vi.mocked(api).mock.calls.every(([,o])=>!o?.method)).toBe(true)
+})
+
+it('reads the current Markdown guide and keeps the project copy separate without saving over it',async()=>{
+ const field_notes='history.csv 包含 `series`、`time`、`available` 和 `value`；训练标签由流程生成。'
+ const current_manual='# 滚动预测使用说明\n\n## 资料字段\n'+field_notes+'\n\n## 修改练习\n检查迟到资料。'
+ vi.mocked(api).mockResolvedValue({...sample,current_manual,field_notes} as never)
+ const talk=vi.fn(),file=vi.fn()
+ render(<ExampleProjectGuide projectId="p" onTalk={talk} onRun={vi.fn()} onFile={file} onWorkflow={vi.fn()} onSettings={vi.fn()}/> )
+ fireEvent.click(await screen.findByRole('button',{name:'阅读完整使用说明'}))
+ const reader=screen.getByRole('dialog',{name:'会议纪要 · 完整使用说明'})
+ expect(within(reader).getByRole('heading',{name:'资料字段'})).toBeVisible()
+ expect(reader).toHaveTextContent('训练标签由流程生成')
+ expect(file).not.toHaveBeenCalled()
+ fireEvent.click(within(reader).getByRole('button',{name:'关闭阅读窗口'}))
+ expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+ fireEvent.click(screen.getByRole('button',{name:'项目保存的说明'}))
+ expect(file).toHaveBeenCalledWith(sample.manual_path)
+ fireEvent.click(screen.getByRole('button',{name:'准备这条消息'}))
+ expect(talk).toHaveBeenCalledWith(expect.stringContaining(field_notes))
+ expect(talk.mock.calls[0][0]).not.toContain(current_manual)
+ expect(talk.mock.calls[0][0]).not.toContain('检查迟到资料。')
+ expect(vi.mocked(api).mock.calls.every(([,options])=>!options?.method)).toBe(true)
 })

@@ -55,5 +55,29 @@ describe('requirement package', () => {
     expect(screen.queryByText('需求正文')).not.toBeInTheDocument()
     expect(screen.getByText('需求.md')).toHaveAttribute('href', '/api/platform/api/v1/applications/test/workspace/files/requirement-package%2F%E9%9C%80%E6%B1%82.md?download=1')
     expect(screen.queryByText('outputs/log.txt')).not.toBeInTheDocument()
+    expect(screen.getByText('需求.md')).not.toBeVisible()
+    fireEvent.click(screen.getByText('企业资料 · 1 个文件'))
+    expect(screen.getByRole('link', { name: '需求.md' })).toBeVisible()
+    expect(screen.queryByText('查看资料文件')).not.toBeInTheDocument()
+  })
+
+  it('shows expanded files immediately with short distinct names and opens the selected original path', async () => {
+    const first = 'requirement-package/追加资料/12345678-1111-4222-8333-123456789aaa/记录.csv'
+    const second = 'requirement-package/追加资料/12345678-1111-4222-8333-123456789bbb/记录.csv'
+    const pdf = 'requirement-package/追加资料/12345678-1111-4222-8333-123456789aaa/设计.pdf'
+    vi.mocked(api).mockResolvedValue([{ path: first, size: 100 }, { path: second, size: 200 }, { path: pdf, size: 300 }])
+    const onOpenFile = vi.fn()
+    render(<RequirementPackageMaterials applicationId="test" requirement="需求正文" expanded onOpenFile={onOpenFile} />)
+    const links = await screen.findAllByRole('link', { name: /^记录.csv/ })
+    expect(links).toHaveLength(2)
+    expect(links[0]).toBeVisible()
+    expect(links[1]).toBeVisible()
+    expect(links[0].textContent).not.toBe(links[1].textContent)
+    expect(links[0]).not.toHaveTextContent('requirement-package/')
+    expect(links[0].closest('details')).toBeNull()
+    fireEvent.click(links[1])
+    expect(onOpenFile).toHaveBeenCalledWith(second)
+    expect(screen.getByRole('link', { name: '设计.pdf' })).toHaveAttribute('download', '设计.pdf')
+    expect(vi.mocked(api).mock.calls.every(([,options]) => !options?.method)).toBe(true)
   })
 })

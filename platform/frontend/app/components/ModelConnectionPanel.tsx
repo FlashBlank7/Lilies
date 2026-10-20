@@ -9,6 +9,8 @@ type ModelRole = 'main' | 'vision' | 'generation'
 type Connection = {
   raw_connection?: Connection | null
   mode?: 'inherit' | 'independent'
+  generation_source?: 'official' | 'api'
+  model_egress_enabled?: boolean
   provider: string | null; model?: string; thinking?: string
   protocol?: string; base_url?: string; runtime_enabled?: boolean; has_api_key?: boolean
 }
@@ -28,12 +30,16 @@ export default function ModelConnectionPanel({ base, connected, running, onSaved
   const [projects, setProjects] = useState<{ id: string; name: string }[]>([])
   const [sourceProject, setSourceProject] = useState('')
   const [sourceRole, setSourceRole] = useState<ModelRole>('main')
+  const [egressEnabled, setEgressEnabled] = useState<boolean>()
+  const [officialGeneration, setOfficialGeneration] = useState(false)
   const endpoint = base + (role === 'main' ? '/agent-session' : `/${role}-model`)
   const title = role === 'generation' ? '工作流生成模型设置' : role === 'vision' ? '视觉模型设置' : '项目模型设置'
   async function edit() {
     setBusy(true); setError('')
     try {
       const response = await api<Connection>(endpoint)
+      setEgressEnabled(response.model_egress_enabled)
+      setOfficialGeneration(role === 'generation' && response.generation_source === 'official')
       const saved = role === 'main' && response.raw_connection ? response.raw_connection : response
       setMode(saved.mode || 'inherit')
       setInheritedModel(saved.mode === 'inherit' ? saved.model || '尚未配置主模型' : '')
@@ -57,8 +63,10 @@ export default function ModelConnectionPanel({ base, connected, running, onSaved
     <button disabled={running || busy} onClick={() => void edit()}>{role !== 'main' ? title : connected ? '模型设置' : '连接模型'}</button>
     {!connected && role === 'main' && <small>配置 API 模型，供工作流和项目对话使用。</small>}
     {open && <ReadingDialog title={title} onClose={() => { setOpen(false); setKey('') }}><div className={styles.modelSetup}>
-      <p>{role === 'generation' ? '此模型仅用于生成和修改工作流，不改变业务节点及项目对话的模型。' : role === 'vision' ? '使用支持图片输入的 API 模型读取设计图。此连接独立于主模型。' : '连接模型 API，供工作流中的模型节点和 Lilies 使用。'}</p>
-      {role === 'generation' && <><label>生成模型来源<select value={mode} onChange={event => setMode(event.target.value as 'inherit' | 'independent')}><option value="inherit">沿用项目主模型</option><option value="independent">独立配置 API 模型</option></select></label>{mode === 'inherit' && <p>沿用主模型{inheritedModel ? `：${inheritedModel}` : ''}。主模型的后续变更也会用于生成。</p>}</>}
+      {officialGeneration && <p role="status"><strong>当前工作流生成选择了官方智能体。</strong>无需填写此处的 API 连接。以下配置仅在项目“智能体来源”切换为“项目工作流生成 API”后使用；保存连接不会切换当前来源。</p>}
+      {egressEnabled === false && <p role="status">{officialGeneration ? '外部模型 API 调用开关当前关闭，仅影响以下 API 连接，不影响官方智能体。' : '平台尚未允许外部模型 API 调用。'}可以先保存连接；使用外部服务前，请联系平台管理员启用模型调用。本机模型服务不受此外部调用开关限制。</p>}
+      <p>{role === 'generation' ? '此处配置工作流生成的 API 模型，不改变业务节点及项目对话的模型。' : role === 'vision' ? '使用支持图片输入的 API 模型读取设计图。此连接独立于主模型。' : '连接模型 API，供工作流中的模型节点和 Lilies 使用。'}</p>
+      {role === 'generation' && <><label>生成模型来源<select value={mode} onChange={event => setMode(event.target.value as 'inherit' | 'independent')}><option value="inherit">沿用项目主模型</option><option value="independent">独立配置 API 模型</option></select></label>{mode === 'inherit' && <p>{officialGeneration ? '备用 API 配置' : '沿用主模型'}{inheritedModel ? `：${inheritedModel}` : ''}。{officialGeneration ? '当前生成不使用此连接。' : '主模型的后续变更也会用于生成。'}</p>}</>}
       {(role !== 'generation' || mode === 'independent') && <>
       {base.startsWith('/api/v1/projects/') && <details><summary>沿用已有项目连接</summary>
         <button disabled={busy} onClick={async () => { try { setProjects((await api<{ id: string; name: string }[]>('/api/v1/projects')).filter(project => role === 'generation' || !base.endsWith('/' + project.id))) } catch (cause) { setError(String(cause)) } }}>选择已有项目</button>

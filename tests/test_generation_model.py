@@ -63,3 +63,18 @@ def test_generation_owner_collaborator_and_copy_permissions(platform):
     # Cookie proxy sends JSON content type even for an empty DELETE body.
     assert client.delete(base+'/generation-model', headers={**owner,'Content-Type':'application/json'}).status_code == 200
     assert client.get(base+'/generation-model', headers=owner).json()['mode'] == 'inherit'
+
+
+def test_generation_settings_distinguish_selected_official_from_api_connection(configured):
+    client, app, project, _ = configured
+    base = '/api/v1/projects/' + project['id']
+    assert client.get(base+'/generation-model').json()['generation_source'] == 'api'
+    assert client.put(base+'/capabilities',json={'agent_modules_enabled':True}).status_code == 200
+    assert client.put(base+'/assistant-source',json={'allowed':True,'task':'official','generation':'inherit'}).status_code == 200
+    settings = client.get(base+'/generation-model').json()
+    assert settings['generation_source'] == 'official' and settings['model_egress_enabled'] is False
+    assert client.put(base+'/generation-model',json=config()).status_code == 200
+    assert client.get(base+'/generation-model').json()['generation_source'] == 'official'
+    assert client.put(base+'/assistant-source',json={'allowed':True,'task':'official','generation':'api'}).status_code == 200
+    assert client.get(base+'/generation-model').json()['generation_source'] == 'api'
+    assert app.state.services.official_agent.jobs() == []

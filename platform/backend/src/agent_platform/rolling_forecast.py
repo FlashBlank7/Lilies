@@ -26,7 +26,7 @@ def workflow():
         dict(name='timezone',label='无时区时间的UTC偏移，例如 +08:00',type='string',default='+00:00'),
         dict(name='step_seconds',label='一个时段的秒数（日86400，小时3600，15分钟900）',type='number',default=86400),
         dict(name='lags',label='使用此前多少个时段（包含起点时段）',type='number',default=7),
-        dict(name='horizon',label='每次预测后续几个时段',type='number',default=3),
+        dict(name='horizon',label='预测步数（每次预测后续几个时段）',description='填写1至96之间的整数，默认3。',type='number',default=3),
         dict(name='origins',label='历史回测起点数量',type='number',default=3),
         dict(name='origin_stride',label='回测起点之间相隔几个时段',type='number',default=3),
         dict(name='first_origin',label='首个回测起点（ISO时间；留空从最后完整窗口往前取）',type='string',default=''),
@@ -74,4 +74,4 @@ def example_files():
     original=buffer.getvalue()
     altered=original.replace('2025-03-31T00:00:00+00:00,2025-03-31T00:00:00+00:00,','2025-03-31T00:00:00+00:00,2025-04-02T00:00:00+00:00,')
     return {'history.csv':original,'history-late.csv':altered,
-        '字段与练习说明.txt':'这是自编日序列，不是生产数据。value含趋势、每7日变化及小扰动；available为实际可用时间。默认回测3个起点、每次3步，比较模型与最近值/季节基线；阈值0和18仅演示。把horizon改为5、或仅用最近30时段训练，比较各步误差。换history-late.csv后最后观测迟到两天，启用最后时点预测时不得把它提前作为特征。尚无未来真实值的预测不计入评价。'}
+        '字段与练习说明.txt':'这是自编日序列，不是生产数据。series为序列标识，time为观测时刻，available为实际可用时间，value为要预测的数值，含趋势、每7日变化及小扰动。默认回测3个起点、预测步数为3，比较模型与最近值/季节基线；阈值0和18仅演示。把预测步数改为5、或仅用最近30时段训练，比较各步误差。预测步数需填写1至96之间的整数。换history-late.csv后最后观测迟到两天，启用最后时点预测时不得把它提前作为特征。尚无未来真实值的预测不计入评价。'}

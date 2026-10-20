@@ -3,7 +3,9 @@ from functools import partial
 
 import pytest
 
-from agent_platform.workflow_models import WorkflowSpec
+from agent_platform.applications import ApplicationService
+from agent_platform.blocks import build_block_registry
+from agent_platform.workflow_models import ApplicationSnapshot, WorkflowSpec
 from tests.test_projects import configured, edge, graph, node, ref  # noqa: F401
 
 
@@ -23,6 +25,41 @@ def save_test(client, pid, **changes):
     response = client.post(path, json={'op': 'add_test', 'data': {'test': test},
         'expected_revision': draft['revision'], 'idempotency_key': 'saved-test'})
     assert response.status_code == 200, response.text
+
+
+@pytest.mark.parametrize('work_node', [
+    node('work', 'tool', tool_name='not-bound'),
+    node('work', 'llm', model='not-configured', prompt='Return a number'),
+    node('work', 'model_predict', model_ref='', dataset_id=''),
+])
+def test_structure_helper_checks_exact_snapshot_without_storage_or_runtime(work_node):
+    # No store, project service or tool bindings exist: this is an unsaved draft.
+    service = ApplicationService(None, build_block_registry(), None)
+    snapshot = ApplicationSnapshot.model_validate({'workflow': {
+        'nodes': [node('start', 'start', inputs=[{'name': 'unused', 'type': 'number'}]),
+                  work_node, node('end', 'end')],
+        'edges': [edge('start', 'work'), edge('work', 'end')],
+    }})
+    before = snapshot.model_dump(mode='json')
+    checked = service.validate_structure(snapshot)
+    assert set(checked) == {'valid', 'errors', 'warnings'}
+    assert checked['valid'] and checked['errors'] == []
+    assert len(checked['warnings']) == 1 and 'unused' in checked['warnings'][0]
+    assert snapshot.model_dump(mode='json') == before
+
+
+def test_structure_helper_reports_self_reference_once_without_mutating_snapshot():
+    service = ApplicationService(None, build_block_registry(), None)
+    snapshot = ApplicationSnapshot.model_validate({'workflow': {
+        'nodes': [node('start', 'start'), node('end', 'end', outputs={'value': ref('end')})],
+        'edges': [edge('start', 'end')],
+    }, 'tests': [{'id': 'saved', 'name': 'Saved test', 'requirement': 'Keep this test',
+                 'required_node_types': ['code']}]})
+    before = snapshot.model_dump(mode='json')
+    checked = service.validate_structure(snapshot)
+    assert not checked['valid']
+    assert len(checked['errors']) == 1 and '自己' in checked['errors'][0]
+    assert snapshot.model_dump(mode='json') == before
 
 
 def test_project_validates_and_runs_without_creating_acceptance_tests(configured):

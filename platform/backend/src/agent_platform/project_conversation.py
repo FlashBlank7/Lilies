@@ -296,6 +296,8 @@ class ProjectConversation:
         from .project_activity import latest_operations, project_activity
         state = self.manager.load(project_id)
         all_events = state.pop('events')
+        if kind != 'messages' or (request_id and (state.get('streaming_message') or {}).get('request_id') != request_id):
+            state.pop('streaming_message', None)
         chosen = [(index, event) for index, event in enumerate(all_events)
                   if (bool(event.get('operation_id')) if kind == 'activity' else
                       (event['kind'] in {'user', 'assistant'} or (event['kind'] == 'result' and bool(event.get('request_id')) and event.get('purpose') != 'build_test')) == (kind == 'messages'))
@@ -441,9 +443,19 @@ class ProjectConversation:
         calls, flows = [], {}
         for workflow_id, draft in frozen.items():
             graph = draft['snapshot']['workflow']
-            nodes = []
+            nodes, inputs, outputs = [], [], []
             for node in graph['nodes']:
-                target = node.get('config', {}).get('tool_name', '')
+                config = node.get('config', {})
+                if node['type'] in {'start', 'event_subscription_trigger'}:
+                    inputs.extend({'name': field['name'], 'label': field.get('label', ''),
+                                   'type': field.get('type', 'string'), 'required': field.get('required', True),
+                                   'description': field.get('description', '')}
+                                  for field in config.get('inputs', []))
+                elif node['type'] == 'end':
+                    outputs.extend(config.get('outputs', {}))
+                elif node['type'] == 'answer':
+                    outputs.append('answer')
+                target = config.get('tool_name', '')
                 member_id = target.removeprefix('workflow:') if isinstance(target, str) and target.startswith('workflow:') else ''
                 nodes.append({'id': node['id'], 'type': node['type'], 'title': node.get('title') or node['id'],
                               'workflow_id': member_id,
@@ -454,14 +466,14 @@ class ProjectConversation:
                                   'node_id': node['id'], 'label': node.get('title', node['id'])})
             inputs = [
                 InputField.model_validate(field).model_dump(include={'name', 'label', 'type', 'required', 'description'})
-                for node in graph['nodes'] if node['type'] == 'start'
+                for node in graph['nodes'] if node['type'] in {'start', 'event_subscription_trigger'}
                 for field in node.get('config', {}).get('inputs', [])
             ]
             endings = [node for node in graph['nodes'] if node['type'] == 'end']
             flows[workflow_id] = {'revision': draft['revision'], 'nodes': nodes,
                                  'description': draft['snapshot'].get('description', ''),
                                  'inputs': inputs,
-                                 'outputs': list(dict.fromkeys(key for node in endings for key in node.get('config', {}).get('outputs', {}))),
+                                 'outputs': list(dict.fromkeys(outputs)),
                                  'output_description': '\n'.join(node.get('description', '') for node in endings if node.get('description')),
                                  'edges': [{'source': e['source'], 'target': e['target'], 'branch': e.get('branch')}
                                            for e in graph['edges']]}

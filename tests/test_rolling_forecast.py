@@ -9,7 +9,7 @@ import time
 
 import pytest
 from agent_platform import rolling_forecast as template, rolling_forecast_code as code
-from tests.test_projects import configured, start, graph  # noqa: F401
+from tests.test_projects import configured, start, graph, settled  # noqa: F401
 from tests.test_modeling import modeling, real_compute, wait_task  # noqa: F401
 from tests.test_official_workflows import install
 from tests.test_example_projects import install as install_example
@@ -104,6 +104,24 @@ def test_negative_and_zero_values_are_valid(scenario):
 ])
 def test_invalid_configuration_has_concrete_failure(scenario,changes,message):
     with pytest.raises(ValueError,match=message):first({**scenario,**changes})
+
+
+@pytest.mark.parametrize('horizon', [0, 97, 1.5, True, 'invalid', None])
+def test_invalid_horizon_identifies_the_forecast_steps_field(scenario, horizon):
+    with pytest.raises(ValueError, match='预测步数（horizon）'):
+        code.prepare({**scenario, 'horizon': horizon})
+
+
+def test_installed_forecast_reports_parameter_failure_without_training(configured):
+    client, _, _, _ = configured
+    pid = install_example(client, 'rolling-forecast'); base = '/api/v1/projects/'+pid
+    draft = client.get('/api/v1/applications/'+pid+'/draft').json()['snapshot']['workflow']
+    field = next(f for f in draft['nodes'][0]['config']['inputs'] if f['name'] == 'horizon')
+    assert '预测步数' in field['label'] and field['default'] == 3
+    task = settled(client, base, start(client, base, 'invalid-horizon', workflow_id=pid, inputs={'horizon': 1.5}))
+    assert task['status'] == 'failed', task
+    assert '预测步数（horizon）需要1至96之间的整数' in task['error']
+    assert client.get(base+'/modeling/studies').json() == []
 
 
 def test_duplicate_revision_invalid_time_and_snapshot_change(scenario):

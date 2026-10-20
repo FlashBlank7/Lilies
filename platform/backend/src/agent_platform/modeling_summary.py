@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import json
+import math
 import time
 
 
@@ -13,18 +15,65 @@ def detail(action, **ids):
     return {'tool': 'project_modeling', 'arguments': {'action': action, **ids, 'view': 'full'}}
 
 
+def baseline_comparison(metrics, baseline):
+    """Derived arithmetic for one recorded trial, never a production claim."""
+    if not isinstance(metrics, dict) or not isinstance(baseline, dict):
+        return {}
+    result = {}
+    for name, value in metrics.items():
+        reference = baseline.get(name)
+        try:
+            valid = all(type(number) in (int, float) and math.isfinite(number)
+                        for number in (value, reference))
+        except OverflowError:
+            continue
+        if not valid:
+            continue
+        delta = value - reference
+        if not math.isfinite(delta):
+            continue
+        comparison = {'baseline': reference, 'value_minus_baseline': delta}
+        if name in {'mae', 'rmse'} and value >= 0 and reference > 0:
+            fraction = (reference - value) / reference
+            if math.isfinite(fraction):
+                comparison['error_reduction_fraction'] = fraction
+        result[name] = comparison
+    return result
+
+
 def profile_summary(value):
-    result = pick(value, ('sampled', 'rows', 'empty_rows', 'nonempty_rows', 'duplicates', 'runtime', 'id_column_count', 'group_column_count',
-                         'sample_structure', 'warnings'))
-    result['columns'] = [pick(c, ('name', 'dtype', 'missing', 'unique', 'min', 'max', 'mean', 'outliers', 'value_counts',
-                                'counts', 'missing_reasons', 'invalid_reasons', 'parsed_unavailable', 'category_labels'))
-                         for c in value.get('columns', [])]
+    result = pick(value, ('dataset_id', 'sampled', 'rows', 'empty_rows', 'nonempty_rows', 'duplicates', 'runtime', 'id_column_count', 'group_column_count', 'sample_structure', 'warnings'))
+    result['columns'] = []
+    for column in value.get('columns', []):
+        compact = pick(column, ('name', 'dtype', 'missing', 'unique', 'min', 'max', 'mean', 'outliers', 'value_counts', 'counts', 'missing_reasons', 'invalid_reasons', 'parsed_unavailable', 'category_labels'))
+        distribution = column.get('distribution')
+        if isinstance(distribution, list) and all(isinstance(row, dict) and 'label' in row and 'count' in row for row in distribution):
+            # Keep small saved frequency tables, especially target classes.
+            # They are observations, not a claim that all values are listed.
+            if len(distribution) <= 12 and len(json.dumps(distribution)) <= 1500:
+                compact['distribution'] = deepcopy(distribution)
+            else:
+                compact['distribution'] = {'preview_omitted': True, 'count': len(distribution)}
+            rows, missing = value.get('rows'), column.get('missing')
+            if (type(rows) is int and type(missing) is int
+                    and all(type(row['count']) is int and row['count'] >= 0 for row in distribution)):
+                represented = sum(row['count'] for row in distribution)
+                compact['distribution_coverage'] = {
+                    'represented_rows': represented, 'non_missing_rows': rows - missing,
+                    'complete': represented == rows - missing,
+                }
+                if represented < rows - missing:
+                    compact['distribution_coverage']['note'] = '部分频次；未列出的类别或批次数量未知，不能推断所有分组大小相同。'
+        result['columns'].append(compact)
     if value.get('data_state'):
         result['data_state'] = pick(value['data_state'], ('counts', 'blocked_cells', 'issues_preview', 'note'))
     if 'time' in value:
         result['time'] = pick(value['time'], ('start', 'end', 'invalid', 'median_interval_seconds'))
     if 'labels' in value:
         result['labels'] = profile_summary(value['labels'])
+    if isinstance(value.get('preview'), list):
+        result['preview'] = {'preview_omitted': True, 'count': len(value['preview'])}
+    result['distribution_scope'] = 'Saved frequency tables or histogram bins; these may show only leading values, not every distinct value.'
     result['view'] = 'summary'
     return result
 
@@ -36,18 +85,25 @@ def dataset_summary(value):
     return result
 
 
-def split_summary(split, test_result=None):
+def split_summary(split, test_result=None, *, study=None):
     if split is None:
         return None
     result = pick(split, ('missing_labels', 'unavailable_labels', 'label_state_counts', 'excluded_data_rows', 'evaluation_label'))
     for name, field in [('samples', 'labeled_samples'), ('development', 'development_samples'), ('holdout', 'holdout_samples')]:
-        if name in split:
+        if isinstance(split.get(name), list):
             result[field] = len(split[name])
-    if 'folds' in split:
+    if isinstance(split.get('folds'), list):
         result['folds'] = len(split['folds'])
+    test_result = test_result or (study or {}).get('test_result')
     result['holdout_status'] = ('evaluated' if test_result else
         'not_evaluated' if result.get('holdout_samples', 0) > 0 else
         'not_reserved' if result.get('holdout_samples') == 0 else 'unknown')
+    # The split artifact records its creation-time label. Display the current
+    # evaluation state without rewriting that immutable training artifact.
+    if study and study.get('test_result'):
+        result['evaluation_label'] = '保留测试已完成并保存结果，未参与模型搜索'
+    elif study and study.get('status') == 'sealed':
+        result['evaluation_label'] = '保留测试集已封存（此摘要没有已保存的测试结果）'
     return result
 
 
@@ -62,7 +118,7 @@ def study_summary(value):
                                   'trials': max(0, budget.get('trials', 0) - value.get('trials_used', 0))}
     result['metric_direction'] = 'minimize' if value['evaluation']['metric'] in {'mae', 'rmse'} else 'maximize'
     if value.get('split'):
-        result['split'] = split_summary(value['split'], value.get('test_result'))
+        result['split'] = split_summary(value['split'], study=value)
     result.update(view='summary', detail=detail('read_study', study_id=value['id']))
     return result
 
@@ -90,6 +146,23 @@ def candidate_summary(value):
                          'batch_size', 'features', 'task_id', 'run_id', 'current', 'error', 'code_sha256',
                          'search_decision', 'created_at', 'updated_at'))
     result['trials'] = [trial_summary(t) for t in value.get('trials', [])]
+    trials = result['trials']
+    if len(trials) >= 2:
+        shared = {}
+        for key in ('baseline', 'diagnostics', 'task_id', 'run_id'):
+            if all(key in trial for trial in trials):
+                # Compare JSON values including their types: Python equality
+                # alone would also merge false with 0 in nested diagnostics.
+                first = json.dumps(trials[0][key], sort_keys=True)
+                if all(json.dumps(trial[key], sort_keys=True) == first for trial in trials[1:]):
+                    shared[key] = trials[0][key]
+                    for trial in trials:
+                        del trial[key]
+        if shared:
+            result['trial_shared'] = shared
+            result['trial_shared_detail'] = (
+                'Every trial inherits trial_shared; its own fields take precedence. '
+                'Shared values were identical in all recorded trials.')
     result.update(view='summary', detail=detail('candidates', study_id=value['study_id'], candidate_id=value['id']))
     result['training_note'] = detail('training_note', study_id=value['study_id'], candidate_id=value['id'], slot=0)
     return result
@@ -102,7 +175,9 @@ def note_summary(value):
     result['trial'] = trial_summary(value['trial'])
     result['dataset'] = pick(value['dataset'], ('id', 'name', 'mapping'))
     result['features'] = deepcopy(value['features'])
-    result['split'] = split_summary(value.get('split'), value.get('test_result'))
+    split = value.get('split')
+    result['split'] = None if split is None else split_summary(split, study={
+        'status': value.get('study_status'), 'test_result': value.get('test_result')})
     result['comparison_trials'] = len(value.get('comparison', []))
     result.update(view='summary', detail=detail('training_note', study_id=value['study_id'],
                                                candidate_id=value['candidate_id'], slot=value['slot']))

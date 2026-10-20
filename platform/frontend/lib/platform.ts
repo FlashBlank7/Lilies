@@ -187,6 +187,8 @@ export type BlockEditorField = {
   options?: string[]
   option_labels?: Record<string, string>
   visible_when?: Record<string, string[]>
+  option_labels_zh?: Record<string, string>
+  option_descriptions_zh?: Record<string, string>
 }
 
 export type BlockEditorNotice = {

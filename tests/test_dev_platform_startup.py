@@ -134,6 +134,7 @@ def test_example_configuration_keeps_provider_egress_closed(tmp_path: Path, monk
     from agent_platform.config import Settings
     monkeypatch.delenv('MODEL_EGRESS_ENABLED', raising=False)
     monkeypatch.delenv('DEEPSEEK_API_KEY', raising=False)
+    monkeypatch.delenv('MODELING_IMAGE', raising=False)
     settings = Settings(_env_file=ROOT / '.env.example', data_dir=tmp_path / 'data',
                         workspace_root=tmp_path / 'workspaces')
     assert settings.model_egress_enabled is False

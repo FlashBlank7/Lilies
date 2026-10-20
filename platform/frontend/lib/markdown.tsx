@@ -273,9 +273,11 @@ function renderBlock(block: MarkdownBlock, index: number, resolveLink?: (href: s
   }
   if (block.kind === 'code') return <pre key={key} data-language={block.language || undefined}><code>{block.code}</code></pre>
   if (block.kind === 'table') {
-    return <div className="markdown-table-wrap" key={key}><table>
-      <thead><tr>{block.header.map((cell, cellIndex) => <th key={`${key}-h-${cellIndex}`}>{renderInline(cell, `${key}-h-${cellIndex}`, resolveLink)}</th>)}</tr></thead>
-      <tbody>{block.rows.map((row, rowIndex) => <tr key={`${key}-r-${rowIndex}`}>{block.header.map((_, cellIndex) => <td key={`${key}-r-${rowIndex}-${cellIndex}`}>{renderInline(row[cellIndex] || '', `${key}-r-${rowIndex}-${cellIndex}`, resolveLink)}</td>)}</tr>)}</tbody>
+    const cellContent=(text:string,cellIndex:number,cellKey:string)=>cellIndex===0
+      ?<span className="markdown-row-label">{renderInline(text,cellKey,resolveLink)}</span>:renderInline(text,cellKey,resolveLink)
+    return <div className="markdown-table-wrap" key={key} role="region" aria-label="报告表格，可横向滚动" tabIndex={0}><table>
+      <thead><tr>{block.header.map((cell, cellIndex) => <th scope="col" key={`${key}-h-${cellIndex}`}>{cellContent(cell,cellIndex,`${key}-h-${cellIndex}`)}</th>)}</tr></thead>
+      <tbody>{block.rows.map((row, rowIndex) => <tr key={`${key}-r-${rowIndex}`}>{block.header.map((_, cellIndex) => <td key={`${key}-r-${rowIndex}-${cellIndex}`}>{cellContent(row[cellIndex] || '',cellIndex,`${key}-r-${rowIndex}-${cellIndex}`)}</td>)}</tr>)}</tbody>
     </table></div>
   }
   return <hr key={key} />

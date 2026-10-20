@@ -4,8 +4,9 @@ import { useRef, useState } from 'react'
 import { api } from '@/lib/platform'
 import RequirementPackageMaterials from './RequirementPackageMaterials'
 import { useOnboarding } from './Onboarding'
+import { groupProjectFiles } from './project-files'
 
-export default function ProjectMaterials({ id, onOpenFile, onChanged }: { id: string; onOpenFile: (path: string) => void; onChanged?: () => void }) {
+export default function ProjectMaterials({ id, onOpenFile, onChanged, expanded = false }: { id: string; onOpenFile: (path: string) => void; onChanged?: () => void; expanded?: boolean }) {
   const guide = useOnboarding()
   const input = useRef<HTMLInputElement>(null)
   const [revision, setRevision] = useState(0)
@@ -69,14 +70,14 @@ export default function ProjectMaterials({ id, onOpenFile, onChanged }: { id: st
       <label>来源项目<select aria-label="资料来源项目" value={sourceProject} disabled={busy} onChange={event => void chooseProject(event.target.value)}>
         <option value="">请选择项目</option>{projects.map(project => <option key={project.id} value={project.id}>{project.name}</option>)}
       </select></label>
-      {sourceFiles.length > 0 ? <ul>{sourceFiles.map(file => <li key={file.path}><label>
+      {sourceFiles.length > 0 ? <ul>{groupProjectFiles(sourceFiles).flatMap(group => group.files).map(file => <li key={file.path}><label>
         <input type="checkbox" disabled={busy} checked={selected.includes(file.path)} onChange={event => setSelected(previous => event.target.checked ? [...previous, file.path] : previous.filter(path => path !== file.path))} />
-        {file.path.slice('requirement-package/'.length)}（{file.size < 1024 * 1024 ? `${Math.ceil(file.size / 1024)} KB` : `${(file.size / 1024 / 1024).toFixed(1)} MB`}）
+        {file.label}（{file.size! < 1024 * 1024 ? `${Math.ceil(file.size! / 1024)} KB` : `${(file.size! / 1024 / 1024).toFixed(1)} MB`}）
       </label></li>)}</ul> : sourceProject && !busy && <p>该项目没有可选择的原始资料。</p>}
       <button disabled={busy || !selected.length} onClick={() => void copySelected()}>{busy ? '正在读取或添加资料…' : '添加所选资料'}</button>
     </section>}
     {added.length > 0 && <p role="status">已添加：{added.join('、')}。资料已保存为独立文件。</p>}
     {error && <p role="alert">{error}</p>}
-    <RequirementPackageMaterials key={revision} onOpenFile={onOpenFile} applicationId={id} requirement="requirement-package/" />
+    <RequirementPackageMaterials key={revision} onOpenFile={onOpenFile} applicationId={id} requirement="requirement-package/" expanded={expanded} />
   </>
 }

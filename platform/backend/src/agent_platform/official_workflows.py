@@ -1,5 +1,6 @@
 """Small, editable workflow recipes built from the public block contract."""
 from copy import deepcopy
+from pathlib import Path
 
 from .workflow_models import WorkflowSpec
 from .project_space import AddWorkflow, add_workflow
@@ -20,14 +21,14 @@ def graph(nodes):
 
 
 def training(problem, process=False):
-    inputs = [{'name': 'source_path', 'type': 'string', 'required': True, 'description': '项目中已上传的 CSV、TSV 或 XLSX'},
-              {'name': 'target', 'type': 'string', 'required': True, 'description': '需要预测的标签列名称'},
-              {'name': 'group_column', 'type': 'string', 'default': '', 'description': '批次／炉次字段；使用分组划分时填写'}]
+    inputs = [{'name': 'source_path', 'label': '数据表', 'type': 'string', 'required': True, 'description': '项目中已上传的 CSV、TSV 或 XLSX'},
+              {'name': 'target', 'label': '预测目标列', 'type': 'string', 'required': True, 'description': '需要预测的标签列名称'},
+              {'name': 'group_column', 'label': '批次或炉次列', 'type': 'string', 'default': '', 'description': '批次／炉次字段；使用分组划分时填写'}]
     mapping = {'target': ref('$inputs', 'target'), 'group_column': ref('$inputs', 'group_column')}
     if process:
-        inputs += [{'name': name, 'type': 'string', 'required': True, 'description': description} for name, description in [
-            ('labels_path', '每行一个预测时点和标签的样本表'), ('id_column', '设备／炉次标识列'),
-            ('time_column', '过程测量时间列'), ('prediction_time_column', '标签表中的预测时点列')]]
+        inputs += [{'name': name, 'label': label, 'type': 'string', 'required': True, 'description': description} for name, label, description in [
+            ('labels_path', '标签表', '每行一个预测时点和标签的样本表'), ('id_column', '设备或炉次标识列', '设备／炉次标识列'),
+            ('time_column', '过程测量时间列', '过程测量时间列'), ('prediction_time_column', '预测时点列', '标签表中的预测时点列')]]
         mapping.update(kind='timeseries', **{name: ref('$inputs', name) for name in ('id_column', 'time_column', 'prediction_time_column')})
     return graph([
         node('start', 'start', '选择数据和预测目标', inputs=inputs),
@@ -112,17 +113,17 @@ REPLAY_INPUT_CODE = '''def main(inputs):
 
 def replay_rules():
     return graph([node('start','start','选择已有预测与新规则',inputs=[
-        {'name':'source_path','type':'string','required':True,'description':'前次模型与规则流程生成的规则重算输入 JSON'},
-        {'name':'threshold','type':'number','required':False,'description':'新业务阈值；留空沿用模型保存的阈值'}]),
+        {'name':'source_path','label':'规则重算输入文件','type':'string','required':True,'description':'前次模型与规则流程生成的规则重算输入 JSON'},
+        {'name':'threshold','label':'采纳阈值','type':'number','required':False,'description':'新业务阈值；留空沿用模型保存的阈值'}]),
         node('load','code','读取固定预测结果',code=REPLAY_INPUT_CODE,inputs={'source_path':ref('start','source_path')}),
         node('rules','code','只重算规则与报告',code=RULE_CODE,inputs={'prediction':ref('load','output'),'threshold':ref('start','threshold')}),
         node('end','end','新规则结果',outputs={'result':ref('rules','output'),'markdown':ref('rules','output','markdown')})])
 
 
 def prediction(rules=False):
-    inputs = [{'name': 'source_path', 'type': 'string', 'required': True, 'description': '字段语义须与训练一致的无标签数据'}]
+    inputs = [{'name': 'source_path', 'label': '数据表', 'type': 'string', 'required': True, 'description': '字段语义须与训练一致的无标签数据'}]
     if rules:
-        inputs.append({'name': 'threshold', 'type': 'number', 'required': False, 'description': '手动指定业务阈值；留空使用模型保存的验证阈值，无可用阈值时全部复核'})
+        inputs.append({'name': 'threshold', 'label': '采纳阈值', 'type': 'number', 'required': False, 'description': '手动指定业务阈值；留空使用模型保存的验证阈值，无可用阈值时全部复核'})
     nodes = [node('start', 'start', '选择新数据', inputs=inputs),
              node('predict', 'model_predict', '使用固定模型版本批量预测', source_path=ref('$inputs', 'source_path'), model_ref='')]
     if rules:
@@ -134,6 +135,19 @@ def prediction(rules=False):
     return graph(nodes)
 
 
+def table_profile():
+    return graph([
+        node('start', 'start', '选择需要体检的数据表', inputs=[
+            {'name': 'source_path', 'type': 'string', 'required': True, 'label': '数据表',
+             'description': '当前项目的 CSV、TSV 或 XLSX 文件；Excel 使用当前活动工作表'}]),
+        node('process', 'code', '检查数据与重复位置',
+             code=Path(__file__).with_name('example_processing.py').read_text(),
+             inputs={'operation': 'profile', 'source_path': ref('start', 'source_path')}),
+        node('end', 'end', '体检报告与明细', outputs={
+            'result': ref('process', 'output'), 'markdown': ref('process', 'output', 'markdown')}),
+    ])
+
+
 CATALOG = {
     'tabular-classification': {'name': '表格分类训练', 'description': '质量类别、缺陷判别等已标注表格；分析、特征、三种基线候选与独立测试。', 'workflow': training('classification')},
     'model-rules-prediction': {'name': '模型与规则批量预测', 'description': '达到配置阈值才采纳分类建议，否则交由复核。产品放行、专有优先级和物理规则需另行编辑。', 'workflow': prediction(True)},
@@ -141,6 +155,13 @@ CATALOG = {
     'process-regression': {'name': '工业过程窗口质量预测', 'description': '过程表加样本标签表，按预测时点截取窗口、按炉次隔离；需要真实标签与时间字段。', 'workflow': training('regression', True)},
     'batch-prediction': {'name': '已训练模型批量预测', 'description': '使用原模型、预处理和环境处理新数据，生成 CSV，不重新训练。', 'workflow': prediction()},
     'prediction-rules-replay': {'name': '已有预测的规则重算', 'description': '选择前次规则重算输入文件，只修改规则和报告；不调用模型、不重新训练。', 'workflow': replay_rules()},
+    'table-profile': {'name': '表格数据体检（含重复行定位）',
+        'description': '检查缺失、完全重复与数值异常，列出重复行及首次出现行；保留原资料，下载报告和完整明细。',
+        'workflow': table_profile(),
+        'guide': '''使用 project_workflows inspect 查看当前输入，将本项目 CSV、TSV 或 XLSX 的路径填写为 source_path，再用 workflow_run 调用本流程；只执行 Python 数据检查，不调用模型。
+报告列出来源、重复行与同组首次出现行，首次记录不计入额外重复数量。CSV/TSV 按记录起始物理行定位，空白行仍占行号，跨行单元格按记录开始行定位；Excel 使用当前活动工作表的行号，第一行是表头，读取已保存的单元格值、不执行公式，空白数据行仍参与体检。
+重复仅标记，不删除或修改原资料。页面最多展示前 100 条重复位置，完整问题及位置见明细 CSV 和结构化结果 JSON。
+已有示例项目可从项目空间的公共工作流市场明确加入本流程，再选择原项目资料重新运行。加入的是独立可编辑副本，不覆盖原工作流、人工修改或历史运行结果。'''}
 }
 
 from . import data_guidance

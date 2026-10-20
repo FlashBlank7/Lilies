@@ -46,6 +46,29 @@ class TestSession:
         return {'status': 'completed'}
 
 
+def test_turn_context_preserves_request_text_and_measures_sent_bytes(configured, monkeypatch):
+    sent = []
+    request = '只解释已有结果。\n保留  两个空格、中文和 "引号"。'
+
+    class CaptureContext(TestSession):
+        async def turn(self, message, on_event, on_tool, **kwargs):
+            sent.append(message)
+            return {'status': 'completed'}
+
+    client, app, project, _, base = configure_agent(configured, monkeypatch, CaptureContext)
+    assert client.post(base + '/conversation/messages', json={'message': request}).status_code == 202
+    state = agent_settled(client, base)
+    assert state['status'] == 'idle', state['error']
+    assert len(sent) == 1
+    context = json.loads(sent[0])
+    assert context['user_message'] == request
+    assert context['project']['id'] == project['id']
+    events = app.state.services.local_agents.load(project['id'])['events']
+    turns = [event for event in events if event['kind'] == 'agent_turn_started']
+    assert len(turns) == 1 and turns[0]['context_bytes'] == len(sent[0].encode('utf-8'))
+    assert client.get(base + '/tasks').json() == []
+
+
 def test_existing_workflow_runs_from_current_interface_without_reading_graph(configured, monkeypatch):
     outputs = []
 

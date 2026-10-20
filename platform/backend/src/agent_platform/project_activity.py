@@ -6,6 +6,8 @@ from datetime import datetime
 
 def activity_title(name: str, arguments: dict) -> str:
     action = arguments.get('action', '')
+    if name == 'project_code':
+        return '执行项目代码'
     if name == 'project_search':
         return '搜索公开资料'
     if name == 'project_web':

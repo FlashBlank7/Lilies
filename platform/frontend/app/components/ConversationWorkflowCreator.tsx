@@ -6,6 +6,7 @@ import {useWorkflowGeneration} from '@/lib/use-workflow-generation'
 import type { ModelingContext } from './ModelingPanel'
 import type { ProjectMember } from '@/lib/project-progress'
 import styles from './conversation-workflow.module.css'
+import {groupProjectFiles, type ProjectFile} from './project-files'
 
 export type WorkflowCard = { id: string; name: string; revision: number; node_count: number; nodes: {id: string; title: string; type: string}[] }
 type Generation = { workflow_id: string; previous_workflow: unknown; draft: { revision: number }; workflow_card: WorkflowCard }
@@ -16,7 +17,7 @@ type Props = { projectId: string; conversationId?: string; visible: boolean; sto
 export default function ConversationWorkflowCreator({projectId, conversationId, visible, storageKey, message, members, context, taskId, target, onClearTarget, onSaved, onWorkflow}: Props) {
   const [name, setName] = useState('')
   const [references, setReferences] = useState<string[]>([])
-  const [files, setFiles] = useState<{path: string; size: number}[]>([])
+  const [files, setFiles] = useState<ProjectFile[]>([])
   const [selectedFiles, setSelectedFiles] = useState<string[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -66,11 +67,11 @@ export default function ConversationWorkflowCreator({projectId, conversationId, 
     {!target && <label>新工作流名称<input aria-label="对话中的新工作流名称" maxLength={100} value={name} disabled={busy||generation.busy} placeholder="可选，留空时按描述命名" onChange={e=>{setName(e.target.value);remember(e.target.value)}} /></label>}
     <details><summary>参考已有工作流（已选 {references.length}）</summary>
       <p>可选择一条或多条作为只读参考，也可以从空白创建。</p>
-      {members.filter(m=>m.purpose !== 'test').map(m=><label key={m.id} className={styles.choice}><input type="checkbox" checked={references.includes(m.id)} disabled={busy||generation.busy || (!references.includes(m.id) && references.length >= 8)} onChange={e=>{const next=e.target.checked?[...references,m.id]:references.filter(id=>id!==m.id);setReferences(next);remember(name,next)}} />{m.name}</label>)}
+      {members.filter(m=>m.purpose !== 'test').map(m=><label key={m.id} className={styles.choice}><input type="checkbox" checked={references.includes(m.id)} disabled={busy||generation.busy || (!references.includes(m.id) && references.length >= 8)} onChange={e=>{const next=e.target.checked?[...references,m.id]:references.filter(id=>id!==m.id);setReferences(next);remember(name,next)}} />{m.display_name || m.name}</label>)}
     </details>
     <details><summary>关联项目文件（已选 {selectedFiles.length}）</summary>
       {!files.length && <p>项目空间中尚无文件，可先创建流程，稍后上传资料。</p>}
-      {files.map(file=><label key={file.path} className={styles.choice}><input type="checkbox" checked={selectedFiles.includes(file.path)} disabled={busy||generation.busy || (!selectedFiles.includes(file.path) && selectedFiles.length>=20)} onChange={e=>{const next=e.target.checked?[...selectedFiles,file.path]:selectedFiles.filter(p=>p!==file.path);setSelectedFiles(next);remember(name,references,next)}} />{file.path}</label>)}
+      {groupProjectFiles(files).map(group=><section key={group.label} aria-label={group.label}><h4>{group.label}（{group.files.length}）</h4>{group.files.map(file=><label key={file.path} className={styles.choice}><input type="checkbox" checked={selectedFiles.includes(file.path)} disabled={busy||generation.busy || (!selectedFiles.includes(file.path) && selectedFiles.length>=20)} onChange={e=>{const next=e.target.checked?[...selectedFiles,file.path]:selectedFiles.filter(p=>p!==file.path);setSelectedFiles(next);remember(name,references,next)}} />{file.label}</label>)}</section>)}
     </details>
     <div className={styles.actions}><button disabled={busy||generation.busy || !message.trim()} onClick={()=>void generate()}>{busy||generation.busy?'正在生成…':target?'保存工作流修改':'生成新工作流'}</button>
       {last && <><button disabled={busy||generation.busy} onClick={()=>onWorkflow?.(last.workflow_id)}>查看已保存流程</button><button disabled={busy||generation.busy} onClick={()=>void undo()}>撤销本次生成修改</button></>}

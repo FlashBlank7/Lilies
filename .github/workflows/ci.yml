@@ -22,6 +22,7 @@ jobs:
     timeout-minutes: 45
     env:
       MODEL_EGRESS_ENABLED: "false"
+      OFFICIAL_AGENT_EGRESS_ENABLED: "false"
       SANDBOX_IMAGE: agent-platform-sandbox:ci
     steps:
       - uses: actions/checkout@v4
@@ -32,6 +33,16 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
+      # 后端全量测试包含实际前端环境探测和 lint/tsc；独立 frontend job
+      # 的 node_modules 不会出现在此 runner，须在这里按同一锁文件安装。
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: platform/frontend/package-lock.json
+      - name: 准备前端验证环境
+        working-directory: platform/frontend
+        run: npm ci
       # 只开 F 类（pyflakes）：算了没用的变量、没引用的导入、
       # 重复定义、没有占位符的 f-string。这些是"代码在说谎"的信号，
       # 不是格式偏好——2026-08-29 靠它在产品代码里挖出 9 处，
@@ -58,11 +69,18 @@ jobs:
         # 使用默认镜像名；全局 MODELING_IMAGE 会覆盖恢复与配置文件测试。
         run: docker build -f Dockerfile.modeling -t lilies-modeling:20260922-feature-tables .
       - name: Pytest（全量回归）
-        run: pytest tests/ -q --durations=20
+        run: pytest tests/ -q --durations=20 --junitxml=test-results/backend.xml
       - name: 数据工作空间真实计算与换表
         env:
           MODEL_TEST_DOCKER: "1"
         run: pytest tests/test_data_workspace.py -q -k "real_selection or saved_excel"
+      - name: 保存后端测试结果
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-tests-${{ matrix.python-version }}
+          path: test-results/backend.xml
+          if-no-files-found: ignore
 
   frontend:
     runs-on: ubuntu-latest

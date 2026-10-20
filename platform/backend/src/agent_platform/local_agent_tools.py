@@ -263,6 +263,13 @@ class ProjectTools:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(args.content, encoding="utf-8")
             return {"path": args.path, "bytes": path.stat().st_size}
+        if not path.is_file():
+            # Imported files retain unique directories. Show possible exact
+            # paths, never silently pick a same-named file or leave the project.
+            listing = self.file(ProjectFile(action='list'))
+            matches = [f['path'] for f in listing['files'] if Path(f['path']).name == path.name][:5]
+            detail = ('；同名资料：' + '、'.join(matches)) if matches else '；请用 project_file(action="list") 查看可用资料'
+            raise ValueError('未找到项目资料：' + args.path + detail)
         if args.action == "profile":
             if path.suffix.lower() not in {".csv", ".tsv"}:
                 raise ValueError('project_file profile 只支持 CSV/TSV；XLSX 请用 project_modeling(action="register_dataset", dataset={"source_path":"' + args.path + '","mapping":{"sheet":0}})，再用返回的 dataset_id 调用 profile；普通文本用 read，DOCX/PDF 用 project_code 提取')

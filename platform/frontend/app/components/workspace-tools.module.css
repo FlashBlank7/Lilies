@@ -22,4 +22,6 @@
 .fileRow { display: flex; align-items: center; gap: 12px; }
 .fileRow .fileChoice { flex: 1; min-width: 0; }
 .fileRow > button { flex-shrink: 0; }
+.resultFiles { margin: 16px 0; }
+.resultFiles > summary { cursor: pointer; padding: 8px 0; font-weight: 600; }
 @media(max-width: 640px) { .section { padding: 12px; } .row { flex-direction: column; align-items: stretch; } .row > *, .row label { min-width: 0; width: 100%; } .table { display: block; overflow-x: auto; } }

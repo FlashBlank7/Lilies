@@ -116,16 +116,24 @@ def catalog():
          'after-2.txt':'温度每1000毫秒更新。\n连续2次超过85摄氏度提示复核。\n不自动停机。'},
         [dict(key='main',name='原文差异比较',workflow=code_graph('diff',[field('source_path','原版本','@file:before.txt'),field('second_path','新版本','@file:after.txt')]))],['Python 代码执行'])
     bills='date,category,amount,currency,merchant\n2026-09-01,交通,12.30,CNY,示例交通\n2026-09-02,餐饮,35.70,CNY,示例餐馆\n2026-09-02,餐饮,35.70,CNY,示例餐馆\n2026-09-03,资料,10,USD,示例书店\n'
-    add('expenses','账单与费用整理','日常办公','按月、类别和币种汇总；疑似重复只标记，不自动扣除。','合并这些费用表，按月份和类别汇总，找出疑似重复支出。','换第二份费用表，检查负数退款、不同币种和重复标记。',
+    expense_flow = code_graph('expenses', [{**field('source_path','费用表','@file:expenses.csv',kind='file'), 'accept':['.csv','.tsv','.xlsx']},
+        {**field('second_path','追加费用表（可留空）','',kind='file',required=False), 'accept':['.csv','.tsv','.xlsx']},
+        {**field('group_by','汇总维度','按月、类别和币种'), 'options':['按月、类别和币种','按月、商户和币种'],
+         'description':'选择按类别或商户汇总；不同币种始终分别计算。'},
+        {**field('mark_duplicates','标记疑似重复',True,kind='boolean'),
+         'description':'按日期、商户、金额和币种标记疑似重复；无论是否开启，都保留全部费用与退款。'}])
+    expense_flow['nodes'][1].update(title='核对与汇总费用',
+        description='读取并合并费用表，核对日期、金额与必填列，按所选维度及币种汇总；可标记疑似重复，保留全部费用和退款，生成报告与明细。')
+    add('expenses','账单与费用整理','日常办公','可按类别或商户汇总；不同币种分别计算，疑似重复只标记、不扣除。','合并这些费用表，按月份和类别汇总，找出疑似重复支出。','在运行表单把汇总维度改为按月、商户和币种，或关闭重复标记；换第二份费用表检查退款与币种仍分别计算。',
         {'expenses.csv':bills,'expenses-2.csv':'date,category,amount,currency,merchant\n2026-09-03,资料,-5,USD,示例书店\n2026-10-01,交通,8.20,CNY,示例交通\n'},
-        [dict(key='main',name='费用整理',workflow=code_graph('expenses',[field('source_path','费用表','@file:expenses.csv'),field('second_path','追加费用表（可留空）','',required=False)]))],['Python 代码执行；XLSX 需 openpyxl'])
+        [dict(key='main',name='费用整理',workflow=expense_flow)],['Python 代码执行；XLSX 需 openpyxl'])
     tables={'data.csv':'sample_id,device,value\ns1,A,10\ns2,A,20\ns3,B,15\ns4,B,25\n',
             'data-2.csv':'sample_id,device,value\ns5,A,12\ns5,A,12\ns6,B,\n',
             'labels.csv':'sample_id,quality\ns1,good\ns2,review\ns3,good\n'}
     for key,name,operation,extra,question,exercise in [
         ('profile','表格数据体检','profile',[],'检查这份数据有哪些缺失和重复，先不要删除。','换成 data-2.csv，检查发现1条完全重复和1个缺失数值。'),
         ('join','多表整理与关联','join',[field('second_path','检测表','@file:labels.csv'),field('key','关联字段','sample_id')],'把生产记录和检测记录关联，保留未匹配的记录。','为右表加入重复键，检查明确报错而不是放大样本数量。'),
-        ('summary','数据汇总与报告','summary',[field('group','分组字段','device'),field('value','数值字段','value')],'按设备汇总数据，给我结果表和图。','修改分组字段，查看报告与图表；缺失数值需先处理。')]:
+        ('summary','数据汇总与报告','summary',[{**field('group','分组字段','device'),'column_source':'source_path'},{**field('value','数值字段','value'),'column_source':'source_path'}],'按设备汇总数据，给我结果表和图。','修改分组字段，查看报告与图表；缺失数值需先处理。')]:
         add(key,name,'数据处理',question,question,exercise,deepcopy(tables),[dict(key='main',name=name,workflow=code_graph(operation,[field('source_path','数据表','@file:data.csv'),*extra]))],['Python 代码执行'])
     data, alternate=datasets(),datasets(1)
     for key,name,problem,grouped,process in [
@@ -154,9 +162,10 @@ def catalog():
         names=[source_name,'new-data.csv']+(['labels.csv'] if process else [])
         files={k:data[k] for k in names}
         files.update({k.replace('.csv','-2.csv'):alternate[k] for k in names})
-        add(key,name,'机器学习','合成工业数据；演示正确的数据划分、训练与复用，不代表客户现场效果。',
+        add(key,name,'机器学习','合成工业数据；演示正确的数据划分、训练与复用，不代表客户现场效果。'+
+            ('同批记录往往相似，若分散到训练与验证或测试中会让分数偏高，因此按整批隔离。' if key=='group-training' else ''),
             '请查看项目使用说明，用已有流程'+('训练并绑定模型，再对新数据预测。' if key in ('prediction','rules') else '分析示例数据并训练，解释独立测试结果。'),
-            '改用 -2.csv 重新运行；过程表和标签表必须成套更换。对比新旧结果，不根据测试集反复调参。',files,flows,['CPU / Docker 训练环境'],
+            '改用 -2.csv 重新运行。'+('过程表和标签表必须成套更换。' if process else '')+'对比新旧结果，不根据测试集反复调参。',files,flows,['CPU / Docker 训练环境'],
             ['查看字段字典：target 为合成标签，batch / furnace 为分组标识；示例不代表生产精度。','运行“数据分析与训练”，检查数据、特征、基线及独立测试。',
              '如需预测，在模型页面把完成的候选绑定到 example-model，再运行预测流程；0.8 仅是演示阈值，不代表可靠业务标准。' if key in ('prediction','rules') else '检查划分字段及预测时可用特征，再更换资料重跑。',
              '规则重算需选择前次产生的 prediction-input.json，只修改阈值，不重训。' if key=='rules' else '在运行记录与模型页面查看指标和下载产物。'])
@@ -177,9 +186,18 @@ def catalog():
         node('summary','tool','调用汇总报告',tool_name='workflow:@workflow:summary',input={'source_path':ref('$inputs','source_path'),'group':'device','value':'value'}),
         node('end','end','组合结果',outputs={'profile':ref('profile','output','result'),'summary':ref('summary','output','result'),'markdown':ref('summary','output','markdown')})])
     add('composition','多工作流协作与修改','流程搭建','两个可独立使用的子流程组合为数据检查与汇总；人和智能体编辑同一份流程。','发现项目里的工作流，调用组合流程处理 data.csv。','切换创建工作流模式，让智能体根据现有流程生成按其他字段汇总的副本；检查原流程没有被覆盖。',
-        deepcopy(tables),[dict(key='main',name='数据检查与汇总',workflow=combined),
-         dict(key='profile',name='数据体检',workflow=code_graph('profile',[field('source_path','数据表','@file:data.csv')])),
-         dict(key='summary',name='汇总报告',workflow=code_graph('summary',[field('source_path','数据表','@file:data.csv'),field('group','分组字段','device'),field('value','数值字段','value')]))],['Python 代码执行；AI 修改需智能体连接'])
+        deepcopy(tables),[dict(key='main',name='数据检查与汇总',workflow=combined,
+            description='依次调用数据体检和汇总报告，集中返回数据问题与按设备汇总的结果。',
+            inputs='数据表 source_path；包含 device 分组列和 value 数值列。',
+            outputs='数据体检结果、分组汇总表、报告正文和下载文件。'),
+         dict(key='profile',name='数据体检',workflow=code_graph('profile',[field('source_path','数据表','@file:data.csv')]),
+            description='检查表格的缺失值、完全重复记录与字段分布，保留原始记录。',
+            inputs='数据表 source_path；无需指定分组或数值字段。',
+            outputs='数据体检报告、字段概况和带原文件行号的问题清单。'),
+         dict(key='summary',name='汇总报告',workflow=code_graph('summary',[field('source_path','数据表','@file:data.csv'),{**field('group','分组字段','device'),'column_source':'source_path'},{**field('value','数值字段','value'),'column_source':'source_path'}]),
+            description='按选定字段分组，计算数值列的条数、合计与均值，生成报告和图表。',
+            inputs='数据表 source_path、分组字段 group、数值字段 value；数值列需无缺失且可转换为数字。',
+            outputs='分组统计表、Markdown 报告与分组汇总 SVG 图。')],['Python 代码执行；AI 修改需智能体连接'])
     from .data_guidance import workflow as guidance_workflow, GUIDE
     guidance=guidance_workflow()
     guidance['nodes'][0]['config']['inputs'][0]['default']='@file:classification.csv'
@@ -318,9 +336,18 @@ def catalog():
     add('cutting-candidates',cutting_candidates.NAME,'数据处理',cutting_candidates.DESCRIPTION,
         '请根据物料和需求生成单料组合，解释哪些物料无方案、余量怎么计算，先不替我决定整体排程。',
         '换需求-变更.csv生成新候选；或选需求-范围.csv及长度范围，比较比例与中点优先分配。再把产物交给比较流程，明确产出与余量的优先顺序。',
-        cutting_candidates.example_files(),[dict(key='main',name=cutting_candidates.NAME,workflow=cutting),
-            dict(key='compare',name=candidate_comparison.NAME,workflow=candidate_comparison.workflow()),
-            dict(key='allocate',name='已有候选的共同需求分配',workflow=allocation_after_cutting)],['Python代码执行；Excel需openpyxl；无需模型'],
+        cutting_candidates.example_files(),[dict(key='main',name=cutting_candidates.NAME,workflow=cutting,
+            description=cutting_candidates.DESCRIPTION,
+            inputs='物料表、定长或长度范围需求表，以及长度单位、切缝、端部预留和枚举范围。',
+            outputs='单料候选 candidates.csv、需求数量与实际长度明细 patterns.csv、余量和无候选原因。候选可交给比较流程。'),
+            dict(key='compare',name=candidate_comparison.NAME,workflow=candidate_comparison.workflow(),
+                description=candidate_comparison.DESCRIPTION,
+                inputs='已生成的 candidates.csv，按 stock_id 分组；填写必须满足的条件及产出、余量等比较目标。',
+                outputs='带条件检查结果与组内顺位的候选表、失败原因及并列方案，供共同需求分配使用。各组首位不能直接合并为排程。'),
+            dict(key='allocate',name='已有候选的共同需求分配',workflow=allocation_after_cutting,
+                description='按物料处理顺序，从已比较的候选中每根最多选一个，逐次扣减共同需求；输出已选方案、未选原因和剩余需求，不修改实际库存。',
+                inputs='同一批比较后的候选表、原 patterns.csv 用量明细和原需求表；指定物料处理顺序，默认长料优先。',
+                outputs='每根物料的已选方案、未选原因、逐次用量与共同需求余额。顺序会影响结果，不保证全局最优。')],['Python代码执行；Excel需openpyxl；无需模型'],
         ['阅读自编尺寸及单位说明，选择物料和定长或范围需求。','填写实际损耗、预留及枚举范围；范围需求再选分配方式和实际长度精度。','查看组合、各段实际长度、余量及无候选原因，下载明细。','明确目标后调用同项目的比较流程；再按需运行共同需求分配，选择比较结果、原patterns.csv与对应需求表。'])
     items[-1]['guide']=cutting_candidates.GUIDE + '\n' + candidate_allocation.GUIDE
     from . import presentation_workflow
@@ -387,5 +414,7 @@ def public_item(item, detail=False):
     result={k:deepcopy(v) for k,v in item.items() if k not in ('files','workflows')}
     result['files']=[{'name':name,'size':len(content if isinstance(content,bytes) else content.encode())} for name,content in item['files'].items()]
     result['workflow_count']=len(item['workflows'])
-    if detail:result['workflows']=[{'key':w['key'],'name':w['name']} for w in item['workflows']]
+    if detail:result['workflows']=[{'key':w['key'],'name':w['name'],
+        'description':w.get('description',item['description']),
+        **{key:w[key] for key in ('inputs','outputs') if key in w}} for w in item['workflows']]
     return result

@@ -1,5 +1,7 @@
 """Examples are private editable projects, not precomputed demonstration runs."""
 from concurrent.futures import ThreadPoolExecutor
+import asyncio
+import csv
 import json
 from pathlib import Path
 
@@ -21,7 +23,8 @@ def test_all_examples_install_as_complete_editable_projects(configured):
     client,app,_,settings=configured
     items=client.get('/api/v1/example-projects').json()
     assert len(items)==35
-    assert [v['id'] for v in items[:4]]==['meeting','weekly','expenses','profile']
+    states = [v['readiness']['status'] == 'configured' for v in items]
+    assert states == sorted(states, reverse=True)
     for item in items:
         pid=install(client,item['id'])
         base='/api/v1/projects/'+pid
@@ -38,6 +41,134 @@ def test_all_examples_install_as_complete_editable_projects(configured):
         assert client.get(base+'/skills/example-guide').status_code==200
         assert install(client,item['id'])==pid
     assert not app.state.services.local_agents.tasks
+
+
+@pytest.mark.parametrize('key,fields,absent', [
+    ('rolling-forecast', ['series', 'time', 'available', 'value'], ['temperature', 'pressure', 'material', 'batch/furnace']),
+    ('prediction-feedback', ['sample_id', 'prediction', 'actual', 'baseline', 'batch'], ['temperature', 'furnace']),
+    ('interval-trends', ['series', 'period', 'value'], ['temperature', 'pressure', 'furnace']),
+    ('classification', ['temperature', 'pressure', 'material', 'target', 'batch'], ['furnace']),
+    ('regression', ['temperature', 'pressure', 'material', 'target', 'batch'], ['furnace']),
+    ('process', ['furnace', 'time', 'temperature', 'pressure', 'prediction_time', 'target'], ['batch']),
+])
+def test_example_manual_and_skill_describe_its_actual_fields(configured, key, fields, absent):
+    client, _, _, settings = configured
+    pid = install(client, key); base = '/api/v1/projects/'+pid
+    guide = client.get(base+'/example').json()
+    manual = (settings.workspace_root/pid/guide['manual_path']).read_text()
+    skill = client.get(base+'/skills/example-guide').json()['content']
+    assert manual == guide['current_manual']
+    assert guide['field_notes'] in manual and manual in skill
+    for name in fields:
+        assert f'`{name}`' in guide['field_notes']
+    for name in absent:
+        assert name not in guide['field_notes']
+    for file in guide['files']:
+        assert file['path'] in manual
+    for workflow in guide['workflows']:
+        assert workflow['id'] in manual
+
+
+def test_existing_forecast_get_corrects_guidance_without_rewriting_project(configured):
+    client, app, _, settings = configured
+    pid = install(client, 'rolling-forecast'); base = '/api/v1/projects/'+pid
+    store = app.state.services.projects.store
+    saved = asyncio.run(store.get_record(pid, 'example', 'guide'))
+    legacy = '温度 temperature 与压力 pressure 为合成连续特征，material 为类别特征；target 是生成的标签，batch/furnace 是隔离分组。\n员工备注：实际使用部门的上传数据。'
+    uploaded = client.post(base+'/materials', files={'file':('部门说明.md', legacy.encode(), 'text/markdown')}).json()
+    # Existing projects may point at a manually edited document of any name.
+    value = {**saved['value'], 'manual_path': uploaded['path']}
+    asyncio.run(store.put_record(pid, 'example', 'guide', value, saved['revision']))
+    skill = client.get(base+'/skills/example-guide').json()
+    client.put(base+'/skills/example-guide', json={
+        'name': skill['name'], 'content': legacy, 'expected_revision': skill['revision'],
+    }).raise_for_status()
+    task = settled(client, base, start(client, base, 'historical-invalid', workflow_id=pid, inputs={'horizon': 0}))
+    assert task['status'] == 'failed'
+    before_record = asyncio.run(store.get_record(pid, 'example', 'guide'))
+    before_skill = client.get(base+'/skills/example-guide').json()
+    before_draft = client.get('/api/v1/applications/'+pid+'/draft').json()
+    before_files = {p.relative_to(settings.workspace_root/pid): p.read_bytes()
+                    for p in (settings.workspace_root/pid/'requirement-package').rglob('*') if p.is_file()}
+    for _ in range(2):
+        guide = client.get(base+'/example').json()
+        assert guide['manual_path'] == uploaded['path']
+        assert 'available' in guide['field_notes'] and '当时已可用' in guide['field_notes']
+        assert 'temperature' not in guide['current_manual']
+        assert 'pressure' not in guide['current_manual']
+        for file in guide['files']:
+            assert file['path'] in guide['current_manual']
+        assert pid in guide['current_manual']
+    assert asyncio.run(store.get_record(pid, 'example', 'guide')) == before_record
+    assert client.get(base+'/skills/example-guide').json() == before_skill
+    assert client.get('/api/v1/applications/'+pid+'/draft').json() == before_draft
+    assert client.get(base+'/tasks/'+task['id']).json() == task
+    assert {p.relative_to(settings.workspace_root/pid): p.read_bytes()
+            for p in (settings.workspace_root/pid/'requirement-package').rglob('*') if p.is_file()} == before_files
+
+
+def test_examples_explain_missing_resources_before_running_and_refresh_configuration(configured, monkeypatch):
+    client, app, _, _ = configured
+    services = app.state.services
+    from agent_platform import workflow_readiness
+    async def available(*args):
+        return True
+    monkeypatch.setattr(workflow_readiness, 'environment_ready', available)
+    items = client.get('/api/v1/example-projects').json()
+    assert items[0]['id'] == 'expenses'
+    meeting = next(item for item in items if item['id'] == 'meeting')
+    assert {'model:main','egress'} <= {v['code'] for v in meeting['readiness']['issues']}
+    pid = install(client, 'meeting')
+    base = '/api/v1/projects/'+pid
+    check = base+'/space/workflows/'+pid+'/readiness'
+    assert client.get(check).json()['status'] == 'needs_setup'
+    # Saving and creation are allowed; the read-only check starts no tasks.
+    assert client.get(base+'/tasks').json() == []
+    client.put(base+'/agent-session', json={'provider':'api','base_url':'http://127.0.0.1:9001/v1',
+        'model':'offline-double','api_key':'test-only','runtime_enabled':True}).raise_for_status()
+    # Existing runtime permits loopback API endpoints while external egress is off.
+    assert client.get(check).json()['status'] == 'configured'
+    # This test changes only a settings flag; there is no provider request.
+    services.settings.model_egress_enabled = True
+    assert client.get(check).json()['status'] == 'configured'
+    assert client.get(base+'/example').json()['readiness']['status'] == 'configured'
+    other = install(client, 'expenses')
+    assert client.get(base+'/space/workflows/'+other+'/readiness').status_code == 422
+    assert client.get(base+'/tasks').json() == []
+
+
+@pytest.mark.parametrize('omitted', [False, True])
+def test_prediction_draft_without_model_saves_and_explains_missing_selection(configured, monkeypatch, omitted):
+    from agent_platform import workflow_readiness
+    from agent_platform.official_workflows import prediction
+    from tests.test_projects import graph
+    client, _, project, _ = configured
+    async def available(*args):
+        return True
+    monkeypatch.setattr(workflow_readiness, 'environment_ready', available)
+    workflow = prediction()
+    if omitted:
+        workflow['nodes'][1]['config'].pop('model_ref')
+    graph(client, project['id'], workflow['nodes'], workflow['edges'])
+    base = '/api/v1/projects/' + project['id']
+    check = client.get(base + '/space/workflows/' + project['id'] + '/readiness')
+    assert check.status_code == 200, check.text
+    assert check.json()['status'] == 'needs_setup'
+    assert [issue['code'] for issue in check.json()['issues']] == ['resource:']
+    assert client.get(base + '/tasks').json() == []
+
+
+def test_expense_duplicates_outside_preview_include_original_file_and_row(sample_files):
+    header = 'date,category,amount,currency,merchant\n'
+    first = sample_files('first.csv', header+''.join(f'2026-09-01,交通,{i},CNY,示例{i}\n' for i in range(25)))
+    second = sample_files('second.csv', header+'2026-09-01,交通,24.00,CNY,示例24\n')
+    result = processing.main({'operation':'expenses','source_path':first,'second_path':second})
+    assert result['suspected_duplicates'] == 1
+    assert not any(row['suspected_duplicate']=='yes' for row in result['preview'])
+    assert result['duplicate_records'][0]['source_file'] == second
+    assert result['duplicate_records'][0]['source_row'] == 2
+    assert result['summary'][0]['amount'] == '324.00'
+    assert '需要复核：1 条疑似重复费用' in result['markdown']
 
 
 def test_employees_get_private_copies_and_retry_is_idempotent(platform):
@@ -100,6 +231,78 @@ def sample_files(tmp_path,monkeypatch):
     def write(name,text):
         path=root/name;path.write_text(text,encoding='utf-8');return 'requirement-package/'+name
     return write
+
+
+@pytest.mark.parametrize('suffix,delimiter', [('csv', ','), ('tsv', '\t')])
+def test_profile_duplicates_use_source_lines_and_agree_in_all_reports(sample_files, suffix, delimiter):
+    lines = ['id,value', 'a,"line one\nline two"', '', 'a,"line one\nline two"',
+             'b,3', 'a,"line one\nline two"', ',', ',', 'c,1', 'd,2']
+    text = '\n'.join(lines).replace(',', delimiter) + '\n'
+    path = sample_files('profile.' + suffix, text)
+    before = Path(path).read_bytes()
+    result = processing.main({'operation': 'profile', 'source_path': path})
+    assert result['rows'] == 8
+    assert result['duplicates'] == 3
+    duplicates = [issue for issue in result['issues'] if issue['reason'] == '完全重复']
+    assert [(issue['row'], issue['first_row']) for issue in duplicates] == [(5, 2), (8, 2), (11, 10)]
+    assert all(issue['source_file'] == path and issue['sheet'] == '' for issue in result['issues'])
+    assert [issue['row'] for issue in result['issues'] if issue['reason'] == '缺失字段'] == [10, 11]
+    assert '记录起始物理行' in result['markdown']
+    assert path in result['markdown']
+    assert '| 5 | 2 |' in result['markdown'] and '| 8 | 2 |' in result['markdown']
+    folder = Path(result['artifacts'][0]['file_path']).parent
+    assert json.loads((folder / 'result.json').read_text())['issues'] == result['issues']
+    assert (folder / 'report.md').read_text() == result['markdown']
+    with (folder / 'details.csv').open(encoding='utf-8-sig', newline='') as stream:
+        downloaded = list(csv.DictReader(stream))
+    assert downloaded == [{key: str(value) for key, value in issue.items()} for issue in result['issues']]
+    assert Path(path).read_bytes() == before
+
+
+def test_profile_excel_preserves_sheet_rows_and_empty_records(sample_files):
+    from openpyxl import Workbook
+    path = Path(sample_files('source.xlsx', ''))
+    book = Workbook()
+    book.active.append(['ignored'])
+    sheet = book.create_sheet('检测数据')
+    book.active = 1
+    for row in [('id', 'value'), ('a', 'two\nlines'), (None, None), ('a', 'two\nlines'),
+                (None, None), ('a', 'two\nlines')]:
+        sheet.append(row)
+    book.save(path)
+    before = path.read_bytes()
+    result = processing.main({'operation': 'profile', 'source_path': str(path)})
+    assert result['rows'] == 5 and result['duplicates'] == 3
+    duplicates = [issue for issue in result['issues'] if issue['reason'] == '完全重复']
+    assert [(issue['row'], issue['first_row']) for issue in duplicates] == [(4, 2), (5, 3), (6, 2)]
+    assert all(issue['sheet'] == '检测数据' for issue in result['issues'])
+    assert '工作表：检测数据' in result['markdown'] and '工作表行号' in result['markdown']
+    assert path.read_bytes() == before
+
+
+def test_profile_keeps_duplicate_missing_and_outlier_rows_in_one_download(sample_files):
+    path = sample_files('numbers.csv', 'id,value\na,1\na,1\nb,2\nc,3\nd,100\ne,\n')
+    result = processing.main({'operation': 'profile', 'source_path': path})
+    assert result['duplicates'] == 1
+    assert {(issue['row'], issue['reason'], issue['first_row']) for issue in result['issues']} == {
+        (3, '完全重复', 2), (7, '缺失字段', ''), (6, '数值超出四分位距范围（需人工判断）', '')}
+    folder = Path(result['artifacts'][0]['file_path']).parent
+    with (folder / 'details.csv').open(encoding='utf-8-sig', newline='') as stream:
+        assert len(list(csv.DictReader(stream))) == 3
+
+
+def test_profile_keeps_all_duplicate_locations_when_report_preview_is_full(sample_files):
+    path = sample_files('repeated.csv', 'id,value\n' + 'same,1\n' * 106)
+    result = processing.main({'operation': 'profile', 'source_path': path})
+    assert result['duplicates'] == 105
+    assert len(result['issues']) == 105
+    assert result['issues'][-1]['row'] == 107 and result['issues'][-1]['first_row'] == 2
+    assert '当前显示前 100 条，共 105 条' in result['markdown']
+    assert '| 102 | 2 |' in result['markdown'] and '| 103 | 2 |' not in result['markdown']
+    folder = Path(result['artifacts'][0]['file_path']).parent
+    assert len(json.loads((folder / 'result.json').read_text())['issues']) == 105
+    with (folder / 'details.csv').open(encoding='utf-8-sig', newline='') as stream:
+        assert len(list(csv.DictReader(stream))) == 105
 
 
 def test_expenses_exact_arithmetic_currencies_and_duplicates(sample_files):
@@ -250,4 +453,7 @@ def test_editing_example_changes_new_run_and_keeps_history(configured):
     assert second['outputs']['note']=='员工修改后的报告'
     assert second['outputs']['result']['duplicates']==1
     assert second['outputs']['result']['missing']['value']==1
+    duplicate=next(issue for issue in second['outputs']['result']['issues'] if issue['reason']=='完全重复')
+    assert (duplicate['row'],duplicate['first_row'],duplicate['source_file'])==(3,2,alternate)
+    assert '| 3 | 2 |' in second['outputs']['markdown']
     assert client.get(base+'/tasks/'+first['id']).json()['outputs']==first['outputs']

@@ -55,6 +55,27 @@ def test_register_sessions_logout_password(platform):
     assert client.post('/api/v1/auth/login', json={'name':'甲','password':'changed123'}).status_code == 200
 
 
+def test_project_model_egress_status_is_visible_without_exposing_keys(platform):
+    client, app = platform
+    _, owner = signup(client, '模型负责人')
+    _, member = signup(client, '模型成员')
+    pid = project(client, owner)
+    base = '/api/v1/projects/'+pid
+    client.post(base+'/access-members', headers=owner, json={'name':'模型成员'}).raise_for_status()
+    client.put(base+'/agent-session', headers=owner, json={'provider':'api', 'base_url':'https://example.test/v1',
+        'model':'test-model', 'api_key':'private-test-key', 'runtime_enabled':True}).raise_for_status()
+    for headers in (owner, member):
+        for suffix in ('/agent-session','/vision-model','/generation-model'):
+            result = client.get(base+suffix, headers=headers)
+            assert result.status_code == 200
+            assert result.json()['model_egress_enabled'] is False
+            assert 'private-test-key' not in result.text
+        chat = client.post(base+'/conversations', headers=headers, json={}).json()['id']
+        result = client.get(base+'/conversations/'+chat, headers=headers).json()
+        assert result['model_egress_enabled'] is False
+    assert client.get(base+'/tasks',headers=owner).json() == []
+
+
 def test_project_isolation_members_and_legacy_file_routes(platform):
     client, app = platform
     alice, a = signup(client, '甲')

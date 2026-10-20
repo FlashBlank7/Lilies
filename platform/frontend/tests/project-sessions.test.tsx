@@ -55,14 +55,42 @@ it('creates and renames a conversation without starting a model turn', async () 
   expect(vi.mocked(api).mock.calls.some(([path]) => path.endsWith('/messages'))).toBe(false)
 })
 
-it('keeps the project space request and creation mode when creating the first conversation', async () => {
+it('creates the first conversation once for a prepared request without starting a model turn', async () => {
   const sent = setup([], vi.fn(), {nonce: 1, label: '项目空间', mode: 'workflow', message: '用 requirement-package/data.csv 创建分析流程'})
-  await screen.findByText('新建会话，开始分析资料、训练模型或搭建工作流。')
-  fireEvent.click(screen.getByRole('button', {name: '新建会话'}))
   await screen.findByText('模型训练的记录')
   expect(screen.getByLabelText('给项目统筹的消息')).toHaveValue('用 requirement-package/data.csv 创建分析流程')
   expect(screen.getByRole('button', {name: '创建工作流'})).toHaveAttribute('aria-pressed', 'true')
   expect(sent).not.toHaveBeenCalled()
+  expect(vi.mocked(api).mock.calls.filter(([,options])=>options?.method==='POST').map(([path])=>path)).toEqual([base])
+})
+
+it('keeps an existing personal conversation and its draft when preparing a training result request', async () => {
+  sessionStorage.setItem('lilies:user:user:project:p:conversation','b')
+  sessionStorage.setItem('lilies:user:user:project:p:conversation:b:draft','先保留这条尚未发送的要求')
+  setup([a,b],vi.fn(),{nonce:2,label:'业务结果',mode:'workflow',message:'请用当前最佳模型创建预测工作流'})
+  await screen.findByText('模型训练的记录')
+  expect(screen.getByLabelText('选择会话')).toHaveValue('b')
+  expect(screen.getByLabelText('给项目统筹的消息')).toHaveValue('先保留这条尚未发送的要求\n\n请用当前最佳模型创建预测工作流')
+  expect(screen.getByRole('button',{name:'创建工作流'})).toHaveAttribute('aria-pressed','true')
+  expect(vi.mocked(api).mock.calls.some(([,options])=>options?.method==='POST')).toBe(false)
+})
+
+it('does not create a second conversation while the first preparation is still pending', async () => {
+  let finish!: (value: never) => void
+  vi.mocked(api).mockImplementation(async(path,options)=>{
+    if(path===base)return options?.method==='POST'?new Promise(resolve=>{finish=resolve}):[] as never
+    return {provider:'api',status:'idle',revision:1,events:[],error:''} as never
+  })
+  const props={id:'p',items:[],canConfigureModel:false,onUpdated:updated,onSent:vi.fn()}
+  const focus={nonce:3,label:'业务结果',mode:'workflow' as const,message:'准备预测工作流'}
+  const mounted=render(<ProjectConversations {...props} focus={focus}/> )
+  await waitFor(()=>expect(finish).toBeDefined())
+  mounted.rerender(<ProjectConversations {...props} focus={{...focus}}/> )
+  expect(screen.getByRole('button',{name:'新建会话'})).toBeDisabled()
+  fireEvent.click(screen.getByRole('button',{name:'新建会话'}))
+  await act(async()=>{finish({id:'new',title:'新会话',status:'idle'} as never)})
+  expect(screen.getByLabelText('给项目统筹的消息')).toHaveValue('准备预测工作流')
+  expect(vi.mocked(api).mock.calls.filter(([,options])=>options?.method==='POST')).toHaveLength(1)
 })
 
 it('a slow send in the previous conversation cannot clear the newly selected draft', async () => {

@@ -153,6 +153,62 @@ def visible(services, project_id, method_id=''):
     return [{k:r[k] for k in ('id','name','description','limitations','created_at')} for r in rows]
 
 
+def copy_name(title, item, root, used):
+    base = title if item['id'] == root else title + ' · ' + item['name']
+    index = 1
+    while True:
+        suffix = ' · 共享副本' + (f' {index}' if index > 1 else '')
+        name = base[:100-len(suffix)] + suffix
+        if name not in used:
+            used.add(name)
+            return name
+        index += 1
+
+
+def label_installed_copies(db, project_id, members):
+    """Distinguish old installs on read without changing drafts or custom names."""
+    if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='shared_method_installs'").fetchone():
+        return
+    by_id = {member['id']:member for member in members}
+    used = {member['name'] for member in members}
+    rows = db.execute('SELECT s.name,s.payload,i.result FROM shared_method_installs i '
+                      'JOIN shared_methods s ON s.id=i.method_id WHERE i.project_id=? '
+                      'ORDER BY s.created_at,s.id', (project_id,))
+    for row in rows:
+        payload, result = json.loads(row['payload']), json.loads(row['result'])
+        for item in payload.get('workflows', []):
+            member = by_id.get(result.get('mapping', {}).get(item['id']))
+            if member and member['name'] == item['name']:
+                member['display_name'] = copy_name(row['name'], item, payload.get('root'), used)
+
+
+def skill_copy_name(title, used):
+    if title not in used:
+        used.add(title)
+        return title
+    return copy_name(title, {'id':''}, '', used)
+
+
+def label_installed_skills(db, project_id, items):
+    """Give untouched legacy Skill copies their share title without saving edits."""
+    if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='shared_method_installs'").fetchone():
+        return
+    used = {item['name'] for item in items.values()}
+    rows = db.execute('SELECT s.name,s.payload,i.result FROM shared_method_installs i '
+                      'JOIN shared_methods s ON s.id=i.method_id WHERE i.project_id=? '
+                      'ORDER BY s.created_at,s.id', (project_id,))
+    for row in rows:
+        payload, result = json.loads(row['payload']), json.loads(row['result'])
+        source = payload.get('skill')
+        item = items.get(result.get('skill_id'))
+        if not source or not item or item['revision'] != 1 or 'skill_name' in result:
+            continue
+        if any(item.get(key) != source.get(key, {} if key == 'references' else '')
+               for key in ('name', 'description', 'content', 'references')):
+            continue
+        item['display_name'] = skill_copy_name(row['name'], used)
+
+
 async def install(services, project_id, method_id):
     row = visible(services, project_id, method_id)
     with connect(services.projects.store.db_path) as db:
@@ -172,8 +228,12 @@ async def install(services, project_id, method_id):
         existing_skill = db.execute("SELECT 1 FROM project_records WHERE project_id=? AND collection='skills' AND record_key=?", (project_id, skill_id)).fetchone()
     skill_document = None
     try:
+        project = await services.projects.store.get(project_id)
+        used_names = {member.get('display_name', member['name']) for member in project['members']}
+        used_names.update(member['name'] for member in project['members'])
         for item in payload['workflows']:
-            member = await services.projects.add_member(project_id, item['name'], item['description'])
+            name = copy_name(row['name'], item, payload.get('root'), used_names)
+            member = await services.projects.add_member(project_id, name, item['description'])
             remap[item['id']] = member['id']
         def rewrite(obj):
             if isinstance(obj, dict):
@@ -190,13 +250,19 @@ async def install(services, project_id, method_id):
             await save_workflow(services,project_id,wid,SaveWorkflow(expected_revision=draft['revision'],workflow=WorkflowSpec.model_validate(graph)))
         if payload['skill']:
             item = payload['skill']
+            existing = await skills(services, project_id)
+            used_skill_names = {value['name'] for value in existing}
+            used_skill_names.update(value.get('display_name', value['name']) for value in existing)
             skill_document = SkillDocument(
-                **{k:item[k] for k in ('name','description','content')}, references=item.get('references', {}))
+                name=skill_copy_name(row['name'], used_skill_names),
+                **{k:item[k] for k in ('description','content')}, references=item.get('references', {}))
         else:
             skill_document = SkillDocument(name=row['name']+'使用说明',description=row['description'],
                 content=f"用途：{row['description']}\n限制：{row['limitations']}\n工作流：{remap[payload['root']]}。使用 project_workflows inspect 查看当前输入，再通过 workflow_run 调用。模型、数据及连接需要在本项目配置。")
         await save_skill(services,project_id,skill_id,skill_document)
         result={'workflow_id':remap.get(payload.get('root')),'skill_id':skill_id,'source_id':method_id,'mapping':remap}
+        if payload['skill']:
+            result['skill_name'] = skill_document.name
         with connect(services.projects.store.db_path) as db:
             db.execute('INSERT INTO shared_method_installs VALUES(?,?,?)',(project_id,method_id,json.dumps(result)))
         return result

@@ -41,10 +41,16 @@ def test_project_catalog_manual_and_builder_tools_share_capabilities(configured)
             blueprint = client.get('/api/v1/claude-architecture-blueprint', params=params)
             assert ('claude_agent' in blueprint.text) is enabled
             assert ('subagent_spawn' in blueprint.text) is enabled
-        tools = client.post(base + '/agent-tools', json={'name': 'block_catalog', 'arguments': {}})
-        assert ('claude_agent' in tools.text) is enabled
-        help = client.post(base + '/agent-tools', json={'name': 'block_catalog', 'arguments': {'block_type': 'claude_agent'}})
-        assert help.status_code == (200 if enabled else 404)
+        for arguments in ({}, {'view': 'compact'}, {'view': 'full'}):
+            tools = client.post(base + '/agent-tools', json={'name': 'block_catalog', 'arguments': arguments})
+            assert tools.status_code == 200
+            for block_type in ('claude_agent', 'subagent_spawn'):
+                assert (block_type in tools.text) is (enabled and arguments.get('view') == 'full')
+        for block_type in ('claude_agent', 'subagent_spawn'):
+            for view in ('compact', 'full'):
+                help = client.post(base + '/agent-tools', json={'name': 'block_catalog',
+                    'arguments': {'block_type': block_type, 'view': view}})
+                assert help.status_code == (200 if enabled else 404)
         assert 'claude_agent' not in client.get('/api/v1/blocks', params={'application_id': other}).text
     denied = client.post(base + '/agent-tools', json={'name': 'project_capabilities', 'arguments': {'agent_modules_enabled': True}})
     assert denied.status_code == 422

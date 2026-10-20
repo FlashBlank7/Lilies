@@ -80,7 +80,8 @@ async def checkpoint(runtime, state, node, output=None):
         pid = state.project_context['project_id']
         workspace = Path(state.workspace_path)
         roots = [workspace, service.root / pid]
-        args = runtime._resolve(direct_config(node), {'inputs': state.inputs, 'nodes': state.outputs})
+        effective_inputs = runtime._graph_inputs(state.snapshot.workflow, state.inputs)
+        args = runtime._resolve(direct_config(node), {'inputs': effective_inputs, 'nodes': state.outputs})
         if node.type == 'iteration':args={**args, 'inherited_inputs': state.inputs}
         # Start reads its declared inputs directly; all other eligible nodes
         # receive only resolved config. Unrelated project inputs are not reads.

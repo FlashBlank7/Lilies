@@ -1987,7 +1987,8 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         initialize_feedback(services.projects.store.db_path)
         await services.official_agent.initialize()
         await services.local_agents.initialize()
-        await services.official_agent.recover()
+        if settings.automatic_tasks_enabled:
+            await services.official_agent.recover()
         await services.durable_jobs.initialize()
         await services.connectors.initialize()
         await services.openapi_connectors.initialize()
@@ -2099,28 +2100,29 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             if purged or failed:
                 logger.info("运行产物清理：删掉 %s 个过期目录，%s 个删不掉", purged, failed)
 
-        maintenance_task = asyncio.create_task(_event_maintenance())
-        artifacts_task = asyncio.create_task(_purge_run_artifacts())
-        usage_learning_task = asyncio.create_task(services.usage_learning.run())
-        services.scheduler.start()
-        await services.event_automation.start()
+        automatic_tasks: list[asyncio.Task[Any]] = []
+        if settings.automatic_tasks_enabled:
+            automatic_tasks = [asyncio.create_task(_event_maintenance()),
+                               asyncio.create_task(_purge_run_artifacts()),
+                               asyncio.create_task(services.usage_learning.run())]
+            services.scheduler.start()
+            await services.event_automation.start()
+        else:
+            logger.info("自动任务已暂停：不恢复排队请求，不启动定时/事件订阅、自动改进及产物维护；仍可手动运行")
 
         local_lilies_recovery_task: asyncio.Task[Any] | None = None
         lifespan_ready = asyncio.Event()
         adaptive_refresh_task: asyncio.Task[Any] | None = None
         lifespan_ready.set()
         yield
-        usage_learning_task.cancel()
-        await asyncio.gather(usage_learning_task, return_exceptions=True)
+        for task in automatic_tasks:
+            task.cancel()
+        await asyncio.gather(*automatic_tasks, return_exceptions=True)
         services.official_agent.shutting_down = True
         await services.local_agents.close()
         await services.official_agent.close()
         await services.projects.close()
         await services.modeling.close()
-        # 维护可能还在跑（真机上一次要几十分钟）：关停时取消，别拖着不退。
-        # 产物清理同理——新起的后台任务忘了取消的话，关服会挂在那儿等它。
-        maintenance_task.cancel()
-        artifacts_task.cancel()
         if (
             services.worker_process_manager is not None
             and services.worker_process_manager.is_running
@@ -2254,6 +2256,8 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             },
             "deepseek_configured": bool(settings.deepseek_api_key),
             "model_egress_enabled": settings.model_egress_enabled,
+            "official_agent_egress_enabled": settings.official_agent_egress_enabled if settings.official_agent_egress_enabled is not None else settings.model_egress_enabled,
+            "automatic_tasks_enabled": settings.automatic_tasks_enabled,
             "docker_available": shutil.which("docker") is not None,
             "provider": services.provider.name,
             "tools": services.tools.names(),
@@ -5404,7 +5408,24 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             items.sort(key=lambda item: item["path"])
             return items[:2000]
 
-        return await asyncio.to_thread(_collect)
+        files = await asyncio.to_thread(_collect)
+        return await services.projects.store.annotate_files(application_id, files)
+
+    @app.get(
+        "/api/v1/applications/{application_id}/workspace/table-columns",
+        dependencies=[Depends(require_token)],
+    )
+    async def workspace_table_columns(application_id: str, path: str, sheet: str = '') -> dict[str, Any]:
+        from .project_table_columns import table_columns
+        from .sandbox import SandboxError
+        from .table_intake import TableIntakeError
+        try:
+            root = await asyncio.to_thread(services.sandboxes.resolve_workspace, application_id)
+            return await asyncio.to_thread(table_columns, root, path, sheet)
+        except (FileNotFoundError, SandboxError) as error:
+            raise HTTPException(404, '文件不存在') from error
+        except TableIntakeError as error:
+            raise HTTPException(422, str(error)) from error
 
     @app.get(
         "/api/v1/applications/{application_id}/workspace/files/{file_path:path}",
@@ -6484,6 +6505,18 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             run["state"] = run["state"].model_dump(mode="json")
             run.setdefault("triggered_by", "")
             return run
+        except KeyError as error:
+            raise HTTPException(404, _plain_key_error(error)) from error
+
+    @app.get("/api/v1/runs/{run_id}/steps", dependencies=[Depends(require_token)])
+    async def get_run_steps(
+        run_id: str,
+        offset: int = Query(default=0, ge=0),
+        limit: int = Query(default=100, ge=1, le=200),
+    ) -> dict[str, Any]:
+        from .run_steps import run_steps
+        try:
+            return await run_steps(services, run_id, offset=offset, limit=limit)
         except KeyError as error:
             raise HTTPException(404, _plain_key_error(error)) from error
 

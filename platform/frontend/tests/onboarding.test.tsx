@@ -20,7 +20,7 @@ beforeEach(()=>{
   return {...saved} as never
  })
 })
-afterEach(()=>{cleanup();vi.restoreAllMocks()})
+afterEach(()=>{cleanup();vi.restoreAllMocks();vi.unstubAllGlobals()})
 it('starts new accounts automatically with a blocking spotlight and no business calls',async()=>{
  render(<Tutorial/>);expect(await screen.findByText('第 1 / 6 步')).toBeInTheDocument()
  await waitFor(()=>expect(saved.status).toBe('active'))
@@ -109,4 +109,78 @@ it('can finish the explanation without inventing completed operations',async()=>
  await waitFor(()=>expect(saved.status).toBe('finished'))
  expect(saved.completed_steps).toEqual([])
  expect(screen.queryByRole('complementary',{name:'使用教程'})).not.toBeInTheDocument()
+})
+
+const bounds=(left:number,top:number,width:number,height:number)=>({left,top,right:left+width,bottom:top+height,width,height,x:left,y:top,toJSON:()=>({})})
+it.each([
+ ['below the desktop viewport',1454,670,0,1562,1454,10608],
+ ['above the desktop viewport',1454,670,20,-600,1000,200],
+ ['left of the desktop viewport',1454,670,-1600,40,1000,200],
+ ['right of the desktop viewport',1454,670,1600,40,1000,200],
+ ['below the mobile viewport',390,844,0,1200,390,10608],
+])('keeps the guide visible and skippable when its target is %s',async(_label,width,height,left,top,targetWidth,targetHeight)=>{
+ vi.stubGlobal('innerWidth',width);vi.stubGlobal('innerHeight',height)
+ saved={...fresh(),status:'active',step:'materials',project_id:'p'};location.path='/projects/p'
+ vi.mocked(HTMLElement.prototype.getBoundingClientRect).mockImplementation(function(this:HTMLElement){
+  return this.dataset.guide==='materials'?bounds(left,top,targetWidth,targetHeight):bounds(0,0,Math.min(352,width-24),308)
+ })
+ render(<Tutorial/>);await screen.findByText('第 2 / 6 步')
+ const panel=screen.getByRole('complementary',{name:'使用教程'})
+ await waitFor(()=>{
+  const renderedHeight=Math.min(308,parseFloat(panel.style.maxHeight))
+  expect(parseFloat(panel.style.top)).toBeGreaterThanOrEqual(12)
+  expect(parseFloat(panel.style.top)+renderedHeight).toBeLessThanOrEqual(height-12)
+  expect(parseFloat(panel.style.left)).toBeGreaterThanOrEqual(12)
+  expect(parseFloat(panel.style.left)+parseFloat(panel.style.width)).toBeLessThanOrEqual(width-12)
+ })
+ fireEvent.click(screen.getByRole('button',{name:'跳过引导'}))
+ fireEvent.click(screen.getByRole('button',{name:'暂时跳过'}))
+ await waitFor(()=>expect(saved.status).toBe('skipped'))
+ expect(screen.queryByRole('complementary',{name:'使用教程'})).not.toBeInTheDocument()
+ expect(screen.getByLabelText('我的草稿')).toHaveValue('不要覆盖')
+ expect(saved.completed_steps).toEqual([])
+})
+
+it('aligns a long materials section at its beginning and keeps the guide reachable after scrolling away',async()=>{
+ vi.stubGlobal('innerWidth',1454);vi.stubGlobal('innerHeight',670);vi.stubGlobal('scrollY',2000)
+ saved={...fresh(),status:'active',step:'materials',project_id:'p'};location.path='/projects/p'
+ let targetTop=24
+ vi.mocked(HTMLElement.prototype.getBoundingClientRect).mockImplementation(function(this:HTMLElement){
+  return this.dataset.guide==='materials'?bounds(0,targetTop,1454,10608):bounds(0,0,352,308)
+ })
+ render(<Tutorial/>);await screen.findByText('第 2 / 6 步')
+ expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalledWith({block:'start',behavior:'instant'})
+ const input=screen.getByLabelText('资料备注');input.focus()
+ fireEvent.change(input,{target:{value:'保留长列表中的备注'}})
+ expect(input).toHaveFocus()
+ targetTop=1562;vi.stubGlobal('scrollY',462);fireEvent.scroll(document)
+ await waitFor(()=>expect(document.querySelectorAll('[data-guide-shield]')).toHaveLength(1))
+ expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalledTimes(1)
+ const panel=screen.getByRole('complementary',{name:'使用教程'})
+ expect(parseFloat(panel.style.top)+Math.min(308,parseFloat(panel.style.maxHeight))).toBeLessThanOrEqual(658)
+ fireEvent.keyDown(document,{key:'Escape'})
+ fireEvent.click(screen.getByRole('button',{name:'暂时跳过'}))
+ await waitFor(()=>expect(saved.status).toBe('skipped'))
+ expect(input).toHaveValue('保留长列表中的备注')
+ expect(saved.completed_steps).toEqual([])
+})
+
+it('reveals the same target again when asynchronously loaded content pushes it out of view',async()=>{
+ vi.stubGlobal('innerWidth',1454);vi.stubGlobal('innerHeight',670);vi.stubGlobal('scrollY',0)
+ saved={...fresh(),status:'active',step:'materials',project_id:'p'};location.path='/projects/p'
+ let targetTop=160
+ vi.mocked(HTMLElement.prototype.getBoundingClientRect).mockImplementation(function(this:HTMLElement){
+  return this.dataset.guide==='materials'?bounds(248,targetTop,1174,10608):bounds(0,0,352,308)
+ })
+ vi.mocked(HTMLElement.prototype.scrollIntoView).mockImplementation(()=>{targetTop=160})
+ render(<Tutorial/>);await screen.findByText('第 2 / 6 步')
+ await waitFor(()=>expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalledOnce())
+ targetTop=1686
+ const loaded=document.createElement('p');loaded.textContent='稍后加载的项目流程'
+ document.querySelector('[data-guide="materials"]')!.before(loaded)
+ await waitFor(()=>expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalledTimes(2))
+ expect(screen.getByRole('complementary',{name:'使用教程'})).toBeInTheDocument()
+ fireEvent.click(screen.getByRole('button',{name:'选择资料'}))
+ await screen.findByText('第 3 / 6 步')
+ await waitFor(()=>expect(saved.completed_steps).toEqual(['materials']))
 })
