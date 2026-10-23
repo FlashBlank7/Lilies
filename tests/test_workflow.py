@@ -2359,7 +2359,8 @@ def test_platform_harness_worker_runner_never_reports_expired_completion_as_succ
             owner_id="owner-a",
             resource_id="schedule-a",
             worker_id="producer",
-            lease_seconds=0.01,
+            # Expiry under test belongs to the runner, not queue preparation.
+            lease_seconds=60,
         )
         await harness.release_task_lease("runner-expired-1", worker_id="producer", next_status="queued")
 

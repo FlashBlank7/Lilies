@@ -1317,7 +1317,7 @@ for line in sys.stdin:
 async def test_slow_child_cleanup_does_not_block_later_protocol_messages(tmp_path, child_notice, ending):
     executable = tmp_path/'codex'
     executable.write_text(f'#!{sys.executable}\nchild_notice={child_notice!r}\nending={ending!r}\n' + '''
-import json,sys
+import json,sys,time
 active={'child':True,'sibling':True}
 def emit(value): print(json.dumps(value),flush=True)
 def note(method,**params): emit({'method':method,'params':params})
@@ -1338,6 +1338,8 @@ for line in sys.stdin:
         active['child']=False
         if child_notice=='resolved':note('serverRequest/resolved',threadId='child',requestId='child-call')
         else:note('turn/completed',threadId='child',turn={'id':'child-turn','status':'interrupted'})
+        # Deliver the parent notice separately, after child cleanup can start.
+        time.sleep(.05)
         note('turn/completed',threadId='root',turn={'id':'root-turn','status':ending,
             'error':{'message':'original parent error'} if ending=='failed' else None})
         emit({'id':m['id'],'result':{'turnId':'root-turn'}})
@@ -1382,10 +1384,12 @@ for line in sys.stdin:
         await asyncio.wait_for(asyncio.gather(*(flag.wait() for flag in started.values())), 5)
         steering = asyncio.create_task(client.steer('cancel child then finish root'))
         await asyncio.wait_for(slow_cleanup.wait(), 5)
+        # The child notice alone does not mean the parent notice was processed.
+        # Its following ACK proves the reader advanced despite slow cleanup.
+        assert await asyncio.wait_for(asyncio.shield(steering), 5) is True
         release_sibling.set()
         await asyncio.wait_for(cleaned['sibling'].wait(), 5)
         assert (tmp_path/'sibling.txt').exists() is (ending == 'completed')
-        assert await asyncio.wait_for(asyncio.shield(steering), .5) is True
         assert not task.done() and not observed and not cleaned['child'].is_set()
         release_cleanup.set()
         result = await asyncio.wait_for(task, 5)
