@@ -342,10 +342,10 @@ def test_platform_loop_builds_runs_reads_failure_and_repairs_via_model_api(confi
         result = json.loads(latest_tool['content']) if latest_tool else None
         assert body['messages'][-1]['role'] == 'user'
         budget = json.loads(body['messages'][-1]['content'].splitlines()[-1])['platform_runtime']
-        current_call = step if step <= 2 else step - 2  # The second user request starts at step 3.
+        current_call = step if step <= 2 else step - 2 if step <= 5 else step - 5 if step <= 10 else step - 10
         assert budget == {'model_call_limit': 32, 'current_model_call': current_call,
             'remaining_model_calls_after_this': 32 - current_call}
-        if step not in {1, 3}:
+        if step not in {1, 3, 6, 11}:
             assert body['messages'][-2] == latest_tool
             assert latest_tool['tool_call_id'] == f'call-{step - 1}'
         if step == 1:
@@ -366,23 +366,27 @@ def test_platform_loop_builds_runs_reads_failure_and_repairs_via_model_api(confi
                     'edges': [edge('start', 'read'), edge('read', 'end')]}}}})
         elif step == 5:
             assert result['applied_revision'] == revisions[0] + 1
-            message = tool('workflow_run', {'action': 'start', 'inputs': {}})
+            message = {'content':'草稿已保存，请在项目空间加入助手可调用能力。'}
         elif step == 6:
+            message = tool('project_calls', {'action':'start','inputs':{}})
+        elif step == 7:
             assert result['status'] == 'failed', result
             executions.append(result)
-            message = tool('workflow_run', {'action': 'inspect', 'task_id': result['id'], 'view': 'full'})
-        elif step == 7:
+            message = tool('project_calls', {'action': 'inspect', 'task_id': result['id'], 'view': 'full'})
+        elif step == 8:
             assert result['status'] == 'failed' and result['error'], result
             message = tool('workflow_draft', {'view': 'full'})
-        elif step == 8:
+        elif step == 9:
             assert result['revision'] == revisions[0] + 1
             message = tool('workflow_draft', {'operation': {'op': 'update_node',
                 'expected_revision': result['revision'], 'idempotency_key': 'repair', 'data': {
                     'node_id': 'end', 'changes': {'config': {'outputs': {'exists': ref('read', 'found')}}}}}})
-        elif step == 9:
-            assert result['applied_revision'] == revisions[0] + 2
-            message = tool('workflow_run', {'action': 'start', 'inputs': {}})
         elif step == 10:
+            assert result['applied_revision'] == revisions[0] + 2
+            message = {'content':'草稿已修复，请重新加入后调用。'}
+        elif step == 11:
+            message = tool('project_calls', {'action':'start','inputs':{}})
+        elif step == 12:
             assert result['status'] == 'succeeded' and result['outputs'] == {'exists': False}, result
             executions.append(result)
             message = {'content': '已修复空记录处理，重新运行返回 exists=false。'}
@@ -402,9 +406,19 @@ def test_platform_loop_builds_runs_reads_failure_and_repairs_via_model_api(confi
     assert state['status'] == 'idle', state['error']
     assert client.post(base + '/requirements/confirm', json={'revision': state['requirements']['revision']}).status_code == 200
     assert client.post(base + '/agent-session/messages', json={'message': '搭建并测试', 'intent': 'build'}).status_code == 202
+    built = agent_settled(client, base)
+    assert built['status'] == 'idle', built['error']
+    assert client.get(base+'/tasks').json() == []
+    client.put(base+'/space/workflows/'+project['id']+'/assistant-callable',json={'enabled':True}).raise_for_status()
+    client.post(base+'/agent-session/messages',json={'message':'已加入，请运行并修复失败','intent':'build'}).raise_for_status()
+    repaired=agent_settled(client,base)
+    assert repaired['status']=='idle',repaired['error']
+    assert len(client.get(base+'/tasks').json())==1
+    client.put(base+'/space/workflows/'+project['id']+'/assistant-callable',json={'enabled':True}).raise_for_status()
+    client.post(base+'/agent-session/messages',json={'message':'已重新加入，请运行修复版','intent':'build'}).raise_for_status()
     final = agent_settled(client, base)
     assert final['status'] == 'idle', final['error']
-    assert len(requests) == 10 and len(executions) == 2
+    assert len(requests) == 12 and len(executions) == 2
     assert final['thread_id'] == state['thread_id']
     assert isinstance(app.state.services.local_agents.clients[project['id']], ModelSession)
     assert len(client.get(base + '/tasks').json()) == 2

@@ -62,7 +62,7 @@ def test_project_model_egress_status_is_visible_without_exposing_keys(platform):
     pid = project(client, owner)
     base = '/api/v1/projects/'+pid
     client.post(base+'/access-members', headers=owner, json={'name':'模型成员'}).raise_for_status()
-    client.put(base+'/agent-session', headers=owner, json={'provider':'api', 'base_url':'https://example.test/v1',
+    client.put(base+'/agent-session', headers={'Authorization':'Bearer admin-boot'}, json={'provider':'api', 'base_url':'https://example.test/v1',
         'model':'test-model', 'api_key':'private-test-key', 'runtime_enabled':True}).raise_for_status()
     for headers in (owner, member):
         for suffix in ('/agent-session','/vision-model','/generation-model'):

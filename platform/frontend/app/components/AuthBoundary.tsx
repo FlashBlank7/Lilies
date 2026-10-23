@@ -64,7 +64,7 @@ export default function AuthBoundary({ children }: { children: ReactNode }) {
       <Link href="/projects">Lilies</Link><span className={styles.spacer} />
       <TutorialLauncher />
       <FeedbackNavigation />
-      {user.role === 'admin' && <><Link href="/improvements">使用改进</Link><Link href="/official-agent">官方智能体</Link><Link href="/users">账号管理</Link></>}
+      {user.role === 'admin' && <><Link href="/improvements">使用改进</Link><Link href="/admin/project-assistants">项目助手配置</Link><Link href="/official-agent">Codex 服务</Link><Link href="/users">账号管理</Link></>}
       {localDebug ? <span title="仅本机免登录，数据保存在独立调试目录">本地调试 · 免登录</span>
         : <><Link href="/account">{user.name}</Link><button onClick={() => void logout()}>退出登录</button></>}
     </nav>}

@@ -714,6 +714,11 @@ class WorkflowStorage:
             revision = expected_revision + 1
             content_hash = snapshot.content_hash()
             content_changed = content_hash != row["content_hash"]
+            from .project_capabilities import assistant_edit
+            if content_changed and assistant_edit.get():
+                # The draft update and invocation removal commit together. Failed
+                # edits and idempotent replays must not change human selections.
+                conn.execute('UPDATE project_members SET assistant_callable=0 WHERE application_id=?', (application_id,))
             invalidated_at = row["evidence_invalidated_at"]
             invalidated_revision = row["evidence_invalidated_revision"]
             change_summary = self._json_list(row["evidence_change_summary_json"])

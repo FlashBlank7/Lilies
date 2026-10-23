@@ -158,8 +158,8 @@ class OfficialAgent:
 
     async def authorize(self, project_id, user_id=None):
         source = self.source(project_id)
-        project = await self.services.projects.store.get(project_id)
-        if not source.allowed or not project['agent_modules_enabled']:
+        await self.services.projects.store.get(project_id)
+        if not source.allowed:
             raise ValueError('此项目未获准使用官方智能体，请联系管理员')
         identity = user_id or actor_id.get()
         if identity == 'root':
@@ -490,6 +490,7 @@ class OfficialAgent:
             await on_event(method, params)
 
         async def tool(name, arguments):
+            name = name.removeprefix('lilies__')
             await self.authorize(project_id)
             if budget_exceeded:
                 raise ValueError('已达到本任务用量上限')
@@ -497,7 +498,7 @@ class OfficialAgent:
             # short jobs so their result can answer this tool call directly;
             # longer jobs retain the existing background continuation path.
             starts_compute = (name, arguments.get('action')) in {
-                ('workflow_run', 'start'), ('project_modeling', 'train'),
+                ('workflow_run', 'start'), ('project_calls', 'start'), ('project_modeling', 'train'),
                 ('project_modeling', 'submit_and_run'), ('project_models', 'predict'),
             }
             if not starts_compute:
@@ -507,7 +508,7 @@ class OfficialAgent:
             if (arguments.get('wait', True) and wait_seconds and isinstance(result, dict)
                     and result.get('id') and result.get('status') in {'queued', 'running'}):
                 await self.authorize(project_id)
-                return await on_tool('workflow_run', {'action': 'inspect', 'task_id': result['id'],
+                return await on_tool('project_calls' if name == 'project_calls' else 'workflow_run', {'action': 'inspect', 'task_id': result['id'],
                     'wait_seconds': wait_seconds, 'view': arguments.get('view', 'summary')})
             return result
 
@@ -644,13 +645,11 @@ def official_router(services):
     @router.put('/projects/{project_id}/assistant-source')
     async def set_source(project_id: str, body: AssistantSource, request: Request):
         await services.accounts.require_project(request.state.user, project_id, owner=True)
-        old = service.source(project_id)
-        if body.allowed != old.allowed and request.state.user['role'] != 'admin':
-            raise HTTPException(403, '只有管理员可以授权官方智能体')
+        if request.state.user['role'] != 'admin':
+            raise HTTPException(403, '项目助手由平台管理员在后台配置')
         if body.task == 'official' or body.generation == 'official':
-            project = await services.projects.store.get(project_id)
-            if not body.allowed or not project['agent_modules_enabled']:
-                raise HTTPException(422, '请先由管理员允许此项目使用完整智能体，并授权官方智能体')
+            if not body.allowed:
+                raise HTTPException(422, '请选择可用的项目助手服务')
         manager = services.local_agents
         if manager.project_running(project_id) or service.active_jobs(project_id):
             raise HTTPException(409, '请先停止项目中的活动会话')

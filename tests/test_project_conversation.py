@@ -493,6 +493,10 @@ def test_feedback_uses_new_snapshot_and_links_previous_result(configured, monkey
                 draft = await on_tool('workflow_draft', {})
                 await on_tool('workflow_draft', {'operation': {'op': 'update_node', 'expected_revision': draft['revision'],
                     'idempotency_key': 'feedback', 'data': {'node_id': 'end', 'changes': {'config': {'outputs': {'quantity': 2}}}}}})
+                with pytest.raises(ValueError, match='可调用清单'):
+                    await on_tool('project_calls', {'action': 'start'})
+                await on_tool('project_action', {'action': 'finish'})
+                return {'status': 'completed'}
             result = await on_tool('project_action', {'action': 'trial', 'item_id': 'allocate', 'inputs': {},
                 'feedback_task_id': context['conversation_context'].get('task_id', '')})
             await on_tool('project_task_result', {'status': 'succeeded', 'message': '分配结果', 'markdown': '数量：'+str(result['outputs']['quantity'])})
@@ -508,6 +512,10 @@ def test_feedback_uses_new_snapshot_and_links_previous_result(configured, monkey
     old = client.get(base+'/tasks').json()[0]
     old_detail = client.get(base+'/tasks/'+old['id']).json()
     client.post(base+'/conversation/messages', json={'message': '数量应该是2，修改后再试', 'item_id': 'allocate', 'task_id': old['id']})
+    assert agent_settled(client, base)['status'] == 'idle'
+    assert len(client.get(base+'/tasks').json()) == 1
+    client.put(base+'/space/workflows/'+project['id']+'/assistant-callable', json={'enabled': True}).raise_for_status()
+    client.post(base+'/conversation/messages', json={'message': '已加入，试一下修改后的流程', 'item_id': 'allocate', 'task_id': old['id']})
     assert agent_settled(client, base)['status'] == 'idle'
     new = client.get(base+'/tasks').json()[0]
     assert new['id'] != old['id'] and new['feedback_task_id'] == old['id']

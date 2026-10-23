@@ -145,7 +145,7 @@ class ProjectStore:
             # Existing projects remain unclassified until their owner/agent explicitly labels them.
             for table, columns in {
                 'projects': {'agent_modules_enabled': "INTEGER NOT NULL DEFAULT 0"},
-                'project_members': {'purpose': "TEXT NOT NULL DEFAULT 'unclassified'"},
+                'project_members': {'purpose': "TEXT NOT NULL DEFAULT 'unclassified'", 'assistant_callable': 'INTEGER NOT NULL DEFAULT 1'},
                 'project_tasks': {'purpose': "TEXT NOT NULL DEFAULT 'unclassified'",
                                   'item_id': "TEXT NOT NULL DEFAULT ''",
                                   'feedback_task_id': "TEXT NOT NULL DEFAULT ''",
@@ -188,7 +188,7 @@ class ProjectStore:
                 result['agent_modules_enabled'] = bool(result['agent_modules_enabled'])
                 result['main_workflow_id'] = project_id
                 result['members'] = [dict(r) for r in c.execute(
-                    "SELECT a.id,a.name,a.description,d.revision,m.purpose FROM project_members m "
+                    "SELECT a.id,a.name,a.description,d.revision,m.purpose,m.assistant_callable FROM project_members m "
                     "JOIN applications a ON a.id=m.application_id "
                     "JOIN application_drafts d ON d.application_id=a.id "
                     "WHERE m.project_id=? ORDER BY m.created_at,a.id", (project_id,))]

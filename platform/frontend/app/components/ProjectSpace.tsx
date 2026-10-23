@@ -11,7 +11,7 @@ import { useOnboarding } from './Onboarding'
 import {groupProjectFiles, type ProjectFile} from './project-files'
 import styles from './workspace-tools.module.css'
 
-type Workflow = {id:string;name:string;display_name?:string;description:string;revision:number;node_count:number;allowed:boolean;inputs:{name:string;description?:string}[]}
+type Workflow = {assistant_callable?:boolean;kind?:'workflow'|'task_agent';id:string;name:string;display_name?:string;description:string;revision:number;node_count:number;allowed:boolean;inputs:{name:string;label?:string;description?:string}[]}
 type Space = {workflows:Workflow[];files:ProjectFile[];files_truncated:boolean}
 type OfficialWorkflow = {id:string;name:string;description:string;version:number}
 type Props = {projectId:string;onWorkflow:(id:string)=>void;onFile:(path:string)=>void;onTalk:(message:string,mode?:'task'|'workflow')=>void;onChanged:()=>unknown}
@@ -52,6 +52,9 @@ function ProjectSpaceContent({projectId,onWorkflow,onFile,onTalk,onChanged,selec
   })
   const selected=selection.filter(path=>space?.files.some(file=>file.path===path))
   const [resultsOpen,setResultsOpen]=useState<boolean>()
+  const [agentName,setAgentName]=useState('')
+  const [agentPrompt,setAgentPrompt]=useState('')
+  const [agentRead,setAgentRead]=useState(false)
   const [official,setOfficial]=useState<OfficialWorkflow[]>([])
   const [catalogOpen,setCatalogOpen]=useState<boolean>()
   const upload=useRef<HTMLInputElement>(null)
@@ -63,6 +66,14 @@ function ProjectSpaceContent({projectId,onWorkflow,onFile,onTalk,onChanged,selec
     setSelection(next)
     try {sessionStorage.setItem(selectionKey,JSON.stringify(next))}catch{}
     if(checked)guide.mark('materials',projectId)
+  }
+  async function setCallable(w:Workflow,enabled:boolean){
+    setBusy(true);setError('')
+    try{await api(base+'/space/workflows/'+w.id+'/assistant-callable',{method:'PUT',body:JSON.stringify({enabled})});await refresh();void onChanged()}catch(e){setError(String(e))}finally{setBusy(false)}
+  }
+  async function addTaskAgent(){
+    setBusy(true);setError('')
+    try{await api(base+'/space/task-agents',{method:'POST',body:JSON.stringify({name:agentName,instructions:agentPrompt,read_project_files:agentRead})});setAgentName('');setAgentPrompt('');await refresh();void onChanged()}catch(e){setError(String(e))}finally{setBusy(false)}
   }
   async function install(template:OfficialWorkflow) {
     setBusy(true);setError('')
@@ -128,11 +139,17 @@ function ProjectSpaceContent({projectId,onWorkflow,onFile,onTalk,onChanged,selec
     <section className={styles.section}><h2>本项目的工作环境</h2><p>把工作流和资料放在这里，项目智能体就能发现并使用。每次处理产生独立运行结果，成员共享项目资源，各自对话独立。</p>
       <div className={styles.row}><button onClick={()=>onTalk('请查看项目空间中的已有工作流和资料，帮我选择合适的流程处理这次任务。'+fileContext)}>与智能体完成任务</button><button onClick={()=>onTalk('请根据当前项目已有能力，创建一条新的可复用工作流。'+fileContext,'workflow')}>通过对话创建工作流</button><button onClick={()=>void refresh()}>刷新空间</button></div>
     </section>
-    <section className={styles.section} tabIndex={-1} data-guide="workflow" data-guide-fallback={!space?.workflows.length ? 'conversation' : undefined}><h2>可供调用的工作流</h2><p>加入后保存在当前项目，智能体按需查看输入并调用；模型或数据可以稍后配置。</p>
+    <section className={styles.section} tabIndex={-1} data-guide="workflow" data-guide-fallback={!space?.workflows.length ? 'conversation' : undefined}><h2>项目工作流与任务智能体</h2><p>人工装配或加入预设后，可交给助手调用。助手搭建的草稿需由你加入可调用能力；模型或数据可以稍后配置。</p>
       <div className={styles.row}><label>工作流名称<input aria-label="加入空间的工作流名称" value={name} onChange={e=>setName(e.target.value)} maxLength={100}/></label><button disabled={busy||!name.trim()} onClick={()=>void add()}>添加空白流程</button><button disabled={busy} onClick={()=>upload.current?.click()}>导入已有工作流</button>
         <input hidden type="file" accept=".json,application/json" ref={upload} aria-label="导入工作流定义" onChange={e=>{const file=e.target.files?.[0];e.target.value='';if(file)void add(file)}}/></div>
       <small>导入工作流 JSON 定义；所需模型、连接和子流程仍使用本项目资源。</small>
-      {!space ? <p role="status">正在读取工作流…</p> : !space.workflows.length ? <p>尚无工作流，可以先添加或通过对话创建。</p> : <table className={styles.table} tabIndex={-1} data-guide="conversation"><thead><tr><th>工作流</th><th>输入与状态</th><th>操作</th></tr></thead><tbody>{space.workflows.map(w=><tr key={w.id}><td><strong>{w.display_name||w.name}</strong><p>{w.description || '打开画布补充步骤和用途。'}</p></td><td>{w.inputs.map(i=>i.description||i.name).join('、')||'无需填写输入'}<p>{!w.allowed?'项目未允许此流程中的能力':w.node_count?'可查看与调用':'空白草稿'}</p></td><td><div className={styles.row}><button data-guide-anchor={w.allowed&&w.node_count?"workflow-call":undefined} disabled={!w.allowed||!w.node_count} onClick={()=>{guide.mark('workflow',projectId,'conversation');onTalk(`请调用项目工作流「${w.display_name||w.name}」（${w.id}）。先查看输入要求，结合本次资料填写；无法确定的信息再向我询问。${fileContext}`)}}>让智能体调用</button><button data-guide-anchor={w.node_count?"workflow-view":undefined} onClick={()=>onWorkflow(w.id)}>查看与编辑</button><button disabled={busy||copyBusy} onClick={e=>{copyTrigger.current=e.currentTarget;setCopySource(w);setCopyName(Array.from(w.display_name||w.name).slice(0,98).join('')+'副本');setCopyError('');setCopyConflict(false)}}>复制并编辑</button></div></td></tr>)}</tbody></table>}
+      {!space ? <p role="status">正在读取工作流…</p> : !space.workflows.length ? <p>尚无工作流，可以先添加或通过对话创建。</p> : <table className={styles.table} tabIndex={-1} data-guide="conversation"><thead><tr><th>工作流</th><th>输入与状态</th><th>操作</th></tr></thead><tbody>{space.workflows.map(w=><tr key={w.id}><td><strong>{w.display_name||w.name}</strong>{w.kind==='task_agent'&&<small> · 任务智能体</small>}<p>{w.description || '打开画布补充步骤和用途。'}</p></td><td>{w.inputs.map(i=>i.label||i.description||i.name).join('、')||'无需填写输入'}<p>{!w.allowed?'项目未允许此流程中的能力':w.node_count?(w.assistant_callable===false?'草稿 · 未加入助手调用':'已加入助手可调用能力'):'空白草稿'}</p></td><td><div className={styles.row}><button data-guide-anchor={w.allowed&&w.node_count?"workflow-call":undefined} disabled={!w.allowed||!w.node_count||w.assistant_callable===false} onClick={()=>{guide.mark('workflow',projectId,'conversation');onTalk(`请调用项目工作流「${w.display_name||w.name}」（${w.id}）。先查看输入要求，结合本次资料填写；无法确定的信息再向我询问。${fileContext}`)}}>让智能体调用</button>{!!w.node_count&&<button disabled={busy} onClick={()=>void setCallable(w,w.assistant_callable===false)}>{w.assistant_callable===false?'加入助手可调用能力':'从助手可调用能力移除'}</button>}<button data-guide-anchor={w.node_count?"workflow-view":undefined} onClick={()=>onWorkflow(w.id)}>查看与编辑</button><button disabled={busy||copyBusy} onClick={e=>{copyTrigger.current=e.currentTarget;setCopySource(w);setCopyName(Array.from(w.display_name||w.name).slice(0,98).join('')+'副本');setCopyError('');setCopyConflict(false)}}>复制并编辑</button></div></td></tr>)}</tbody></table>}
+    </section>
+    <section className={styles.section}><h2>加入特定任务智能体</h2><p>定义它负责的任务及输出要求，加入后由助手按需调用，使用管理员配置的项目模型。</p>
+      <label>任务智能体名称<input value={agentName} onChange={e=>setAgentName(e.target.value)} maxLength={100}/></label>
+      <label>任务说明<textarea value={agentPrompt} onChange={e=>setAgentPrompt(e.target.value)} placeholder="说明它处理什么问题、输入要求及输出格式（至少 20 字）"/></label>
+      <label><input type="checkbox" checked={agentRead} onChange={e=>setAgentRead(e.target.checked)}/>允许读取本项目文件</label>
+      <button disabled={busy||!agentName.trim()||agentPrompt.trim().length<20} onClick={()=>void addTaskAgent()}>加入任务智能体</button>
     </section>
     {copySource&&<ReadingDialog title="复制工作流" onClose={()=>{if(!copyPending.current)setCopySource(undefined)}}>
       <form className={styles.section} aria-label="复制工作流" onSubmit={e=>{e.preventDefault();void copyWorkflow()}} aria-busy={copyBusy}>

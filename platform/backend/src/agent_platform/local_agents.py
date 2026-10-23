@@ -22,7 +22,6 @@ from .model_session import ModelSession
 from .conversation_scope import conversation_for, conversation_scope
 from .project_activity import activity_title, latest_operations
 from .project_metrics import is_read_call, payload_measurement
-from .project_agent_context import conversation_context
 from .project_store import ProjectConflict, connect
 from .requirement_discussion import load_discussion, save_discussion
 
@@ -461,7 +460,7 @@ class LocalAgents:
         status, error = "idle", ""
         shutdown_cancelled = False
         is_project = self.services.projects.store.exists(application_id)
-        from .project_agent_tools import WorkspaceProjectTools, PROJECT_INSTRUCTIONS, project_tool_specs
+        from .project_assistant_tools import AssistantProjectTools as WorkspaceProjectTools, ASSISTANT_INSTRUCTIONS as PROJECT_INSTRUCTIONS, assistant_tool_specs as project_tool_specs
         initial_state = self.load(application_id)
         official = initial_state.get('provider') == 'official'
         job_id = initial_state.get('request_id', '')
@@ -633,6 +632,9 @@ class LocalAgents:
 
             async def on_tool(name, arguments):
                 nonlocal productive
+                name = name.removeprefix('lilies__')
+                if name == 'project_calls' and arguments.get('action') in {'start', 'inspect', 'respond'}:
+                    name = 'workflow_run'
                 waiting_on_active_task = False
                 current = self.load(application_id)
                 metadata = dict(operation_id=str(uuid4()), request_id=current.get('request_id', ''),
@@ -753,7 +755,7 @@ class LocalAgents:
             while True:
                 current = self.load(application_id)
                 if current.get('conversation_enabled'):
-                    context = await conversation_context(self.services, application_id, current,
+                    context = await tools.conversation_context(current,
                         load_discussion(tools.workspace), context['user_message'])
                     # A customer reply can arrive while summaries load. Consume it
                     # from fresh state without overwriting newer bindings/events.

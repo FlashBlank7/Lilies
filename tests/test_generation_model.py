@@ -1,4 +1,4 @@
-"""Generation connections remain project-owned and independent of business LLMs."""
+"""Generation connections remain project-scoped and independent of business LLMs."""
 import pytest
 from agent_platform.model_connections import ModelConnection
 from agent_platform.providers.base import ProviderError
@@ -47,7 +47,9 @@ def test_generation_owner_collaborator_and_copy_permissions(platform):
     _, outsider = signup(client, 'outsider')
     pid = project(client, owner); base = f'/api/v1/projects/{pid}'
     assert client.post(base+'/access-members', headers=owner, json={'name':'member','role':'collaborator'}).status_code == 200
-    assert client.put(base+'/generation-model', headers=owner, json=config()).status_code == 200
+    admin={'Authorization':'Bearer admin-boot'}
+    assert client.put(base+'/generation-model', headers=owner, json=config()).status_code == 403
+    assert client.put(base+'/generation-model', headers=admin, json=config()).status_code == 200
     assert client.get(base+'/generation-model', headers=member).json()['model'] == 'generator'
     for method, body in [('put', config()), ('delete', None)]:
         kwargs = {'json':body} if body else {'headers':{**member, 'Content-Type':'application/json'}}
@@ -56,12 +58,13 @@ def test_generation_owner_collaborator_and_copy_permissions(platform):
     assert client.get(base+'/generation-model', headers=outsider).status_code == 404
     source = project(client, owner)
     source_base = f'/api/v1/projects/{source}'
-    assert client.put(source_base+'/generation-model', headers=owner, json=config('source-generator')).status_code == 200
-    copied = client.post(base+'/model-connection/copy', headers=owner,
+    assert client.put(source_base+'/generation-model', headers=admin, json=config('source-generator')).status_code == 200
+    assert client.post(base+'/model-connection/copy', headers=owner, json={'source_project_id':source,'source_role':'generation','role':'generation'}).status_code == 403
+    copied = client.post(base+'/model-connection/copy', headers=admin,
                          json={'source_project_id':source,'source_role':'generation','role':'generation'})
     assert copied.status_code == 200 and copied.json()['model'] == 'source-generator'
     # Cookie proxy sends JSON content type even for an empty DELETE body.
-    assert client.delete(base+'/generation-model', headers={**owner,'Content-Type':'application/json'}).status_code == 200
+    assert client.delete(base+'/generation-model', headers={**admin,'Content-Type':'application/json'}).status_code == 200
     assert client.get(base+'/generation-model', headers=owner).json()['mode'] == 'inherit'
 
 

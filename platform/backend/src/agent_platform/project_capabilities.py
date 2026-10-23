@@ -1,6 +1,10 @@
 """The same project block selection serves manuals, editing and execution."""
 from __future__ import annotations
 
+from contextvars import ContextVar
+
+assistant_edit: ContextVar[bool] = ContextVar("assistant_edit", default=False)
+
 # Whole-agent macros are optional. Model turns, tools and loops remain available
 # so a project can compose its own agent from a trusted raw model.
 AGENT_BLOCK_TYPES = frozenset({'claude_agent', 'subagent_spawn'})

@@ -93,6 +93,6 @@ export default function ProjectConversations(props: Props) {
       {error && <p role="alert">{error}</p>}
     </section>
     {selected ? <ProjectConversation key={account?.id + ':' + props.id + ':' + selected} {...props} conversationId={selected} />
-      : !loading && <p>新建会话，开始分析资料、训练模型或搭建工作流。</p>}
+      : !loading && <p>新建会话，调用项目已有能力，或请助手协助搭建工作流。</p>}
   </div>
 }

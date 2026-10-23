@@ -232,6 +232,9 @@ class Projects:
         context = await self.context(project_id, task_id, step)
         if record_scope:
             context['record_scope'] = record_scope
+        if any(s.get('assistant_scope') for s in context['snapshots'].values()):
+            from .project_assistant_tools import require_callable
+            await require_callable(self.services, project_id, workflow_id)
         if workflow_id not in context['snapshots']:
             raise ValueError('工作流不在本次项目任务固定的成员范围内')
         input_hash = hashlib.sha256(encode([workflow_id, inputs]).encode()).hexdigest()[:24]

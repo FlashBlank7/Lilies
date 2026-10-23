@@ -323,6 +323,15 @@ def test_disconnect_still_logs_out_and_closes_the_control(resident_control):
     assert not service.config().enabled
 
 
+def service_access(client, pid, enabled):
+    from agent_platform.db import connect
+    service = client.app.state.services.official_agent
+    source = service.source(pid).model_copy(update={'allowed': enabled})
+    with connect(service.db) as db:
+        db.execute('UPDATE official_agent_projects SET value=? WHERE project_id=?', (source.model_dump_json(), pid))
+    return SimpleNamespace(status_code=200, text='')
+
+
 def enable(client, pid):
     base = '/api/v1/projects/' + pid
     assert client.put(base+'/capabilities',headers=ADMIN,json={'agent_modules_enabled':True}).status_code == 200
@@ -507,7 +516,7 @@ def test_two_employee_threads_tools_idempotency_and_raw_llm_stays_api(official):
     client.post('/api/v1/projects/'+pid+'/access-members',headers=a,json={'name':'Bob'})
     # API business model is independent and must not be overwritten.
     api_config={'provider':'api','base_url':'https://example.test/v1','api_key':'secret','model':'business'}
-    assert client.put('/api/v1/projects/'+pid+'/agent-session',headers=a,json=api_config).status_code==200
+    assert client.put('/api/v1/projects/'+pid+'/agent-session',headers=ADMIN,json=api_config).status_code==200
     enable(client,pid)
     pa,pb=chat(client,pid,a),chat(client,pid,b)
     for path,h in ((pa,a),(pb,b)):
@@ -533,7 +542,7 @@ def test_capability_owner_and_revocation_during_queue(official):
     _,a=signup(client,'Alice');_,b=signup(client,'Bob');pid=project(client,a)
     base='/api/v1/projects/'+pid
     assert client.put(base+'/assistant-source',headers=a,json={'allowed':True,'task':'official'}).status_code==403
-    assert client.put(base+'/assistant-source',headers=ADMIN,json={'allowed':True,'task':'official'}).status_code==422
+    assert client.put(base+'/assistant-source',headers=ADMIN,json={'allowed':True,'task':'official'}).status_code==200
     enable(client,pid)
     client.post(base+'/access-members',headers=a,json={'name':'Bob'})
     pb=chat(client,pid,b)
@@ -808,7 +817,7 @@ def test_pending_supplement_survives_preflight_failure_without_replaying_deliver
         assert client.post(path+'/messages',headers=headers,json={'message':'补充内容只保存一次','request_key':'supplement'}).status_code==202
         assert pending()==['补充内容只保存一次']
         if failure=='before_turn':
-            assert client.put(base+'/capabilities',headers=ADMIN,json={'agent_modules_enabled':False}).status_code==200
+            assert service_access(client,pid,False).status_code==200
     finally:
         release.set()
     failed=wait(client,path,headers)
@@ -821,7 +830,7 @@ def test_pending_supplement_survives_preflight_failure_without_replaying_deliver
     assert len(contexts)==(2 if failure=='after_delivery' else 1)
     if failure in {'event_save','dequeue_save'}:assert injected
     assert pending()==([] if failure=='after_delivery' else ['补充内容只保存一次'])
-    assert client.put(base+'/capabilities',headers=ADMIN,json={'agent_modules_enabled':True}).status_code==200
+    assert service_access(client,pid,True).status_code==200
     body={'message':'明确继续，保留已有结果','request_key':'resume'}
     assert client.post(path+'/messages',headers=headers,json=body).status_code==202
     completed=wait(client,path,headers)
@@ -1222,8 +1231,8 @@ def test_final_state_is_saved_before_completion_and_survives_late_stop(official,
         return await original_get(project_id,identity,**kwargs)
     monkeypatch.setattr(app.state.services.projects.store,'get_task',get_task)
     assert client.post(path+'/messages',json={'message':'执行并保存结果'}).status_code==202
-    assert saving.wait(6), client.get(path).json()
     try:
+        assert saving.wait(6), json.dumps(client.get(path).json(), ensure_ascii=False)
         if ending=='complete':
             assert service.jobs()[0]['status']!='completed'
             assert client.get(path).json()['status']=='running'
@@ -1615,6 +1624,17 @@ def test_cleanup_failure_is_visible_in_job_and_chat_and_can_be_retried(official,
     from agent_platform.conversation_scope import conversation_scope
     from agent_platform.sandbox import SandboxSession, CommandResult
     client, app, service = official
+    # Exercise native host-tool cleanup independently of the business tool catalog.
+    # project_code is intentionally unavailable to project assistants; the scope
+    # tests verify that denial. This test-only callback retains the real sandbox.
+    from agent_platform.project_assistant_tools import AssistantProjectTools
+    from agent_platform.project_agent_tools import WorkspaceProjectTools
+    original_call = AssistantProjectTools.call
+    async def fixture_call(self, name, arguments):
+        if name == 'cleanup_fixture':
+            return await WorkspaceProjectTools.call(self, 'project_code', arguments)
+        return await original_call(self, name, arguments)
+    monkeypatch.setattr(AssistantProjectTools, 'call', fixture_call)
     executable = tmp_path/'protocol_fixture'
     executable.write_text(f'#!{sys.executable}\nending={ending!r}\n' + '''
 import json,sys
@@ -1640,7 +1660,7 @@ for line in sys.stdin:
         assert m['result']['success']
         emit({'method':'thread/started','params':{'thread':{'id':'child','parentThreadId':'root'}}})
         emit({'id':'code','method':'item/tool/call','params':{'threadId':'child','turnId':'child-turn',
-            'tool':'project_code','arguments':{'code':'print("working")','timeout':30}}})
+            'tool':'cleanup_fixture','arguments':{'code':'print("working")','timeout':30}}})
     elif method=='fixture/complete' or (method=='turn/steer' and ending=='pending_supplement'):
         if method=='fixture/complete':emit({'id':m['id'],'result':{}})
         emit({'method':'turn/completed','params':{'threadId':'root','turn':{'id':'root-turn','status':'completed'}}})
@@ -1702,7 +1722,7 @@ for line in sys.stdin:
         assert connection.process.returncode is not None
         assert len(sandboxes.sessions) == 1
         with conversation_scope(pid,path.rsplit('/',1)[-1]):
-            failures = [e for e in manager.load(pid)['events'] if e['kind']=='tool' and e['text']=='project_code']
+            failures = [e for e in manager.load(pid)['events'] if e['kind']=='tool' and e['text']=='cleanup_fixture']
         assert len(failures) == 1 and failures[0]['status'] == 'failed'
         workspace = app.state.services.settings.workspace_root/pid
         assert (workspace/'results/saved.txt').read_text() == 'saved result'
@@ -1733,7 +1753,7 @@ def test_live_capability_revocation_stops_tool_before_project_io(official):
     FakeAgent.hold=True
     client.post(path+'/messages',headers=a,json={'message':'列出资料'})
     wait(client,path,a,('running',))
-    client.put('/api/v1/projects/'+pid+'/capabilities',headers=ADMIN,json={'agent_modules_enabled':False})
+    service_access(client,pid,False)
     FakeAgent.hold=False
     state=wait(client,path,a)
     assert state['status']=='error' and '未获准' in state['error']
@@ -2034,7 +2054,7 @@ def test_shutdown_does_not_restore_an_explicitly_stopped_or_denied_queued_reques
                     assert finishing.wait(5)
                     if cancel_waiter: assert isinstance(client.portal.call(cancel_stop, stop_task), asyncio.CancelledError)
                 elif phase == 'denied_before_shutdown':
-                    assert client.put('/api/v1/projects/'+pid+'/capabilities', headers=ADMIN, json={'agent_modules_enabled':False}).status_code == 200
+                    assert service_access(client,pid,False).status_code == 200
                     assert finishing.wait(5)
                 shutdown = executor.submit(client.__exit__, None, None, None)
                 assert finishing.wait(5)
@@ -2362,7 +2382,7 @@ def test_short_workflow_returns_result_without_a_model_poll_and_long_work_resume
             arguments = {'action': 'start', 'request_key': 'one-computation'}
             if explicit_wait is not None:
                 arguments['wait'] = explicit_wait
-            result = await on_tool('workflow_run', arguments)
+            result = await on_tool('project_calls', arguments)
         else:
             result = context['recent_results'][0]
         observations.append(result)
@@ -2638,7 +2658,7 @@ def test_access_revoked_during_startup_preserves_reason_and_releases_slot(
         if revocation=='member':
             response=client.delete(base+'/access-members/'+member['user']['id'],headers=owner)
         else:
-            response=client.put(base+'/capabilities',headers=ADMIN,json={'agent_modules_enabled':False})
+            response=service_access(client,first_pid,False)
         assert response.status_code==200,response.text
         release_start.set()
         assert closing.wait(5)

@@ -21,6 +21,8 @@ async def space(services, project_id):
         workflows.append({'id': member['id'], 'name': snapshot.name,
             **({'display_name':member['display_name']} if member.get('display_name') else {}),
             'description': snapshot.description, 'revision': draft['revision'],
+            'assistant_callable': bool(member.get('assistant_callable', True)),
+            'kind': 'task_agent' if snapshot.agents else 'workflow',
             'node_count': len(snapshot.workflow.nodes), 'allowed': blocks.supports_workflow(snapshot.workflow),
             'inputs': [f for n in snapshot.workflow.nodes if n.type == 'start' for f in n.config.get('inputs', [])]})
     tools = ProjectTools(services, project_id, services.local_agents)
@@ -70,6 +72,8 @@ async def add_workflow(services, project_id, body):
 
 
 def register_space_routes(router, services, invoke):
+    from .project_assistant_tools import register_assistant_routes
+    register_assistant_routes(router, services, invoke)
     @router.get('/space/workflows/{workflow_id}/readiness')
     async def readiness(project_id: str, workflow_id: str):
         from .workflow_readiness import project_readiness

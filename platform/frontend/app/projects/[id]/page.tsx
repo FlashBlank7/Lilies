@@ -21,7 +21,6 @@ import ProjectSpace from '@/app/components/ProjectSpace'
 import ExampleProjectGuide from '@/app/components/ExampleProjectGuide'
 import ProjectRunPanel, { ProjectTaskOutput, ProjectRunEvents } from '@/app/components/ProjectRunPanel'
 import ModelConnectionPanel from '@/app/components/ModelConnectionPanel'
-import AssistantSourcePanel from '@/app/components/AssistantSourcePanel'
 import ProjectCapabilities from '@/app/components/ProjectCapabilities'
 import ProjectAccessMembers from '@/app/components/ProjectAccessMembers'
 import DeveloperTools from './DeveloperTools'
@@ -183,11 +182,11 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
       if (path) { event.preventDefault(); showFile(path, file ? fileTaskId : reader ? task?.id : '') }
     }}>
     <header className={styles.header}><div><span className={styles.eyebrow}>项目工作空间</span><h1>{project?.name || '正在读取项目…'}</h1>
-      <p>独立解决任务，随时生成和使用工作流。</p></div></header>
+      <p>装配项目能力，与助手一起完成任务。</p></div></header>
     {project && (tab === 'overview' || tab === 'space') && <ExampleProjectGuide projectId={id} onTalk={message=>{setFocus({nonce:Date.now(),label:'项目空间',message});setTab('overview');setReader(false)}} onFile={showFile} onWorkflow={workflow=>void showFlow(undefined,workflow)} onRun={workflow=>{setReuseTask(undefined);setRunWorkflowId(workflow);setTab('run')}} onSettings={()=>setTab('settings')} />}
     {tab === 'settings' && project && <section className={styles.panel}>
       <ProjectAccessMembers projectId={id} canManage={project.access_role !== 'collaborator'} onChanged={() => void refresh()} />
-      {project.access_role !== 'collaborator' && <><AssistantSourcePanel base={base} running={false} onSaved={refresh} /><ModelConnectionPanel base={base} connected={true} running={false} onSaved={refresh} /><ModelConnectionPanel base={base} role="generation" connected={false} running={false} onSaved={refresh} /><ModelConnectionPanel base={base} role="vision" connected={false} running={false} onSaved={refresh} /></>}
+      {project.access_role !== 'collaborator' && <><p>项目助手由平台管理员配置。</p><ModelConnectionPanel base={base} role="vision" connected={false} running={false} onSaved={refresh} /></>}
       {project.access_role === 'collaborator' && <p>模型连接由项目负责人配置。你可以在工作流中使用项目已配置的模型。</p>}
       {project.access_role === 'admin' && <ProjectCapabilities projectId={id} enabled={Boolean(project.agent_modules_enabled)} onSaved={() => { setEditingFlow(false); void refresh() }} />}
     </section>}
