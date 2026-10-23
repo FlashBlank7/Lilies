@@ -9,6 +9,7 @@ import AppShell from '@/app/components/AppShell'
 import { useOnboarding, type GuideStep } from '@/app/components/Onboarding'
 import ProjectFileReader from '@/app/components/ProjectFileReader'
 import ProjectWorkflowOverview from '@/app/components/ProjectWorkflowOverview'
+import ProjectWorkflowDebug from '@/app/components/ProjectWorkflowDebug'
 import ReadingDialog from '@/app/components/ReadingDialog'
 import { use, useCallback, useEffect, useRef, useState } from 'react'
 import { api, withFrontendToken } from '@/lib/platform'
@@ -58,6 +59,7 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
   const [workflowId, setWorkflowId] = useState('')
   const [canvasRevision, setCanvasRevision] = useState(0)
   const [editingFlow, setEditingFlow] = useState(false)
+  const [debugFlow, setDebugFlow] = useState(true)
   const [flowItemId, setFlowItemId] = useState('')
   const [requirements, setRequirements] = useState<string | null>(null)
   const [developerTaskId, setDeveloperTaskId] = useState('')
@@ -108,6 +110,14 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
     return () => window.removeEventListener('lilies:guide-navigate', listener)
   }, [id])
   useEffect(() => { if (['settings','models','materials','flow','space','workspace'].includes(selectedTab || '')) setTab(selectedTab as typeof tab) }, [id, selectedTab])
+  useEffect(() => {
+    if (selectedTab !== 'flow') return
+    let live = true
+    void api<ProjectTopology>(base + '/topology').then(value => {
+      if (live) { setTopology(value); setWorkflowId(id) }
+    }).catch(cause => { if (live) setError(String(cause)) })
+    return () => { live = false }
+  }, [base, id, selectedTab])
   useEffect(() => { const selected = new URLSearchParams(window.location.search).get('run'); if (selected) { setReuseTask(undefined); setRunWorkflowId(selected); setTab('run') } }, [id])
   useEffect(() => {
     const request = ++taskRequest.current
@@ -151,7 +161,7 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
     setFile(path); setFileTaskId(taskId)
   }
   async function showFlow(item?: ProgressItem, selectedId?: string) {
-    try { setTopology(await api<ProjectTopology>(base + '/topology')); setWorkflowId(selectedId || item?.workflow_ids[0] || id); setEditingFlow(true); setCanvasRevision(n=>n+1); setFlowItemId(item?.id || ''); setTab('flow'); guide.mark('workflow', id) } catch (cause) { setError(String(cause)) }
+    try { setTopology(await api<ProjectTopology>(base + '/topology')); setWorkflowId(selectedId || item?.workflow_ids[0] || id); setDebugFlow(false); setEditingFlow(true); setCanvasRevision(n=>n+1); setFlowItemId(item?.id || ''); setTab('flow'); guide.mark('workflow', id) } catch (cause) { setError(String(cause)) }
   }
   async function showRequirements() {
     try { const doc = await api<{ document: string }>(base + '/requirements'); setRequirements(doc.document) } catch (cause) { setError(String(cause)) }
@@ -265,7 +275,8 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
       <div className={styles.actions}><input aria-label="新工作流名称" value={memberName} onChange={event => setMemberName(event.target.value)} placeholder="新工作流名称" />
         <button disabled={creatingMember || !memberName.trim()} onClick={async () => { setCreatingMember(true); try { const member = await api<ProjectMember>(base + '/members', { method: 'POST', body: JSON.stringify({ name: memberName.trim() }) }); setMemberName(''); await refresh(); await showFlow(undefined, member.id); setEditingFlow(true) } catch (cause) { setError(String(cause)) } finally { setCreatingMember(false) } }}>添加空白工作流</button>
         <button onClick={() => { setReuseTask(undefined); setRunWorkflowId(workflowId || id); setTab('run') }}>运行此工作流</button><FeedbackButton source={{project_id:id,workflow_id:workflowId||id,page:"workflow"}} category="usability"/></div>
-      {editingFlow ? <><div className={styles.canvasHeading} data-guide-anchor="workflow-canvas"><button onClick={() => setEditingFlow(false)}>查看工作流说明</button><h2>{activeMember?.name || '工作流画布'}</h2><Link href={`/applications/${workflowId}?tab=edit`} target="_blank">打开完整编辑器 <ArrowUpRight size={13} /></Link></div><iframe key={workflowId+canvasRevision} title="业务工作流画布" className={styles.canvas} src={`/applications/${workflowId}?tab=edit&embedded=1`} /></>
+      <div className={styles.actions}><button aria-pressed={debugFlow} onClick={() => setDebugFlow(true)}>方案与调试</button><button aria-pressed={!debugFlow} onClick={() => setDebugFlow(false)}>画布与说明</button></div>
+      {debugFlow ? <ProjectWorkflowDebug projectId={id} selectedId={workflowId || id} onSelect={setWorkflowId} onEdit={wid => { setWorkflowId(wid); setDebugFlow(false); setEditingFlow(true) }} onChanged={refresh} onTalk={message => talk(undefined, message, '', '', 'workflow')} /> : editingFlow ? <><div className={styles.canvasHeading} data-guide-anchor="workflow-canvas"><button onClick={() => setEditingFlow(false)}>查看工作流说明</button><h2>{activeMember?.name || '工作流画布'}</h2><Link href={`/applications/${workflowId}?tab=edit`} target="_blank">打开完整编辑器 <ArrowUpRight size={13} /></Link></div><iframe key={workflowId+canvasRevision} title="业务工作流画布" className={styles.canvas} src={`/applications/${workflowId}?tab=edit&embedded=1`} /></>
         : <ProjectWorkflowOverview key={workflowId + flowItemId} initialItemId={flowItemId} projectId={id} selectedId={workflowId} progress={progress} topology={topology} onWorkflow={selected => { setWorkflowId(selected); setEditingFlow(false); window.scrollTo(0, 0) }} onTalk={talk} onTask={taskId => void showTask(taskId)} onFile={showFile} onRequirements={() => void showRequirements()} onEdit={() => setEditingFlow(true)} />}
     </>}
     {requirements !== null && <ReadingDialog wide title="当前需求文档" onClose={() => setRequirements(null)}><div className={styles.readerBody}><MarkdownDocument source={requirements} resolveLink={href => resolveProjectLink(id, href)} emptyLabel="尚未形成需求文档" /></div></ReadingDialog>}

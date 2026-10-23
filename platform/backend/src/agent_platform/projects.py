@@ -35,6 +35,8 @@ class Projects:
         self.knowledge = ProjectKnowledge(services)
         from .project_http_connections import ProjectHTTPConnections
         self.http_connections = ProjectHTTPConnections(services)
+        from .project_debug import ProjectDebug
+        self.debug = ProjectDebug(services)
 
     def workspace(self, project_id: str):
         # Project id is the id of its main application; legacy application paths remain valid.
@@ -56,6 +58,7 @@ class Projects:
         await self.store.initialize()
         await self.knowledge.initialize()
         await self.http_connections.initialize()
+        await self.debug.initialize()
         for project in await self.store.list():
             self.services.sandboxes.protect_inputs(self.workspace(project['id']), ['requirement-package', 'requirements'])
         from .example_projects import refresh_example_defaults
@@ -165,6 +168,7 @@ class Projects:
                     workflow_id: str = '', inputs: dict | None = None, message: str = '',
                     purpose: str = 'business', item_id: str = '', feedback_task_id: str = '',
                     reuse_task_id: str = '', recovery_task_id: str = '',
+                    service_bindings: dict[str, str] | None = None,
                     validate_snapshots: Callable[[dict], None] | None = None) -> dict:
         workflow_id = workflow_id or project_id
         await self.member(project_id, workflow_id)
@@ -181,6 +185,12 @@ class Projects:
                 if self.services.local_agents.load(project_id).get('provider') != 'api':
                     raise ProjectConflict('请先连接项目模型')
             snapshots = await self.freeze(project_id)
+            if service_bindings:
+                known = next(iter(snapshots.values()), {}).get('http_connections', {})
+                if any(cid not in known for cid in service_bindings.values()):
+                    raise ValueError('逻辑服务只能绑定本项目已有连接')
+                for frozen in snapshots.values():
+                    frozen['service_bindings'] = service_bindings
             if reuse_task_id and not existing:
                 source = await self.store.get_task(project_id, reuse_task_id)
                 if mode != 'workflow' or source['mode'] != 'workflow' or source['workflow_id'] != workflow_id:
@@ -255,6 +265,8 @@ class Projects:
                 'model_resources': next(iter(task['snapshots'].values()), {}).get('model_resources', {}),
                 'knowledge_resources': next(iter(task['snapshots'].values()), {}).get('knowledge_resources', {}),
                 'http_connections': next(iter(task['snapshots'].values()), {}).get('http_connections', {}),
+                'service_bindings': next(iter(task['snapshots'].values()), {}).get('service_bindings', {}),
+                'simulation': next(iter(task['snapshots'].values()), {}).get('simulation'),
                 'recovery': next(iter(task['snapshots'].values()), {}).get('recovery', {})}
 
     async def execute(self, project_id: str, task_id: str, workflow_id: str, inputs: dict,
@@ -273,8 +285,11 @@ class Projects:
         context['step'] = f'{step}:{input_hash}'
         runtime = self.services.workflow_runtime
         # A saved test's members share its isolated files, not the live project.
-        workspace = runtime._resolve_scoped_workspace(
-            workspace_path or str(self.workspace(project_id)), self.workspace(project_id))
+        boundary = self.workspace(project_id)
+        if context.get('simulation'):
+            boundary = self.services.settings.workspace_root / '.debug-runs' / context['simulation']['session_id']
+            boundary.mkdir(parents=True, exist_ok=True)
+        workspace = runtime._resolve_scoped_workspace(workspace_path or str(boundary), boundary)
         self.services.sandboxes.protect_inputs(workspace, ['requirement-package', 'requirements'])
         if reuse:
             runs = await self.store.runs(task_id)
@@ -301,6 +316,8 @@ class Projects:
                  'allowed_nested_application_ids': list(context['snapshots']),
                  'allowed_runtime_tools': ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash'],
                  'allowed_network_hosts': [], 'model_access': True, 'allowed_connector_operations': []}
+        if context.get('simulation'):
+            scope.update(model_access=False)
         creation = asyncio.create_task(runtime.create_run(workflow_id,
             WorkflowRunRequest(inputs=inputs, use_draft=True, workspace_path=str(workspace)),
             project_context=context, parent_task_id=parent_run_id, application_call_chain=call_chain,
@@ -329,18 +346,33 @@ class Projects:
                 inputs.update(item['inputs'])
             result = await self.execute(task['project_id'], task['id'], task['workflow_id'], inputs, reuse=True)
             status = result['status']
+            context = await self.context(task['project_id'], task['id'], 'main')
+            if status == 'succeeded' and context.get('simulation'):
+                await self.debug.finish(context, result['outputs'])
             if status == 'paused' or (status == 'succeeded' and waiting(result['outputs'])):
                 status = 'waiting_input'
             elif status not in {'succeeded', 'waiting_input'}:
                 status = 'failed'
                 await self.cancel_runs(task['id'])
-            await self.store.update_task(task['id'], status=status, outputs=result['outputs'], error=result.get('error') or '')
+            await self._finish_workflow_task(task, status=status, outputs=result['outputs'], error=result.get('error') or '')
         except asyncio.CancelledError:
             await self.cancel_runs(task['id'])
-            await self.store.update_task(task['id'], status='interrupted')
+            await self._finish_workflow_task(task, status='interrupted')
         except Exception as e:
             await self.cancel_runs(task['id'])
-            await self.store.update_task(task['id'], status='failed', error=str(e))
+            await self._finish_workflow_task(task, status='failed', error=str(e))
+
+    async def _finish_workflow_task(self, task, *, status, outputs=None, error=''):
+        if task.get('purpose') == 'simulation':
+            try:
+                context = await self.context(task['project_id'], task['id'], 'main')
+                if context.get('simulation'):
+                    await self.debug.release(context)
+                    self.debug.capture(context)
+            except Exception as cleanup_error:
+                status = 'failed'
+                error += '\n模拟环境收尾失败：'+str(cleanup_error)
+        await self.store.update_task(task['id'], status=status, outputs=outputs or {}, error=error)
 
     async def cancel_runs(self, task_id: str):
         runtime = self.services.workflow_runtime
@@ -393,10 +425,13 @@ class Projects:
 
     async def resume(self, project_id: str, task_id: str, message: str = '') -> dict:
         async with self.locks.setdefault(project_id, asyncio.Lock()):
-            task = await self.store.get_task(project_id, task_id)
+            task = await self.store.get_task(project_id, task_id, snapshots=True)
             self.require_task_scope(project_id, task)
             if task['status'] not in {'waiting_input', 'interrupted', 'failed'}:
                 raise ProjectConflict('仅等待补充、中断或失败的任务可以继续')
+            simulation = next(iter(task['snapshots'].values()), {}).get('simulation')
+            if simulation:
+                self.debug.ensure_session_idle(project_id, simulation['session_id'])
             from .conversation_scope import conversation_scope
             with conversation_scope(project_id, task.get('conversation_id', '')):
                 if task['mode'] == 'agent' and self.services.local_agents.running(project_id):
@@ -446,11 +481,13 @@ class Projects:
                 # A completed model turn alone is not a completed business task.
                 await self.store.update_task(task_id, status='waiting_input', error='请查看统筹回复并补充或继续')
 
-    async def test_workflow(self, project_id: str, workflow_id: str):
+    async def test_workflow(self, project_id: str, workflow_id: str, case_ids=None):
         await self.member(project_id, workflow_id)
         frozen = await self.freeze(project_id)
         if not frozen[workflow_id]['snapshot']['tests']:
             raise ValueError('请先为工作流添加测试用例')
+        if case_ids is not None or any(t.get('debug') for t in frozen[workflow_id]['snapshot']['tests']):
+            return await self.debug.suite(project_id, workflow_id, case_ids)
         task, _ = await self.store.create_task(str(uuid4()), project_id, 'tests-' + str(uuid4()),
             'workflow', workflow_id, {}, '保存的工作流测试', frozen, purpose='build_test')
         await self.store.update_task(task['id'], status='running')

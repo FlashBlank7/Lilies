@@ -227,6 +227,7 @@ class HTTPConfig(BaseModel):
     method: Literal["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"] = "GET"
     url: Any = ""
     connection_id: str = ""
+    service_ref: str = ""
     path: Any = "/"
     outcome_query: HTTPOutcomeQuery | None = None
     headers: dict[str, Any] = Field(default_factory=dict)
@@ -605,6 +606,7 @@ _EDITOR_FIELDS: dict[str, list[dict[str, Any]]] = {
     ],
     "http_request": [
         {"path": "connection_id", "label": "Service connection", "label_zh": "服务连接", "control": "text"},
+        {"path": "service_ref", "label": "Logical service", "label_zh": "逻辑服务引用（运行时绑定）", "control": "text"},
         {"path": "path", "label": "Relative path", "label_zh": "相对路径", "control": "reference_or_text", "description_zh": "例如 /items；仅允许连接中配置的路径和方法。"},
         {"path": "outcome_query", "label": "Outcome query", "label_zh": "响应丢失后的结果查询", "control": "json", "description_zh": "可选 GET 查询：path、query、result_path、completed_value、not_applied_value。无法确认时停止重发。"},
         {"path": "method", "label": "HTTP method", "label_zh": "HTTP 方法", "control": "enum", "options": ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"], "required": True},

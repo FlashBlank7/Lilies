@@ -35,7 +35,20 @@ async def execute(runtime, run):
         raise ValueError('服务连接只能通过所属项目运行')
     service = runtime.projects.http_connections
     context = state.project_context
-    connection, secret = await service.authorize(context, config.connection_id)
+    if config.service_ref and config.connection_id:
+        raise ValueError('逻辑服务与固定连接请选择一种')
+    alias = config.service_ref or config.connection_id
+    cid = context.get('service_bindings', {}).get(alias, config.connection_id)
+    simulation = context.get('simulation')
+
+    async def authorize():
+        if simulation:
+            return runtime.projects.debug.connection(context, alias)
+        if not cid:
+            raise ValueError('缺少真实服务绑定：'+alias)
+        return await service.authorize(context, cid)
+
+    connection, secret = await authorize()
     payload = runtime._resolve({'path': config.path, 'headers': config.headers, 'query': config.query, 'body': config.body}, run.context)
     method = config.method
     target_url(connection, str(payload['path']), method)
@@ -46,7 +59,7 @@ async def execute(runtime, run):
     if any(k.lower() in forbidden_headers for k in payload['headers']):
         raise ValueError('不能覆盖服务连接的认证、幂等或传输请求头')
     write = method not in {'GET', 'HEAD'}
-    fingerprint = hashlib.sha256(encode([config.connection_id, connection['scope_digest'], method, payload]).encode()).hexdigest()
+    fingerprint = hashlib.sha256(encode([alias, connection['scope_digest'], method, payload]).encode()).hexdigest()
     recovery = context.get('recovery', {})
     recovered = []
     while recovery:
@@ -75,17 +88,19 @@ async def execute(runtime, run):
     async def request(request_method, path, query, body=None, *, operation_key=''):
         # Resolve the credential immediately before each attempt. A rotated key is
         # allowed; changed scope/disable is not. Never persist the injected value.
-        current, credential = await service.authorize(context, config.connection_id)
+        current, credential = await authorize()
         url = target_url(current, str(path), request_method)
         headers = {k: str(v) for k, v in payload['headers'].items()}
         if current['auth_header'] and credential:
             headers[current['auth_header']] = credential
         if operation_key and current['idempotency_header']:
             headers[current['idempotency_header']] = operation_key
-        async with httpx.AsyncClient(timeout=config.timeout_seconds, follow_redirects=False) as client:
+        transport = runtime.projects.debug.transport(context, alias) if simulation else None
+        async with httpx.AsyncClient(timeout=config.timeout_seconds, follow_redirects=False, transport=transport) as client:
             for _ in range(6):
-                await service.authorize(context, config.connection_id)
-                runtime.harness.enforce_network_egress_policy(surface='http_request', hostname=urlsplit(url).hostname)
+                await authorize()
+                if not simulation:
+                    runtime.harness.enforce_network_egress_policy(surface='http_request', hostname=urlsplit(url).hostname)
                 try:
                     response = await client.request(request_method, url, headers=headers, params=query, json=body)
                 except httpx.RequestError as error:

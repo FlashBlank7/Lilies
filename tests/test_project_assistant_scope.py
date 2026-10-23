@@ -111,6 +111,10 @@ def test_api_assistant_uses_installed_call_interface(configured, monkeypatch):
             assert len(installed['capabilities'])==1
             wid=installed['capabilities'][0]['id']
             outcome=await on_tool('project_calls',{'action':'start','workflow_id':wid,'request_key':'api-contract'})
+            simulated=await on_tool('project_services',{'action':'save','spec':{'name':'接口测试模拟服务'}})
+            assert simulated['implementation']=='records'
+            debug_result=await on_tool('project_debug',{'action':'run','run':{'workflow_id':wid,'request_key':'debug-interface'}})
+            assert debug_result['status']=='succeeded' and debug_result['environment']=='simulation'
             seen.append(outcome)
             await on_event('item/completed',{'item':{'type':'agentMessage','text':json.dumps(outcome)}})
             return {'status':'completed'}
@@ -136,6 +140,10 @@ def test_codex_adapter_uses_same_installed_call_interface(official):
             installed=await on_tool('project_calls',{'action':'list'})
             wid=installed['capabilities'][0]['id']
             outcome=await on_tool('project_calls',{'action':'start','workflow_id':wid,'request_key':'codex-contract'})
+            simulated=await on_tool('project_services',{'action':'save','spec':{'name':'接口测试模拟服务'}})
+            assert simulated['implementation']=='records'
+            debug_result=await on_tool('project_debug',{'action':'run','run':{'workflow_id':wid,'request_key':'debug-interface'}})
+            assert debug_result['status']=='succeeded' and debug_result['environment']=='simulation'
             seen.append(outcome)
             return {'status':'completed'}
     service.client_factory=Session

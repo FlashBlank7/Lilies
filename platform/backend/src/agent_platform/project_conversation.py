@@ -88,6 +88,10 @@ class WorkflowNote(Arguments):
 class ProgressValue(Arguments):
     goal: str = Field(default='', max_length=8000)
     summary: str = Field(default='', max_length=4000)
+    platform_scope: str = Field(default='', max_length=4000)
+    external_scope: str = Field(default='', max_length=4000)
+    open_questions: str = Field(default='', max_length=4000)
+    completion: str = Field(default='', max_length=4000)
     items: list[ProgressItem] = Field(default_factory=list, max_length=100)
     workflows: list[WorkflowNote] = Field(default_factory=list, max_length=100)
 

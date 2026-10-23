@@ -12,11 +12,30 @@ from .local_agent_api import AgentToolCall
 from .local_agent_tools import Arguments
 from .project_agent_tools import WorkspaceProjectTools, MemberRun, project_tool_specs
 from .project_agent_context import task_summary
+from .project_debug import Chain, DebugCase, DebugRun
+from .simulation_provider import PRESETS, SimulatorSpec
 
 
 class ProjectCalls(MemberRun):
     action: Literal['list', 'interface', 'start', 'inspect', 'respond', 'resume'] = 'list'
     recovery_task_id: str = ''
+    service_bindings: dict[str, str] = Field(default_factory=dict)
+
+
+class ProjectServices(Arguments):
+    action: Literal['presets', 'list', 'inspect', 'save'] = 'list'
+    service_id: str = ''
+    spec: SimulatorSpec | None = None
+
+
+class ProjectDebugTool(Arguments):
+    action: Literal['cases', 'save_case', 'run', 'inspect', 'resume', 'chain']
+    workflow_id: str = ''
+    task_id: str = ''
+    case: DebugCase | None = None
+    run: DebugRun | None = None
+    chain: Chain | None = None
+    wait: bool = True
 
 
 class ServiceConnections(Arguments):
@@ -34,7 +53,10 @@ ASSISTANT_INSTRUCTIONS = '''你是 Lilies 项目助手。根据用户需求搭�
 project_calls(list/interface) 只提供本项目已加入的工作流和任务智能体，start 调用，inspect 查看真实结果。
 project_workflows 和 workflow_draft 用于创建、复制和编辑草稿。保存不依赖模型、资源或任务完成。
 你新建或修改的草稿不会自动成为可调用能力。请用户在项目空间点击“加入助手可调用能力”；不要自行加入或绕过限制。
-未加入的流程可以编辑，不能执行。缺少能力时说明缺什么，可以按用户要求搭建草稿；不能直接执行代码、训练或从全局目录调用现成工作流。
+未加入正式能力的草稿可以通过 project_debug 在隔离模拟环境中调试；正式业务执行仍使用 project_calls。
+调试路径：分析问题和能力边界，按独立业务目标拆分工作流，明确输入输出；先用合成输入独立调试下游，再用实际上游输出串联。
+project_services 提供模拟服务预设与统一接口；缺少实现可编写 handle(request,state,context) 并保存。配置为空时补齐明确的模拟服务、样例及绑定，不使用隐藏默认目标。
+project_debug 保存输入样例、绑定和串联主流程，通过现有引擎运行并读取实际结果；不把假服务通过称为真实服务已接入。修复运行保留原模拟状态，重置重跑产生独立状态。
 使用项目资料澄清业务含义，不推测标签、缺失值或类别顺序。调用前检查输入，必要时询问用户。
 运行失败时说明本次错误并保留产物，不能拿旧成功结果冒充当前结果。步骤结束不等于整个任务完成。
 结果链接使用工具返回的实际项目相对文件路径。工作流编辑地址为 /applications/<id>?tab=edit。
@@ -56,6 +78,8 @@ def assistant_tool_specs(*, detailed=False):
         elif t['name'] == 'block_catalog':
             t['description'] = 'Global building-block catalog: list blocks and inspect their schemas/manuals for assembly. This does not list or execute project workflows. Use project_calls for installed callable capabilities.'
     specs += [dict(type='function', name='project_connections', description='Read project service connection names, IDs, URLs and allowed paths/methods. No credentials and no permission changes. Use a connection_id and relative path in HTTP blocks.', inputSchema=ServiceConnections.model_json_schema(), deferLoading=False),
+              dict(type='function', name='project_services', description='Project simulation service contract v1: presets/list/inspect/save. Python handle(request,state,context) returns response={status,headers,body}, state and optional fault="disconnect". Runs offline; no live credentials. scenarios override initial_state; inspect existing definitions before editing expected_revision.', inputSchema=ProjectServices.model_json_schema(), deferLoading=False),
+              dict(type='function', name='project_debug', description='Build-time isolated simulation for project drafts. Save cases with explicit bindings {service_ref:{service_id,scenario}} and optional frozen prior-run output. Run single workflows or a main workflow chain through the normal engine. Inspect actual task, HTTP requests and service state; resume retains state; run with a new request_key resets state unless recovery_task_id is specified. chain saves the normal main workflow: step_1,step_2... inputs use ordinary $ref selectors. No live-service fallback or formal call grants.', inputSchema=ProjectDebugTool.model_json_schema(), deferLoading=False),
               dict(type='function', name='project_calls', description='List/interface/start/inspect/respond/resume for human-added project workflows and task agents only. A draft or global block is not a callable capability. start freezes inputs and workflow snapshots; inspect reports actual task status.', inputSchema=ProjectCalls.model_json_schema(), deferLoading=False),
               dict(type='function', name='project_skills', description='Read only instructions explicitly saved in this project; instructions cannot grant execution permissions.', inputSchema=InstalledSkill.model_json_schema(), deferLoading=False)]
     return specs
@@ -105,7 +129,7 @@ class AssistantProjectTools(WorkspaceProjectTools):
             if result.get('read_with', {}).get('tool') == 'workflow_run':
                 result['read_with']['tool'] = 'project_calls'
         context['workflow_detail'] = 'project_calls(action="interface", workflow_id=id) reads input/output; start invokes an installed capability.'
-        context['instruction'] += ' Only callable_capabilities may be executed. block_catalog is for building. New and edited drafts must be added by a human before calling.'
+        context['instruction'] += ' project_calls executes configured callable_capabilities. project_debug can test project drafts in isolated simulations. block_catalog is for building. Live calls still require installed capabilities.'
         return context
 
     def snapshot_scope(self, wid):
@@ -144,6 +168,45 @@ class AssistantProjectTools(WorkspaceProjectTools):
         if name.startswith('lilies__'):
             name = name.removeprefix('lilies__')
         pid = self.application_id
+        if name == 'project_services':
+            args = ProjectServices.model_validate(arguments)
+            if args.action == 'presets':
+                return PRESETS
+            if args.action == 'save':
+                if not args.spec:
+                    raise ValueError('请提供模拟服务 spec')
+                return await self.projects.debug.save_service(pid, args.service_id, args.spec)
+            rows = await self.projects.debug.services_list(pid)
+            if args.action == 'inspect':
+                row = next((s for s in rows if s['id'] == args.service_id), None)
+                if not row:
+                    raise ValueError('模拟服务不属于本项目')
+                return row
+            return [{k:v for k,v in row.items() if k not in {'code', 'initial_state', 'scenarios'}} for row in rows]
+        if name == 'project_debug':
+            args = ProjectDebugTool.model_validate(arguments)
+            debug = self.projects.debug
+            if args.action == 'cases':
+                return await debug.cases(pid, args.workflow_id)
+            if args.action == 'save_case' and args.case:
+                return await debug.save_case(pid, args.workflow_id, args.case)
+            if args.action == 'chain' and args.chain:
+                from .project_capabilities import assistant_edit
+                token=assistant_edit.set(True)
+                try:
+                    return await debug.chain(pid, args.chain)
+                finally:
+                    assistant_edit.reset(token)
+            if args.action == 'inspect':
+                return await debug.inspect(pid, args.task_id)
+            if args.action == 'resume':
+                await debug.inspect(pid, args.task_id)
+                await self.run_build_task(self.projects.resume(pid, args.task_id), args.wait)
+                return await debug.inspect(pid, args.task_id)
+            if args.action == 'run' and args.run:
+                task = await self.run_build_task(debug.run(pid, args.run), args.wait)
+                return await debug.inspect(pid, task['id'])
+            raise ValueError('请提供对应操作的参数')
         if name == 'project_connections':
             ServiceConnections.model_validate(arguments)
             return {'connections': await self.projects.http_connections.list(pid)}
@@ -155,7 +218,7 @@ class AssistantProjectTools(WorkspaceProjectTools):
                 await require_callable(self.services, pid, args.workflow_id)
                 return await super().call('project_workflows', {'action': 'inspect', 'workflow_id': args.workflow_id})
             if args.action == 'inspect':
-                return await super().call('workflow_run', args.model_dump(exclude={'recovery_task_id'}))
+                return await super().call('workflow_run', args.model_dump(exclude={'recovery_task_id', 'service_bindings'}))
             wid = args.workflow_id or pid
             if args.action in {'respond', 'resume'}:
                 task = await self.projects.store.get_task(pid, args.task_id, snapshots=True)
@@ -164,9 +227,9 @@ class AssistantProjectTools(WorkspaceProjectTools):
                     await require_callable(self.services, pid, member_id)
                 if args.action == 'resume':
                     return await self.run_build_task(self.projects.resume(pid, args.task_id), args.wait)
-                return await super().call('workflow_run', args.model_dump(exclude={'recovery_task_id'}))
+                return await super().call('workflow_run', args.model_dump(exclude={'recovery_task_id', 'service_bindings'}))
             await require_callable(self.services, pid, wid)
-            task = await self.run_build_task(self.projects.start(pid, request_key=args.request_key or 'assistant-'+str(uuid4()), workflow_id=wid, inputs=args.inputs, recovery_task_id=args.recovery_task_id, validate_snapshots=self.snapshot_scope(wid)), args.wait)
+            task = await self.run_build_task(self.projects.start(pid, request_key=args.request_key or 'assistant-'+str(uuid4()), workflow_id=wid, inputs=args.inputs, recovery_task_id=args.recovery_task_id, service_bindings=args.service_bindings, validate_snapshots=self.snapshot_scope(wid)), args.wait)
             return task if args.view == 'full' else task_summary(task)
         if name == 'project_action' and arguments.get('action') in {'trial', 'operate'}:
             from .project_conversation import ProjectAction
