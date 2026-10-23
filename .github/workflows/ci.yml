@@ -18,8 +18,9 @@ jobs:
       fail-fast: false
       matrix:
         python-version: ["3.12", "3.14"]
-    # 全量回归已接近 5000 项；Linux runner 上 20 分钟只能完成约八成。
-    timeout-minutes: 45
+    # 全量回归在 Linux runner 上约 42 分钟，后续还需运行三组 Docker 验收。
+    # 保留所有检查，为环境准备和专项验收预留时间。
+    timeout-minutes: 60
     env:
       MODEL_EGRESS_ENABLED: "false"
       OFFICIAL_AGENT_EGRESS_ENABLED: "false"
