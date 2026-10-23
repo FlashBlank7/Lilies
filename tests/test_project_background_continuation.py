@@ -206,7 +206,7 @@ def test_reply_without_background_work_ends_without_extra_model_calls(configured
 
 
 @pytest.mark.parametrize('tool_name,extra', [('project_action', {'action':'wait'}),
-                                            ('workflow_run', {'action':'inspect','wait_seconds':30})])
+                                            ('project_calls', {'action':'inspect','wait_seconds':30})])
 def test_stopped_active_wait_ends_raw_model_turn_but_history_remains_readable(configured, monkeypatch, tool_name, extra):
     from types import SimpleNamespace
     from agent_platform.connected_model import completion_events
@@ -245,7 +245,7 @@ def test_stopped_active_wait_ends_raw_model_turn_but_history_remains_readable(co
     client.post(base+'/conversation/messages', json={'message':'等待原任务'}).raise_for_status()
 
     async def waiting():
-        while not any(e['kind']=='tool_started' and e['text']==tool_name
+        while not any(e['kind']=='tool_started' and e['text']==('workflow_run' if tool_name=='project_calls' else tool_name)
                       for e in app.state.services.local_agents.load(project['id'])['events']):
             await asyncio.sleep(.01)
     client.portal.call(asyncio.wait_for, waiting(), 2)

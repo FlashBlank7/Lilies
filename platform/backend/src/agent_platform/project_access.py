@@ -81,6 +81,9 @@ def authorization_dependency(services):
             if (path.endswith(('/agent-session', '/vision-model', '/generation-model')) and body.get('provider') != 'api') or body.get('executable'):
                 raise HTTPException(403, '本机智能体和执行程序需由平台管理员配置')
 
+        if '/http-connections' in path and request.method not in {'GET', 'HEAD'} and any(role not in {'owner', 'admin'} for role in roles):
+            raise HTTPException(403, '只有项目负责人和管理员可以配置服务连接')
+
         if params.get('project_id'):
             return
         # Ordinary users work through project-bound tasks. Legacy build/agent

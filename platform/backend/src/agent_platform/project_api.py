@@ -90,6 +90,7 @@ class NewTask(Body):
     item_id: str = ''
     feedback_task_id: str = ''
     reuse_task_id: str = ''
+    recovery_task_id: str = ''
 
 
 class RecordUpdate(Body):
@@ -443,5 +444,7 @@ def project_router(services, require_token):
     register_space_routes(scoped, services, invoke)
     from .data_workspace import register_data_workspace_routes
     register_data_workspace_routes(scoped, services, invoke)
+    from .project_http_connections import register_connection_routes
+    register_connection_routes(scoped, services, invoke)
     router.include_router(scoped)
     return router

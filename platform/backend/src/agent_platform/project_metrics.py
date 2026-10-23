@@ -23,7 +23,7 @@ def is_read_call(name: str, arguments: dict) -> bool:
             or name in {'block_catalog', 'project_records'}
             or (name == 'project_knowledge' and arguments.get('action', 'list') in {'list', 'read', 'search'})
             or (name == 'project_workflows' and arguments.get('action', 'list') in {'list', 'inspect'})
-            or (name == 'workflow_run' and arguments.get('action') == 'inspect'))
+            or (name in {'workflow_run', 'project_calls'} and arguments.get('action') == 'inspect'))
 
 
 def _seconds(value):

@@ -439,6 +439,9 @@ class WorkflowRunState(BaseModel):
     skipped: list[str] = Field(default_factory=list)
     # Each loop/iteration occurrence keeps its own completed steps on resume.
     nested_progress: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    http_operations: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    result_checks: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)
+    completion_error: str = ''
     waiting_node_id: str | None = None
     waiting_form: dict[str, Any] | None = None
     resumed_values: dict[str, Any] | None = None

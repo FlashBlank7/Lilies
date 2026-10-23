@@ -633,7 +633,7 @@ class LocalAgents:
             async def on_tool(name, arguments):
                 nonlocal productive
                 name = name.removeprefix('lilies__')
-                if name == 'project_calls' and arguments.get('action') in {'start', 'inspect', 'respond'}:
+                if name == 'project_calls' and arguments.get('action') in {'start', 'inspect', 'respond', 'resume'}:
                     name = 'workflow_run'
                 waiting_on_active_task = False
                 current = self.load(application_id)
@@ -743,7 +743,7 @@ class LocalAgents:
                         result.get('error') or result.get('failed_tests') or result.get('outputs') or result.get('summary'))[:4000])
                 elif ((name == 'workflow_draft' and (arguments.get('operation') or arguments.get('batch')))
                       or (name == 'project_file' and arguments.get('action') == 'write')
-                      or (name == 'workflow_run' and arguments.get('action') in {'start', 'tests'})
+                      or (name == 'workflow_run' and arguments.get('action') in {'start', 'tests', 'resume'})
                       or (name == 'project_modeling' and arguments.get('action') == 'submit_and_run')
                       or (name == 'project_action' and arguments.get('action') in {'trial', 'operate', 'resume'})):
                     productive = True

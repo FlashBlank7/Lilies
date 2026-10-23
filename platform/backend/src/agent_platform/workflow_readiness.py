@@ -41,6 +41,10 @@ async def readiness(services, workflow, project_id=None, seen=None, related=None
     for node in nodes_in(workflow):
         kind, config = node['type'], node['config']
         title = node.get('title') or node['id']
+        if kind == 'http_request' and project_id:
+            connections = await services.projects.http_connections.list(project_id)
+            if not any(c['id'] == config.get('connection_id') and c['enabled'] for c in connections):
+                missing('connection:' + str(config.get('connection_id', '')), '请选择项目中已启用的服务连接。', 'settings', title)
         if kind in ('llm', 'knowledge_search'):
             from .providers.openai_chat import _is_loopback
             role = 'embedding' if kind == 'knowledge_search' else ('vision' if config.get('model_role') == 'vision' else 'main')

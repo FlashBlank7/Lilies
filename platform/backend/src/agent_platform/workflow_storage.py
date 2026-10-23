@@ -1711,6 +1711,15 @@ class WorkflowStorage:
                 (utc_now(),),
             )
 
+    async def claim_resume(self, run_id: str, state: WorkflowRunState) -> bool:
+        def claim():
+            from .db import connect
+            with connect(self.storage.db_path) as db:
+                return bool(db.execute("UPDATE workflow_runs SET status='queued',state_json=?,error=NULL,outputs_json='{}' WHERE id=? AND status IN ('paused','failed','cancelled')",
+                    (state.model_dump_json(exclude_none=True), run_id)).rowcount)
+        async with self._lock:
+            return await asyncio.to_thread(claim)
+
     async def update_run(
         self,
         run_id: str,

@@ -7,6 +7,7 @@ from uuid import uuid4
 from pydantic import Field
 
 from .db import connect
+from .http_workflow_guidance import HTTP_WORKFLOW_GUIDE
 from .local_agent_api import AgentToolCall
 from .local_agent_tools import Arguments
 from .project_agent_tools import WorkspaceProjectTools, MemberRun, project_tool_specs
@@ -14,7 +15,12 @@ from .project_agent_context import task_summary
 
 
 class ProjectCalls(MemberRun):
-    action: Literal['list', 'interface', 'start', 'inspect', 'respond'] = 'list'
+    action: Literal['list', 'interface', 'start', 'inspect', 'respond', 'resume'] = 'list'
+    recovery_task_id: str = ''
+
+
+class ServiceConnections(Arguments):
+    action: Literal['list'] = 'list'
 
 
 class InstalledSkill(Arguments):
@@ -35,6 +41,7 @@ project_workflows 和 workflow_draft 用于创建、复制和编辑草稿。保�
 项目助手的模型与服务由管理员后台配置。你不能修改自身来源、项目权限或可调用清单。
 '''
 
+ASSISTANT_INSTRUCTIONS += HTTP_WORKFLOW_GUIDE
 
 def assistant_tool_specs(*, detailed=False):
     keep = {'block_catalog', 'workflow_draft', 'project_workflows', 'project_file', 'requirements_submit', 'project_progress', 'project_action', 'project_task_result'}
@@ -48,7 +55,8 @@ def assistant_tool_specs(*, detailed=False):
             t['description'] = 'Authoring only: list/inspect/create/copy/remove project drafts. New or edited drafts require a human to add them to project_calls before execution. classify cannot grant call access.'
         elif t['name'] == 'block_catalog':
             t['description'] = 'Global building-block catalog: list blocks and inspect their schemas/manuals for assembly. This does not list or execute project workflows. Use project_calls for installed callable capabilities.'
-    specs += [dict(type='function', name='project_calls', description='List/interface/start/inspect/respond for human-added project workflows and task agents only. A draft or global block is not a callable capability. start freezes inputs and workflow snapshots; inspect reports actual task status.', inputSchema=ProjectCalls.model_json_schema(), deferLoading=False),
+    specs += [dict(type='function', name='project_connections', description='Read project service connection names, IDs, URLs and allowed paths/methods. No credentials and no permission changes. Use a connection_id and relative path in HTTP blocks.', inputSchema=ServiceConnections.model_json_schema(), deferLoading=False),
+              dict(type='function', name='project_calls', description='List/interface/start/inspect/respond/resume for human-added project workflows and task agents only. A draft or global block is not a callable capability. start freezes inputs and workflow snapshots; inspect reports actual task status.', inputSchema=ProjectCalls.model_json_schema(), deferLoading=False),
               dict(type='function', name='project_skills', description='Read only instructions explicitly saved in this project; instructions cannot grant execution permissions.', inputSchema=InstalledSkill.model_json_schema(), deferLoading=False)]
     return specs
 
@@ -136,6 +144,9 @@ class AssistantProjectTools(WorkspaceProjectTools):
         if name.startswith('lilies__'):
             name = name.removeprefix('lilies__')
         pid = self.application_id
+        if name == 'project_connections':
+            ServiceConnections.model_validate(arguments)
+            return {'connections': await self.projects.http_connections.list(pid)}
         if name in {'project_calls', 'workflow_run'}:
             args = ProjectCalls.model_validate(arguments)
             if args.action == 'list':
@@ -144,16 +155,18 @@ class AssistantProjectTools(WorkspaceProjectTools):
                 await require_callable(self.services, pid, args.workflow_id)
                 return await super().call('project_workflows', {'action': 'inspect', 'workflow_id': args.workflow_id})
             if args.action == 'inspect':
-                return await super().call('workflow_run', args.model_dump())
+                return await super().call('workflow_run', args.model_dump(exclude={'recovery_task_id'}))
             wid = args.workflow_id or pid
-            if args.action == 'respond':
+            if args.action in {'respond', 'resume'}:
                 task = await self.projects.store.get_task(pid, args.task_id, snapshots=True)
                 wid = task['workflow_id']
                 for member_id in task['snapshots']:
                     await require_callable(self.services, pid, member_id)
-                return await super().call('workflow_run', args.model_dump())
+                if args.action == 'resume':
+                    return await self.run_build_task(self.projects.resume(pid, args.task_id), args.wait)
+                return await super().call('workflow_run', args.model_dump(exclude={'recovery_task_id'}))
             await require_callable(self.services, pid, wid)
-            task = await self.run_build_task(self.projects.start(pid, request_key=args.request_key or 'assistant-'+str(uuid4()), workflow_id=wid, inputs=args.inputs, validate_snapshots=self.snapshot_scope(wid)), args.wait)
+            task = await self.run_build_task(self.projects.start(pid, request_key=args.request_key or 'assistant-'+str(uuid4()), workflow_id=wid, inputs=args.inputs, recovery_task_id=args.recovery_task_id, validate_snapshots=self.snapshot_scope(wid)), args.wait)
             return task if args.view == 'full' else task_summary(task)
         if name == 'project_action' and arguments.get('action') in {'trial', 'operate'}:
             from .project_conversation import ProjectAction

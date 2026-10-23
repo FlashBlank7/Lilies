@@ -16,6 +16,7 @@ import ClassificationResults, { type ClassificationResult } from './Classificati
 import TrainingComparison, { type TrainingTrial } from './TrainingComparison'
 import TrainingTaskProgress from './TrainingTaskProgress'
 import WorkflowReadiness, {type Readiness} from './WorkflowReadiness'
+import WorkflowRunRecovery from './WorkflowRunRecovery'
 import WorkflowRecovery from './WorkflowRecovery'
 import ProjectFileField from './ProjectFileField'
 import ProjectColumnField, {canReadColumns, columnKey, unknownColumn, useProjectColumns} from './ProjectColumnField'
@@ -74,7 +75,13 @@ export function ProjectTaskOutput({ projectId, task, onTask, canConfigureModel=f
   const duplicates = (expenses && (Array.isArray(expenses.duplicate_records) ? expenses.duplicate_records : Array.isArray(expenses.preview) ? expenses.preview.filter((row:Record<string,unknown>)=>row.suspected_duplicate==='yes') : []) || []) as Record<string,unknown>[]
   return <>
     <TaskError error={task.error}/>
-    <RunDeliverables key={task.id} projectId={projectId} results={results}/>
+    {task.mode==='workflow'&&task.status==='succeeded'&&<p role="status">{task.runs?.some(run=>Object.values(run.result_checks||{}).flat().length)?'执行成功，本次配置的结果检查已通过。':'执行成功；此流程未配置结果检查，尚未验证业务目标。'}</p>}
+    {task.runs?.map(run=><div key={run.id}>
+      {Object.values(run.result_checks||{}).flat().map((check,i)=><p key={i}>{check.passed?'已通过':'未满足'}：{check.name}{check.message?' · '+check.message:''}（实际：{JSON.stringify(check.actual)}；预期：{JSON.stringify(check.expected)}）</p>)}
+      {run.pending_operations?.map(op=><p role="alert" key={op.operation_id}>待确认：{op.method} {op.path} · 操作编号 {op.operation_id}。已保留进度，不会无依据地重复写入。</p>)}
+    </div>)}
+    <WorkflowRunRecovery key={'recovery:'+task.id} projectId={projectId} task={task} onTask={onTask}/>
+    <RunDeliverables key={'deliverables:'+task.id} projectId={projectId} results={results}/>
     {(inputFiles.length > 0 || hasCreatedAt) && <section aria-label="本次运行来源">
       {inputFiles.length > 0 && <p>输入资料：{inputFiles.join('、')}</p>}
       {hasCreatedAt && <p>启动时间：<time dateTime={task.created_at}>{createdAt.toLocaleString('zh-CN', {hour12:false})}</time></p>}

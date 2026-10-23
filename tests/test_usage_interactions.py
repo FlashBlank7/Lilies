@@ -32,7 +32,7 @@ def test_api_outcomes_preserve_identity_ignore_stops_and_do_not_read_private_con
     account, headers = signup(client, 'New employee')
     client.headers.update(headers)
     pid = project(client, headers); base = '/api/v1/projects/' + pid
-    configure(client, base)
+    configure(client, base, headers=ADMIN)
     path = base + '/conversations/' + new(client, base)
     mode = 'fail'
 

@@ -517,7 +517,7 @@ def test_handoff_retries_same_private_conversation_without_duplicate_model_work(
     assert client.get(BASE, headers=member).json()['items'][0]['handoff'] is None
 
 
-def test_official_agent_handoff_can_create_fix_and_run_copy(official):
+def test_official_agent_handoff_can_create_fix_and_run_human_installed_copy(official):
     """The agent is scripted offline; copies, edits and both calculations are real."""
     client, app, service = official
     client.headers.update(ADMIN)
@@ -540,8 +540,10 @@ def test_official_agent_handoff_can_create_fix_and_run_copy(official):
             edited = await on_tool('workflow_draft', {'workflow_id':wid, 'operation':{
                 'op':'replace_workflow','expected_revision':blank['revision'],'idempotency_key':'repair-copy',
                 'data':{'workflow':workflow}}})
+            # Test driver simulates the explicit human installation, not an agent tool.
+            await asyncio.to_thread(client.put,f'/api/v1/projects/{pid}/space/workflows/{wid}/assistant-callable',json={'enabled':True})
             for values in ({}, {'quantity':4}):
-                run = await on_tool('workflow_run', {'action':'start','workflow_id':wid,'inputs':values,'wait':True})
+                run = await on_tool('project_calls', {'action':'start','workflow_id':wid,'inputs':values,'wait':True})
                 assert run['status'] == 'succeeded', run
                 performed.append(run['outputs'])
             assert before['revision'] == original['revision']

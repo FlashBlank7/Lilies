@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from tests.test_projects import configured as configured  # noqa: F401
 from tests.test_projects import edge, node, ref, settled, start
 from tests.test_local_agents import settled as agent_settled
@@ -8,7 +10,7 @@ from tests.test_local_agents import settled as agent_settled
 class ScriptedSession:
     async def start(self, tools, instructions, thread_id=None):
         names = {t['name'] for t in tools}
-        assert {'project_workflows', 'project_records', 'project_task_result'} <= names
+        assert {'project_workflows', 'project_calls', 'project_connections', 'project_task_result'} <= names
         return thread_id or 'project-test-thread'
 
     def __init__(self, *args, **kwargs):
@@ -46,11 +48,11 @@ class ScriptedSession:
                 await on_tool('workflow_draft', {'workflow_id': workflow_id, 'operation': {
                     'op': 'replace_workflow', 'data': {'workflow': {'nodes': nodes, 'edges': edges}},
                     'expected_revision': draft['revision'], 'idempotency_key': 'create'}})
-            result = await on_tool('workflow_run', {'action': 'start', 'inputs': {'request_id': 'build'}})
-            assert result['status'] == 'succeeded' and result['outputs']['valid']
+            with pytest.raises(ValueError, match='可调用清单'):
+                await on_tool('project_calls', {'action': 'start', 'inputs': {'request_id': 'build'}})
         else:
             task = context['business_task']
-            result = await on_tool('workflow_run', {'action': 'start', 'inputs': task['inputs']})
+            result = await on_tool('project_calls', {'action': 'start', 'inputs': task['inputs']})
             assert result['status'] == 'succeeded'
             await on_tool('project_task_result', {'status': 'succeeded', 'message': '处理成功', 'outputs': result['outputs']})
         await on_event('item/completed', {'item': {'type': 'agentMessage', 'text': '已完成本轮。'}})
@@ -75,8 +77,12 @@ def test_project_session_discuss_build_and_operate_with_real_runtime(configured,
     state = agent_settled(client, base)
     assert state['status'] == 'idle', state['error']
     assert len(client.get(base).json()['members']) == 3
+    for member in client.get(base).json()['members']:
+        client.put(base+'/space/workflows/'+member['id']+'/assistant-callable',json={'enabled':True}).raise_for_status()
     task = settled(client, base, start(client, base, 'business', mode='agent', inputs={'request_id': 'business'}))
-    assert task['status'] == 'succeeded' and len(task['runs']) == 3, task
+    assert task['status'] == 'succeeded', task
+    workflow_task = next(t for t in client.get(base+'/tasks').json() if t['mode']=='workflow')
+    assert len(client.get(base+'/tasks/'+workflow_task['id']).json()['runs']) == 3
     assert client.get(base+'/records/requests/business').json()['value']['valid']
     agent_settled(client, base)
     other = client.post('/api/v1/projects', json={'name': 'other'}).json()['id']

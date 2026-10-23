@@ -67,6 +67,10 @@ jobs:
         env:
           MODEL_TEST_DOCKER: "1"
         run: pytest tests/test_data_workspace.py tests/test_imported_models.py -q -k "real_selection or saved_excel or real_pipeline"
+      - name: 项目 HTTP 连接与恢复验收
+        env:
+          MEDIA_HTTP_TEST_DOCKER: "1"
+        run: pytest tests/test_media_http_acceptance.py -q
       - name: 保存后端测试结果
         if: always()
         uses: actions/upload-artifact@v4

@@ -33,6 +33,8 @@ class Projects:
         self.conversation = ProjectConversation(services, self)
         from .project_knowledge import ProjectKnowledge
         self.knowledge = ProjectKnowledge(services)
+        from .project_http_connections import ProjectHTTPConnections
+        self.http_connections = ProjectHTTPConnections(services)
 
     def workspace(self, project_id: str):
         # Project id is the id of its main application; legacy application paths remain valid.
@@ -53,6 +55,7 @@ class Projects:
     async def initialize(self):
         await self.store.initialize()
         await self.knowledge.initialize()
+        await self.http_connections.initialize()
         for project in await self.store.list():
             self.services.sandboxes.protect_inputs(self.workspace(project['id']), ['requirement-package', 'requirements'])
         from .example_projects import refresh_example_defaults
@@ -106,7 +109,9 @@ class Projects:
         resources = {m['model_ref']: m for m in await model_resources(self.services, project_id)}
         knowledge = {k['knowledge_ref']: k['active_version'] if k['status'] == 'ready' else ''
                      for k in await self.knowledge.list(project_id)}
+        connections = {c['id']: c for c in await self.http_connections.list(project_id)}
         for snapshot in snapshots.values():
+            snapshot['http_connections'] = connections
             snapshot['model_resources'] = resources
             snapshot['knowledge_resources'] = knowledge
         return snapshots
@@ -143,6 +148,8 @@ class Projects:
         for run in task['runs']:
             run.pop('outputs_json', None)
             state = json.loads(run.pop('state_json'))
+            run['result_checks'] = state.get('result_checks', {})
+            run['pending_operations'] = [op for op in state.get('http_operations', {}).values() if op['status'] in {'sending', 'unknown'}]
             run['reuse'] = {'source_run_id': state.get('reuse_source_run_id'),
                            'nodes': state.get('reused_nodes', []),
                            'titles': [n['title'] for n in state['snapshot']['workflow']['nodes']
@@ -157,7 +164,7 @@ class Projects:
     async def start(self, project_id: str, *, request_key: str, mode: str = 'workflow',
                     workflow_id: str = '', inputs: dict | None = None, message: str = '',
                     purpose: str = 'business', item_id: str = '', feedback_task_id: str = '',
-                    reuse_task_id: str = '',
+                    reuse_task_id: str = '', recovery_task_id: str = '',
                     validate_snapshots: Callable[[dict], None] | None = None) -> dict:
         workflow_id = workflow_id or project_id
         await self.member(project_id, workflow_id)
@@ -186,6 +193,29 @@ class Projects:
                 if not main:
                     raise ValueError('原任务没有可供复用的工作流运行')
                 snapshots[workflow_id]['reuse_source_run_id'] = main['id']
+            if recovery_task_id and not existing:
+                if reuse_task_id:
+                    raise ValueError('修复运行与按当前配置复用重算不能同时选择')
+                source = await self.store.get_task(project_id, recovery_task_id, snapshots=True)
+                if mode != 'workflow' or source['mode'] != 'workflow' or source['workflow_id'] != workflow_id:
+                    raise ValueError('修复运行只能引用同项目、同工作流的历史任务')
+                if source['status'] not in {'failed', 'interrupted'}:
+                    raise ValueError('请选择已经停止的失败或中断任务')
+                recovery = {'task_id': recovery_task_id, 'workflow_id': workflow_id,
+                            'inputs': source['inputs'], 'runs': []}
+                for previous in await self.store.runs(recovery_task_id):
+                    state = json.loads(previous['state_json'])
+                    recovery['runs'].append({'run_id': previous['id'], 'workflow_id': previous['application_id'],
+                        'completed': state.get('completed', []),
+                        'steps': {k: v for k, v in state.get('outputs', {}).items()
+                                  if k not in {n['id'] for n in state['snapshot']['workflow']['nodes'] if n['type'] in {'end', 'answer'}}},
+                        'nested_progress': state.get('nested_progress', {}),
+                        'http_operations': state.get('http_operations', {})})
+                inherited = next(iter(source['snapshots'].values()), {}).get('recovery')
+                if inherited:
+                    recovery['original'] = inherited
+                for frozen in snapshots.values():
+                    frozen['recovery'] = recovery
             if not existing and validate_snapshots:
                 validate_snapshots(snapshots)
             task, created = await self.store.create_task(str(uuid4()), project_id, request_key, mode,
@@ -223,7 +253,9 @@ class Projects:
         task = await self.store.get_task(project_id, task_id, snapshots=True)
         return {'project_id': project_id, 'task_id': task_id, 'snapshots': task['snapshots'], 'step': step,
                 'model_resources': next(iter(task['snapshots'].values()), {}).get('model_resources', {}),
-                'knowledge_resources': next(iter(task['snapshots'].values()), {}).get('knowledge_resources', {})}
+                'knowledge_resources': next(iter(task['snapshots'].values()), {}).get('knowledge_resources', {}),
+                'http_connections': next(iter(task['snapshots'].values()), {}).get('http_connections', {}),
+                'recovery': next(iter(task['snapshots'].values()), {}).get('recovery', {})}
 
     async def execute(self, project_id: str, task_id: str, workflow_id: str, inputs: dict,
                       *, step: str = 'main', parent_run_id: str | None = None, reuse: bool = False,
@@ -260,12 +292,7 @@ class Projects:
                     await asyncio.shield(runtime.active_tasks[run['id']])
                     return execution_result(await self.services.workflow_store.get_run(run['id']))
                 if run['step_key'] == context['step'] and run['status'] in {'failed', 'cancelled'}:
-                    record = await self.services.workflow_store.get_run(run['id'])
-                    # Resume the persisted node checkpoint; completed writes and calls are retained.
-                    await self.services.harness.start_task(run['id'], kind='workflow_run',
-                        owner_id=workflow_id, resource_id=run['id'], parent_task_id=parent_run_id,
-                        metadata={'origin': 'project_resume'})
-                    runtime._start(record['state'])
+                    await runtime.resume(run['id'], {})
                     await asyncio.shield(runtime.active_tasks[run['id']])
                     return execution_result(await self.services.workflow_store.get_run(run['id']))
         # ProjectModelProvider checks the explicit project connection at the model
@@ -374,6 +401,8 @@ class Projects:
             with conversation_scope(project_id, task.get('conversation_id', '')):
                 if task['mode'] == 'agent' and self.services.local_agents.running(project_id):
                     raise ProjectConflict('此会话正在处理另一轮任务')
+            if not await self.store.claim_resume(task_id):
+                raise ProjectConflict('此任务已在继续执行，请刷新查看')
             await self._launch(task, message)
             return await self.task(project_id, task_id)
 
@@ -383,6 +412,8 @@ class Projects:
             self.require_task_scope(project_id, task)
             if task['status'] not in {'waiting_input', 'interrupted', 'failed'}:
                 raise ProjectConflict('请在任务等待补充或停止后提交补充')
+            if task['mode'] == 'workflow' and task['status'] in {'failed', 'interrupted'} and inputs:
+                raise ValueError('继续失败或中断的工作流保留原输入；修改输入请创建修复运行')
             await self.store.supplement(task_id, message, inputs)
             return await self.task(project_id, task_id)
 

@@ -1,5 +1,6 @@
 """Compact project tools, atomic edits and a customer-free repair loop."""
 import json
+import asyncio
 from copy import deepcopy
 import pytest
 
@@ -101,7 +102,7 @@ def test_item_patch_preserves_other_items_answers_and_requires_current_revision(
     assert tool(client, base, 'project_progress', action='patch', expected_revision=created.json()['revision'], changes={'items': []}).status_code == 422
 
 
-def test_native_loop_repairs_real_failure_and_regresses_without_customer_coaching(configured, monkeypatch):
+def test_native_loop_repairs_real_failure_after_human_installs_saved_changes(configured, monkeypatch):
     contexts, results = [], []
     class Repairing(TestSession):
         async def turn(self, message, on_event, on_tool, **kwargs):
@@ -114,15 +115,19 @@ def test_native_loop_repairs_real_failure_and_regresses_without_customer_coachin
                     node('e','end',outputs={'quantity':ref('s','missing')})], 'edges':[edge('s','e')]}}},
                 {'op':'add_test','data':{'test':{'id':'quantity','name':'数量','requirement':'返回2','inputs':{},
                     'assertions':[{'path':['quantity'],'operator':'equals','expected':2}]}}})})
-            failed = await on_tool('workflow_run', {'action': 'start'})
+            # Human installation is a driver action, never an assistant tool.
+            await asyncio.to_thread(client.put,base+'/space/workflows/'+project['id']+'/assistant-callable',json={'enabled':True})
+            failed = await on_tool('project_calls', {'action': 'start'})
             assert failed['status'] == 'failed' and failed['error']
             results.append(failed)
             draft = await on_tool('workflow_draft', {})
             exact = await on_tool('workflow_draft', {'view':'nodes','node_ids':['e']})
             assert exact['nodes'][0]['config']['outputs']['quantity']['$ref']['path'] == ['missing']
             await on_tool('workflow_draft', {'batch':batch(draft, update('e',config={'outputs':{'quantity':2}}),key='repair')})
-            checks = await on_tool('workflow_run', {'action':'tests'})
-            assert checks['passed'] and not checks['failed_tests']
+            await asyncio.to_thread(client.put,base+'/space/workflows/'+project['id']+'/assistant-callable',json={'enabled':True})
+            response = await asyncio.to_thread(client.post,base+'/members/'+project['id']+'/tests/run')
+            checks = response.json()
+            assert checks['passed'] and all(test['passed'] for test in checks['tests'])
             trial = await on_tool('project_action', {'action':'trial','item_id':'allocate','inputs':{},'feedback_task_id':results[0]['id']})
             assert trial['outputs'] == {'quantity':2}; results.append(trial)
             await on_tool('project_task_result', {'status':'succeeded','message':'数量为2，已修复实际错误'})
@@ -142,7 +147,7 @@ def test_native_loop_repairs_real_failure_and_regresses_without_customer_coachin
     assert state['status'] == 'idle', state['error']
     assert len(contexts) == 1 and len([e for e in state['events'] if e['kind']=='user']) == 1
     assert 'secret-detail' not in json.dumps(contexts) and 'confirmed_requirements' not in contexts[0]
-    assert len(contexts[0]['workflows']) == 1
+    assert len(contexts[0]['workflows']) == 0  # the initial blank draft is not callable
     assert client.get(base+'/tasks/'+results[0]['id']).json()['status']=='failed'
     detail = client.get(base+'/tasks/'+results[1]['id']).json()
     assert detail['feedback_task_id']==results[0]['id'] and detail['outputs']=={'quantity':2}
@@ -151,7 +156,8 @@ def test_native_loop_repairs_real_failure_and_regresses_without_customer_coachin
     assert progress[1]['status']=='waiting' and progress[1]['blocker']['reason']=='缺接口'
     metrics = client.get(base+'/conversation/metrics').json()['requests'][0]
     assert metrics['agent_turns']==1 and metrics['tool_failures']==1
-    assert metrics['first_presented_task_id']==results[1]['id']
+    # Project calls expose failures too; the first visible result is the failed run.
+    assert metrics['first_presented_task_id']==results[0]['id']
 
 
 def test_metrics_measure_real_bytes_and_parallel_time_without_guessing_legacy_results():

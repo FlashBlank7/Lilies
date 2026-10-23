@@ -452,6 +452,13 @@ class ProjectStore:
                           (encode(presentation), utc_now(), task_id))
         await asyncio.to_thread(write)
 
+    async def claim_resume(self, task_id: str) -> bool:
+        def claim():
+            with connect(self.db_path) as db:
+                now = utc_now()
+                return bool(db.execute("UPDATE project_tasks SET status='running',error='',status_changed_at=?,updated_at=? WHERE id=? AND status IN ('waiting_input','interrupted','failed')", (now, now, task_id)).rowcount)
+        return await asyncio.to_thread(claim)
+
     async def update_task(self, task_id: str, *, status: str, outputs: dict | None = None, error: str = ''):
         def update():
             with connect(self.db_path) as c:

@@ -23,6 +23,7 @@ from uuid import uuid4
 import httpx
 
 from .applications import ApplicationService
+from .project_http_runtime import HTTPActionUncertain
 from .workspace_copy import copy_workspace_file
 from .blocks import (
     AgentArchitectureConfig,
@@ -277,6 +278,26 @@ def _node_executor(*block_types: str) -> Callable[[NodeExecutor], NodeExecutor]:
     return register
 
 
+class WorkflowResultCheckError(ValueError):
+    """A failed business result check cannot be downgraded to node success."""
+
+
+def _requires_recovery(error: Exception) -> bool:
+    while isinstance(error, NodeExecutionError):
+        error = error.cause
+    return isinstance(error, (WorkflowResultCheckError, HTTPActionUncertain))
+
+
+def _check_nested_completion(record: dict) -> None:
+    state = record['state']
+    if state.completion_error:
+        raise HTTPActionUncertain(state.completion_error)
+    if any(op['method'] not in {'GET', 'HEAD'} and op['status'] in {'sending', 'unknown'} for op in state.http_operations.values()):
+        raise HTTPActionUncertain('成员工作流仍有待确认的 HTTP 写入：' + (record.get('error') or '需要恢复原任务'))
+    if any(not c['passed'] for checks in state.result_checks.values() for c in checks):
+        raise WorkflowResultCheckError(record.get('error') or '成员工作流结果检查未通过')
+
+
 class WorkflowRuntime:
     def __init__(
         self,
@@ -317,6 +338,7 @@ class WorkflowRuntime:
         self.knowledge_indexes = knowledge_indexes
         self.event_automation = event_automation
         self.active_tasks: dict[str, asyncio.Task[None]] = {}
+        self._resume_locks: dict[str, asyncio.Lock] = {}
         self._workspace_boundaries: dict[str, Path] = {}
         self._nested_application_allowlists: dict[str, frozenset[str]] = {}
         self._runtime_tool_allowlists: dict[str, frozenset[str]] = {}
@@ -848,7 +870,9 @@ class WorkflowRuntime:
                 raise WorkflowRuntimeNetworkScopeDenied(
                     "raw HTTP blocks cannot bypass assigned host actions"
                 )
-            if isinstance(config, HTTPConfig) and allowed_network_hosts is not None:
+            if isinstance(config, HTTPConfig) and allowed_network_hosts is not None and not config.connection_id:
+                if not allowed_network_hosts:
+                    raise WorkflowRuntimeNetworkScopeDenied('项目 HTTP 请求请选择服务连接；旧 URL 配置不会自动开放网络')
                 self._validate_network_url(config.url, allowed_network_hosts)
             if isinstance(config, WebCollectionConfig) and allowed_network_hosts is not None:
                 raise WorkflowRuntimeNetworkScopeDenied(
@@ -1387,22 +1411,27 @@ class WorkflowRuntime:
         return enriched
 
     async def resume(self, run_id: str, values: dict[str, Any]) -> dict[str, Any]:
-        record = await self.workflow_store.get_run(run_id)
-        if record["status"] != "paused":
-            raise RuntimeError(f"workflow run is not paused: {record['status']}")
-        state: WorkflowRunState = record["state"]
-        state.resumed_values = values
-        await self.workflow_store.update_run(run_id, status="queued", state=state)
-        await self.harness.start_task(
-            run_id,
-            kind="workflow_run",
-            owner_id=state.application_id,
-            resource_id=run_id,
-            metadata={"origin": "resume"},
-        )
-        await self._emit(run_id, "workflow.resumed", {"node_id": state.waiting_node_id})
-        self._start(state)
-        return {"run_id": run_id, "status": "queued"}
+        async with self._resume_locks.setdefault(run_id, asyncio.Lock()):
+            record = await self.workflow_store.get_run(run_id)
+            active = self.active_tasks.get(run_id)
+            if record["status"] not in {"paused", "failed", "cancelled"}:
+                raise RuntimeError(f"workflow run cannot be resumed: {record['status']}")
+            if active and not active.done():
+                # A terminal record can be visible while its final event/cleanup
+                # is still being persisted. Join that worker before replacing it.
+                await asyncio.gather(asyncio.shield(active), return_exceptions=True)
+                record = await self.workflow_store.get_run(run_id)
+            state: WorkflowRunState = record["state"]
+            if record['status'] != 'paused' and values:
+                raise ValueError('继续失败或中断的任务使用原输入；修改输入请重新运行')
+            state.resumed_values = values if record['status'] == 'paused' else None
+            if not await self.workflow_store.claim_resume(run_id, state):
+                raise RuntimeError('workflow run is already being resumed')
+            await self.harness.start_task(run_id, kind="workflow_run", owner_id=state.application_id,
+                resource_id=run_id, metadata={"origin": "resume"})
+            await self._emit(run_id, "workflow.resumed", {"node_id": state.waiting_node_id})
+            self._start(state)
+            return {"run_id": run_id, "status": "queued"}
 
     def cancel(self, run_id: str) -> None:
         task = self.active_tasks.get(run_id)
@@ -1453,6 +1482,7 @@ class WorkflowRuntime:
         task.add_done_callback(lambda item: self._consume(state.run_id, item))
 
     async def _run(self, state: WorkflowRunState) -> None:
+        state.completion_error = ''
         await self.workflow_store.update_run(state.run_id, status="running", state=state)
         await self._emit(state.run_id, "workflow.started", {
             "application_id": state.application_id,
@@ -1468,6 +1498,10 @@ class WorkflowRuntime:
                 prefix="",
                 top_state=state,
             )
+            if any(op['method'] not in {'GET', 'HEAD'} and op['status'] in {'sending', 'unknown'} for op in state.http_operations.values()):
+                raise HTTPActionUncertain('仍有待确认的 HTTP 写入操作；已保留进度，不能标记执行成功')
+            if any(not check['passed'] for checks in state.result_checks.values() for check in checks):
+                raise WorkflowResultCheckError('结果检查未通过；内部步骤的容错设置不能将目标标记为完成')
             result = self._terminal_outputs(state.snapshot.workflow, local_outputs)
             await self.workflow_store.update_run(
                 state.run_id, status="succeeded", state=state, outputs=result
@@ -1487,6 +1521,8 @@ class WorkflowRuntime:
             await self.harness.finish_task(state.run_id, status="cancelled")
             raise
         except Exception as error:
+            if _requires_recovery(error):
+                state.completion_error = str(error)
             await self.workflow_store.update_run(
                 state.run_id, status="failed", state=state, error=str(error)
             )
@@ -1656,7 +1692,7 @@ class WorkflowRuntime:
                 raise
             except Exception as error:
                 await self._emit(run_id, "node.failed", {"node_id": scoped_id, "error": str(error)})
-                if node.error_strategy == ErrorStrategy.fail:
+                if node.error_strategy == ErrorStrategy.fail or _requires_recovery(error) or (node.type == 'end' and node.config.get('checks')):
                     raise NodeExecutionError(scoped_id, error) from error
                 elif node.error_strategy == ErrorStrategy.degraded:
                     await self._emit(run_id, "node.degraded", {
@@ -1716,6 +1752,13 @@ class WorkflowRuntime:
         resolved_inputs: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         attempts = node.retry.max_attempts if node.retry.enabled else 1
+        if node.type == 'http_request':
+            # Bound requests own their safe retry policy; unknown legacy writes
+            # are never repeated merely because a node has retries enabled.
+            if node.config.get('connection_id') or node.config.get('method', 'GET') not in {'GET', 'HEAD'}:
+                attempts = 1
+            else:
+                attempts = min(attempts, 3)
         for attempt in range(1, attempts + 1):
             try:
                 return await self._execute_node(
@@ -1794,7 +1837,8 @@ class WorkflowRuntime:
                     snapshot=snapshot,
                     node=node,
                     config=self.blocks.validate_node(node),
-                    context={"inputs": resolved_inputs if resolved_inputs is not None else inputs, "nodes": outputs, "run": {
+                    context={"inputs": resolved_inputs if resolved_inputs is not None else inputs, "nodes": outputs,
+                        "recovery": (state.project_context or {}).get('recovery', {}) if state else {}, "run": {
                         "run_id": run_id,
                         **({'project_id': state.project_context['project_id'],
                             'project_task_id': state.project_context['task_id']}
@@ -2166,6 +2210,14 @@ class WorkflowRuntime:
     @_node_executor("http_request")
     async def _exec_h_t_t_p(self, run: NodeRun) -> dict[str, Any]:
         config, context, run_id, state = run.config, run.context, run.run_id, run.state
+        if config.connection_id:
+            from .project_http_runtime import execute
+            return await execute(self, run)
+        if state and state.project_context:
+            raise WorkflowRuntimeNetworkScopeDenied('项目 HTTP 请求请选择服务连接')
+        if config.method not in {'GET', 'HEAD'} and state:
+            from .project_http_runtime import legacy_write
+            return await legacy_write(self, run)
         if run_id in self._network_host_allowlists:
             return await self._http(
                 config,
@@ -2949,6 +3001,23 @@ class WorkflowRuntime:
     @_node_executor("end")
     async def _exec_end(self, run: NodeRun) -> dict[str, Any]:
         config, context = run.config, run.context
+        if config.checks:
+            results = []
+            for check in config.checks:
+                actual = expected = None
+                try:
+                    actual = self._resolve(check.value, context)
+                    expected = self._resolve(check.expected, context)
+                    passed = actual is not None and self._evaluate(check, context)
+                    error = '' if passed else check.failure_message
+                except (WorkflowReferenceResolutionError, TypeError, ValueError) as cause:
+                    passed, error = False, check.failure_message + '（缺少结果或格式不符：' + str(cause) + '）'
+                results.append({'name': check.name, 'actual': actual, 'operator': check.operator,
+                                'expected': expected, 'passed': passed, 'message': error})
+            if run.state:
+                run.state.result_checks[run.scoped_id] = results
+            if not all(item['passed'] for item in results):
+                raise WorkflowResultCheckError('结果检查未通过：' + '；'.join(item['name'] + '：' + item['message'] for item in results if not item['passed']))
         return {key: self._resolve(value, context) for key, value in config.outputs.items()}
 
     @_node_executor("answer")
@@ -4094,6 +4163,8 @@ class WorkflowRuntime:
                     state.waiting_node_id = node_id
                     raise HumanInputPause()
                 if nested['status'] != 'succeeded':
+                    nested_record = await self.workflow_store.get_run(nested['id'])
+                    _check_nested_completion(nested_record)
                     raise RuntimeError(f"成员工作流执行失败：{nested.get('error') or nested['status']}")
                 return {'output': nested['outputs'], 'run_id': nested.get('id'), 'reused': nested.get('reused', False)}
             self._validate_nested_workflow_target(
@@ -4181,6 +4252,7 @@ class WorkflowRuntime:
                         "nested workflow exceeded the connector write limit"
                     )
             if record["status"] != "succeeded":
+                _check_nested_completion(record)
                 raise RuntimeError(
                     f"nested workflow {application_id} ended with {record['status']}: {record.get('error') or ''}"
                 )
@@ -5275,6 +5347,10 @@ class WorkflowRuntime:
             try:
                 if node_id == "$inputs":
                     current: Any = context["inputs"]
+                elif node_id == "$recovery":
+                    current = context.get("recovery", {})
+                elif node_id == "$operation":
+                    current = context.get("operation", {})
                 elif node_id == "$run":
                     # Builtin run metadata, e.g. a per-run unique event id:
                     # {"$ref": {"node_id": "$run", "path": ["run_id"]}}
