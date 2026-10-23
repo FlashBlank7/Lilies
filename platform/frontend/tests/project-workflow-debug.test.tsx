@@ -143,3 +143,31 @@ it('loads samples once after the workflow is known and preserves the user select
   expect(screen.getByLabelText('样例名称')).toHaveValue('另一场景')
   expect(vi.mocked(api).mock.calls.filter(([p])=>p.endsWith('/debug-cases'))).toHaveLength(1)
 })
+
+it('clears the previous success when a new run is rejected before task creation',async()=>{
+  mock({'/api/v1/projects/p/debug/overview':{workflows:[main,flow],progress,tasks:[{id:'old',workflow_id:'w',status:'succeeded',message:'旧结果'}]},
+    '/api/v1/projects/p/debug/runs/old':{id:'old',status:'succeeded',inputs:{},outputs:{report:'旧报告'}}})
+  const normal=vi.mocked(api).getMockImplementation()!
+  vi.mocked(api).mockImplementation(async(path,init)=>{if(path.endsWith('/debug/runs'))throw Error('缺少模拟服务绑定');return normal(path,init)})
+  view();await waitFor(()=>expect(screen.getByLabelText('样例名称')).toHaveValue('正常样例'))
+  fireEvent.click(screen.getByRole('button',{name:/旧结果 ·/}));await screen.findByText(/旧报告/)
+  fireEvent.click(screen.getByRole('button',{name:'运行此流程（模拟）'}));await screen.findByRole('alert')
+  expect(screen.queryByLabelText('本次调试结果')).not.toBeInTheDocument()
+  expect(screen.queryByText(/旧报告/)).not.toBeInTheDocument()
+})
+
+it('refreshes the shown result version after saving a changed sample',async()=>{
+  let changed=false
+  mock({'/api/v1/projects/p/debug/overview':{workflows:[main,flow],progress,tasks:[{id:'old',workflow_id:'w',status:'succeeded',message:'旧结果'}]}})
+  const normal=vi.mocked(api).getMockImplementation()!
+  vi.mocked(api).mockImplementation(async(path,init)=>{
+    if(path.endsWith('/debug/runs/old'))return {id:'old',status:'succeeded',inputs:{},outputs:{count:2},outdated:changed} as never
+    if(path.endsWith('/debug-cases')&&init?.method==='PUT')changed=true
+    return normal(path,init)
+  })
+  view();await waitFor(()=>expect(screen.getByLabelText('样例名称')).toHaveValue('正常样例'))
+  fireEvent.click(screen.getByRole('button',{name:/旧结果 ·/}));await screen.findByLabelText('本次调试结果')
+  fireEvent.change(screen.getByLabelText('样例名称'),{target:{value:'修改输入的样例'}})
+  fireEvent.click(screen.getByRole('button',{name:'保存样例'}))
+  await screen.findByText('此结果对应旧配置。历史结果已保留，当前修改需要重新调试。')
+})

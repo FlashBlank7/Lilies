@@ -94,6 +94,8 @@ def test_missing_binding_cross_project_and_unsupported_side_effect(platform):
         base + "/debug/runs", json={"workflow_id": pid, "request_key": "missing"}
     )
     assert response.status_code == 422 and "缺少模拟" in response.text
+    empty=client.post(base+'/debug/runs',json={'workflow_id':pid,'request_key':'empty','bindings':{'inventory':{'service_id':''}}})
+    assert empty.status_code==422 and '缺少模拟服务绑定：inventory' in empty.text
     other = client.post("/api/v1/projects", json={"name": "other"}).json()["id"]
     read_graph(client, other)
     response = client.post(

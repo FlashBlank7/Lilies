@@ -428,6 +428,8 @@ class ProjectDebug:
             for alias, binding in bindings.items():
                 if not alias or "/" in alias or any(c in alias for c in "?#\\"):
                     raise ValueError("服务引用不能包含路径分隔符")
+                if not binding["service_id"]:
+                    raise ValueError("缺少模拟服务绑定：" + alias)
                 spec = services.get(binding["service_id"])
                 if not spec:
                     raise ValueError("模拟服务不属于本项目：" + binding["service_id"])
