@@ -1,0 +1,48 @@
+{
+  "startedAt": "2026-10-23T12:30:58.694Z",
+  "elapsedSeconds": 439.192,
+  "steps": [
+    {
+      "step": "合成输入独立筛选",
+      "atSeconds": 9.971
+    },
+    {
+      "step": "合成目标独立执行",
+      "atSeconds": 23.384
+    },
+    {
+      "step": "合成状态独立核对",
+      "atSeconds": 72.93
+    },
+    {
+      "step": "独立分页盘点",
+      "atSeconds": 106.33
+    },
+    {
+      "step": "实际输出串联通过",
+      "atSeconds": 223.755
+    },
+    {
+      "step": "部分完成正确报未完成",
+      "atSeconds": 279.534
+    },
+    {
+      "step": "继续原任务完成",
+      "atSeconds": 346.597
+    },
+    {
+      "step": "上传样例，补齐绑定后成功",
+      "atSeconds": 439.182
+    }
+  ],
+  "technicalRescues": 0,
+  "scope": "固定合成夹具与已准备流程；期间包含截图、记录和检查，不是真人操作速度测量",
+  "plannedConfigurationActions": 7,
+  "configurationBreakdown": {
+    "选择已保存样例": 4,
+    "保存串联映射": 1,
+    "上传样例": 1,
+    "补齐模拟服务绑定": 1
+  },
+  "navigationSelections": 5
+}

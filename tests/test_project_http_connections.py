@@ -371,3 +371,20 @@ def test_legacy_standalone_resume_preserves_receipts_and_unknown_writes(platform
     result=done()
     assert result['status']==('succeeded' if fault=='permanent_read' else 'failed'),result
     assert sum(r['path'].endswith('/nas/delete') for r in media.audit)==1
+
+
+@pytest.mark.parametrize('logical', [False, True])
+def test_explicit_real_binding_targets_selected_connection(platform, media, logical):
+    client, _ = platform
+    pid, base, old, body = setup(client, media)
+    media.add_case('selected')
+    other=client.post(base+'/http-connections',json={**body,'name':'选定目标','base_url':media.base+'/selected'}).json()
+    alias='media' if logical else old['id']
+    config={'service_ref':alias} if logical else {'connection_id':alias}
+    graph(client,pid,[node('s','start'),node('h','http_request',path='/emby/records',**config),
+        node('e','end',outputs={'data':ref('h','output')})],[edge('s','h'),edge('h','e')])
+    response=client.post(base+'/tasks',json={'request_key':'bound','inputs':{},'service_bindings':{alias:other['id']}})
+    assert response.status_code==202,response.text
+    task=settled(client,base,response.json())
+    assert task['status']=='succeeded',task
+    assert [r['path'] for r in media.audit]==['/selected/emby/records']

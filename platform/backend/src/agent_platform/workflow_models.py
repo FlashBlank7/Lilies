@@ -223,6 +223,7 @@ class WorkflowTestCase(BaseModel):
     requirement: str
     frame: TestFrameSpec | None = None
     inputs: dict[str, Any] = Field(default_factory=dict)
+    debug: dict[str, Any] = Field(default_factory=dict, description='Optional simulation bindings and frozen sample origin.')
     simulated_human_inputs: dict[str, dict[str, Any]] = Field(
         default_factory=dict,
         max_length=100,

@@ -870,7 +870,7 @@ class WorkflowRuntime:
                 raise WorkflowRuntimeNetworkScopeDenied(
                     "raw HTTP blocks cannot bypass assigned host actions"
                 )
-            if isinstance(config, HTTPConfig) and allowed_network_hosts is not None and not config.connection_id:
+            if isinstance(config, HTTPConfig) and allowed_network_hosts is not None and not (config.connection_id or config.service_ref):
                 if not allowed_network_hosts:
                     raise WorkflowRuntimeNetworkScopeDenied('项目 HTTP 请求请选择服务连接；旧 URL 配置不会自动开放网络')
                 self._validate_network_url(config.url, allowed_network_hosts)
@@ -1755,7 +1755,7 @@ class WorkflowRuntime:
         if node.type == 'http_request':
             # Bound requests own their safe retry policy; unknown legacy writes
             # are never repeated merely because a node has retries enabled.
-            if node.config.get('connection_id') or node.config.get('method', 'GET') not in {'GET', 'HEAD'}:
+            if node.config.get('connection_id') or node.config.get('service_ref') or node.config.get('method', 'GET') not in {'GET', 'HEAD'}:
                 attempts = 1
             else:
                 attempts = min(attempts, 3)
@@ -2210,7 +2210,7 @@ class WorkflowRuntime:
     @_node_executor("http_request")
     async def _exec_h_t_t_p(self, run: NodeRun) -> dict[str, Any]:
         config, context, run_id, state = run.config, run.context, run.run_id, run.state
-        if config.connection_id:
+        if config.connection_id or config.service_ref:
             from .project_http_runtime import execute
             return await execute(self, run)
         if state and state.project_context:

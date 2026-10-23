@@ -85,6 +85,7 @@ class NewTask(Body):
     mode: Literal['workflow', 'agent'] = 'workflow'
     workflow_id: str = ''
     inputs: dict[str, Any] = Field(default_factory=dict)
+    service_bindings: dict[str, str] = Field(default_factory=dict)
     message: str = Field(default='', max_length=8000)
     purpose: Literal['build_test', 'customer_trial', 'business'] = 'business'
     item_id: str = ''
@@ -96,6 +97,10 @@ class NewTask(Body):
 class RecordUpdate(Body):
     value: dict[str, Any]
     expected_revision: int = Field(ge=0, strict=True)
+
+
+class ProjectTestSelection(Body):
+    case_ids: list[str] | None = None
 
 
 class Supplement(Body):
@@ -254,8 +259,8 @@ def project_router(services, require_token):
         return {'removed': workflow_id}
 
     @scoped.post('/members/{workflow_id}/tests/run')
-    async def test_project_member(project_id: str, workflow_id: str):
-        return await invoke(projects.test_workflow, project_id, workflow_id)
+    async def test_project_member(project_id: str, workflow_id: str, body: ProjectTestSelection | None = None):
+        return await invoke(projects.test_workflow, project_id, workflow_id, body.case_ids if body else None)
 
     @scoped.get('/requirement-package')
     async def package_files(project_id: str):
@@ -446,5 +451,7 @@ def project_router(services, require_token):
     register_data_workspace_routes(scoped, services, invoke)
     from .project_http_connections import register_connection_routes
     register_connection_routes(scoped, services, invoke)
+    from .project_debug import register_debug_routes
+    register_debug_routes(scoped, services, invoke)
     router.include_router(scoped)
     return router

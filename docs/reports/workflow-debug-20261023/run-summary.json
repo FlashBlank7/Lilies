@@ -1,0 +1,568 @@
+{
+  "kind": "synthetic_services_ordinary_project_user",
+  "project_id": "635f075f-1d59-4632-b9f8-b5922e1a9b30",
+  "runs": [
+    {
+      "task_id": "997070a0-d112-4813-8691-5a2a88b5e41e",
+      "workflow_id": "2d769448-8dd1-42cb-8bfd-c4c809ba0a9e",
+      "name": "targets.json",
+      "status": "succeeded",
+      "created_at": "2026-10-23T12:37:00.736621+00:00",
+      "updated_at": "2026-10-23T12:37:02.680492+00:00",
+      "member_run_count": 1,
+      "http_requests": 16,
+      "delete_requests": 4,
+      "delete_effects": 4,
+      "total_effects": 16,
+      "verification": null,
+      "error": ""
+    },
+    {
+      "task_id": "903013a7-fe14-4095-9149-9f6766f2612d",
+      "workflow_id": "635f075f-1d59-4632-b9f8-b5922e1a9b30",
+      "name": "删除后取消监控失败",
+      "status": "succeeded",
+      "created_at": "2026-10-23T12:34:42.626703+00:00",
+      "updated_at": "2026-10-23T12:35:42.818130+00:00",
+      "member_run_count": 5,
+      "http_requests": 89,
+      "delete_requests": 4,
+      "delete_effects": 4,
+      "total_effects": 16,
+      "verification": {
+        "download": 4,
+        "file": 4,
+        "log": 4,
+        "markdown": "本次回读 4 个原目标；各动作结果见结果检查。",
+        "monitor": 4,
+        "target_count": 4,
+        "targets": [
+          {
+            "download": true,
+            "file": true,
+            "id": "E-1",
+            "log": true,
+            "monitor": true
+          },
+          {
+            "download": true,
+            "file": true,
+            "id": "E-10",
+            "log": true,
+            "monitor": true
+          },
+          {
+            "download": true,
+            "file": true,
+            "id": "E-11",
+            "log": true,
+            "monitor": true
+          },
+          {
+            "download": true,
+            "file": true,
+            "id": "E-13",
+            "log": true,
+            "monitor": true
+          }
+        ]
+      },
+      "error": ""
+    },
+    {
+      "task_id": "e1ba5ef5-f83b-4fa4-8902-a5b3a121cfe8",
+      "workflow_id": "635f075f-1d59-4632-b9f8-b5922e1a9b30",
+      "name": "完整链路",
+      "status": "succeeded",
+      "created_at": "2026-10-23T12:32:45.964029+00:00",
+      "updated_at": "2026-10-23T12:33:05.141936+00:00",
+      "member_run_count": 5,
+      "http_requests": 86,
+      "delete_requests": 4,
+      "delete_effects": 4,
+      "total_effects": 16,
+      "verification": {
+        "download": 4,
+        "file": 4,
+        "log": 4,
+        "markdown": "本次回读 4 个原目标；各动作结果见结果检查。",
+        "monitor": 4,
+        "target_count": 4,
+        "targets": [
+          {
+            "download": true,
+            "file": true,
+            "id": "E-1",
+            "log": true,
+            "monitor": true
+          },
+          {
+            "download": true,
+            "file": true,
+            "id": "E-10",
+            "log": true,
+            "monitor": true
+          },
+          {
+            "download": true,
+            "file": true,
+            "id": "E-11",
+            "log": true,
+            "monitor": true
+          },
+          {
+            "download": true,
+            "file": true,
+            "id": "E-13",
+            "log": true,
+            "monitor": true
+          }
+        ]
+      },
+      "error": ""
+    },
+    {
+      "task_id": "bc54f084-5974-4bd1-b1b3-f45e2e15a2e2",
+      "workflow_id": "b163e557-85f4-4205-a5b8-42d1859e321a",
+      "name": "合成样例 · 可独立运行",
+      "status": "succeeded",
+      "created_at": "2026-10-23T12:32:13.121348+00:00",
+      "updated_at": "2026-10-23T12:32:23.157511+00:00",
+      "member_run_count": 1,
+      "http_requests": 48,
+      "delete_requests": 0,
+      "delete_effects": 0,
+      "total_effects": 0,
+      "verification": null,
+      "error": ""
+    },
+    {
+      "task_id": "1287a4bd-b0c0-40d7-807d-ddb23849bdb9",
+      "workflow_id": "acd4b15e-a1f7-4404-a419-60c42c5a95f7",
+      "name": "合成样例 · 可独立运行",
+      "status": "succeeded",
+      "created_at": "2026-10-23T12:31:22.582418+00:00",
+      "updated_at": "2026-10-23T12:31:28.107983+00:00",
+      "member_run_count": 1,
+      "http_requests": 22,
+      "delete_requests": 0,
+      "delete_effects": 4,
+      "total_effects": 16,
+      "verification": {
+        "download": 4,
+        "file": 4,
+        "log": 4,
+        "markdown": "本次回读 4 个原目标；各动作结果见结果检查。",
+        "monitor": 4,
+        "target_count": 4,
+        "targets": [
+          {
+            "download": true,
+            "file": true,
+            "id": "E-1",
+            "log": true,
+            "monitor": true
+          },
+          {
+            "download": true,
+            "file": true,
+            "id": "E-10",
+            "log": true,
+            "monitor": true
+          },
+          {
+            "download": true,
+            "file": true,
+            "id": "E-11",
+            "log": true,
+            "monitor": true
+          },
+          {
+            "download": true,
+            "file": true,
+            "id": "E-13",
+            "log": true,
+            "monitor": true
+          }
+        ]
+      },
+      "error": ""
+    },
+    {
+      "task_id": "b246c83a-2c62-4d05-9ff2-e70b5ab77992",
+      "workflow_id": "2d769448-8dd1-42cb-8bfd-c4c809ba0a9e",
+      "name": "合成样例 · 可独立运行",
+      "status": "succeeded",
+      "created_at": "2026-10-23T12:31:09.250266+00:00",
+      "updated_at": "2026-10-23T12:31:13.163729+00:00",
+      "member_run_count": 1,
+      "http_requests": 16,
+      "delete_requests": 4,
+      "delete_effects": 4,
+      "total_effects": 16,
+      "verification": null,
+      "error": ""
+    },
+    {
+      "task_id": "1084f064-d403-454d-95ce-a956c6692f4c",
+      "workflow_id": "5838ef20-4832-4ad4-8947-c38df8f1572e",
+      "name": "合成样例 · 可独立运行",
+      "status": "succeeded",
+      "created_at": "2026-10-23T12:30:58.983958+00:00",
+      "updated_at": "2026-10-23T12:30:59.965293+00:00",
+      "member_run_count": 1,
+      "http_requests": 0,
+      "delete_requests": 0,
+      "delete_effects": 0,
+      "total_effects": 0,
+      "verification": null,
+      "error": ""
+    },
+    {
+      "task_id": "3d7bcb59-d94c-4701-a5a7-0df0291207db",
+      "workflow_id": "5838ef20-4832-4ad4-8947-c38df8f1572e",
+      "name": "合成样例 · 可独立运行",
+      "status": "succeeded",
+      "created_at": "2026-10-23T12:29:16.359200+00:00",
+      "updated_at": "2026-10-23T12:29:17.133966+00:00",
+      "member_run_count": 1,
+      "http_requests": 0,
+      "delete_requests": 0,
+      "delete_effects": 0,
+      "total_effects": 0,
+      "verification": null,
+      "error": ""
+    },
+    {
+      "task_id": "abb12665-d094-4016-b803-14edf9083e1c",
+      "workflow_id": "635f075f-1d59-4632-b9f8-b5922e1a9b30",
+      "name": "写入成功但响应丢失",
+      "status": "succeeded",
+      "created_at": "2026-10-23T12:20:50.060222+00:00",
+      "updated_at": "2026-10-23T12:21:08.041375+00:00",
+      "member_run_count": 5,
+      "http_requests": 87,
+      "delete_requests": 5,
+      "delete_effects": 4,
+      "total_effects": 16,
+      "verification": {
+        "download": 4,
+        "file": 4,
+        "log": 4,
+        "markdown": "本次回读 4 个原目标；各动作结果见结果检查。",
+        "monitor": 4,
+        "target_count": 4,
+        "targets": [
+          {
+            "download": true,
+            "file": true,
+            "id": "E-1",
+            "log": true,
+            "monitor": true
+          },
+          {
+            "download": true,
+            "file": true,
+            "id": "E-10",
+            "log": true,
+            "monitor": true
+          },
+          {
+            "download": true,
+            "file": true,
+            "id": "E-11",
+            "log": true,
+            "monitor": true
+          },
+          {
+            "download": true,
+            "file": true,
+            "id": "E-13",
+            "log": true,
+            "monitor": true
+          }
+        ]
+      },
+      "error": ""
+    },
+    {
+      "task_id": "c56d58ff-e8df-496a-a36e-28e9c0dfea90",
+      "workflow_id": "635f075f-1d59-4632-b9f8-b5922e1a9b30",
+      "name": "删除后取消监控失败",
+      "status": "succeeded",
+      "created_at": "2026-10-23T12:19:37.903017+00:00",
+      "updated_at": "2026-10-23T12:20:11.558369+00:00",
+      "member_run_count": 5,
+      "http_requests": 89,
+      "delete_requests": 4,
+      "delete_effects": 4,
+      "total_effects": 16,
+      "verification": {
+        "download": 4,
+        "file": 4,
+        "log": 4,
+        "markdown": "本次回读 4 个原目标；各动作结果见结果检查。",
+        "monitor": 4,
+        "target_count": 4,
+        "targets": [
+          {
+            "download": true,
+            "file": true,
+            "id": "E-1",
+            "log": true,
+            "monitor": true
+          },
+          {
+            "download": true,
+            "file": true,
+            "id": "E-10",
+            "log": true,
+            "monitor": true
+          },
+          {
+            "download": true,
+            "file": true,
+            "id": "E-11",
+            "log": true,
+            "monitor": true
+          },
+          {
+            "download": true,
+            "file": true,
+            "id": "E-13",
+            "log": true,
+            "monitor": true
+          }
+        ]
+      },
+      "error": ""
+    },
+    {
+      "task_id": "3d33c21f-d531-4eb7-b2e9-9a69cfe68b91",
+      "workflow_id": "635f075f-1d59-4632-b9f8-b5922e1a9b30",
+      "name": "完整链路",
+      "status": "succeeded",
+      "created_at": "2026-10-23T12:19:02.202011+00:00",
+      "updated_at": "2026-10-23T12:19:22.310680+00:00",
+      "member_run_count": 5,
+      "http_requests": 86,
+      "delete_requests": 4,
+      "delete_effects": 4,
+      "total_effects": 16,
+      "verification": {
+        "download": 4,
+        "file": 4,
+        "log": 4,
+        "markdown": "本次回读 4 个原目标；各动作结果见结果检查。",
+        "monitor": 4,
+        "target_count": 4,
+        "targets": [
+          {
+            "download": true,
+            "file": true,
+            "id": "E-1",
+            "log": true,
+            "monitor": true
+          },
+          {
+            "download": true,
+            "file": true,
+            "id": "E-10",
+            "log": true,
+            "monitor": true
+          },
+          {
+            "download": true,
+            "file": true,
+            "id": "E-11",
+            "log": true,
+            "monitor": true
+          },
+          {
+            "download": true,
+            "file": true,
+            "id": "E-13",
+            "log": true,
+            "monitor": true
+          }
+        ]
+      },
+      "error": ""
+    },
+    {
+      "task_id": "5d6f34f8-3f7b-40ec-936a-32099259b180",
+      "workflow_id": "b163e557-85f4-4205-a5b8-42d1859e321a",
+      "name": "合成样例 · 可独立运行",
+      "status": "succeeded",
+      "created_at": "2026-10-23T12:18:35.835356+00:00",
+      "updated_at": "2026-10-23T12:18:41.413755+00:00",
+      "member_run_count": 1,
+      "http_requests": 48,
+      "delete_requests": 0,
+      "delete_effects": 0,
+      "total_effects": 0,
+      "verification": null,
+      "error": ""
+    },
+    {
+      "task_id": "8d05dc89-f5a5-439d-b7a2-b88879bbaf44",
+      "workflow_id": "acd4b15e-a1f7-4404-a419-60c42c5a95f7",
+      "name": "合成样例 · 可独立运行",
+      "status": "succeeded",
+      "created_at": "2026-10-23T12:18:11.112770+00:00",
+      "updated_at": "2026-10-23T12:18:14.716315+00:00",
+      "member_run_count": 1,
+      "http_requests": 22,
+      "delete_requests": 0,
+      "delete_effects": 4,
+      "total_effects": 16,
+      "verification": {
+        "download": 4,
+        "file": 4,
+        "log": 4,
+        "markdown": "本次回读 4 个原目标；各动作结果见结果检查。",
+        "monitor": 4,
+        "target_count": 4,
+        "targets": [
+          {
+            "download": true,
+            "file": true,
+            "id": "E-1",
+            "log": true,
+            "monitor": true
+          },
+          {
+            "download": true,
+            "file": true,
+            "id": "E-10",
+            "log": true,
+            "monitor": true
+          },
+          {
+            "download": true,
+            "file": true,
+            "id": "E-11",
+            "log": true,
+            "monitor": true
+          },
+          {
+            "download": true,
+            "file": true,
+            "id": "E-13",
+            "log": true,
+            "monitor": true
+          }
+        ]
+      },
+      "error": ""
+    },
+    {
+      "task_id": "27a1c2d9-5ad6-4d9c-9c0d-5301eb2db257",
+      "workflow_id": "2d769448-8dd1-42cb-8bfd-c4c809ba0a9e",
+      "name": "来自 筛选清理目标 的实际输出",
+      "status": "succeeded",
+      "created_at": "2026-10-23T12:18:02.059625+00:00",
+      "updated_at": "2026-10-23T12:18:04.277356+00:00",
+      "member_run_count": 1,
+      "http_requests": 16,
+      "delete_requests": 4,
+      "delete_effects": 4,
+      "total_effects": 16,
+      "verification": null,
+      "error": ""
+    },
+    {
+      "task_id": "3fcad9bf-2bc2-4e9e-aa81-cac2e0960779",
+      "workflow_id": "5838ef20-4832-4ad4-8947-c38df8f1572e",
+      "name": "合成样例 · 可独立运行",
+      "status": "succeeded",
+      "created_at": "2026-10-23T12:17:46.619537+00:00",
+      "updated_at": "2026-10-23T12:17:47.179024+00:00",
+      "member_run_count": 1,
+      "http_requests": 0,
+      "delete_requests": 0,
+      "delete_effects": 0,
+      "total_effects": 0,
+      "verification": null,
+      "error": ""
+    },
+    {
+      "task_id": "a9f9da8a-3e7e-47e7-a578-99b786dded41",
+      "workflow_id": "5838ef20-4832-4ad4-8947-c38df8f1572e",
+      "name": "合成样例 · 可独立运行",
+      "status": "succeeded",
+      "created_at": "2026-10-23T12:14:19.999165+00:00",
+      "updated_at": "2026-10-23T12:14:20.557244+00:00",
+      "member_run_count": 1,
+      "http_requests": 0,
+      "delete_requests": 0,
+      "delete_effects": 0,
+      "total_effects": 0,
+      "verification": null,
+      "error": ""
+    }
+  ],
+  "final_submission_check": {
+    "task_id": "dcb64f75-00f9-4eac-8ed5-837b105379c5",
+    "status": "succeeded",
+    "created_at": "2026-10-23T12:45:12.325648+00:00",
+    "updated_at": "2026-10-23T12:45:21.615751+00:00",
+    "workflow_versions": {
+      "2d769448-8dd1-42cb-8bfd-c4c809ba0a9e": 8,
+      "5838ef20-4832-4ad4-8947-c38df8f1572e": 6,
+      "635f075f-1d59-4632-b9f8-b5922e1a9b30": 12,
+      "acd4b15e-a1f7-4404-a419-60c42c5a95f7": 5,
+      "b163e557-85f4-4205-a5b8-42d1859e321a": 4
+    },
+    "service_versions": {
+      "media": {
+        "service_id": "410c10fe-b957-4d69-9c10-74e901deae9c",
+        "name": "影音模拟服务",
+        "revision": 2,
+        "scenario": ""
+      }
+    },
+    "verification": {
+      "download": 4,
+      "file": 4,
+      "log": 4,
+      "markdown": "本次回读 4 个原目标；各动作结果见结果检查。",
+      "monitor": 4,
+      "target_count": 4,
+      "targets": [
+        {
+          "download": true,
+          "file": true,
+          "id": "E-1",
+          "log": true,
+          "monitor": true
+        },
+        {
+          "download": true,
+          "file": true,
+          "id": "E-10",
+          "log": true,
+          "monitor": true
+        },
+        {
+          "download": true,
+          "file": true,
+          "id": "E-11",
+          "log": true,
+          "monitor": true
+        },
+        {
+          "download": true,
+          "file": true,
+          "id": "E-13",
+          "log": true,
+          "monitor": true
+        }
+      ]
+    },
+    "http_requests": 86,
+    "delete_requests": 4,
+    "delete_effects": 4,
+    "total_effects": 16
+  }
+}
