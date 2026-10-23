@@ -1,0 +1,20 @@
+{
+  "ordinary_project_account": true,
+  "saved_via": "workflow_draft assistant tool",
+  "workflow_nodes": 11,
+  "code_nodes_embedded": [
+    "decide",
+    "pages",
+    "verify",
+    "verify_pages"
+  ],
+  "requires_repository_imports_at_runtime": false,
+  "blocked_before_human_install": true,
+  "executed_via": "project_calls assistant tool",
+  "status": "succeeded",
+  "media_records": 13,
+  "effects": 16,
+  "delete_requests": 4,
+  "extra_provider_calls": 0,
+  "scope": "Interface compatibility probe using an authored graph; no separate provider generation session."
+}
