@@ -351,7 +351,9 @@ class Projects:
 
     @asynccontextmanager
     async def delivery_step(self, state, node):
-        guarded = node.type in {'code', 'tool', 'data_analysis', 'feature_extract', 'model_train',
+        # Training writes to isolated modeling storage and owns its compute queue.
+        # Holding the shared workspace while it waits hides queued/stop/budget state.
+        guarded = node.type in {'code', 'tool', 'data_analysis', 'feature_extract',
                                'model_predict', 'start', 'end', 'template_transform'}
         # Containers delegate to leaf steps; holding their lock would deadlock children.
         if node.type == 'tool' and node.config.get('tool_name', '').startswith('workflow:'):
