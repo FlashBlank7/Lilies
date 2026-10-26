@@ -16,6 +16,7 @@ function projectReads(readTask: (id: string) => Promise<unknown>) {
   vi.mocked(api).mockImplementation(async path => {
     if (path.includes('/tasks/')) return await readTask(path.split('/').at(-1)!) as never
     if (path.endsWith('/example')) return null as never
+    if (path.endsWith('/http-connections')) return [] as never
     if (path.endsWith('/conversations') || path.includes('/tasks?') || path.endsWith('/workspace/files')) return [] as never
     if (path.endsWith('/progress')) return { revision: 0, value: { goal: '', summary: '', items: [] } } as never
     return { id: 'p', name: '项目', members: [] } as never
@@ -147,7 +148,7 @@ it('follows a configuration link when only the current project query changes', a
   navigation.query = 'tab=settings'
   await act(async () => page.rerender(<Suspense><ProjectPage params={params} /></Suspense>))
   expect(screen.getByRole('tab', {name:'设置'})).toHaveAttribute('aria-selected','true')
-  expect(screen.getByRole('button', {name:'模型设置'})).toBeInTheDocument()
+  expect(screen.getByRole('button', {name:'视觉模型设置'})).toBeInTheDocument()
   expect(vi.mocked(api).mock.calls.every(([, options]) => !options)).toBe(true)
 })
 
@@ -236,4 +237,23 @@ it('distinguishes same-file runs with saved business parameters without reading 
   expect(await screen.findByText('保存的结果 merchant')).toBeInTheDocument()
   expect(api).toHaveBeenCalledWith('/api/v1/projects/p/tasks/merchant')
   expect(vi.mocked(api).mock.calls.some(([path])=>path.endsWith('/draft'))).toBe(false)
+})
+
+
+it('changes the result link to the new task after a repair run',async()=>{
+  navigation.query='task=old'
+  window.history.replaceState(null,'','/projects/p?task=old')
+  const old={...completedTask('old'),status:'failed',presentation:{},outputs:{}}
+  projectReads(async id=>id==='old'?old:completedTask(id))
+  const fallback=vi.mocked(api).getMockImplementation()!
+  vi.mocked(api).mockImplementation(async (path,options)=>{
+    if(path.endsWith('/tasks')&&options?.method==='POST')return completedTask('repaired') as never
+    if(path.endsWith('/readiness'))return {status:'configured',issues:[]} as never
+    return fallback(path,options)
+  })
+  await act(async()=>{render(<Suspense><ProjectPage params={Promise.resolve({id:'p'})}/></Suspense>)})
+  fireEvent.click(await screen.findByRole('button',{name:'修改流程后重新运行'}))
+  expect(await screen.findByText('保存的结果 repaired')).toBeVisible()
+  expect(new URL(window.location.href).searchParams.get('task')).toBe('repaired')
+  window.history.replaceState(null,'','/')
 })

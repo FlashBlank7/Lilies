@@ -25,13 +25,13 @@ def activity_title(name: str, arguments: dict) -> str:
                 'finish': '整理本次交付', 'discuss': '修订需求理解'}.get(action, '推进项目')
     if name == 'workflow_draft':
         return '修改工作流草稿' if arguments.get('operation') or arguments.get('batch') else '读取工作流草稿'
-    if name == 'workflow_run':
+    if name in {'workflow_run', 'project_calls'}:
         return {'start': '运行工作流', 'tests': '测试工作流', 'inspect': '查看运行结果',
-                'validate': '校验工作流'}.get(action, '检查工作流')
+                'validate': '校验工作流', 'resume': '继续原任务', 'list': '查看已加入能力', 'interface': '查看能力输入输出'}.get(action, '检查工作流')
     if name == 'project_file':
         return '保存项目文件' if action == 'write' else '读取项目资料'
     return {'project_progress': '更新项目进展' if action in {'update', 'patch'} else '查看项目进展',
-            'project_workflows': '管理项目工作流', 'project_records': '读取业务记录',
+            'project_workflows': '管理项目工作流', 'project_connections': '查看服务连接', 'project_records': '读取业务记录',
             'project_task_result': '整理业务结果', 'requirements_submit': '整理需求文档',
             'block_catalog': '查看积木说明', 'tool_catalog': '查看工具说明'}.get(name, '执行项目操作')
 

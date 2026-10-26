@@ -28,8 +28,8 @@ def settled(client, path):
     raise AssertionError(state)
 
 
-def configure(client, base):
-    result = client.put(base + '/agent-session', json={'provider': 'api', 'model': 'test',
+def configure(client, base, headers=None):
+    result = client.put(base + '/agent-session', headers=headers, json={'provider': 'api', 'model': 'test',
         'base_url': 'https://example.test/v1', 'api_key': 'test'})
     assert result.status_code == 200, result.text
 
@@ -45,7 +45,7 @@ def test_workflow_result_reaches_own_chat_even_when_model_budget_ends(configured
 
     async def stream(**kwargs):
         calls.append(1)
-        for event in completion_events([{'type': 'tool_use', 'id': 'run', 'name': 'workflow_run',
+        for event in completion_events([{'type': 'tool_use', 'id': 'run', 'name': 'project_calls',
                 'input': {'action': 'start', 'workflow_id': pid, 'inputs': {}, 'wait': wait}}], stop_reason='tool_use'):
             yield event
 

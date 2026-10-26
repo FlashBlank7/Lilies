@@ -242,11 +242,11 @@ it('keeps uploaded inputs separate from generated files and retains the selected
   expect(select).toHaveValue('requirement-package/batch/new.xlsx')
 })
 
-it('opens the complete report for the selected task without searching project files', async () => {
+it('labels unpinned historical files and opens the explicitly requested current copy', async () => {
   vi.stubGlobal('fetch',vi.fn().mockResolvedValue({ok:true,headers:new Headers(),text:async()=> '# 本次报告\n\n保留555行'}))
   const task = {id:'t',status:'succeeded',outputs:{'完整交付':{paths:{report:'results/run-1/现场报告.md',report_html:'results/run-1/现场报告.html',results_excel:'results/run-1/结果.xlsx'}}}}
   render(<ProjectTaskOutput projectId="p" task={task as never}/>)
-  fireEvent.click(screen.getByRole('button',{name:'查看完整报告'}))
+  fireEvent.click(screen.getAllByRole('button',{name:'查看当前文件（版本未确认）'})[0])
   expect(await screen.findByRole('heading',{name:'本次报告'})).toBeVisible()
   expect(fetch).toHaveBeenCalledWith('/api/platform/api/v1/applications/p/workspace/files/results/run-1/%E7%8E%B0%E5%9C%BA%E6%8A%A5%E5%91%8A.md',expect.anything())
   expect(api).not.toHaveBeenCalled()

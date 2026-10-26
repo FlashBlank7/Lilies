@@ -1,0 +1,131 @@
+{
+  "date": "2026-10-23",
+  "branch": "codex/http-workflow-recovery-20261023",
+  "dependency_commit": "bc4d47f1",
+  "real_model_calls": 0,
+  "synthetic_service_contracts": 16,
+  "media_records": 13,
+  "full_backend": {
+    "status": "finished",
+    "total": 5672,
+    "failed": 0,
+    "skipped": 67,
+    "seconds": 1330.79
+  },
+  "http_acceptance": {
+    "status": "finished",
+    "total": 27,
+    "failed": 0,
+    "skipped": 0,
+    "seconds": 239.07
+  },
+  "browser_resume": {
+    "task_id": "7c259b52-c799-4dc5-9503-8665a7b5a879",
+    "previous_task_id": "7c259b52-c799-4dc5-9503-8665a7b5a879",
+    "status": "succeeded",
+    "initial_status": "failed",
+    "created_at": "2026-10-23T05:09:09.519077+00:00",
+    "completed_at": "2026-10-23T05:17:07.557613+00:00",
+    "run_ids": [
+      "cd113f47-cfa2-40af-9090-913693eb5a33"
+    ],
+    "revisions": [
+      1
+    ],
+    "initial_effects": 5,
+    "final_effects": 16,
+    "delete_requests": 4,
+    "checks": [
+      {
+        "name": "文件删除",
+        "actual": 4,
+        "operator": "equals",
+        "expected": 4,
+        "passed": true,
+        "message": ""
+      },
+      {
+        "name": "取消监控",
+        "actual": 4,
+        "operator": "equals",
+        "expected": 4,
+        "passed": true,
+        "message": ""
+      },
+      {
+        "name": "下载任务移除",
+        "actual": 4,
+        "operator": "equals",
+        "expected": 4,
+        "passed": true,
+        "message": ""
+      },
+      {
+        "name": "处理日志",
+        "actual": 4,
+        "operator": "equals",
+        "expected": 4,
+        "passed": true,
+        "message": ""
+      }
+    ]
+  },
+  "browser_repair": {
+    "task_id": "d9f2b0d3-5d6f-4e9d-9c9a-5f6a75b41a0e",
+    "previous_task_id": "d966d65c-f6f9-4c64-9833-eee1700bbefe",
+    "status": "succeeded",
+    "initial_status": "failed",
+    "created_at": "2026-10-23T05:35:47.470502+00:00",
+    "completed_at": "2026-10-23T05:36:06.678902+00:00",
+    "run_ids": [
+      "03411449-c0f1-424f-ab12-999ac61640c7"
+    ],
+    "revisions": [
+      2
+    ],
+    "initial_effects": 5,
+    "final_effects": 16,
+    "delete_requests": 4,
+    "checks": [
+      {
+        "name": "文件删除",
+        "actual": 4,
+        "operator": "equals",
+        "expected": 4,
+        "passed": true,
+        "message": ""
+      },
+      {
+        "name": "取消监控",
+        "actual": 4,
+        "operator": "equals",
+        "expected": 4,
+        "passed": true,
+        "message": ""
+      },
+      {
+        "name": "下载任务移除",
+        "actual": 4,
+        "operator": "equals",
+        "expected": 4,
+        "passed": true,
+        "message": ""
+      },
+      {
+        "name": "处理日志",
+        "actual": 4,
+        "operator": "equals",
+        "expected": 4,
+        "passed": true,
+        "message": ""
+      }
+    ]
+  },
+  "browser_result_link": {
+    "previous_task_id": "8149313e-ebc9-4087-a454-c05721ccb5c6",
+    "new_task_id": "2492ff81-6afc-47dd-a6f3-11083a57fbe5",
+    "url_updated": true,
+    "new_result_visible_after_reload": true,
+    "read_only": true
+  }
+}

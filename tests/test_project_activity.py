@@ -2,41 +2,37 @@
 import asyncio
 import json
 import time
-from tests.test_projects import configured, graph, node, edge  # noqa: F401
+from tests.test_projects import configured, graph, node, edge, ref  # noqa: F401
 from tests.test_project_conversation import configure_agent, TestSession, put_progress, item
 from tests.test_local_agents import settled
 
 
-def test_python_exit_failure_and_repair_are_visible_without_another_workflow(configured, monkeypatch):
-    """Real offline Docker execution; only the conversation model is replaced."""
+def test_workflow_code_failure_and_success_are_visible_via_installed_calls(configured, monkeypatch):
+    """Actual offline code runs via human-installed workflows, never direct code tools."""
     from agent_platform.project_metrics import session_metrics
-    results = []
-
+    results, targets = [], []
     class Repair(TestSession):
         async def turn(self, message, on_event, on_tool, **kwargs):
-            results.append(await on_tool('project_code', {'code':
-                'print("准备读取数据")\nopen("requirement-package/missing.csv").read()'}))
-            assert results[-1]['exit_code'] != 0
-            results.append(await on_tool('project_code', {'code':
-                'import sys\nprint("业务提示，不是执行失败", file=sys.stderr)\nprint(2 + 3)'}))
-            assert results[-1]['exit_code'] == 0
-            return {'status': 'completed'}
-
+            for target in targets:
+                results.append(await on_tool('project_calls', {'action':'start','workflow_id':target}))
+            return {'status':'completed'}
     client, app, project, _, base = configure_agent(configured, monkeypatch, Repair)
-    client.post(base + '/conversation/messages', json={'message': '检查失败原因，修正后继续计算'}).raise_for_status()
-    state = settled(client, base)
-    assert state['status'] == 'idle', state['error']
-    activity = client.get(base + '/conversation?kind=activity').json()['events']
-    ended = [op for op in activity if op['tool_name'] == 'project_code' and op['ended_at']]
-    assert [op['status'] for op in ended] == ['failed', 'completed']
-    assert all(op['title'] == '执行项目代码' for op in ended)
-    assert '退出码 1' in ended[0]['summary'] and 'missing.csv' in ended[0]['summary']
-    assert [json.loads(op['result']) for op in ended] == results
-    assert results[1]['stdout'].strip() == '5'
-    assert '不是执行失败' in results[1]['stderr']
-    metrics = session_metrics(app.state.services.local_agents.load(project['id'])['events'])
-    assert metrics['requests'][0]['tool_failures'] == 1
-    assert client.get(base + '/tasks').json() == []
+    good=client.post(base+'/members',json={'name':'正常计算'}).json()['id']
+    targets.extend([project['id'],good])
+    for target,code in zip(targets,["def main(inputs):\n    return open('missing.csv').read()", "def main(inputs):\n    return {'quantity':2+3}"]):
+        graph(client,target,[node('s','start'),node('code','code',code=code),node('e','end',outputs={'result':ref('code','output')})],[edge('s','code'),edge('code','e')])
+    client.post(base+'/conversation/messages',json={'message':'运行两条已加入流程，说明失败和结果'}).raise_for_status()
+    state=settled(client,base)
+    assert state['status']=='idle',state['error']
+    assert [r['status'] for r in results]==['failed','succeeded']
+    assert 'missing.csv' in results[0]['error']
+    assert results[1]['outputs']['result']=={'quantity':5}
+    ended=[op for op in client.get(base+'/conversation?kind=activity').json()['events'] if op['tool_name']=='workflow_run' and op['ended_at']]
+    assert [op['status'] for op in ended]==['failed','completed']
+    assert all(op['title']=='运行工作流' for op in ended)
+    assert len({op['task_id'] for op in ended})==2
+    metrics=session_metrics(app.state.services.local_agents.load(project['id'])['events'])
+    assert metrics['requests'][0]['tool_failures']==1
 
 
 def test_activity_has_stable_operations_scopes_and_incremental_pages(configured, monkeypatch):
@@ -86,7 +82,9 @@ def test_batch_edits_and_progress_patches_are_presented_as_writes(configured, mo
                 'expected_revision': draft['revision'], 'expected_content_hash': draft['content_hash'],
                 'idempotency_key': 'edit-output', 'operations': [{'op': 'update_node', 'data': {
                     'node_id': 'e', 'changes': {'config': {'outputs': {'quantity': 3}}}, 'merge_config': False}}]}})
-            run = await on_tool('workflow_run', {'action': 'start', 'inputs': {}})
+            # The test driver performs the human project-space action after the edit.
+            await asyncio.to_thread(client.put,base+'/space/workflows/'+project['id']+'/assistant-callable',json={'enabled':True})
+            run = await on_tool('project_calls', {'action': 'start', 'inputs': {}})
             assert run['outputs'] == {'quantity': 3}
             progress = await on_tool('project_progress', {})
             await on_tool('project_progress', {'action': 'patch', 'expected_revision': progress['revision'],
@@ -171,8 +169,8 @@ def test_saved_test_activity_links_real_task_and_stays_in_development(configured
     class SavedTest(TestSession):
         async def turn(self, message, on_event, on_tool, **kwargs):
             await on_tool('project_action', {'action': 'build', 'item_id': 'allocate'})
-            report = await on_tool('workflow_run', {'action': 'tests'})
-            assert report['passed']
+            observed = await on_tool('project_calls', {'action': 'inspect','task_id':report['project_task_id']})
+            assert observed['outputs']['passed']
             await on_tool('project_task_result', {'task_id': report['project_task_id'], 'status': 'succeeded', 'message': '建设测试通过'})
             progress = await on_tool('project_progress', {'view': 'full'})
             progress['value']['items'][0]['status'] = 'done'
@@ -186,7 +184,10 @@ def test_saved_test_activity_links_real_task_and_stays_in_development(configured
     assert client.post(path, json={'expected_revision': draft['revision'], 'idempotency_key': 'saved-test', 'op': 'add_test',
         'data': {'test': {'id': 'quantity', 'name': '数量', 'requirement': '返回2', 'inputs': {},
                           'assertions': [{'path': ['quantity'], 'operator': 'equals', 'expected': 2}]}}}).status_code == 200
-    client.post(base + '/conversation/messages', json={'message': '运行保存测试'})
+    # Saved tests are run by the project user; the assistant reads the resulting task.
+    report=client.post(base+'/members/'+project['id']+'/tests/run').json()
+    assert report['passed'],report
+    client.post(base + '/conversation/messages', json={'message': '查看已运行的保存测试'})
     state = settled(client, base)
     assert state['status'] == 'idle', state['error']
     operations = [op for op in client.get(base + '/conversation?kind=activity').json()['events'] if op['tool_name'] == 'workflow_run']
@@ -203,13 +204,13 @@ def test_concurrent_tool_calls_keep_separate_task_associations(configured, monke
     class Concurrent(TestSession):
         async def turn(self, message, on_event, on_tool, **kwargs):
             await on_tool('project_action', {'action': 'build', 'item_id': 'allocate'})
-            await asyncio.gather(*(on_tool('workflow_run', {'action': 'start', 'workflow_id': target, 'inputs': {}}) for target in targets))
+            await asyncio.gather(*(on_tool('project_calls', {'action': 'start', 'workflow_id': target, 'inputs': {}}) for target in targets))
             progress = await on_tool('project_progress', {'view': 'full'})
             progress['value']['items'][0]['status'] = 'done'
             await on_tool('project_progress', {'action': 'update', 'expected_revision': progress['revision'], 'value': progress['value']})
             return {'status': 'completed'}
     client, app, project, _, base = configure_agent(configured, monkeypatch, Concurrent)
-    member = client.post(base + '/members', json={'name': '第二条测试流程', 'purpose': 'test'}).json()['id']
+    member = client.post(base + '/members', json={'name': '第二条业务流程', 'purpose': 'business'}).json()['id']
     targets.extend([project['id'], member])
     put_progress(client, base, [item()])
     for quantity, target in enumerate(targets, 1):

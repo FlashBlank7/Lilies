@@ -145,7 +145,7 @@ class ProjectStore:
             # Existing projects remain unclassified until their owner/agent explicitly labels them.
             for table, columns in {
                 'projects': {'agent_modules_enabled': "INTEGER NOT NULL DEFAULT 0"},
-                'project_members': {'purpose': "TEXT NOT NULL DEFAULT 'unclassified'"},
+                'project_members': {'purpose': "TEXT NOT NULL DEFAULT 'unclassified'", 'assistant_callable': 'INTEGER NOT NULL DEFAULT 1'},
                 'project_tasks': {'purpose': "TEXT NOT NULL DEFAULT 'unclassified'",
                                   'item_id': "TEXT NOT NULL DEFAULT ''",
                                   'feedback_task_id': "TEXT NOT NULL DEFAULT ''",
@@ -188,7 +188,7 @@ class ProjectStore:
                 result['agent_modules_enabled'] = bool(result['agent_modules_enabled'])
                 result['main_workflow_id'] = project_id
                 result['members'] = [dict(r) for r in c.execute(
-                    "SELECT a.id,a.name,a.description,d.revision,m.purpose FROM project_members m "
+                    "SELECT a.id,a.name,a.description,d.revision,m.purpose,m.assistant_callable FROM project_members m "
                     "JOIN applications a ON a.id=m.application_id "
                     "JOIN application_drafts d ON d.application_id=a.id "
                     "WHERE m.project_id=? ORDER BY m.created_at,a.id", (project_id,))]
@@ -452,6 +452,13 @@ class ProjectStore:
                           (encode(presentation), utc_now(), task_id))
         await asyncio.to_thread(write)
 
+    async def claim_resume(self, task_id: str) -> bool:
+        def claim():
+            with connect(self.db_path) as db:
+                now = utc_now()
+                return bool(db.execute("UPDATE project_tasks SET status='running',error='',status_changed_at=?,updated_at=? WHERE id=? AND status IN ('waiting_input','interrupted','failed')", (now, now, task_id)).rowcount)
+        return await asyncio.to_thread(claim)
+
     async def update_task(self, task_id: str, *, status: str, outputs: dict | None = None, error: str = ''):
         def update():
             with connect(self.db_path) as c:
@@ -472,7 +479,7 @@ class ProjectStore:
             with connect(self.db_path) as c:
                 return [{**dict(r), 'outputs': json.loads(r['outputs_json']),
                          'inputs': json.loads(r['state_json']).get('inputs', {})} for r in c.execute(
-                    "SELECT r.id,r.application_id,r.status,r.draft_revision,r.outputs_json,r.state_json,r.error,r.created_at,t.step_key "
+                    "SELECT r.id,r.application_id,r.status,r.draft_revision,r.outputs_json,r.state_json,r.error,r.created_at,r.updated_at,t.step_key "
                     "FROM project_task_runs t JOIN workflow_runs r ON r.id=t.run_id "
                     "WHERE t.task_id=? ORDER BY t.created_at", (task_id,))]
         return await asyncio.to_thread(read)

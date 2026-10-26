@@ -88,6 +88,10 @@ class WorkflowNote(Arguments):
 class ProgressValue(Arguments):
     goal: str = Field(default='', max_length=8000)
     summary: str = Field(default='', max_length=4000)
+    platform_scope: str = Field(default='', max_length=4000)
+    external_scope: str = Field(default='', max_length=4000)
+    open_questions: str = Field(default='', max_length=4000)
+    completion: str = Field(default='', max_length=4000)
     items: list[ProgressItem] = Field(default_factory=list, max_length=100)
     workflows: list[WorkflowNote] = Field(default_factory=list, max_length=100)
 
@@ -325,7 +329,7 @@ class ProjectConversation:
                 'last_cursor': page[-1][1]['id'] if page else after,
                 'requirements': load_discussion(self.projects.workspace(project_id))}
 
-    async def action(self, project_id: str, args: ProjectAction) -> dict:
+    async def action(self, project_id: str, args: ProjectAction, *, validate_snapshots=None) -> dict:
         state = self.manager.load(project_id)
         if not state.get('conversation_enabled'):
             raise ValueError('请从项目统一对话入口发起处理')
@@ -401,7 +405,8 @@ class ProjectConversation:
             task = await self.projects.start(project_id, request_key=args.request_key or 'conversation-' + str(uuid4()),
                 workflow_id=args.workflow_id or project_id, inputs=args.inputs, message=args.message,
                 purpose='customer_trial' if args.action == 'trial' else 'business', item_id=item['id'] if item else '',
-                feedback_task_id=args.feedback_task_id or state.get('conversation_context', {}).get('task_id', ''))
+                feedback_task_id=args.feedback_task_id or state.get('conversation_context', {}).get('task_id', ''),
+                validate_snapshots=validate_snapshots)
         state = self.manager.load(project_id)
         state.update(phase='operate', active_item_id=(item or {}).get('id', task.get('item_id', '')),
                      project_task_id=task['id'])

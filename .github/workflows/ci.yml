@@ -18,8 +18,9 @@ jobs:
       fail-fast: false
       matrix:
         python-version: ["3.12", "3.14"]
-    # 全量回归已接近 5000 项；Linux runner 上 20 分钟只能完成约八成。
-    timeout-minutes: 45
+    # 全量回归在 Linux runner 上约 42 分钟，后续还需运行三组 Docker 验收。
+    # 保留所有检查，为环境准备和专项验收预留时间。
+    timeout-minutes: 60
     env:
       MODEL_EGRESS_ENABLED: "false"
       OFFICIAL_AGENT_EGRESS_ENABLED: "false"
@@ -67,6 +68,14 @@ jobs:
         env:
           MODEL_TEST_DOCKER: "1"
         run: pytest tests/test_data_workspace.py tests/test_imported_models.py -q -k "real_selection or saved_excel or real_pipeline"
+      - name: 项目 HTTP 连接与恢复验收
+        env:
+          MEDIA_HTTP_TEST_DOCKER: "1"
+        run: pytest tests/test_media_http_acceptance.py -q
+      - name: 模拟服务、独立调试与串联恢复验收
+        env:
+          SIMULATION_DOCKER: "1"
+        run: pytest tests/test_project_debug_media.py -q
       - name: 保存后端测试结果
         if: always()
         uses: actions/upload-artifact@v4

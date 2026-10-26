@@ -70,6 +70,8 @@ def authorization_dependency(services):
             raise HTTPException(403, '此平台功能仅对管理员开放')
         if path.endswith('/capabilities') and request.method != 'GET':
             raise HTTPException(403, '只有平台管理员可以授权完整智能体能力')
+        if request.method not in {'GET', 'HEAD'} and (path.endswith(('/assistant-source', '/agent-session', '/generation-model')) or (path.endswith('/model-connection/copy') and (await request.json()).get('role', 'main') != 'vision')):
+            raise HTTPException(403, '项目助手由平台管理员在后台配置')
         settings_change = (path.endswith(('/agent-session', '/vision-model', '/generation-model', '/embedding-model', '/model-connection/copy'))
                            and request.method not in {'GET', 'HEAD'})
         if settings_change and any(role not in {'owner', 'admin'} for role in roles):
@@ -78,6 +80,9 @@ def authorization_dependency(services):
             body = await request.json()
             if (path.endswith(('/agent-session', '/vision-model', '/generation-model')) and body.get('provider') != 'api') or body.get('executable'):
                 raise HTTPException(403, '本机智能体和执行程序需由平台管理员配置')
+
+        if '/http-connections' in path and request.method not in {'GET', 'HEAD'} and any(role not in {'owner', 'admin'} for role in roles):
+            raise HTTPException(403, '只有项目负责人和管理员可以配置服务连接')
 
         if params.get('project_id'):
             return

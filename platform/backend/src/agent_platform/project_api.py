@@ -85,16 +85,22 @@ class NewTask(Body):
     mode: Literal['workflow', 'agent'] = 'workflow'
     workflow_id: str = ''
     inputs: dict[str, Any] = Field(default_factory=dict)
+    service_bindings: dict[str, str] = Field(default_factory=dict)
     message: str = Field(default='', max_length=8000)
     purpose: Literal['build_test', 'customer_trial', 'business'] = 'business'
     item_id: str = ''
     feedback_task_id: str = ''
     reuse_task_id: str = ''
+    recovery_task_id: str = ''
 
 
 class RecordUpdate(Body):
     value: dict[str, Any]
     expected_revision: int = Field(ge=0, strict=True)
+
+
+class ProjectTestSelection(Body):
+    case_ids: list[str] | None = None
 
 
 class Supplement(Body):
@@ -253,8 +259,8 @@ def project_router(services, require_token):
         return {'removed': workflow_id}
 
     @scoped.post('/members/{workflow_id}/tests/run')
-    async def test_project_member(project_id: str, workflow_id: str):
-        return await invoke(projects.test_workflow, project_id, workflow_id)
+    async def test_project_member(project_id: str, workflow_id: str, body: ProjectTestSelection | None = None):
+        return await invoke(projects.test_workflow, project_id, workflow_id, body.case_ids if body else None)
 
     @scoped.get('/requirement-package')
     async def package_files(project_id: str):
@@ -402,6 +408,20 @@ def project_router(services, require_token):
     async def task(project_id: str, task_id: str):
         return await invoke(projects.task, project_id, task_id)
 
+    @scoped.get('/tasks/{task_id}/deliveries/{run_id}/{digest}')
+    async def delivery_file(project_id: str, task_id: str, run_id: str, digest: str, name: str = 'result'):
+        from pathlib import PurePosixPath
+        from fastapi.responses import FileResponse
+        await invoke(projects.store.get_task, project_id, task_id)
+        runs = await projects.store.runs(task_id)
+        if not any(run['id'] == run_id for run in runs):
+            raise HTTPException(404, '本次任务没有此结果文件')
+        try:
+            path = projects.deliveries.download(project_id, task_id, run_id, digest)
+        except (FileNotFoundError, ValueError) as error:
+            raise HTTPException(404, str(error)) from error
+        return FileResponse(path, filename=PurePosixPath(name).name)
+
     async def require_task_conversation(project_id, task_id, request):
         task = await invoke(projects.store.get_task, project_id, task_id)
         if task['mode'] == 'agent':
@@ -443,5 +463,9 @@ def project_router(services, require_token):
     register_space_routes(scoped, services, invoke)
     from .data_workspace import register_data_workspace_routes
     register_data_workspace_routes(scoped, services, invoke)
+    from .project_http_connections import register_connection_routes
+    register_connection_routes(scoped, services, invoke)
+    from .project_debug import register_debug_routes
+    register_debug_routes(scoped, services, invoke)
     router.include_router(scoped)
     return router

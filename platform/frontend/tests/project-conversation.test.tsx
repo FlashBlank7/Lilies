@@ -412,7 +412,7 @@ it.each([false,true])('hands the selected training result to a prepared workflow
   })
   await act(async()=>{render(<Suspense><ProjectPage params={Promise.resolve({id:'p'})}/></Suspense>)})
   if(existing)fireEvent.change(await screen.findByLabelText('给项目统筹的消息'),{target:{value:'已有草稿，请保留'}})
-  else await screen.findByText('新建会话，开始分析资料、训练模型或搭建工作流。')
+  else await screen.findByText('新建会话，调用项目已有能力，或请助手协助搭建工作流。')
   expect(vi.mocked(api).mock.calls.some(([,options])=>options?.method)).toBe(false)
   fireEvent.click(screen.getByRole('tab',{name:'模型'}))
   fireEvent.click(await screen.findByRole('button',{name:'查看结果'}))

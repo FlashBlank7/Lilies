@@ -3,8 +3,10 @@ from pydantic import BaseModel, ConfigDict, Field
 from .presentation_workflow import GUIDE as PRESENTATION_GUIDE, source_code
 from .research_guidance import RESEARCH_SKILL
 from .modeling_guidance import MODELING_SKILL
+from .http_workflow_guidance import HTTP_WORKFLOW_GUIDE
 
 DEFAULT_SKILLS = {
+    'http_workflows': {'name': '工作流拆分、模拟调试与失败恢复', 'description': '明确边界、独立调试、串联验证；完整分页、稳定对象、结果回读与恢复。', 'content': HTTP_WORKFLOW_GUIDE, 'references': {}},
     'research': RESEARCH_SKILL,
     'presentation': {'name':'报告与演示文稿','description':'把已有分析整理为可编辑PPTX和PDF，保留数字、出处与限制；可以直接制作，也可以使用工作流。',
         'content':PRESENTATION_GUIDE,'references':{'render.py':source_code()}},

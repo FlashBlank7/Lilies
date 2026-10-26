@@ -714,6 +714,11 @@ class WorkflowStorage:
             revision = expected_revision + 1
             content_hash = snapshot.content_hash()
             content_changed = content_hash != row["content_hash"]
+            from .project_capabilities import assistant_edit
+            if content_changed and assistant_edit.get():
+                # The draft update and invocation removal commit together. Failed
+                # edits and idempotent replays must not change human selections.
+                conn.execute('UPDATE project_members SET assistant_callable=0 WHERE application_id=?', (application_id,))
             invalidated_at = row["evidence_invalidated_at"]
             invalidated_revision = row["evidence_invalidated_revision"]
             change_summary = self._json_list(row["evidence_change_summary_json"])
@@ -1705,6 +1710,15 @@ class WorkflowStorage:
                    WHERE status IN ('queued','building')""",
                 (utc_now(),),
             )
+
+    async def claim_resume(self, run_id: str, state: WorkflowRunState) -> bool:
+        def claim():
+            from .db import connect
+            with connect(self.storage.db_path) as db:
+                return bool(db.execute("UPDATE workflow_runs SET status='queued',state_json=?,error=NULL,outputs_json='{}' WHERE id=? AND status IN ('paused','failed','cancelled')",
+                    (state.model_dump_json(exclude_none=True), run_id)).rowcount)
+        async with self._lock:
+            return await asyncio.to_thread(claim)
 
     async def update_run(
         self,

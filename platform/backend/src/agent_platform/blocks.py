@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from .http_workflow_guidance import HTTP_WORKFLOW_GUIDE
+
 import difflib
 import json
 import re
@@ -213,9 +215,21 @@ class VariableAggregatorConfig(BaseModel):
     mode: Literal["first_non_null", "array", "merge"] = "first_non_null"
 
 
+class HTTPOutcomeQuery(BaseModel):
+    path: Any
+    query: dict[str, Any] = Field(default_factory=dict)
+    result_path: list[str | int] = Field(default_factory=list)
+    completed_value: Any = True
+    not_applied_value: Any = False
+
+
 class HTTPConfig(BaseModel):
-    method: Literal["GET", "POST", "PUT", "PATCH", "DELETE"] = "GET"
-    url: Any
+    method: Literal["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"] = "GET"
+    url: Any = ""
+    connection_id: str = ""
+    service_ref: str = ""
+    path: Any = "/"
+    outcome_query: HTTPOutcomeQuery | None = None
     headers: dict[str, Any] = Field(default_factory=dict)
     query: dict[str, Any] = Field(default_factory=dict)
     body: Any = None
@@ -365,7 +379,13 @@ def validate_human_values(config: HumanInputConfig, values: dict) -> dict:
     return values
 
 
+class ResultCheck(Condition):
+    name: str = Field(min_length=1, max_length=200)
+    failure_message: str = "结果未满足预期"
+
+
 class EndConfig(BaseModel):
+    checks: list[ResultCheck] = Field(default_factory=list)
     outputs: dict[str, Any] = Field(default_factory=dict, description='工作流输出字段，可使用变量引用。任务页正文使用 markdown 字符串；下载文件使用 artifacts 数组，每项含 file_path（results/ 或 solution/ 下的项目相对路径）和 label。其他业务字段可按需保留。')
 
 
@@ -580,9 +600,17 @@ _EDITOR_FIELDS: dict[str, list[dict[str, Any]]] = {
         {"path": "settings.tools", "label": "Available tools", "label_zh": "可用工具", "control": "string_list", "description": "One registered tool name per line."},
         {"path": "settings.output_format", "label": "Output format", "label_zh": "输出格式", "control": "enum", "options": ["text", "json"]},
     ],
+    "end": [
+        {"path": "outputs", "label": "Outputs", "label_zh": "输出内容", "control": "json"},
+        {"path": "checks", "label": "Result checks", "label_zh": "结果检查", "control": "json", "description_zh": "可选。根据本次回读结果检查目标；未通过或缺少结果时不显示完成。"},
+    ],
     "http_request": [
-        {"path": "method", "label": "HTTP method", "label_zh": "HTTP 方法", "control": "enum", "options": ["GET", "POST", "PUT", "PATCH", "DELETE"], "required": True},
-        {"path": "url", "label": "URL", "label_zh": "请求 URL", "control": "reference_or_text", "description": "Literal URL or a workflow value reference.", "required": True},
+        {"path": "connection_id", "label": "Service connection", "label_zh": "服务连接", "control": "text"},
+        {"path": "service_ref", "label": "Logical service", "label_zh": "逻辑服务引用（运行时绑定）", "control": "text"},
+        {"path": "path", "label": "Relative path", "label_zh": "相对路径", "control": "reference_or_text", "description_zh": "例如 /items；仅允许连接中配置的路径和方法。"},
+        {"path": "outcome_query", "label": "Outcome query", "label_zh": "响应丢失后的结果查询", "control": "json", "description_zh": "可选 GET 查询：path、query、result_path、completed_value、not_applied_value。无法确认时停止重发。"},
+        {"path": "method", "label": "HTTP method", "label_zh": "HTTP 方法", "control": "enum", "options": ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"], "required": True},
+        {"path": "url", "label": "URL", "label_zh": "独立工作流 URL", "control": "reference_or_text", "description_zh": "保留用于旧的独立工作流；项目调用请选择上方服务连接。"},
         {"path": "headers", "label": "Headers", "label_zh": "请求头", "control": "json"},
         {"path": "query", "label": "Query parameters", "label_zh": "查询参数", "control": "json"},
         {"path": "body", "label": "Request body", "label_zh": "请求体", "control": "json"},
@@ -2375,7 +2403,7 @@ class BlockRegistry:
                 reference = value.get("$ref")
                 if isinstance(reference, dict) and not reference.get("optional"):
                     target = str(reference.get("node_id") or "")
-                    if target and target not in ("$inputs", "$run") and target not in known:
+                    if target and target not in ("$inputs", "$run", "$recovery", "$operation") and target not in known:
                         found.append(f"{node_id}: 引用了不存在的节点「{target}」")
                 for key, item in value.items():
                     # 不进嵌套子图：iteration/loop 的 config.workflow 是另一张图，
@@ -2850,39 +2878,13 @@ def build_block_registry() -> BlockRegistry:
         (_definition("variable_assigner", "Variable Assigner", "Create named values; $formula does business arithmetic in one readable line — the audit-safe alternative to LLM math.", "transform", VariableAssignerConfig, inputs=[("input", ValueType.any)], outputs=[("output", ValueType.object)], manual=_computed_assignment_manual()), VariableAssignerConfig),
         (_definition("variable_aggregator", "Variable Aggregator", "Join branch values.", "transform", VariableAggregatorConfig, inputs=[("input", ValueType.any)], outputs=[("output", ValueType.any)]), VariableAggregatorConfig),
         (_definition("http_request", "HTTP Request", "Call an external HTTP endpoint.", "integration", HTTPConfig, inputs=[("input", ValueType.any)], outputs=[("output", ValueType.object)], retry=True, error_branch=True, manual={
-            "summary": (
-                "Call an external HTTP endpoint. Auth credentials MUST be platform secret "
-                "references — the secret policy blocks any literal token in headers/query/body."
-            ),
-            "when_to_use": [
-                "Use HTTP Request to integrate customer systems (ERP/CRM/data APIs) documented by the owner.",
-                "Use one node per endpoint; paginated APIs need a loop (iteration) that walks every page until total_pages.",
-            ],
-            "examples": [{
-                "description": "Bearer-auth GET with a platform secret reference (never paste the raw token)",
-                "connection": "start -> http_request -> ...",
-                "config": {
-                    "method": "GET",
-                    "url": "https://erp.example.com/api/data",
-                    "headers": {"Authorization": {"$secret": "ERP_TOKEN"}},
-                    "query": {"date": {"$ref": {"node_id": "start", "path": ["date"]}}},
-                    "timeout_seconds": 30,
-                },
-            }],
-            "anti_patterns": [
-                "Writing a literal 'Bearer xxx' token into headers — the run fails with a secret-policy violation.",
-                "Fetching only page 1 of a paginated API and assuming it is complete.",
-            ],
-            "common_errors": [
-                "secret policy blocked http:...: forbidden secret field — store the credential in the platform "
-                "secret store (value should be the FULL header value, e.g. 'Bearer xxx') and reference it as "
-                "{\"Authorization\": {\"$secret\": \"SECRET_NAME\"}}. The owner's IT usually tells you the secret name.",
-                "Write endpoints of business systems often demand an idempotency header; read the owner's API doc.",
-            ],
-            "claude_architecture_mapping": "Tool call against a customer-documented HTTP API.",
-            "composability_constraints": [
-                "Secret references resolve at runtime only; drafts and transcripts never contain the raw credential.",
-            ],
+            "summary": "项目使用服务连接与相对路径；凭据由后端注入。独立工作流保留 URL 配置。\n" + HTTP_WORKFLOW_GUIDE,
+            "when_to_use": ["调用已配置服务，每个 HTTP 节点负责一次请求。", "分页、匹配和业务判断由流程明确编排，Python 仅处理数据。"],
+            "examples": [{"description": "项目连接读取", "config": {"connection_id": "项目连接 ID", "path": "/records", "method": "GET", "query": {"page": 1}}}],
+            "common_errors": ["项目中的旧 URL 或 $secret 配置需改为服务连接；不要扩大网络权限。", "写入不确定时查询结果，不要重新生成幂等键重发。"],
+            "anti_patterns": ["只读首页、按标题匹配、将文件不存在当作全部完成。"],
+            "claude_architecture_mapping": "外部 HTTP 工具调用",
+            "composability_constraints": ["项目连接固定范围；Python 节点禁网。"],
         }), HTTPConfig),
         (
             _definition(

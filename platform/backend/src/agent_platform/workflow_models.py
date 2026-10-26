@@ -223,6 +223,7 @@ class WorkflowTestCase(BaseModel):
     requirement: str
     frame: TestFrameSpec | None = None
     inputs: dict[str, Any] = Field(default_factory=dict)
+    debug: dict[str, Any] = Field(default_factory=dict, description='Optional simulation bindings and frozen sample origin.')
     simulated_human_inputs: dict[str, dict[str, Any]] = Field(
         default_factory=dict,
         max_length=100,
@@ -432,6 +433,9 @@ class WorkflowRunState(BaseModel):
     # and process recovery instead of relying on an in-memory call stack.
     application_call_chain: list[str] = Field(default_factory=list, max_length=16)
     outputs: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    # File copies travel with completed steps through pause/restart/recovery.
+    delivery_steps: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)
+    delivery_resumed: bool = False
     completed: list[str] = Field(default_factory=list)
     reuse_checkpoints: dict[str, dict[str, Any]] = Field(default_factory=dict)
     reuse_source_run_id: str | None = None
@@ -439,6 +443,9 @@ class WorkflowRunState(BaseModel):
     skipped: list[str] = Field(default_factory=list)
     # Each loop/iteration occurrence keeps its own completed steps on resume.
     nested_progress: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    http_operations: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    result_checks: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)
+    completion_error: str = ''
     waiting_node_id: str | None = None
     waiting_form: dict[str, Any] | None = None
     resumed_values: dict[str, Any] | None = None

@@ -9,7 +9,7 @@ export type WorkflowFieldProps = {
   value: string; onChange: (value: string) => void; nodes: FieldNode[]; edges?: FieldEdge[]; blocks?: Block[]
   nodeId: string; label: string; projectId?: string; field?: string; allowReference?: boolean; disabled?: boolean; modelRole?: string
 }
-const resourceFields = new Set(['model_ref', 'knowledge_ref', 'dataset_id', 'model', 'file_path', 'source_path', 'labels_path', 'features.transformer_path'])
+const resourceFields = new Set(['model_ref', 'knowledge_ref', 'dataset_id', 'model', 'file_path', 'source_path', 'labels_path', 'features.transformer_path', 'connection_id'])
 const fileFields = new Set(['file_path', 'source_path', 'labels_path', 'features.transformer_path'])
 
 export function WorkflowValueField({ value, onChange, nodes, edges = [], blocks = [], nodeId, label, projectId, field, allowReference = true, disabled = false, modelRole = 'main' }: WorkflowFieldProps) {
@@ -24,7 +24,7 @@ export function WorkflowValueField({ value, onChange, nodes, edges = [], blocks 
     setOptions([]); setError(false); setLoading(false)
     if (!projectId || !resource) return
     let active = true
-    const route = field === 'knowledge_ref' ? '/knowledge' : field === 'model_ref' ? '/models' : field === 'dataset_id' ? '/datasets?limit=100' : field === 'model' ? (modelRole === 'vision' ? '/vision-model' : '/agent-session') : ''
+    const route = field === 'connection_id' ? '/http-connections' : field === 'knowledge_ref' ? '/knowledge' : field === 'model_ref' ? '/models' : field === 'dataset_id' ? '/datasets?limit=100' : field === 'model' ? (modelRole === 'vision' ? '/vision-model' : '/agent-session') : ''
     const url = fileFields.has(field || '') ? `/api/v1/applications/${projectId}/workspace/files` : `/api/v1/projects/${projectId}${route}`
     setLoading(true)
     void api<unknown>(url).then(data => {
@@ -37,7 +37,7 @@ export function WorkflowValueField({ value, onChange, nodes, edges = [], blocks 
   const selectable = upstreamNodes(nodes, edges, nodeId)
   const selectedNode = nodes.find(node => reference?.node_id === '$inputs' ? ['start', 'schedule_trigger', 'event_subscription_trigger'].includes(node.type) : node.id === reference?.node_id)
   const paths = outputPaths(selectedNode, blocks)
-  const unknownSource = reference && reference.node_id !== '$inputs' && !selectable.some(node => node.id === reference.node_id)
+  const unknownSource = reference && !['$inputs','$recovery','$operation'].includes(reference.node_id) && !selectable.some(node => node.id === reference.node_id)
   function setRef(id: string, path: (string | number)[]) { onChange(JSON.stringify({ $ref: { node_id: id, path } })) }
   return <span className={styles.field}>
     {allowReference && <select disabled={disabled} aria-label={`${label}的来源`} value={reference ? 'reference' : 'literal'} onChange={event => event.target.value === 'literal' ? onChange('') : setRef(selectable[0]?.id || '$inputs', [])}>
@@ -45,7 +45,7 @@ export function WorkflowValueField({ value, onChange, nodes, edges = [], blocks 
     </select>}
     {reference ? <>
       <select disabled={disabled} aria-label={`${label}的节点`} value={reference.node_id} onChange={event => setRef(event.target.value, [])}>
-        <option value="$inputs">本次运行输入</option>{unknownSource && <option value={reference.node_id}>{selectedNode?.title || reference.node_id} · 未连接为上游</option>}
+        <option value="$inputs">本次运行输入</option><option value="$recovery">修复运行的原任务上下文</option><option value="$operation">当前 HTTP 操作（结果查询用）</option>{unknownSource && <option value={reference.node_id}>{selectedNode?.title || reference.node_id} · 未连接为上游</option>}
         {selectable.map(node => <option key={node.id} value={node.id}>{node.title}</option>)}
       </select>
       {unknownSource && <small role="status">此引用尚未连接为上游；请先连线或重新选择。</small>}

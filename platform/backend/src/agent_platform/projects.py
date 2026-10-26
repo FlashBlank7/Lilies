@@ -5,6 +5,7 @@ import asyncio
 import hashlib
 import json
 from collections.abc import Callable
+from contextlib import asynccontextmanager
 from uuid import uuid4
 
 from fastapi.encoders import jsonable_encoder
@@ -33,6 +34,12 @@ class Projects:
         self.conversation = ProjectConversation(services, self)
         from .project_knowledge import ProjectKnowledge
         self.knowledge = ProjectKnowledge(services)
+        from .project_http_connections import ProjectHTTPConnections
+        self.http_connections = ProjectHTTPConnections(services)
+        from .project_debug import ProjectDebug
+        self.debug = ProjectDebug(services)
+        from .run_deliveries import RunDeliveries
+        self.deliveries = RunDeliveries(services.settings.data_dir)
 
     def workspace(self, project_id: str):
         # Project id is the id of its main application; legacy application paths remain valid.
@@ -53,6 +60,8 @@ class Projects:
     async def initialize(self):
         await self.store.initialize()
         await self.knowledge.initialize()
+        await self.http_connections.initialize()
+        await self.debug.initialize()
         for project in await self.store.list():
             self.services.sandboxes.protect_inputs(self.workspace(project['id']), ['requirement-package', 'requirements'])
         from .example_projects import refresh_example_defaults
@@ -106,7 +115,9 @@ class Projects:
         resources = {m['model_ref']: m for m in await model_resources(self.services, project_id)}
         knowledge = {k['knowledge_ref']: k['active_version'] if k['status'] == 'ready' else ''
                      for k in await self.knowledge.list(project_id)}
+        connections = {c['id']: c for c in await self.http_connections.list(project_id)}
         for snapshot in snapshots.values():
+            snapshot['http_connections'] = connections
             snapshot['model_resources'] = resources
             snapshot['knowledge_resources'] = knowledge
         return snapshots
@@ -143,6 +154,10 @@ class Projects:
         for run in task['runs']:
             run.pop('outputs_json', None)
             state = json.loads(run.pop('state_json'))
+            run['name'] = state.get('snapshot', {}).get('name') or run['application_id']
+            run['delivery_files'] = await asyncio.to_thread(self.deliveries.files, project_id, task_id, run)
+            run['result_checks'] = state.get('result_checks', {})
+            run['pending_operations'] = [op for op in state.get('http_operations', {}).values() if op['status'] in {'sending', 'unknown'}]
             run['reuse'] = {'source_run_id': state.get('reuse_source_run_id'),
                            'nodes': state.get('reused_nodes', []),
                            'titles': [n['title'] for n in state['snapshot']['workflow']['nodes']
@@ -157,7 +172,8 @@ class Projects:
     async def start(self, project_id: str, *, request_key: str, mode: str = 'workflow',
                     workflow_id: str = '', inputs: dict | None = None, message: str = '',
                     purpose: str = 'business', item_id: str = '', feedback_task_id: str = '',
-                    reuse_task_id: str = '',
+                    reuse_task_id: str = '', recovery_task_id: str = '',
+                    service_bindings: dict[str, str] | None = None,
                     validate_snapshots: Callable[[dict], None] | None = None) -> dict:
         workflow_id = workflow_id or project_id
         await self.member(project_id, workflow_id)
@@ -174,6 +190,12 @@ class Projects:
                 if self.services.local_agents.load(project_id).get('provider') != 'api':
                     raise ProjectConflict('请先连接项目模型')
             snapshots = await self.freeze(project_id)
+            if service_bindings:
+                known = next(iter(snapshots.values()), {}).get('http_connections', {})
+                if any(cid not in known for cid in service_bindings.values()):
+                    raise ValueError('逻辑服务只能绑定本项目已有连接')
+                for frozen in snapshots.values():
+                    frozen['service_bindings'] = service_bindings
             if reuse_task_id and not existing:
                 source = await self.store.get_task(project_id, reuse_task_id)
                 if mode != 'workflow' or source['mode'] != 'workflow' or source['workflow_id'] != workflow_id:
@@ -186,6 +208,29 @@ class Projects:
                 if not main:
                     raise ValueError('原任务没有可供复用的工作流运行')
                 snapshots[workflow_id]['reuse_source_run_id'] = main['id']
+            if recovery_task_id and not existing:
+                if reuse_task_id:
+                    raise ValueError('修复运行与按当前配置复用重算不能同时选择')
+                source = await self.store.get_task(project_id, recovery_task_id, snapshots=True)
+                if mode != 'workflow' or source['mode'] != 'workflow' or source['workflow_id'] != workflow_id:
+                    raise ValueError('修复运行只能引用同项目、同工作流的历史任务')
+                if source['status'] not in {'failed', 'interrupted'}:
+                    raise ValueError('请选择已经停止的失败或中断任务')
+                recovery = {'task_id': recovery_task_id, 'workflow_id': workflow_id,
+                            'inputs': source['inputs'], 'runs': []}
+                for previous in await self.store.runs(recovery_task_id):
+                    state = json.loads(previous['state_json'])
+                    recovery['runs'].append({'run_id': previous['id'], 'workflow_id': previous['application_id'],
+                        'completed': state.get('completed', []),
+                        'steps': {k: v for k, v in state.get('outputs', {}).items()
+                                  if k not in {n['id'] for n in state['snapshot']['workflow']['nodes'] if n['type'] in {'end', 'answer'}}},
+                        'nested_progress': state.get('nested_progress', {}),
+                        'http_operations': state.get('http_operations', {})})
+                inherited = next(iter(source['snapshots'].values()), {}).get('recovery')
+                if inherited:
+                    recovery['original'] = inherited
+                for frozen in snapshots.values():
+                    frozen['recovery'] = recovery
             if not existing and validate_snapshots:
                 validate_snapshots(snapshots)
             task, created = await self.store.create_task(str(uuid4()), project_id, request_key, mode,
@@ -223,7 +268,11 @@ class Projects:
         task = await self.store.get_task(project_id, task_id, snapshots=True)
         return {'project_id': project_id, 'task_id': task_id, 'snapshots': task['snapshots'], 'step': step,
                 'model_resources': next(iter(task['snapshots'].values()), {}).get('model_resources', {}),
-                'knowledge_resources': next(iter(task['snapshots'].values()), {}).get('knowledge_resources', {})}
+                'knowledge_resources': next(iter(task['snapshots'].values()), {}).get('knowledge_resources', {}),
+                'http_connections': next(iter(task['snapshots'].values()), {}).get('http_connections', {}),
+                'service_bindings': next(iter(task['snapshots'].values()), {}).get('service_bindings', {}),
+                'simulation': next(iter(task['snapshots'].values()), {}).get('simulation'),
+                'recovery': next(iter(task['snapshots'].values()), {}).get('recovery', {})}
 
     async def execute(self, project_id: str, task_id: str, workflow_id: str, inputs: dict,
                       *, step: str = 'main', parent_run_id: str | None = None, reuse: bool = False,
@@ -232,14 +281,20 @@ class Projects:
         context = await self.context(project_id, task_id, step)
         if record_scope:
             context['record_scope'] = record_scope
+        if any(s.get('assistant_scope') for s in context['snapshots'].values()):
+            from .project_assistant_tools import require_callable
+            await require_callable(self.services, project_id, workflow_id)
         if workflow_id not in context['snapshots']:
             raise ValueError('工作流不在本次项目任务固定的成员范围内')
         input_hash = hashlib.sha256(encode([workflow_id, inputs]).encode()).hexdigest()[:24]
         context['step'] = f'{step}:{input_hash}'
         runtime = self.services.workflow_runtime
         # A saved test's members share its isolated files, not the live project.
-        workspace = runtime._resolve_scoped_workspace(
-            workspace_path or str(self.workspace(project_id)), self.workspace(project_id))
+        boundary = self.workspace(project_id)
+        if context.get('simulation'):
+            boundary = self.services.settings.workspace_root / '.debug-runs' / context['simulation']['session_id']
+            boundary.mkdir(parents=True, exist_ok=True)
+        workspace = runtime._resolve_scoped_workspace(workspace_path or str(boundary), boundary)
         self.services.sandboxes.protect_inputs(workspace, ['requirement-package', 'requirements'])
         if reuse:
             runs = await self.store.runs(task_id)
@@ -255,22 +310,23 @@ class Projects:
                         return execution_result(record)
                     await runtime.resume(run['id'], values or {})
                     await asyncio.shield(runtime.active_tasks[run['id']])
-                    return execution_result(await self.services.workflow_store.get_run(run['id']))
-                if run['step_key'] == context['step'] and run['status'] in {'failed', 'cancelled'}:
                     record = await self.services.workflow_store.get_run(run['id'])
-                    # Resume the persisted node checkpoint; completed writes and calls are retained.
-                    await self.services.harness.start_task(run['id'], kind='workflow_run',
-                        owner_id=workflow_id, resource_id=run['id'], parent_task_id=parent_run_id,
-                        metadata={'origin': 'project_resume'})
-                    runtime._start(record['state'])
+                    await self._capture_delivery(project_id, task_id, record)
+                    return execution_result(record)
+                if run['step_key'] == context['step'] and run['status'] in {'failed', 'cancelled'}:
+                    await runtime.resume(run['id'], {})
                     await asyncio.shield(runtime.active_tasks[run['id']])
-                    return execution_result(await self.services.workflow_store.get_run(run['id']))
+                    record = await self.services.workflow_store.get_run(run['id'])
+                    await self._capture_delivery(project_id, task_id, record)
+                    return execution_result(record)
         # ProjectModelProvider checks the explicit project connection at the model
         # node. A missing connection must not reject branches that never call it.
         scope = {'workspace_boundary': str(workspace),
                  'allowed_nested_application_ids': list(context['snapshots']),
                  'allowed_runtime_tools': ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash'],
                  'allowed_network_hosts': [], 'model_access': True, 'allowed_connector_operations': []}
+        if context.get('simulation'):
+            scope.update(model_access=False)
         creation = asyncio.create_task(runtime.create_run(workflow_id,
             WorkflowRunRequest(inputs=inputs, use_draft=True, workspace_path=str(workspace)),
             project_context=context, parent_task_id=parent_run_id, application_call_chain=call_chain,
@@ -290,7 +346,75 @@ class Projects:
         if active:
             await asyncio.shield(active)
         result = await self.services.workflow_store.get_run(run['run_id'])
+        await self._capture_delivery(project_id, task_id, result)
         return execution_result(result)
+
+    @asynccontextmanager
+    async def delivery_step(self, state, node):
+        # Training writes to isolated modeling storage and owns its compute queue.
+        # Holding the shared workspace while it waits hides queued/stop/budget state.
+        guarded = node.type in {'code', 'tool', 'data_analysis', 'feature_extract',
+                               'model_predict', 'start', 'end', 'template_transform'}
+        # Containers delegate to leaf steps; holding their lock would deadlock children.
+        if node.type == 'tool' and node.config.get('tool_name', '').startswith('workflow:'):
+            guarded = False
+        if state and state.project_context and guarded:
+            async with self.deliveries.workspace_guard(state.workspace_path):
+                yield await asyncio.to_thread(self.deliveries.current_versions, state)
+        else:
+            yield None
+
+    async def capture_step_delivery(self, state, node, node_id, output, *, reused=False, before=None):
+        project = state.project_context
+        if not project or node.type in {'start', 'event_subscription_trigger', 'schedule_trigger'}:
+            return
+        inherited = None
+        try:
+            from .run_deliveries import file_paths
+            paths = file_paths(output)
+            if not paths:
+                return
+            if any(output.get(key) for key in ('error', 'degraded', 'fallback_used')):
+                state.delivery_steps[node_id] = [self.deliveries.unverified(path, state.run_id) for path in paths]
+                return
+            from .workflow_reuse import walk
+            prefix = node_id[:-len(node.id)]
+            references = {}
+            outputs = state.nested_progress.get(prefix, {}).get('outputs', {}) if prefix else state.outputs
+            for value in walk({} if node.type in {'loop', 'iteration'} else node.config):
+                source_id = value.get('$ref', {}).get('node_id') if isinstance(value, dict) and isinstance(value.get('$ref'), dict) else None
+                if source_id not in outputs:
+                    continue
+                resolved = self.services.workflow_runtime._resolve(value, {'nodes': outputs, 'inputs': state.inputs})
+                for path in file_paths({'file': resolved}):
+                    references.setdefault(path, []).extend(e for e in state.delivery_steps.get(prefix + source_id, []) if e['path'] == path)
+            if node.type == 'tool' and node.config.get('tool_name', '').startswith('workflow:') and output.get('run_id'):
+                child = await self.services.workflow_store.get_run(output['run_id'])
+                inherited = self.deliveries.files(project['project_id'], project['task_id'], child)
+            elif node.type == 'loop' and isinstance(output.get('iterations'), int) and output['iterations'] > 0:
+                # The container returns the chosen output node of its final iteration.
+                source = f"{node_id}[{output['iterations'] - 1}].{node.config['output_node_id']}"
+                inherited = state.delivery_steps.get(source, [])
+            await asyncio.to_thread(self.deliveries.capture_step, project['project_id'], project['task_id'],
+                                    state, node_id, output, inherited=inherited,
+                                    references=references,
+                                    read_current=reused or node.type in {'code', 'tool', 'data_analysis', 'feature_extract',
+                                                                      'model_train', 'model_predict'},
+                                    fresh=not state.delivery_resumed, before=before)
+        except (OSError, ValueError):
+            # Saving a preview must never retry an already completed external operation.
+            from .run_deliveries import file_paths
+            state.delivery_steps[node_id] = [self.deliveries.unverified(path, state.run_id) for path in file_paths(output)]
+            import logging
+            logging.getLogger(__name__).exception('Could not preserve step delivery %s/%s', state.run_id, node_id)
+
+    async def _capture_delivery(self, project_id, task_id, record):
+        # File preview failure must not turn a completed external write into a retry.
+        try:
+            await asyncio.to_thread(self.deliveries.capture, project_id, task_id, record)
+        except (OSError, ValueError):
+            import logging
+            logging.getLogger(__name__).exception('Could not preserve run delivery %s', record['id'])
 
     async def _run(self, task: dict):
         try:
@@ -299,18 +423,33 @@ class Projects:
                 inputs.update(item['inputs'])
             result = await self.execute(task['project_id'], task['id'], task['workflow_id'], inputs, reuse=True)
             status = result['status']
+            context = await self.context(task['project_id'], task['id'], 'main')
+            if status == 'succeeded' and context.get('simulation'):
+                await self.debug.finish(context, result['outputs'])
             if status == 'paused' or (status == 'succeeded' and waiting(result['outputs'])):
                 status = 'waiting_input'
             elif status not in {'succeeded', 'waiting_input'}:
                 status = 'failed'
                 await self.cancel_runs(task['id'])
-            await self.store.update_task(task['id'], status=status, outputs=result['outputs'], error=result.get('error') or '')
+            await self._finish_workflow_task(task, status=status, outputs=result['outputs'], error=result.get('error') or '')
         except asyncio.CancelledError:
             await self.cancel_runs(task['id'])
-            await self.store.update_task(task['id'], status='interrupted')
+            await self._finish_workflow_task(task, status='interrupted')
         except Exception as e:
             await self.cancel_runs(task['id'])
-            await self.store.update_task(task['id'], status='failed', error=str(e))
+            await self._finish_workflow_task(task, status='failed', error=str(e))
+
+    async def _finish_workflow_task(self, task, *, status, outputs=None, error=''):
+        if task.get('purpose') == 'simulation':
+            try:
+                context = await self.context(task['project_id'], task['id'], 'main')
+                if context.get('simulation'):
+                    await self.debug.release(context)
+                    self.debug.capture(context)
+            except Exception as cleanup_error:
+                status = 'failed'
+                error += '\n模拟环境收尾失败：'+str(cleanup_error)
+        await self.store.update_task(task['id'], status=status, outputs=outputs or {}, error=error)
 
     async def cancel_runs(self, task_id: str):
         runtime = self.services.workflow_runtime
@@ -363,14 +502,19 @@ class Projects:
 
     async def resume(self, project_id: str, task_id: str, message: str = '') -> dict:
         async with self.locks.setdefault(project_id, asyncio.Lock()):
-            task = await self.store.get_task(project_id, task_id)
+            task = await self.store.get_task(project_id, task_id, snapshots=True)
             self.require_task_scope(project_id, task)
             if task['status'] not in {'waiting_input', 'interrupted', 'failed'}:
                 raise ProjectConflict('仅等待补充、中断或失败的任务可以继续')
+            simulation = next(iter(task['snapshots'].values()), {}).get('simulation')
+            if simulation:
+                self.debug.ensure_session_idle(project_id, simulation['session_id'])
             from .conversation_scope import conversation_scope
             with conversation_scope(project_id, task.get('conversation_id', '')):
                 if task['mode'] == 'agent' and self.services.local_agents.running(project_id):
                     raise ProjectConflict('此会话正在处理另一轮任务')
+            if not await self.store.claim_resume(task_id):
+                raise ProjectConflict('此任务已在继续执行，请刷新查看')
             await self._launch(task, message)
             return await self.task(project_id, task_id)
 
@@ -380,6 +524,8 @@ class Projects:
             self.require_task_scope(project_id, task)
             if task['status'] not in {'waiting_input', 'interrupted', 'failed'}:
                 raise ProjectConflict('请在任务等待补充或停止后提交补充')
+            if task['mode'] == 'workflow' and task['status'] in {'failed', 'interrupted'} and inputs:
+                raise ValueError('继续失败或中断的工作流保留原输入；修改输入请创建修复运行')
             await self.store.supplement(task_id, message, inputs)
             return await self.task(project_id, task_id)
 
@@ -412,11 +558,13 @@ class Projects:
                 # A completed model turn alone is not a completed business task.
                 await self.store.update_task(task_id, status='waiting_input', error='请查看统筹回复并补充或继续')
 
-    async def test_workflow(self, project_id: str, workflow_id: str):
+    async def test_workflow(self, project_id: str, workflow_id: str, case_ids=None):
         await self.member(project_id, workflow_id)
         frozen = await self.freeze(project_id)
         if not frozen[workflow_id]['snapshot']['tests']:
             raise ValueError('请先为工作流添加测试用例')
+        if case_ids is not None or any(t.get('debug') for t in frozen[workflow_id]['snapshot']['tests']):
+            return await self.debug.suite(project_id, workflow_id, case_ids)
         task, _ = await self.store.create_task(str(uuid4()), project_id, 'tests-' + str(uuid4()),
             'workflow', workflow_id, {}, '保存的工作流测试', frozen, purpose='build_test')
         await self.store.update_task(task['id'], status='running')
