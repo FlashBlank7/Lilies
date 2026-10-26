@@ -4,13 +4,15 @@ import {api} from '@/lib/platform'
 import {clientId} from '@/lib/client-id'
 import StructuredValueEditor,{type Value} from './StructuredValueEditor'
 import styles from './project-debug.module.css'
+import ReadableRunResults,{RawResult,ResultValue} from './ReadableRunResults'
+import type {DeliveryFile} from '@/lib/run-results'
 
 type Binding={service_id:string;scenario:string}
 type Workflow={id:string;name:string;description:string;revision:number;inputs:{name:string;label?:string;type:string;default?:Value}[];outputs:string[];services:string[];calls:{nested?:boolean;node_id:string;workflow_id:string;inputs:Record<string,Value>}[]}
 type Simulator={id:string;revision:number;name:string;description:string;implementation:'records'|'python';code:string;allowed_paths:string[];allowed_methods:string[];idempotency_header:string;initial_state:Record<string,Value>;scenarios:Record<string,Record<string,Value>>}
 type Source={kind:'synthetic'|'upload'|'run';label?:string;task_id?:string;run_id?:string;path?:(string|number)[];input_name?:string}
 type Case={id:string;name:string;requirement:string;inputs:Record<string,Value>;debug?:{bindings?:Record<string,Binding>;source?:Source}}
-type Run={id:string;application_id:string;status:string;inputs:Record<string,Value>;outputs:Record<string,Value>;error?:string}
+type Run={name?:string;delivery_files?:DeliveryFile[];id:string;application_id:string;status:string;inputs:Record<string,Value>;outputs:Record<string,Value>;error?:string}
 type Task={id:string;workflow_id:string;status:string;purpose:string;message:string;error:string;inputs:Record<string,Value>;outputs:Record<string,Value>;runs?:Run[];services?:Record<string,{state:Value;requests:Value[]}>;outdated?:boolean;environment?:string;versions?:Record<string,number>;service_versions?:Record<string,{name:string;revision:number;scenario:string}>;created_at:string;updated_at:string}
 type Progress={revision:number;value:{goal:string;summary:string;platform_scope?:string;external_scope?:string;open_questions?:string;completion?:string;[key:string]:unknown}}
 type Overview={workflows:Workflow[];progress:Progress;tasks:Task[]}
@@ -61,6 +63,8 @@ export default function ProjectWorkflowDebug({projectId,selectedId,onSelect,onEd
   const [notice,setNotice]=useState('')
   const [busy,setBusy]=useState(false)
   const pending=useRef(false)
+  const resultRequest=useRef(0)
+  const pendingResult=useRef<{workflowId:string;taskId:string}|undefined>(undefined)
   const pendingCase=useRef<{workflowId:string;caseId:string}|undefined>(undefined)
   const [pane,setPane]=useState<'debug'|'chain'|'services'>('debug')
   const [editService,setEditService]=useState<Omit<Simulator,'id'|'revision'>>(newService)
@@ -82,20 +86,21 @@ export default function ProjectWorkflowDebug({projectId,selectedId,onSelect,onEd
   },[base])
   useEffect(()=>{let live=true;void load().then(next=>{if(live){setProgress(next.progress);setSteps(chainSteps((next.workflows.find(w=>w.id===projectId)?.calls||[]).filter(c=>!c.nested)))}}).catch(e=>setError(String(e)));return()=>{live=false}},[load,projectId])
   useEffect(()=>{
-    let live=true;setCaseWorkflowId('');setTask(undefined);setCaseId('');setSource({kind:'synthetic'});setBindings({});setInputs({});setNotice('')
+    let live=true;resultRequest.current++;setCaseWorkflowId('');setTask(undefined);setCaseId('');setSource({kind:'synthetic'});setBindings({});setInputs({});setNotice('')
     if(!workflow){setCases([]);return()=>{live=false}}
     void api<{revision:number;cases:Case[]}>(base+'/members/'+selectedId+'/debug-cases').then(next=>{
       if(!live)return;setCaseWorkflowId(selectedId);setRevision(next.revision);setCases(next.cases)
       const first=next.cases.find(c=>pendingCase.current?.workflowId===selectedId&&pendingCase.current.caseId===c.id)||next.cases[0];
       if(pendingCase.current?.workflowId===selectedId)pendingCase.current=undefined;
       if(first){setCaseId(first.id);setCaseName(first.name);setInputs(first.inputs);setBindings(first.debug?.bindings||{});setSource(first.debug?.source||{kind:'synthetic'})}
-      else {setCaseName('正常输入');setInputs(Object.fromEntries((workflow?.inputs||[]).map(i=>[i.name,i.default??({number:0,boolean:false,object:{},array:[]}[i.type]??'')])))}
+      if(pendingResult.current?.workflowId===selectedId){const id=pendingResult.current.taskId;pendingResult.current=undefined;void showResult(id)}
+      if(!first){setCaseName('正常输入');setInputs(Object.fromEntries((workflow?.inputs||[]).map(i=>[i.name,i.default??({number:0,boolean:false,object:{},array:[]}[i.type]??'')])))}
     }).catch(e=>{if(live)setError(String(e))});return()=>{live=false}
   },[base,selectedId,workflow?.id])
   useEffect(()=>{
     if(!task||!['running','queued'].includes(task.status))return
-    let live=true
-    const timer=setInterval(()=>{void api<Task>(base+(runKind==='simulation'?'/debug/runs/':'/tasks/')+task.id).then(next=>{if(live){setTask(next);if(!['running','queued'].includes(next.status))void load()}}).catch(e=>{if(live)setError(String(e))})},700)
+    let live=true;const request=resultRequest.current
+    const timer=setInterval(()=>{void api<Task>(base+(runKind==='simulation'?'/debug/runs/':'/tasks/')+task.id).then(next=>{if(live&&request===resultRequest.current){setTask(next);if(!['running','queued'].includes(next.status))void load()}}).catch(e=>{if(live)setError(String(e))})},700)
     return()=>{live=false;clearInterval(timer)}
   },[base,task?.id,task?.status,runKind,load])
   async function act(fn:()=>Promise<unknown>){if(pending.current)return;pending.current=true;setBusy(true);setError('');setNotice('');try{await fn()}catch(e){setError(String(e))}finally{pending.current=false;setBusy(false)}}
@@ -109,12 +114,16 @@ export default function ProjectWorkflowDebug({projectId,selectedId,onSelect,onEd
     const saved=await api<{case:Case;revision:number}>(base+'/members/'+selectedId+'/debug-cases',{method:'PUT',body:JSON.stringify({id:caseId,name:caseName,inputs,bindings,source,expected_revision:revision})})
     setCaseId(saved.case.id);setRevision(saved.revision);setCases(current=>[...current.filter(c=>c.id!==saved.case.id),saved.case]);setNotice('样例及服务绑定已保存');await load();if(refresh)await refreshResult();return saved.case.id
   }
-  async function start(recovery=''){
-    setTask(undefined);setRunKind('simulation');const id=await saveCase(false)
-    const next=await api<Task>(base+'/debug/runs',{method:'POST',body:JSON.stringify({workflow_id:selectedId,case_id:id,request_key:clientId(),recovery_task_id:recovery})})
-    setTask(next);await load()
+  async function showResult(id:string){
+    const request=++resultRequest.current;setTask(undefined);setRunKind('simulation');
+    try {const next=await api<Task>(base+'/debug/runs/'+id);if(request===resultRequest.current)setTask(next)}catch(e){if(request===resultRequest.current)setError(String(e))}
   }
-  function selectCase(id:string){const item=cases.find(c=>c.id===id);setCaseId(id);setTask(undefined);setCaseName(item?.name||'另一组输入');setInputs(item?.inputs||{});setBindings(item?.debug?.bindings||{});setSource(item?.debug?.source||{kind:'synthetic'})}
+  async function start(recovery=''){
+    const request=++resultRequest.current;setTask(undefined);setRunKind('simulation');const id=await saveCase(false)
+    const next=await api<Task>(base+'/debug/runs',{method:'POST',body:JSON.stringify({workflow_id:selectedId,case_id:id,request_key:clientId(),recovery_task_id:recovery})})
+    if(request===resultRequest.current)setTask(next);await load()
+  }
+  function selectCase(id:string){resultRequest.current++;const item=cases.find(c=>c.id===id);setCaseId(id);setTask(undefined);setCaseName(item?.name||'另一组输入');setInputs(item?.inputs||{});setBindings(item?.debug?.bindings||{});setSource(item?.debug?.source||{kind:'synthetic'})}
   async function upload(file:File){
     if(file.size>5_000_000)throw new Error('样例文件请小于 5 MB')
     let data:Value
@@ -143,7 +152,7 @@ export default function ProjectWorkflowDebug({projectId,selectedId,onSelect,onEd
       <strong>{w.id===projectId?'主流程 · ':''}{w.name}</strong><p>{w.description||'打开画布补充用途与步骤'}</p><p>输入：{w.inputs.map(i=>i.label||i.name).join('、')||'无需填写'}<br/>输出：{w.outputs.join('、')||'待声明'}</p><p>服务：{aliases(overview.workflows,w.id).join('、')||'无外部服务'}</p>
       {!!w.calls.length&&<p>成员调用：{w.calls.map(c=>overview.workflows.find(x=>x.id===c.workflow_id)?.name||c.workflow_id).join(' → ')}</p>}
       {!!overview?.workflows.some(x=>x.calls.some(c=>c.workflow_id===w.id))&&<p className={styles.muted}>被 {overview.workflows.filter(x=>x.calls.some(c=>c.workflow_id===w.id)).map(x=>x.name).join('、')} 调用</p>}
-      <div className={styles.row}><button onClick={()=>{onSelect(w.id);setPane('debug')}}>{w.id===projectId?'调试整条链':'单独调试'}</button><button onClick={()=>onEdit(w.id)}>编辑</button><button onClick={()=>{onSelect(w.id);setPane('debug');const recent=overview.tasks.find(t=>t.workflow_id===w.id);if(recent)void api<Task>(base+'/debug/runs/'+recent.id).then(next=>{setRunKind('simulation');setTask(next)}).catch(e=>setError(String(e)))}}>查看结果</button></div>
+      <div className={styles.row}><button onClick={()=>{onSelect(w.id);setPane('debug')}}>{w.id===projectId?'调试整条链':'单独调试'}</button><button onClick={()=>onEdit(w.id)}>编辑</button><button onClick={()=>{setPane('debug');const recent=overview.tasks.find(t=>t.workflow_id===w.id);if(w.id===selectedId){if(recent)void showResult(recent.id)}else{pendingResult.current=recent?{workflowId:w.id,taskId:recent.id}:undefined;onSelect(w.id)}}}>查看结果</button></div>
     </article>)}</aside><div>
       <nav className={styles.row} aria-label="调试操作"><button aria-pressed={pane==='debug'} onClick={()=>setPane('debug')}>单独调试</button><button aria-pressed={pane==='chain'} onClick={()=>setPane('chain')}>串联验证</button><button aria-pressed={pane==='services'} onClick={()=>setPane('services')}>模拟服务</button></nav>
       {pane==='debug'&&<section className={styles.panel}><h3>{workflow?.name} · {selectedId===projectId?'整条链':'独立调试'}</h3><p className={styles.muted}>模拟运行只使用下方绑定，不访问真实服务。下游可以直接使用样例输入。</p>
@@ -154,7 +163,7 @@ export default function ProjectWorkflowDebug({projectId,selectedId,onSelect,onEd
         {needed.map(alias=><div className={styles.step} key={alias}><label>{alias} · 模拟服务<select aria-label={alias+'模拟服务'} value={bindings[alias]?.service_id||''} onChange={e=>setBindings({...bindings,[alias]:{service_id:e.target.value,scenario:''}})}><option value="">请选择服务</option>{services.map(s=><option key={s.id} value={s.id}>{s.name} · r{s.revision}</option>)}</select></label><label>场景<select value={bindings[alias]?.scenario||''} onChange={e=>setBindings({...bindings,[alias]:{...bindings[alias],scenario:e.target.value}})}><option value="">初始状态</option>{Object.keys(services.find(s=>s.id===bindings[alias]?.service_id)?.scenarios||{}).map(s=><option key={s}>{s}</option>)}</select></label></div>)}
         {!!needed.length&&!services.length&&<p>尚无模拟服务。<button onClick={()=>setPane('services')}>添加预设或自写实现</button></p>}
         <div className={styles.row}><button disabled={busy||caseWorkflowId!==selectedId||!caseName.trim()} onClick={()=>void act(saveCase)}>保存样例</button><button className={styles.primary} disabled={busy||caseWorkflowId!==selectedId||!caseName.trim()} onClick={()=>void act(()=>start())}>{selectedId===projectId?'运行整条链（模拟）':'运行此流程（模拟）'}</button></div>
-        <details><summary>配置真实连接</summary><p>真实运行只调用本项目已配置的连接。<a href={'/projects/'+projectId+'?tab=settings'}>前往服务连接设置</a></p>{needed.map(alias=><label key={alias}>{alias}<select value={realBindings[alias]||''} onChange={e=>setRealBindings({...realBindings,[alias]:e.target.value})}><option value="">请选择真实连接</option>{connections.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></label>)}<button disabled={busy||caseWorkflowId!==selectedId||needed.some(a=>!realBindings[a])} onClick={()=>void act(async()=>{setRunKind('real');setTask(undefined);setTask(await api<Task>(base+'/tasks',{method:'POST',body:JSON.stringify({request_key:clientId(),workflow_id:selectedId,inputs,service_bindings:realBindings})}))})}>使用真实连接运行</button></details>
+        <details><summary>配置真实连接</summary><p>真实运行只调用本项目已配置的连接。<a href={'/projects/'+projectId+'?tab=settings'}>前往服务连接设置</a></p>{needed.map(alias=><label key={alias}>{alias}<select value={realBindings[alias]||''} onChange={e=>setRealBindings({...realBindings,[alias]:e.target.value})}><option value="">请选择真实连接</option>{connections.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></label>)}<button disabled={busy||caseWorkflowId!==selectedId||needed.some(a=>!realBindings[a])} onClick={()=>void act(async()=>{const request=++resultRequest.current;setRunKind('real');setTask(undefined);const next=await api<Task>(base+'/tasks',{method:'POST',body:JSON.stringify({request_key:clientId(),workflow_id:selectedId,inputs,service_bindings:realBindings})});if(request===resultRequest.current)setTask(next)})}>使用真实连接运行</button></details>
       </section>}
       {pane==='services'&&<section className={styles.panel}><h3>模拟服务</h3><p className={styles.muted}>预设和自写实现使用相同接口。服务状态只在模拟会话内变化。</p><div className={styles.row}>{services.map(s=><button key={s.id} onClick={()=>chooseService(s)}>{s.name} · r{s.revision}</button>)}<button onClick={()=>{setServiceId('');setServiceRevision(0);setEditService(newService())}}>新增模拟服务</button></div>
         <label>服务名称<input value={editService.name} onChange={e=>setEditService({...editService,name:e.target.value})}/></label><label>接口说明<textarea value={editService.description} onChange={e=>setEditService({...editService,description:e.target.value})}/></label>
@@ -175,13 +184,13 @@ export default function ProjectWorkflowDebug({projectId,selectedId,onSelect,onEd
       </section>}
       {task&&<section className={styles.panel} aria-label="本次调试结果"><div className={styles.header}><h3>本次结果 · {statusNames[task.status]||task.status}</h3><span className={styles.badge}>{runKind==='simulation'?'模拟调试':'真实服务运行'}</span></div><p className={styles.muted}>任务 {task.id}{task.created_at&&task.updated_at?' · '+Math.max(0,(Date.parse(task.updated_at)-Date.parse(task.created_at))/1000).toFixed(1)+' 秒':''}</p>
         {task.versions&&<p className={styles.muted}>本次流程版本：{Object.entries(task.versions).map(([id,revision])=>(overview?.workflows.find(w=>w.id===id)?.name||id)+' r'+revision).join('；')}</p>}{task.service_versions&&<p className={styles.muted}>本次模拟服务：{Object.values(task.service_versions).map(s=>s.name+' r'+s.revision+' · '+(s.scenario||'初始状态')).join('；')}</p>}
-        {task.outdated&&<p>此结果对应旧配置。历史结果已保留，当前修改需要重新调试。</p>}{task.error&&<p className={styles.error}>{task.error}</p>}<pre className={styles.output}>{JSON.stringify(task.outputs,null,2)}</pre>
-        {runKind==='simulation'&&['failed','interrupted'].includes(task.status)&&<div className={styles.row}><button disabled={busy} onClick={()=>void act(async()=>setTask(await api<Task>(base+'/debug/runs/'+task.id+'/resume',{method:'POST'})))}>继续原任务</button><button disabled={busy} onClick={()=>void act(()=>start(task.id))}>修改后修复（保留原状态）</button><button disabled={busy} onClick={()=>void act(()=>start())}>重置并重跑</button></div>}
-        {task.runs?.map(run=><details key={run.id}><summary>{overview?.workflows.find(w=>w.id===run.application_id)?.name} · {statusNames[run.status]||run.status}</summary><p>实际输入</p><pre className={styles.output}>{JSON.stringify(run.inputs,null,2)}</pre><p>实际输出</p><pre className={styles.output}>{JSON.stringify(run.outputs,null,2)}</pre>{run.error&&<p>{run.error}</p>}</details>)}
-        {task.services&&Object.entries(task.services).map(([alias,data])=><details key={alias}><summary>{alias} · {data.requests.length} 次 HTTP 请求与服务状态</summary><pre className={styles.output}>{JSON.stringify(data,null,2)}</pre></details>)}
+        {task.outdated&&<p>此结果对应旧配置。历史结果已保留，当前修改需要重新调试。</p>}{task.error&&<p className={styles.error}>{task.error}</p>}<ReadableRunResults key={task.id} projectId={projectId} task={task}/><RawResult key={task.id+':raw'} value={task.outputs}/>
+        {runKind==='simulation'&&['failed','interrupted'].includes(task.status)&&<div className={styles.row}><button disabled={busy} onClick={()=>void act(async()=>{const request=++resultRequest.current;const next=await api<Task>(base+'/debug/runs/'+task.id+'/resume',{method:'POST'});if(request===resultRequest.current)setTask(next)})}>继续原任务</button><button disabled={busy} onClick={()=>void act(()=>start(task.id))}>修改后修复（保留原状态）</button><button disabled={busy} onClick={()=>void act(()=>start())}>重置并重跑</button></div>}
+        {task.runs?.map(run=><details key={run.id}><summary>{overview?.workflows.find(w=>w.id===run.application_id)?.name} · {statusNames[run.status]||run.status}</summary><p>实际输入</p><ResultValue value={run.inputs}/><RawResult value={run.inputs} label="原始输入 JSON"/><p>实际输出</p><ResultValue value={run.outputs}/><RawResult value={run.outputs}/>{run.error&&<p>{run.error}</p>}</details>)}
+        {task.services&&Object.entries(task.services).map(([alias,data])=><details key={alias}><summary>{alias} · {data.requests.length} 次 HTTP 请求与服务状态</summary><RawResult value={data} label="HTTP 请求与服务状态 JSON"/></details>)}
         {task.status==='succeeded'&&<details open><summary>使用此输出调试下游</summary><label>下游工作流<select value={downstream} onChange={e=>{setDownstream(e.target.value);setInputName('')}}><option value="">请选择</option>{overview?.workflows.filter(w=>w.id!==selectedId).map(w=><option key={w.id} value={w.id}>{w.name}</option>)}</select></label><label>取用输出<select value={outputPath} onChange={e=>setOutputPath(e.target.value)}>{paths(task.outputs).map(p=><option key={p.label} value={JSON.stringify(p.path)}>{p.label}</option>)}</select></label><label>填入下游输入<select value={inputName} onChange={e=>setInputName(e.target.value)}><option value="">将完整对象作为全部输入</option>{overview?.workflows.find(w=>w.id===downstream)?.inputs.map(i=><option key={i.name} value={i.name}>{i.label||i.name}</option>)}</select></label><button disabled={busy||!downstream} onClick={()=>void act(useOutput)}>保存为下游样例</button></details>}
       </section>}
-      <section className={styles.panel}><h3>历史模拟运行</h3>{overview?.tasks.filter(t=>t.workflow_id===selectedId).slice(0,20).map(t=><div className={styles.row} key={t.id}><button onClick={()=>void act(async()=>{setRunKind('simulation');setTask(await api<Task>(base+'/debug/runs/'+t.id))})}>{t.message||'模拟运行'} · {statusNames[t.status]||t.status} · {t.id.slice(0,8)}</button></div>)}{!overview?.tasks.some(t=>t.workflow_id===selectedId)&&<p>尚未运行。单独调试通过后，仍需验证整条链。</p>}</section>
+      <section className={styles.panel}><h3>历史模拟运行</h3>{overview?.tasks.filter(t=>t.workflow_id===selectedId).slice(0,20).map(t=><div className={styles.row} key={t.id}><button onClick={()=>void showResult(t.id)}>{t.message||'模拟运行'} · {statusNames[t.status]||t.status} · {t.id.slice(0,8)}</button></div>)}{!overview?.tasks.some(t=>t.workflow_id===selectedId)&&<p>尚未运行。单独调试通过后，仍需验证整条链。</p>}</section>
     </div></div>
   </div>
 }

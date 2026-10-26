@@ -21,7 +21,7 @@ it('shows profile duplicate locations and source with the complete JSON and CSV 
       { label: '报告 Markdown', file_path: 'results/examples/run/report.md' },
     ] },
   } } as never} />)
-  const table = screen.getByRole('table')
+  const table = within(screen.getByRole('region', { name: '运行报告' })).getByRole('table')
   expect(within(table).getByRole('columnheader', { name: '重复行' })).toBeVisible()
   expect(within(table).getByRole('columnheader', { name: '首次出现行' })).toBeVisible()
   expect(within(table).getByRole('row', { name: '5 2' })).toBeVisible()

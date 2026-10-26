@@ -1,5 +1,6 @@
 'use client'
 
+import {RawResult} from '@/app/components/ReadableRunResults'
 import DataWorkspace from '@/app/components/DataWorkspace'
 import {FeedbackButton} from '@/app/components/UserFeedback'
 import Link from 'next/link'
@@ -267,7 +268,7 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
           {task.mode === 'workflow' && ['succeeded','failed','interrupted'].includes(task.status) && <button onClick={() => {setReuseTask(task); setReuseCompletedSteps(true); setRunWorkflowId(task.workflow_id || id); setReader(false); setTab('run')}}>按当前配置重算</button>}
           <button onClick={() => talk(items.find(i => i.id === task.item_id), '', task.id)}>让智能体修改</button>{['workflow','training','prediction'].includes(task.mode) && ['waiting_input','interrupted','failed'].includes(task.status) && !(task.mode === 'workflow' && ['interrupted','failed'].includes(task.status)) && !(task.status === 'waiting_input' && task.runs?.some(run => run.waiting_input)) && <button disabled={stopping} onClick={async()=>{setStopping(true);try{const next=await api<ProjectTask>(`${base}/tasks/${task.id}/resume`,{method:'POST',body:JSON.stringify({message:'继续原任务'})});setTask(next);updateManualTask(next)}catch(cause){setError(String(cause))}finally{setStopping(false)}}}>继续原运行</button>}{task.mode === 'agent' && ['waiting_input', 'interrupted', 'failed'].includes(task.status) && <button onClick={() => talk(items.find(i => i.id === task.item_id), '继续这个任务，请先检查已有结果和待补条件。', task.id)}>继续处理</button>}</div>
         {task.feedback_task_id && <button onClick={() => void showTask(task.feedback_task_id)}>查看修改前的结果</button>}
-        <details><summary>实际运行与原始输入输出</summary><p>请求标识：{task.request_key}</p><pre>{JSON.stringify({ inputs: task.inputs, outputs: task.outputs }, null, 2)}</pre>{task.runs?.map(run => <p key={run.id}>{project?.members.find(m => m.id === run.application_id)?.name} · r{run.draft_revision} · {taskNames[run.status] || run.status}</p>)}
+        <details><summary>实际运行与原始输入输出</summary><p>请求标识：{task.request_key}</p><RawResult key={'raw:'+task.id} label="原始输入输出 JSON" value={{inputs:task.inputs,outputs:task.outputs}}/>{task.runs?.map(run => <p key={run.id}>{project?.members.find(m => m.id === run.application_id)?.name} · r{run.draft_revision} · {taskNames[run.status] || run.status}</p>)}
           <ProjectRunEvents key={task.id} runs={task.runs} members={project?.members || []} />
           <button onClick={() => { setDeveloperTaskId(task.id); setTab('development'); setReader(false) }}>查看开发详情</button></details></> : <p>选择一次业务处理，查看结果。</p>}</div>
 </ReadingDialog>}

@@ -5,7 +5,7 @@ import { clientId } from '@/lib/client-id'
 import Link from 'next/link'
 import ProjectTaskInput from './ProjectTaskInput'
 import TaskError from './TaskError'
-import RunDeliverables from './RunDeliverables'
+import ReadableRunResults,{RawResult} from './ReadableRunResults'
 import ProjectRunSteps from './ProjectRunSteps'
 import {FeedbackButton} from './UserFeedback'
 import WorkflowInputTable, {type InputColumn} from './WorkflowInputTable'
@@ -24,10 +24,7 @@ import {fileFormatError} from '@/lib/file-formats'
 import { WorkflowValueField } from './WorkflowValueField'
 import { useEffect, useRef, useState } from 'react'
 import { api, withFrontendToken } from '@/lib/platform'
-import { MarkdownDocument } from '@/lib/markdown'
-import { resolveProjectLink } from '@/lib/project-links'
 import { taskNames, taskInputFileNames, type ProjectMember, type ProjectTask } from '@/lib/project-progress'
-import { taskArtifacts } from '@/lib/task-artifacts'
 import styles from '@/app/projects/projects.module.css'
 
 type Field = { name: string; label?: string; type: string; required?: boolean; default?: unknown; description?: string; options?: string[]; columns?: InputColumn[]; accept?: string[]; accepted_formats?: string[]; column_source?: string }
@@ -52,7 +49,6 @@ export function ProjectTaskOutput({ projectId, task, onTask, canConfigureModel=f
   const hasCreatedAt = createdAt && !Number.isNaN(createdAt.getTime())
   const markdown = task.presentation?.markdown || (typeof output.markdown === 'string' ? output.markdown : '') || task.presentation?.message || (typeof output.message === 'string' ? output.message : '')
   const results = [output, ...Object.values(output).map(v => typeof v==='string'?{artifact:v}:v)].filter((v):v is Record<string,unknown> => !!v && typeof v==='object' && !Array.isArray(v))
-  const artifacts = taskArtifacts(task)
   const predictions = [...results.reduce((files,result)=>{
     const path=result.artifact
     if(typeof path==='string' && /^datasets\/[\w-]+\/files\/[\w./-]+$/.test(path) && !path.split('/').includes('..') && (!files.has(path)||Array.isArray(result.preview))) files.set(path,result)
@@ -81,7 +77,7 @@ export function ProjectTaskOutput({ projectId, task, onTask, canConfigureModel=f
       {run.pending_operations?.map(op=><p role="alert" key={op.operation_id}>待确认：{op.method} {op.path} · 操作编号 {op.operation_id}。已保留进度，不会无依据地重复写入。</p>)}
     </div>)}
     <WorkflowRunRecovery key={'recovery:'+task.id} projectId={projectId} task={task} onTask={onTask}/>
-    <RunDeliverables key={'deliverables:'+task.id} projectId={projectId} results={results}/>
+    <ReadableRunResults key={'readable:'+task.id} projectId={projectId} task={task} showViews={!knowledgeResults.length&&!training&&!evaluation&&!expenses&&!predictions.length&&!results.some(r=>r.stage==='before_fold_preprocessing'||['prepare','numeric','spearman','outliers'].includes(String(r.operation)))} hideInline={knowledgeAnswer||trainingRecovery&&!markdown}/>
     {(inputFiles.length > 0 || hasCreatedAt) && <section aria-label="本次运行来源">
       {inputFiles.length > 0 && <p>输入资料：{inputFiles.join('、')}</p>}
       {hasCreatedAt && <p>启动时间：<time dateTime={task.created_at}>{createdAt.toLocaleString('zh-CN', {hour12:false})}</time></p>}
@@ -96,7 +92,6 @@ export function ProjectTaskOutput({ projectId, task, onTask, canConfigureModel=f
     {results.filter(result => result.stage === 'before_fold_preprocessing').map((result, i) => <FeatureResults key={i} result={result as unknown as Parameters<typeof FeatureResults>[0]['result']} />)}
     {results.filter(result => typeof result.rows==='number' && ['prepare','numeric','spearman','outliers'].includes(String(result.operation))).map((result,i)=><DataAnalysisResults key={i} result={result as DataAnalysisResult}/>)}
     {task.runs?.filter(run => run.reuse?.source_run_id).map(run => <p key={run.id}>使用当前配置创建了新运行，复用 {run.reuse!.nodes.length} 个已完成步骤{run.reuse!.nodes.length ? `（${(run.reuse!.titles || run.reuse!.nodes).join('、')}）` : ''}。其他步骤重新执行，原运行保持不变。</p>)}
-    {!knowledgeAnswer && (markdown || !trainingRecovery) && <MarkdownDocument source={markdown} resolveLink={href => resolveProjectLink(projectId, href)} emptyLabel={['queued', 'running'].includes(task.status) ? '正在运行，结果会自动显示。' : '本次运行的输出见下方详情。'} />}
     {trainingRecovery && !training && <TrainingTaskProgress key={`${projectId}:${task.id}:${studyId}:${candidateId}`} projectId={projectId} taskId={task.id} studyId={studyId} candidateId={candidateId} />}
     {trainingRecovery && <p>继续原运行会保留现有参数、已完成及已失败的试验记录，只重新执行尚未保存结果的试验；已经失败的试验不会自动重试。需要调整参数或重新尝试失败试验时，可选择“让智能体修改”，保留原记录后建立新方案。</p>}
     {knowledgeResults.map((result, i) => <KnowledgeResults key={i} result={result} answer={knowledgeAnswer ? output.markdown as string : undefined} question={typeof output.question === 'string' ? output.question : undefined} />)}
@@ -138,12 +133,6 @@ export function ProjectTaskOutput({ projectId, task, onTask, canConfigureModel=f
         </>:<p>此结果未保存输入对应说明。</p>}
         {!!rows.length&&<div role="region" aria-label="预测结果表，可横向滚动" tabIndex={0} style={{overflowX:'auto'}}><table className={styles.predictionTable} data-has-source={!!(recordColumn||idColumn)}><thead><tr>{columns.map(key=><th key={key}>{key===recordColumn?'输入记录序号':key===idColumn?`输入 ID（${key}）`:key==='prediction'?'预测值':key}</th>)}</tr></thead><tbody>{rows.map((row,j)=><tr key={j}>{columns.map(key=><td key={key}>{key===recordColumn||key===idColumn?String(row[key]??''):typeof row[key]==='number'?Number(row[key]).toPrecision(6):String(row[key]??'')}</td>)}</tr>)}</tbody></table><p>显示前 {rows.length} 行，完整结果见下载文件。</p></div>}
         <a download href={withFrontendToken(`/api/platform/api/v1/projects/${projectId}/${result.artifact}`)}>下载预测结果 CSV ↓</a></section>})}
-    {artifacts.map((entry: unknown, i: number) => {
-      if (!entry || typeof entry !== 'object') return null
-      const item = entry as { file_path?: string; label?: string }
-      if (!item.file_path || !/^(results|solution)\//.test(item.file_path) || item.file_path.split('/').includes('..')) return null
-      return <p key={i}><a download href={withFrontendToken(`/api/platform/api/v1/applications/${projectId}/workspace/files/${item.file_path.split('/').map(encodeURIComponent).join('/')}?download=1`)}>{item.label || item.file_path.split('/').pop()} ↓</a></p>
-    })}
     <ProjectRunSteps projectId={projectId} runs={task.runs}/>
   </>
 }
@@ -262,7 +251,7 @@ export default function ProjectRunPanel({ projectId, members, initialWorkflowId,
     </div>
     {error && <p role="alert" className={styles.error}>{error}</p>}
     {task && <section aria-label="本次运行结果"><h3>{taskNames[task.status] || task.status}</h3><ProjectTaskOutput projectId={projectId} task={task} canConfigureModel={canConfigureModel} onConfigurationChanged={()=>setCheckVersion(v=>v+1)} onTask={next=>{setTask(next);onTask?.(next)}} />
-      <details><summary>实际输入输出与运行详情</summary><pre>{JSON.stringify({ inputs: task.inputs, outputs: task.outputs }, null, 2)}</pre><ProjectRunEvents key={task.id} runs={task.runs} members={members} />
+      <details><summary>实际输入输出与运行详情</summary><RawResult key={'raw:'+task.id} label="原始输入输出 JSON" value={{inputs:task.inputs,outputs:task.outputs}}/><ProjectRunEvents key={task.id} runs={task.runs} members={members} />
       </details>
     </section>}
   </section>

@@ -479,7 +479,7 @@ class ProjectStore:
             with connect(self.db_path) as c:
                 return [{**dict(r), 'outputs': json.loads(r['outputs_json']),
                          'inputs': json.loads(r['state_json']).get('inputs', {})} for r in c.execute(
-                    "SELECT r.id,r.application_id,r.status,r.draft_revision,r.outputs_json,r.state_json,r.error,r.created_at,t.step_key "
+                    "SELECT r.id,r.application_id,r.status,r.draft_revision,r.outputs_json,r.state_json,r.error,r.created_at,r.updated_at,t.step_key "
                     "FROM project_task_runs t JOIN workflow_runs r ON r.id=t.run_id "
                     "WHERE t.task_id=? ORDER BY t.created_at", (task_id,))]
         return await asyncio.to_thread(read)

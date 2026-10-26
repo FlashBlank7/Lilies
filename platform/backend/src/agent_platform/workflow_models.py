@@ -433,6 +433,9 @@ class WorkflowRunState(BaseModel):
     # and process recovery instead of relying on an in-memory call stack.
     application_call_chain: list[str] = Field(default_factory=list, max_length=16)
     outputs: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    # File copies travel with completed steps through pause/restart/recovery.
+    delivery_steps: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)
+    delivery_resumed: bool = False
     completed: list[str] = Field(default_factory=list)
     reuse_checkpoints: dict[str, dict[str, Any]] = Field(default_factory=dict)
     reuse_source_run_id: str | None = None

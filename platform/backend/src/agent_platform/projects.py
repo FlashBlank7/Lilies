@@ -5,6 +5,7 @@ import asyncio
 import hashlib
 import json
 from collections.abc import Callable
+from contextlib import asynccontextmanager
 from uuid import uuid4
 
 from fastapi.encoders import jsonable_encoder
@@ -37,6 +38,8 @@ class Projects:
         self.http_connections = ProjectHTTPConnections(services)
         from .project_debug import ProjectDebug
         self.debug = ProjectDebug(services)
+        from .run_deliveries import RunDeliveries
+        self.deliveries = RunDeliveries(services.settings.data_dir)
 
     def workspace(self, project_id: str):
         # Project id is the id of its main application; legacy application paths remain valid.
@@ -151,6 +154,8 @@ class Projects:
         for run in task['runs']:
             run.pop('outputs_json', None)
             state = json.loads(run.pop('state_json'))
+            run['name'] = state.get('snapshot', {}).get('name') or run['application_id']
+            run['delivery_files'] = await asyncio.to_thread(self.deliveries.files, project_id, task_id, run)
             run['result_checks'] = state.get('result_checks', {})
             run['pending_operations'] = [op for op in state.get('http_operations', {}).values() if op['status'] in {'sending', 'unknown'}]
             run['reuse'] = {'source_run_id': state.get('reuse_source_run_id'),
@@ -305,11 +310,15 @@ class Projects:
                         return execution_result(record)
                     await runtime.resume(run['id'], values or {})
                     await asyncio.shield(runtime.active_tasks[run['id']])
-                    return execution_result(await self.services.workflow_store.get_run(run['id']))
+                    record = await self.services.workflow_store.get_run(run['id'])
+                    await self._capture_delivery(project_id, task_id, record)
+                    return execution_result(record)
                 if run['step_key'] == context['step'] and run['status'] in {'failed', 'cancelled'}:
                     await runtime.resume(run['id'], {})
                     await asyncio.shield(runtime.active_tasks[run['id']])
-                    return execution_result(await self.services.workflow_store.get_run(run['id']))
+                    record = await self.services.workflow_store.get_run(run['id'])
+                    await self._capture_delivery(project_id, task_id, record)
+                    return execution_result(record)
         # ProjectModelProvider checks the explicit project connection at the model
         # node. A missing connection must not reject branches that never call it.
         scope = {'workspace_boundary': str(workspace),
@@ -337,7 +346,73 @@ class Projects:
         if active:
             await asyncio.shield(active)
         result = await self.services.workflow_store.get_run(run['run_id'])
+        await self._capture_delivery(project_id, task_id, result)
         return execution_result(result)
+
+    @asynccontextmanager
+    async def delivery_step(self, state, node):
+        guarded = node.type in {'code', 'tool', 'data_analysis', 'feature_extract', 'model_train',
+                               'model_predict', 'start', 'end', 'template_transform'}
+        # Containers delegate to leaf steps; holding their lock would deadlock children.
+        if node.type == 'tool' and node.config.get('tool_name', '').startswith('workflow:'):
+            guarded = False
+        if state and state.project_context and guarded:
+            async with self.deliveries.workspace_guard(state.workspace_path):
+                yield await asyncio.to_thread(self.deliveries.current_versions, state)
+        else:
+            yield None
+
+    async def capture_step_delivery(self, state, node, node_id, output, *, reused=False, before=None):
+        project = state.project_context
+        if not project or node.type in {'start', 'event_subscription_trigger', 'schedule_trigger'}:
+            return
+        inherited = None
+        try:
+            from .run_deliveries import file_paths
+            paths = file_paths(output)
+            if not paths:
+                return
+            if any(output.get(key) for key in ('error', 'degraded', 'fallback_used')):
+                state.delivery_steps[node_id] = [self.deliveries.unverified(path, state.run_id) for path in paths]
+                return
+            from .workflow_reuse import walk
+            prefix = node_id[:-len(node.id)]
+            references = {}
+            outputs = state.nested_progress.get(prefix, {}).get('outputs', {}) if prefix else state.outputs
+            for value in walk({} if node.type in {'loop', 'iteration'} else node.config):
+                source_id = value.get('$ref', {}).get('node_id') if isinstance(value, dict) and isinstance(value.get('$ref'), dict) else None
+                if source_id not in outputs:
+                    continue
+                resolved = self.services.workflow_runtime._resolve(value, {'nodes': outputs, 'inputs': state.inputs})
+                for path in file_paths({'file': resolved}):
+                    references.setdefault(path, []).extend(e for e in state.delivery_steps.get(prefix + source_id, []) if e['path'] == path)
+            if node.type == 'tool' and node.config.get('tool_name', '').startswith('workflow:') and output.get('run_id'):
+                child = await self.services.workflow_store.get_run(output['run_id'])
+                inherited = self.deliveries.files(project['project_id'], project['task_id'], child)
+            elif node.type == 'loop' and isinstance(output.get('iterations'), int) and output['iterations'] > 0:
+                # The container returns the chosen output node of its final iteration.
+                source = f"{node_id}[{output['iterations'] - 1}].{node.config['output_node_id']}"
+                inherited = state.delivery_steps.get(source, [])
+            await asyncio.to_thread(self.deliveries.capture_step, project['project_id'], project['task_id'],
+                                    state, node_id, output, inherited=inherited,
+                                    references=references,
+                                    read_current=reused or node.type in {'code', 'tool', 'data_analysis', 'feature_extract',
+                                                                      'model_train', 'model_predict'},
+                                    fresh=not state.delivery_resumed, before=before)
+        except (OSError, ValueError):
+            # Saving a preview must never retry an already completed external operation.
+            from .run_deliveries import file_paths
+            state.delivery_steps[node_id] = [self.deliveries.unverified(path, state.run_id) for path in file_paths(output)]
+            import logging
+            logging.getLogger(__name__).exception('Could not preserve step delivery %s/%s', state.run_id, node_id)
+
+    async def _capture_delivery(self, project_id, task_id, record):
+        # File preview failure must not turn a completed external write into a retry.
+        try:
+            await asyncio.to_thread(self.deliveries.capture, project_id, task_id, record)
+        except (OSError, ValueError):
+            import logging
+            logging.getLogger(__name__).exception('Could not preserve run delivery %s', record['id'])
 
     async def _run(self, task: dict):
         try:

@@ -6,15 +6,17 @@ import { MarkdownDocument } from '@/lib/markdown'
 import { projectFileFromLink, projectFilePathFromLink, resolveProjectFileLink, resolveProjectLink } from '@/lib/project-links'
 import ReadingDialog from './ReadingDialog'
 import ProjectImage from './ProjectImage'
+import {deliveryUrl,type DeliveryFile} from '@/lib/run-results'
 import styles from '@/app/projects/projects.module.css'
 
-export default function ProjectFileReader({ projectId, path, onClose, onTask }: { projectId: string; path: string; onClose: () => void; onTask?: () => void }) {
+export default function ProjectFileReader({ projectId, path, onClose, onTask, snapshot, resolveLink, versionNotice }: { projectId: string; path: string; onClose: () => void; onTask?: () => void; snapshot?:{taskId:string;file:DeliveryFile};resolveLink?:(href:string)=>string;versionNotice?:string }) {
   const [text, setText] = useState<string | null>(null)
   const [error, setError] = useState('')
   const [attempt, setAttempt] = useState(0)
-  const url = resolveProjectLink(projectId, path)
-  const valid = projectFilePathFromLink(projectId, url) === path
-  const previewText = projectFileFromLink(projectId, url) === path
+  const originalUrl = resolveProjectLink(projectId, path)
+  const url = snapshot ? deliveryUrl(projectId,snapshot.taskId,snapshot.file) : originalUrl
+  const valid = !!url && projectFilePathFromLink(projectId, originalUrl) === path
+  const previewText = valid && projectFileFromLink(projectId, originalUrl) === path
   // SVG stays in an image context, never injected into the application DOM.
   const previewImage = valid && /\.(png|jpe?g|webp|svg)$/i.test(path)
   useEffect(() => {
@@ -33,6 +35,7 @@ export default function ProjectFileReader({ projectId, path, onClose, onTask }: 
   const csv = useMemo(() => /\.csv$/i.test(path) && text !== null ? Papa.parse<string[]>(text, { preview:201, skipEmptyLines:true }) : null, [path, text])
   const html = /\.html?$/i.test(path)
   return <ReadingDialog wide title={path.split('/').pop() || '项目文件'} onClose={onClose}>
+    {versionNotice&&<p role="status">{versionNotice}</p>}
     {!valid ? <p role="alert">只能预览当前项目的资料与结果文件。</p> : <>
       <div className={styles.actions}><a href={`${url}${url.includes('?') ? '&' : '?'}download=1`} download>下载原文件</a>{onTask && <button onClick={onTask}>查看关联结果</button>}<small>{path}</small></div>
       {previewText && error && <p role="alert" className={styles.error}>{error} <button onClick={() => setAttempt(v => v + 1)}>重新读取</button></p>}
@@ -45,7 +48,7 @@ export default function ProjectFileReader({ projectId, path, onClose, onTask }: 
         {(csv.data[0]?.length || 0) > 6 && <p>表格较宽，可在表格内横向滚动。</p>}
         <div className={`markdown-table-wrap ${styles.fileTable}`} role="region" aria-label="表格预览" tabIndex={0}><table style={{ minWidth:Math.max(480, (csv.data[0]?.length || 0) * 130) }}><thead><tr>{csv.data[0]?.map((cell, index) => <th key={index}>{cell}</th>)}</tr></thead><tbody>{csv.data.slice(1).map((row, i) => <tr key={i}>{row.map((cell, j) => <td key={j}>{cell}</td>)}</tr>)}</tbody></table></div>
       </> : html ? <iframe title="项目报告预览" className={styles.reportFrame} sandbox="" srcDoc={`<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:"><style>body{font-family:system-ui;color:#202b3d;padding:16px}table{border-collapse:collapse}td,th{padding:8px;border:1px solid #e1e6ed}</style>${text}`} />
-        : /\.md$/i.test(path) ? <MarkdownDocument source={text} emptyLabel="文件为空" resolveLink={href => resolveProjectFileLink(projectId, path, href)} /> : <pre>{text}</pre>)}
+        : /\.md$/i.test(path) ? <MarkdownDocument source={text} emptyLabel="文件为空" resolveLink={resolveLink || (href => resolveProjectFileLink(projectId, path, href))} /> : <pre>{text}</pre>)}
     </>}
   </ReadingDialog>
 }

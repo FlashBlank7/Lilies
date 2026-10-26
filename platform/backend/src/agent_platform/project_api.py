@@ -408,6 +408,20 @@ def project_router(services, require_token):
     async def task(project_id: str, task_id: str):
         return await invoke(projects.task, project_id, task_id)
 
+    @scoped.get('/tasks/{task_id}/deliveries/{run_id}/{digest}')
+    async def delivery_file(project_id: str, task_id: str, run_id: str, digest: str, name: str = 'result'):
+        from pathlib import PurePosixPath
+        from fastapi.responses import FileResponse
+        await invoke(projects.store.get_task, project_id, task_id)
+        runs = await projects.store.runs(task_id)
+        if not any(run['id'] == run_id for run in runs):
+            raise HTTPException(404, '本次任务没有此结果文件')
+        try:
+            path = projects.deliveries.download(project_id, task_id, run_id, digest)
+        except (FileNotFoundError, ValueError) as error:
+            raise HTTPException(404, str(error)) from error
+        return FileResponse(path, filename=PurePosixPath(name).name)
+
     async def require_task_conversation(project_id, task_id, request):
         task = await invoke(projects.store.get_task, project_id, task_id)
         if task['mode'] == 'agent':

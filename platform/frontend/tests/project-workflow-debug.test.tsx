@@ -1,5 +1,5 @@
 import {useState} from 'react'
-import {cleanup,fireEvent,render,screen,waitFor,within} from '@testing-library/react'
+import {act,cleanup,fireEvent,render,screen,waitFor,within} from '@testing-library/react'
 import {afterEach,expect,it,vi} from 'vitest'
 import {api} from '@/lib/platform'
 import ProjectWorkflowDebug from '@/app/components/ProjectWorkflowDebug'
@@ -170,4 +170,40 @@ it('refreshes the shown result version after saving a changed sample',async()=>{
   fireEvent.change(screen.getByLabelText('样例名称'),{target:{value:'修改输入的样例'}})
   fireEvent.click(screen.getByRole('button',{name:'保存样例'}))
   await screen.findByText('此结果对应旧配置。历史结果已保留，当前修改需要重新调试。')
+})
+
+it('ignores an older history request after selecting a newer task',async()=>{
+  let finish!:(value:unknown)=>void
+  const older=new Promise(resolve=>{finish=resolve})
+  mock({'/api/v1/projects/p/debug/overview':{workflows:[main,flow],progress,tasks:[{id:'old',workflow_id:'w',status:'succeeded',message:'旧结果'},{id:'new',workflow_id:'w',status:'succeeded',message:'新结果'}]},
+    '/api/v1/projects/p/debug/runs/old':older,
+    '/api/v1/projects/p/debug/runs/new':{id:'new',status:'succeeded',inputs:{},outputs:{markdown:'# 新报告'}}})
+  view();await waitFor(()=>expect(screen.getByLabelText('样例名称')).toHaveValue('正常样例'))
+  fireEvent.click(screen.getByRole('button',{name:/旧结果 ·/}))
+  fireEvent.click(screen.getByRole('button',{name:/新结果 ·/}))
+  await screen.findByRole('button',{name:'查看完整报告'})
+  await act(async()=>finish({id:'old',status:'succeeded',inputs:{},outputs:{markdown:'# 旧报告'}}))
+  expect(screen.queryByText('旧报告')).not.toBeInTheDocument()
+  expect(screen.getByLabelText('本次调试结果')).toHaveTextContent('新报告')
+})
+
+it.each(['start','resume'])('keeps a newly selected result when a %s response arrives late',async(operation)=>{
+  let finish!:(value:unknown)=>void
+  const pendingResponse=new Promise(resolve=>{finish=resolve})
+  const failed={id:'failed',status:'failed',workflow_id:'w',inputs:{},outputs:{},error:'临时错误'}
+  mock({'/api/v1/projects/p/debug/overview':{workflows:[main,flow],progress,tasks:[{...failed,message:'失败任务'},{id:'history',workflow_id:'w',status:'succeeded',message:'选择的历史任务'}]},
+    '/api/v1/projects/p/debug/runs/failed':failed,
+    '/api/v1/projects/p/debug/runs/history':{id:'history',status:'succeeded',inputs:{},outputs:{markdown:'# 选择的报告'}},
+    '/api/v1/projects/p/debug/runs':pendingResponse,
+    '/api/v1/projects/p/debug/runs/failed/resume':pendingResponse})
+  view();await waitFor(()=>expect(screen.getByLabelText('样例名称')).toHaveValue('正常样例'))
+  if(operation==='resume'){
+    fireEvent.click(screen.getByRole('button',{name:/失败任务 ·/}));await screen.findByText('临时错误')
+    fireEvent.click(screen.getByRole('button',{name:'继续原任务'}))
+  }else fireEvent.click(screen.getByRole('button',{name:'运行此流程（模拟）'}))
+  await waitFor(()=>expect(api).toHaveBeenCalledWith(operation==='resume'?'/api/v1/projects/p/debug/runs/failed/resume':'/api/v1/projects/p/debug/runs',expect.objectContaining({method:'POST'})))
+  fireEvent.click(screen.getByRole('button',{name:/选择的历史任务 ·/}));await screen.findByText('选择的报告',{selector:'h4'})
+  await act(async()=>finish({id:'late',status:'succeeded',inputs:{},outputs:{markdown:'# 迟到的报告'}}))
+  expect(screen.getByLabelText('本次调试结果')).toHaveTextContent('选择的报告')
+  expect(screen.queryByText('迟到的报告')).not.toBeInTheDocument()
 })

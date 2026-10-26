@@ -12,6 +12,7 @@ import stat
 import time
 from collections import defaultdict, deque
 from collections.abc import Awaitable, Callable, Collection
+from contextlib import nullcontext
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -1425,6 +1426,7 @@ class WorkflowRuntime:
             if record['status'] != 'paused' and values:
                 raise ValueError('继续失败或中断的任务使用原输入；修改输入请重新运行')
             state.resumed_values = values if record['status'] == 'paused' else None
+            state.delivery_resumed = True
             if not await self.workflow_store.claim_resume(run_id, state):
                 raise RuntimeError('workflow run is already being resumed')
             await self.harness.start_task(run_id, kind="workflow_run", owner_id=state.application_id,
@@ -1660,82 +1662,87 @@ class WorkflowRuntime:
                     await self.workflow_store.update_run(run_id, status="running", state=top_state)
                 await self._emit(run_id, "node.skipped", {"node_id": scoped_id})
                 continue
-            if (reuse_source and node_id not in reuse_blocked
-                    and await reuse_step(self, top_state, node, reuse_source)):
+            async with (self.projects.delivery_step(top_state, node) if top_state and top_state.project_context
+                        else nullcontext()) as delivery_before:
+                if (reuse_source and node_id not in reuse_blocked
+                        and await reuse_step(self, top_state, node, reuse_source)):
+                    completed.add(node_id)
+                    await self.projects.capture_step_delivery(top_state, node, scoped_id, top_state.outputs[node_id], reused=True)
+                    await self.workflow_store.update_run(run_id, status="running", state=top_state)
+                    await self._emit(run_id, 'node.reused', {'node_id': scoped_id, 'title': node.title,
+                        'source_run_id': top_state.reuse_source_run_id})
+                    continue
+                if top_state and not prefix:
+                    await self.harness.record_usage(
+                        run_id,
+                        "node_execution",
+                        metadata={"node_id": scoped_id, "type": node.type, "title": node.title},
+                    )
+                await self._emit(run_id, "node.started", {"node_id": scoped_id, "type": node.type, "title": node.title})
+                from .workflow_reuse import checkpoint
+                before = await checkpoint(self, top_state, node) if top_state and not prefix else None
+                try:
+                    output = await self._execute_with_retry(
+                        snapshot,
+                        node,
+                        inputs,
+                        outputs,
+                        workspace_path,
+                        run_id,
+                        scoped_id,
+                        top_state,
+                        resolved_inputs=resolved_inputs,
+                    )
+                except HumanInputPause:
+                    raise
+                except Exception as error:
+                    await self._emit(run_id, "node.failed", {"node_id": scoped_id, "error": str(error)})
+                    if node.error_strategy == ErrorStrategy.fail or _requires_recovery(error) or (node.type == 'end' and node.config.get('checks')):
+                        raise NodeExecutionError(scoped_id, error) from error
+                    elif node.error_strategy == ErrorStrategy.degraded:
+                        await self._emit(run_id, "node.degraded", {
+                            "node_id": scoped_id, "error": str(error),
+                            "degraded_value": self._redact(node.degraded_value),
+                        })
+                        output = {
+                            "output": node.degraded_value,
+                            "error": str(error),
+                            "degraded": True,
+                            "state": {"degraded": True, "error": str(error)},
+                        }
+                    elif node.error_strategy == ErrorStrategy.retry_with_fallback:
+                        output = {
+                            "output": node.fallback_value,
+                            "error": str(error),
+                            "fallback_used": True,
+                            "state": {"fallback": True, "error": str(error)},
+                        }
+                    elif node.error_strategy == ErrorStrategy.error_branch:
+                        output = {"error": str(error), "branch": "error"}
+                    else:
+                        output = {"error": str(error)}
+
+                # Contract validation (post-execution, non-blocking)
+                if node.contract and node.contract.enforce:
+                    await self._validate_contract(node, output, scoped_id, run_id)
+
+                outputs[node_id] = output
                 completed.add(node_id)
-                await self.workflow_store.update_run(run_id, status="running", state=top_state)
-                await self._emit(run_id, 'node.reused', {'node_id': scoped_id, 'title': node.title,
-                    'source_run_id': top_state.reuse_source_run_id})
-                continue
-            if top_state and not prefix:
-                await self.harness.record_usage(
-                    run_id,
-                    "node_execution",
-                    metadata={"node_id": scoped_id, "type": node.type, "title": node.title},
-                )
-            await self._emit(run_id, "node.started", {"node_id": scoped_id, "type": node.type, "title": node.title})
-            from .workflow_reuse import checkpoint
-            before = await checkpoint(self, top_state, node) if top_state and not prefix else None
-            try:
-                output = await self._execute_with_retry(
-                    snapshot,
-                    node,
-                    inputs,
-                    outputs,
-                    workspace_path,
-                    run_id,
-                    scoped_id,
-                    top_state,
-                    resolved_inputs=resolved_inputs,
-                )
-            except HumanInputPause:
-                raise
-            except Exception as error:
-                await self._emit(run_id, "node.failed", {"node_id": scoped_id, "error": str(error)})
-                if node.error_strategy == ErrorStrategy.fail or _requires_recovery(error) or (node.type == 'end' and node.config.get('checks')):
-                    raise NodeExecutionError(scoped_id, error) from error
-                elif node.error_strategy == ErrorStrategy.degraded:
-                    await self._emit(run_id, "node.degraded", {
-                        "node_id": scoped_id, "error": str(error),
-                        "degraded_value": self._redact(node.degraded_value),
-                    })
-                    output = {
-                        "output": node.degraded_value,
-                        "error": str(error),
-                        "degraded": True,
-                        "state": {"degraded": True, "error": str(error)},
-                    }
-                elif node.error_strategy == ErrorStrategy.retry_with_fallback:
-                    output = {
-                        "output": node.fallback_value,
-                        "error": str(error),
-                        "fallback_used": True,
-                        "state": {"fallback": True, "error": str(error)},
-                    }
-                elif node.error_strategy == ErrorStrategy.error_branch:
-                    output = {"error": str(error), "branch": "error"}
-                else:
-                    output = {"error": str(error)}
-
-            # Contract validation (post-execution, non-blocking)
-            if node.contract and node.contract.enforce:
-                await self._validate_contract(node, output, scoped_id, run_id)
-
-            outputs[node_id] = output
-            completed.add(node_id)
-            if top_state and not prefix:
-                after = await checkpoint(self, top_state, node, output) if before else None
-                if after and before['environment'] == after['environment'] and all(after['files'].get(p) == h for p, h in before['files'].items()):
-                    top_state.reuse_checkpoints[node_id] = after
-                top_state.outputs = outputs
-                top_state.completed = list(completed)
-                top_state.waiting_node_id = None
-                top_state.resumed_values = None
-                await self.workflow_store.update_run(run_id, status="running", state=top_state)
-            elif nested_progress is not None:
-                nested_progress['completed'] = list(completed)
-                await self.workflow_store.update_run(run_id, status="running", state=top_state)
-            await self._emit(run_id, "node.completed", {"node_id": scoped_id, "outputs": self._redact(output)})
+                if top_state and top_state.project_context:
+                    await self.projects.capture_step_delivery(top_state, node, scoped_id, output, before=delivery_before)
+                if top_state and not prefix:
+                    after = await checkpoint(self, top_state, node, output) if before else None
+                    if after and before['environment'] == after['environment'] and all(after['files'].get(p) == h for p, h in before['files'].items()):
+                        top_state.reuse_checkpoints[node_id] = after
+                    top_state.outputs = outputs
+                    top_state.completed = list(completed)
+                    top_state.waiting_node_id = None
+                    top_state.resumed_values = None
+                    await self.workflow_store.update_run(run_id, status="running", state=top_state)
+                elif nested_progress is not None:
+                    nested_progress['completed'] = list(completed)
+                    await self.workflow_store.update_run(run_id, status="running", state=top_state)
+                await self._emit(run_id, "node.completed", {"node_id": scoped_id, "outputs": self._redact(output)})
         return outputs
 
     async def _execute_with_retry(
